@@ -1,0 +1,26 @@
+# HambakTech Enterprise - cPanel Shared Hosting .htaccess
+# Handles routing for PHP 8.2 backend on TrueHost LON110 Apache / LiteSpeed
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /backend/
+
+    # Security: Block sensitive file extensions
+    <FilesMatch "\.(env|sql|log|ini|sh|bak)$">
+        Require all denied
+    </FilesMatch>
+
+    # Pass Authorization header to PHP
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Route all non-existing files and folders through index.php
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# PHP 8.2 Configuration overrides for cPanel LiteSpeed / ea-php82
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php82 .php .php8 .phtml
+</IfModule>
