@@ -26,14 +26,15 @@ import { api } from './lib/api';
 import { CustomerDashboard } from './components/customer/CustomerDashboard';
 import { SuperAdminDashboard } from './components/admin/SuperAdminDashboard';
 import { NinServicesPage } from './components/customer/NinServicesPage';
-import { ShieldCheck, Sparkles, Layers, Lock, ChevronRight, Calculator, CheckCircle2, User as UserIcon, Shield, Fingerprint } from 'lucide-react';
+import { Phase8Console } from './components/Phase8Console';
+import { ShieldCheck, Sparkles, Layers, Lock, ChevronRight, Calculator, CheckCircle2, User as UserIcon, Shield, Fingerprint, Zap } from 'lucide-react';
 
 function MainAppContent() {
   const { user } = useAuth();
   const { branding, cmsSections } = useCms();
 
-  // Active view: '05' (Phase 05 NIN & BVN Desk), '04' (Phase 04 Super Admin Console), '03' (Phase 03 Customer Dashboard), '02' (Phase 02 Public Website), '01' (Phase 01 Foundation Console)
-  const [activePhase, setActivePhase] = useState<string>('05');
+  // Active view: '08' (Phase 08 Modules & Comms), '05' (Phase 05 NIN & BVN Desk), '04' (Phase 04 Super Admin Console), '03' (Phase 03 Customer Dashboard), '02' (Phase 02 Public Website), '01' (Phase 01 Foundation Console)
+  const [activePhase, setActivePhase] = useState<string>('08');
   const [activePublicPage, setActivePublicPage] = useState<string>('home');
   const [showRoadmapBanner, setShowRoadmapBanner] = useState<boolean>(false);
 
@@ -69,7 +70,11 @@ function MainAppContent() {
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded text-[10px]">
-              {activePhase === '04'
+              {activePhase === '08'
+                ? 'PHASE 08 ACTIVE'
+                : activePhase === '05'
+                ? 'PHASE 05 ACTIVE'
+                : activePhase === '04'
                 ? 'PHASE 04 ACTIVE'
                 : activePhase === '03'
                 ? 'PHASE 03 ACTIVE'
@@ -78,7 +83,11 @@ function MainAppContent() {
                 : 'PHASE 01 ACTIVE'}
             </span>
             <span className="text-slate-300 font-semibold">
-              {activePhase === '04'
+              {activePhase === '08'
+                ? 'Phase 08: Additional Modules & Communication System (SMTP, 12 Email Templates, SMS, PIN)'
+                : activePhase === '05'
+                ? 'Phase 05: Complete NIN & BVN Integration (2SureVerify, Veripine, Slips)'
+                : activePhase === '04'
                 ? 'Super Admin Dashboard & Global Management (8 Modules, Real-time DB & RBAC)'
                 : activePhase === '03'
                 ? 'Customer Dashboard Development (14 Pages, Live Backend & Real-time Metrics)'
@@ -98,6 +107,17 @@ function MainAppContent() {
               {showRoadmapBanner ? 'Hide 10-Phase Roadmap' : 'View 10-Phase Roadmap'}
             </button>
             <span className="text-slate-700">|</span>
+            <button
+              onClick={() => setActivePhase('08')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                activePhase === '08'
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Phase 08: Comms</span>
+            </button>
             <button
               onClick={() => setActivePhase('05')}
               className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all ${
@@ -166,6 +186,16 @@ function MainAppContent() {
             }}
           />
         </div>
+      )}
+
+      {/* PHASE 08 ADDITIONAL MODULES & COMMS VIEW */}
+      {activePhase === '08' && (
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <Phase8Console
+            onSwitchToCustomer={() => setActivePhase('03')}
+            onSwitchToAdmin={() => setActivePhase('04')}
+          />
+        </main>
       )}
 
       {/* PHASE 05 COMPLETE NIN & BVN DESK VIEW */}

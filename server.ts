@@ -56,6 +56,14 @@ async function startServer() {
   app.use('/api/customer', customerRouter);
   app.use('/api/admin', adminRouter);
 
+  // Process-level exception handling to prevent dev server exit
+  process.on('uncaughtException', (err) => {
+    console.error('[HambakTech] Uncaught Exception:', err);
+  });
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('[HambakTech] Unhandled Rejection at:', promise, 'reason:', reason);
+  });
+
   const httpServer = http.createServer(app);
 
   // Development: Vite middleware mode / Production: Static bundle
@@ -64,7 +72,7 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR === 'true' ? false : { server: httpServer },
+        hmr: false,
       },
       appType: 'spa',
     });

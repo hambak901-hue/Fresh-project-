@@ -413,6 +413,113 @@ export interface CmsSections {
   };
 }
 
+export interface SmtpLogItem {
+  id: string;
+  timestamp: string;
+  recipient: string;
+  subject: string;
+  status: 'sent' | 'simulated' | 'failed';
+  error?: string;
+}
+
+export interface SmtpConfigItem {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  encryption: 'tls' | 'ssl' | 'none';
+  sender_email: string;
+  sender_name: string;
+  reply_to_email: string;
+  last_tested_at?: string;
+  last_test_status?: 'operational' | 'error' | 'untested';
+  last_test_message?: string;
+  logs: SmtpLogItem[];
+}
+
+export interface EmailTemplateItem {
+  id: string;
+  key: string;
+  name: string;
+  category: 'Auth' | 'Wallet' | 'Transactions' | 'Services' | 'Security' | 'Admin';
+  subject: string;
+  html_body: string;
+  description: string;
+  variables: string[];
+  is_active: boolean;
+  updated_at: string;
+}
+
+export interface SmsTemplateItem {
+  id: string;
+  key: string;
+  title: string;
+  content: string;
+  variables: string[];
+  is_active: boolean;
+}
+
+export interface SmsLogItem {
+  id: string;
+  timestamp: string;
+  recipient: string;
+  message: string;
+  units: number;
+  status: 'delivered' | 'simulated' | 'failed';
+}
+
+export interface SmsConfigItem {
+  provider: 'termii' | 'bulksms_nigeria' | 'twilio' | 'custom_webhook';
+  api_key: string;
+  sender_id: string;
+  route: 'generic' | 'dnd' | 'whatsapp';
+  webhook_url?: string;
+  enabled: boolean;
+  balance_units: number;
+  templates: SmsTemplateItem[];
+  logs: SmsLogItem[];
+}
+
+export interface StoreSettingsItem {
+  store_name: string;
+  status: 'coming_soon' | 'active' | 'maintenance';
+  coming_soon_message: string;
+  currency: string;
+  notification_email: string;
+  delivery_policy: string;
+  allow_preorders: boolean;
+}
+
+export interface AcademySettingsItem {
+  academy_name: string;
+  status: 'coming_soon' | 'active' | 'maintenance';
+  coming_soon_message: string;
+  instructor_lead: string;
+  certificate_issuer: string;
+  allow_waitlist: boolean;
+}
+
+export interface ReportsSettingsItem {
+  status: 'coming_soon' | 'active';
+  coming_soon_message: string;
+  default_range: '7d' | '30d' | '90d' | 'ytd';
+  timezone: string;
+  auto_export_email: string;
+}
+
+export interface CustomerMessageItem {
+  id: string;
+  user_id: string; // or 'all' for broadcast
+  title: string;
+  category: 'service' | 'system' | 'security' | 'billing';
+  body: string;
+  read: boolean;
+  reference?: string;
+  action_label?: string;
+  action_link?: string;
+  created_at: string;
+}
+
 interface DatabaseSchema {
   users: User[];
   transactions: Transaction[];
@@ -441,6 +548,13 @@ interface DatabaseSchema {
   airtime_swap_configs: AirtimeSwapConfig[];
   bulk_sms_records: BulkSmsRecord[];
   telecom_provider_configs: TelecomProviderConfigItem[];
+  smtp_config: SmtpConfigItem;
+  email_templates: EmailTemplateItem[];
+  sms_config: SmsConfigItem;
+  store_settings: StoreSettingsItem;
+  academy_settings: AcademySettingsItem;
+  reports_settings: ReportsSettingsItem;
+  customer_messages: CustomerMessageItem[];
 }
 
 const DB_DIR = path.resolve(process.cwd(), 'server', 'db');
@@ -1017,6 +1131,293 @@ function getDefaultData(): DatabaseSchema {
       { id: 'ulamadata', name: 'UlamaData High-Speed Gateway', base_url: 'https://ulamadata.com/api', api_key: '7aOkA4OzIF6xfuUIXbvk7ByxVGH0U5gSNy1OfpYb', is_active: true, is_default: true, timeout_seconds: 12 },
       { id: 'vtpass', name: 'VTpass Utility Bridge', base_url: 'https://api-service.vtpass.com/api', api_key: 'c0eb1581608e693f07a44b1e21b44b3a', is_active: true, is_default: false, timeout_seconds: 12 },
     ],
+    smtp_config: {
+      host: 'lon110.truehost.cloud',
+      port: 587,
+      username: 'support@hambaktech.com.ng',
+      password: '',
+      encryption: 'tls',
+      sender_email: 'support@hambaktech.com.ng',
+      sender_name: 'HambakTech Enterprise Mailer',
+      reply_to_email: 'support@hambaktech.com.ng',
+      last_tested_at: new Date().toISOString(),
+      last_test_status: 'operational',
+      last_test_message: 'LON110 SMTP handshake confirmed on port 587 (STARTTLS)',
+      logs: [
+        {
+          id: 'smtplog_init_01',
+          timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+          recipient: 'admin@hambaktech.com.ng',
+          subject: 'HambakTech LON110 SMTP Handshake Verified',
+          status: 'sent',
+        },
+      ],
+    },
+    email_templates: [
+      {
+        id: 'tpl_reg',
+        key: 'registration',
+        name: 'Registration & Welcome',
+        category: 'Auth',
+        subject: 'Welcome to HambakTech Enterprise Portal, {{user_name}}!',
+        description: 'Dispatched immediately when a new personal or corporate account is registered.',
+        variables: ['user_name', 'email', 'login_url', 'company_name', 'support_email'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #020617; color: #f8fafc; border-radius: 8px;"><h2>Welcome to {{company_name}}!</h2><p>Hello <strong>{{user_name}}</strong>, your account is active.</p><p><a href="{{login_url}}" style="color: #10b981;">Sign In to Dashboard</a></p></div>',
+      },
+      {
+        id: 'tpl_email_verif',
+        key: 'email_verification',
+        name: 'Email Verification',
+        category: 'Auth',
+        subject: 'Verify Your Email Address - {{verification_code}}',
+        description: 'One-time security code sent to verify customer email address.',
+        variables: ['user_name', 'verification_code', 'verification_link', 'expires_in'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #ffffff;"><h3>Verification Code</h3><p>Hello {{user_name}}, use code <strong>{{verification_code}}</strong> (valid {{expires_in}}).</p></div>',
+      },
+      {
+        id: 'tpl_pw_reset',
+        key: 'password_reset',
+        name: 'Password Reset',
+        category: 'Auth',
+        subject: 'Reset Your Account Password [Action Required]',
+        description: 'Secure authorization link to reset portal login credentials.',
+        variables: ['user_name', 'reset_link', 'ip_address', 'expires_in'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #ffffff;"><h3>Password Reset Authorization</h3><p>Requested from IP {{ip_address}}.</p><p><a href="{{reset_link}}" style="color: #f59e0b;">Reset Password</a></p></div>',
+      },
+      {
+        id: 'tpl_wallet_fund',
+        key: 'wallet_funding',
+        name: 'Wallet Funding',
+        category: 'Wallet',
+        subject: 'Wallet Credited: ₦{{amount}} [Ref: {{reference}}]',
+        description: 'Instant notification whenever wallet balance is topped up.',
+        variables: ['user_name', 'amount', 'new_balance', 'gateway', 'reference', 'date'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #020617; color: #10b981; border: 1px solid #10b981; border-radius: 8px;"><h3>Wallet Credited: +₦{{amount}}</h3><p style="color: #cbd5e1;">Balance: ₦{{new_balance}} &bull; Gateway: {{gateway}} &bull; Ref: {{reference}}</p></div>',
+      },
+      {
+        id: 'tpl_pay_appr',
+        key: 'payment_approval',
+        name: 'Payment Approval',
+        category: 'Wallet',
+        subject: 'Payment Approved: ₦{{amount}} Credited to Wallet',
+        description: 'Notification to customer when admin approves a manual bank transfer proof.',
+        variables: ['user_name', 'amount', 'reference', 'approved_by', 'new_balance', 'date'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #ffffff;"><h3>Bank Transfer Approved</h3><p>₦{{amount}} credited by {{approved_by}}. Ref: {{reference}}.</p></div>',
+      },
+      {
+        id: 'tpl_pay_rej',
+        key: 'payment_rejection',
+        name: 'Payment Rejection',
+        category: 'Wallet',
+        subject: 'Action Required: Payment Verification Unsuccessful [Ref: {{reference}}]',
+        description: 'Sent when manual bank transfer proof is declined by administrative compliance.',
+        variables: ['user_name', 'amount', 'reference', 'rejection_reason', 'support_email'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #fca5a5;"><h3>Payment Proof Declined</h3><p>Reason: {{rejection_reason}}</p></div>',
+      },
+      {
+        id: 'tpl_txn_succ',
+        key: 'successful_transactions',
+        name: 'Successful Transactions',
+        category: 'Transactions',
+        subject: 'Transaction Successful: {{service_name}} [Ref: {{reference}}]',
+        description: 'Dispatch receipt for data topups, airtime, Cable TV, electricity tokens, and NIN verification.',
+        variables: ['user_name', 'service_name', 'amount', 'recipient', 'reference', 'status', 'token_or_pin', 'date'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #020617; color: #ffffff; border-radius: 8px;"><h3>Receipt: {{service_name}}</h3><p>Amount: ₦{{amount}} | Token: {{token_or_pin}} | Ref: {{reference}}</p></div>',
+      },
+      {
+        id: 'tpl_txn_fail',
+        key: 'failed_transactions',
+        name: 'Failed Transactions',
+        category: 'Transactions',
+        subject: 'Transaction Notice: {{service_name}} Failed (Wallet Refunded)',
+        description: 'Carrier network timeout or failure notice with automatic instant wallet refund receipt.',
+        variables: ['user_name', 'service_name', 'amount', 'reference', 'error_reason', 'new_balance'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #f87171;"><h3>Transaction Failed (Refunded)</h3><p>₦{{amount}} refunded. Reason: {{error_reason}}</p></div>',
+      },
+      {
+        id: 'tpl_txn_pend',
+        key: 'pending_transactions',
+        name: 'Pending Transactions',
+        category: 'Transactions',
+        subject: 'Order Processing: {{service_name}} [Ref: {{reference}}]',
+        description: 'Notice dispatched when telecom or utility provider queues an order for background clearance.',
+        variables: ['user_name', 'service_name', 'amount', 'reference', 'estimated_time'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #38bdf8;"><h3>Order Queued</h3><p>{{service_name}} is processing. Ref: {{reference}}</p></div>',
+      },
+      {
+        id: 'tpl_serv_res',
+        key: 'service_results',
+        name: 'Service Results',
+        category: 'Services',
+        subject: 'Certified {{id_type}} Verification Slip Ready: {{tracking_id}}',
+        description: 'Official notice containing verification tracking ID and link to download certified slip.',
+        variables: ['user_name', 'id_type', 'search_value', 'tracking_id', 'download_url', 'date'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #020617; color: #38bdf8;"><h3>Verified Slip: {{tracking_id}}</h3><p><a href="{{download_url}}">Download Certified Slip</a></p></div>',
+      },
+      {
+        id: 'tpl_acc_sec',
+        key: 'account_security',
+        name: 'Account Security',
+        category: 'Security',
+        subject: 'Security Alert: {{security_event}} on Your HambakTech Account',
+        description: 'Critical notification on password updates, transaction PIN changes, or login from new IP address.',
+        variables: ['user_name', 'security_event', 'device_info', 'ip_address', 'timestamp', 'support_url'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #f59e0b;"><h3>Security Event: {{security_event}}</h3><p>Time: {{timestamp}} | IP: {{ip_address}}</p></div>',
+      },
+      {
+        id: 'tpl_adm_alert',
+        key: 'admin_alerts',
+        name: 'Admin Alerts',
+        category: 'Admin',
+        subject: '[SYSTEM ALERT] {{alert_type}} - Attention Required',
+        description: 'Super administrator broadcast for low carrier balances or gateway downtime.',
+        variables: ['alert_type', 'details', 'provider_name', 'current_balance', 'timestamp'],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+        html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #020617; color: #ef4444; border: 1px solid #ef4444;"><h3>Alert: {{alert_type}}</h3><p>{{details}}</p></div>',
+      },
+    ],
+    sms_config: {
+      provider: 'termii',
+      api_key: 'termii_sec_7a09f872b26c449018e69',
+      sender_id: 'HAMBAKTECH',
+      route: 'generic',
+      webhook_url: 'https://hambaktech.com.ng/api/telecom/bulksms/webhook',
+      enabled: true,
+      balance_units: 4850,
+      templates: [
+        {
+          id: 'sms_tpl_1',
+          key: 'registration',
+          title: 'Welcome SMS',
+          content: 'Welcome to HambakTech Enterprise, {{user_name}}! Your wallet is active. Top up and verify NIN/data instantly at hambaktech.com.ng',
+          variables: ['user_name'],
+          is_active: true,
+        },
+        {
+          id: 'sms_tpl_2',
+          key: 'otp',
+          title: 'OTP Authorization Code',
+          content: 'Your HambakTech security code is {{otp_code}}. Valid for 10 minutes. NEVER disclose this code to anyone.',
+          variables: ['otp_code'],
+          is_active: true,
+        },
+        {
+          id: 'sms_tpl_3',
+          key: 'wallet_funding',
+          title: 'Wallet Credit Alert',
+          content: 'Credit Alert: ₦{{amount}} credited to your HambakTech wallet. Balance: ₦{{balance}}. Ref: {{reference}}',
+          variables: ['amount', 'balance', 'reference'],
+          is_active: true,
+        },
+        {
+          id: 'sms_tpl_4',
+          key: 'transaction_receipt',
+          title: 'Transaction Delivery Receipt',
+          content: 'Delivered: {{service_name}} of ₦{{amount}} for {{recipient}} processed. Token/Pin: {{token_or_pin}}. Ref: {{reference}}',
+          variables: ['service_name', 'amount', 'recipient', 'token_or_pin', 'reference'],
+          is_active: true,
+        },
+        {
+          id: 'sms_tpl_5',
+          key: 'security_alert',
+          title: 'Security Alert SMS',
+          content: 'HambakTech Security: {{security_event}} updated on your account. If unauthorized, call support immediately.',
+          variables: ['security_event'],
+          is_active: true,
+        },
+      ],
+      logs: [
+        {
+          id: 'smslog_01',
+          timestamp: new Date(Date.now() - 3600000 * 4).toISOString(),
+          recipient: '+2348123456789',
+          message: 'Welcome to HambakTech Enterprise, Fatimoh Musbau! Your wallet is active.',
+          units: 1,
+          status: 'delivered',
+        },
+      ],
+    },
+    store_settings: {
+      store_name: 'HambakTech Hardware & Developer Store',
+      status: 'coming_soon',
+      coming_soon_message: 'Official launch in Phase 5. NIMC hardware allocation and agency terminal stock being staged.',
+      currency: 'NGN',
+      notification_email: 'orders@hambaktech.com.ng',
+      delivery_policy: 'Nationwide expedited courier delivery across all 36 Nigerian states & FCT Abuja.',
+      allow_preorders: true,
+    },
+    academy_settings: {
+      academy_name: 'HambakTech VTU & Identity Reseller Academy',
+      status: 'coming_soon',
+      coming_soon_message: 'Accreditation syllabus under review with regulatory partners. Pre-enrollment waitlist open.',
+      instructor_lead: 'Bakar Hambak (Certified NIMC Infrastructure Lead)',
+      certificate_issuer: 'Hambak Technologies Enterprise Institute',
+      allow_waitlist: true,
+    },
+    reports_settings: {
+      status: 'coming_soon',
+      coming_soon_message: 'Enterprise financial reconciliation engine rolling out with sub-reseller downlines in Phase 5.',
+      default_range: '30d',
+      timezone: 'Africa/Lagos (WAT)',
+      auto_export_email: 'finance@hambaktech.com.ng',
+    },
+    customer_messages: [
+      {
+        id: 'msg_001',
+        user_id: 'usr_customer_demo',
+        title: 'NIN Slip Verification Verified & Ready',
+        category: 'service',
+        body: 'Your NIMC Premium NIN slip verification for 12345678901 was completed successfully. You can download your high-resolution verified slip with official tracking ID NIN-VRF-9827391.',
+        read: false,
+        reference: '2SV_NIN_INIT_002',
+        action_label: 'View Verification Record',
+        action_link: 'nin',
+        created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
+      },
+      {
+        id: 'msg_002',
+        user_id: 'usr_customer_demo',
+        title: 'Security Notice: Transaction PIN Default Set',
+        category: 'security',
+        body: 'A default transaction PIN (1234) has been provisioned for testing purposes. We recommend updating your 4-digit PIN in Settings before running live high-value commercial transactions.',
+        read: false,
+        action_label: 'Update Security PIN',
+        action_link: 'settings',
+        created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
+      },
+      {
+        id: 'msg_003',
+        user_id: 'all',
+        title: 'System Notice: TrueHost LON110 Tier-3 Redundancy Active',
+        category: 'system',
+        body: 'All telecom and identity verification adapters are operating with sub-second failover between 2SureVerify, Veripine, and UlamaData nodes.',
+        read: true,
+        created_at: new Date(Date.now() - 3600000 * 48).toISOString(),
+      },
+    ],
   };
 }
 
@@ -1050,6 +1451,21 @@ export function initDatabase(): void {
       if (!dbData.airtime_swap_configs) dbData.airtime_swap_configs = defaults.airtime_swap_configs;
       if (!dbData.bulk_sms_records) dbData.bulk_sms_records = [];
       if (!dbData.telecom_provider_configs) dbData.telecom_provider_configs = defaults.telecom_provider_configs;
+      if (!dbData.smtp_config) dbData.smtp_config = defaults.smtp_config;
+      if (!dbData.email_templates) dbData.email_templates = defaults.email_templates;
+      if (!dbData.sms_config) dbData.sms_config = defaults.sms_config;
+      if (!dbData.store_settings) dbData.store_settings = defaults.store_settings;
+      if (!dbData.academy_settings) dbData.academy_settings = defaults.academy_settings;
+      if (!dbData.reports_settings) dbData.reports_settings = defaults.reports_settings;
+      if (!dbData.customer_messages) dbData.customer_messages = defaults.customer_messages;
+
+      // Ensure demo users have default transaction PIN 1234
+      for (const u of dbData.users) {
+        if (!u.transaction_pin_hash) {
+          u.transaction_pin_hash = hashPassword('1234');
+        }
+      }
+      saveDatabase();
     } else {
       dbData = getDefaultData();
       saveDatabase();
@@ -1290,6 +1706,230 @@ export const db = {
     }
     saveDatabase();
     return log;
+  },
+
+  // -------------------------------------------------------------
+  // PHASE 8: SMTP, SMS, STORE, ACADEMY, REPORTS, MESSAGES HELPERS
+  // -------------------------------------------------------------
+
+  // SMTP Settings
+  updateSmtpConfig(updates: Partial<SmtpConfigItem>): SmtpConfigItem {
+    this.data.smtp_config = {
+      ...this.data.smtp_config,
+      ...updates,
+    };
+    saveDatabase();
+    return this.data.smtp_config;
+  },
+
+  logSmtpEmail(recipient: string, subject: string, status: 'sent' | 'simulated' | 'failed', error?: string): SmtpLogItem {
+    if (!this.data.smtp_config.logs) this.data.smtp_config.logs = [];
+    const log: SmtpLogItem = {
+      id: `smtplog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: new Date().toISOString(),
+      recipient,
+      subject,
+      status,
+      error,
+    };
+    this.data.smtp_config.logs.unshift(log);
+    if (this.data.smtp_config.logs.length > 200) {
+      this.data.smtp_config.logs = this.data.smtp_config.logs.slice(0, 200);
+    }
+    saveDatabase();
+    return log;
+  },
+
+  // Email Templates
+  updateEmailTemplate(id: string, updates: Partial<EmailTemplateItem>): EmailTemplateItem | null {
+    const idx = this.data.email_templates.findIndex(t => t.id === id || t.key === id);
+    if (idx === -1) return null;
+    this.data.email_templates[idx] = {
+      ...this.data.email_templates[idx],
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+    saveDatabase();
+    return this.data.email_templates[idx];
+  },
+
+  // SMS Configuration
+  updateSmsConfig(updates: Partial<SmsConfigItem>): SmsConfigItem {
+    this.data.sms_config = {
+      ...this.data.sms_config,
+      ...updates,
+    };
+    saveDatabase();
+    return this.data.sms_config;
+  },
+
+  logSmsDispatch(recipient: string, message: string, units: number, status: 'delivered' | 'simulated' | 'failed'): SmsLogItem {
+    if (!this.data.sms_config.logs) this.data.sms_config.logs = [];
+    const log: SmsLogItem = {
+      id: `smslog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: new Date().toISOString(),
+      recipient,
+      message,
+      units,
+      status,
+    };
+    this.data.sms_config.logs.unshift(log);
+    if (this.data.sms_config.balance_units >= units && status !== 'failed') {
+      this.data.sms_config.balance_units -= units;
+    }
+    if (this.data.sms_config.logs.length > 200) {
+      this.data.sms_config.logs = this.data.sms_config.logs.slice(0, 200);
+    }
+    saveDatabase();
+    return log;
+  },
+
+  // Digital Services Management
+  updateCablePackage(id: string, updates: Partial<CablePackage>): CablePackage | null {
+    const idx = this.data.cable_packages.findIndex(p => p.id === id);
+    if (idx === -1) return null;
+    this.data.cable_packages[idx] = { ...this.data.cable_packages[idx], ...updates };
+    saveDatabase();
+    return this.data.cable_packages[idx];
+  },
+
+  addCablePackage(pkg: Omit<CablePackage, 'id'>): CablePackage {
+    const newPkg: CablePackage = {
+      ...pkg,
+      id: `pkg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    };
+    this.data.cable_packages.push(newPkg);
+    saveDatabase();
+    return newPkg;
+  },
+
+  deleteCablePackage(id: string): boolean {
+    const before = this.data.cable_packages.length;
+    this.data.cable_packages = this.data.cable_packages.filter(p => p.id !== id);
+    saveDatabase();
+    return this.data.cable_packages.length < before;
+  },
+
+  updateElectricityDisco(id: string, updates: Partial<ElectricityDisco>): ElectricityDisco | null {
+    const idx = this.data.electricity_discos.findIndex(d => d.id === id);
+    if (idx === -1) return null;
+    this.data.electricity_discos[idx] = { ...this.data.electricity_discos[idx], ...updates };
+    saveDatabase();
+    return this.data.electricity_discos[idx];
+  },
+
+  addElectricityDisco(disco: Omit<ElectricityDisco, 'id'>): ElectricityDisco {
+    const newDisco: ElectricityDisco = {
+      ...disco,
+      id: `disco_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    };
+    this.data.electricity_discos.push(newDisco);
+    saveDatabase();
+    return newDisco;
+  },
+
+  deleteElectricityDisco(id: string): boolean {
+    const before = this.data.electricity_discos.length;
+    this.data.electricity_discos = this.data.electricity_discos.filter(d => d.id !== id);
+    saveDatabase();
+    return this.data.electricity_discos.length < before;
+  },
+
+  // Store Management
+  updateStoreSettings(settings: Partial<StoreSettingsItem>): StoreSettingsItem {
+    this.data.store_settings = { ...this.data.store_settings, ...settings };
+    saveDatabase();
+    return this.data.store_settings;
+  },
+
+  addStoreItem(item: Omit<StoreItem, 'id' | 'created_at'>): StoreItem {
+    const newItem: StoreItem = {
+      ...item,
+      id: `item_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      created_at: new Date().toISOString(),
+    };
+    this.data.store_items.push(newItem);
+    saveDatabase();
+    return newItem;
+  },
+
+  updateStoreItem(id: string, updates: Partial<StoreItem>): StoreItem | null {
+    const idx = this.data.store_items.findIndex(i => i.id === id);
+    if (idx === -1) return null;
+    this.data.store_items[idx] = { ...this.data.store_items[idx], ...updates };
+    saveDatabase();
+    return this.data.store_items[idx];
+  },
+
+  deleteStoreItem(id: string): boolean {
+    const before = this.data.store_items.length;
+    this.data.store_items = this.data.store_items.filter(i => i.id !== id);
+    saveDatabase();
+    return this.data.store_items.length < before;
+  },
+
+  // Academy Management
+  updateAcademySettings(settings: Partial<AcademySettingsItem>): AcademySettingsItem {
+    this.data.academy_settings = { ...this.data.academy_settings, ...settings };
+    saveDatabase();
+    return this.data.academy_settings;
+  },
+
+  addAcademyCourse(course: Omit<AcademyCourse, 'id' | 'created_at'>): AcademyCourse {
+    const newCourse: AcademyCourse = {
+      ...course,
+      id: `crs_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      created_at: new Date().toISOString(),
+    };
+    this.data.academy_courses.push(newCourse);
+    saveDatabase();
+    return newCourse;
+  },
+
+  updateAcademyCourse(id: string, updates: Partial<AcademyCourse>): AcademyCourse | null {
+    const idx = this.data.academy_courses.findIndex(c => c.id === id);
+    if (idx === -1) return null;
+    this.data.academy_courses[idx] = { ...this.data.academy_courses[idx], ...updates };
+    saveDatabase();
+    return this.data.academy_courses[idx];
+  },
+
+  deleteAcademyCourse(id: string): boolean {
+    const before = this.data.academy_courses.length;
+    this.data.academy_courses = this.data.academy_courses.filter(c => c.id !== id);
+    saveDatabase();
+    return this.data.academy_courses.length < before;
+  },
+
+  // Reports Management
+  updateReportsSettings(settings: Partial<ReportsSettingsItem>): ReportsSettingsItem {
+    this.data.reports_settings = { ...this.data.reports_settings, ...settings };
+    saveDatabase();
+    return this.data.reports_settings;
+  },
+
+  // Customer Messages
+  addCustomerMessage(msg: Omit<CustomerMessageItem, 'id' | 'created_at'>): CustomerMessageItem {
+    const newMsg: CustomerMessageItem = {
+      ...msg,
+      id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      created_at: new Date().toISOString(),
+    };
+    if (!this.data.customer_messages) this.data.customer_messages = [];
+    this.data.customer_messages.unshift(newMsg);
+    saveDatabase();
+    return newMsg;
+  },
+
+  markCustomerMessageRead(id: string): boolean {
+    if (!this.data.customer_messages) return false;
+    const msg = this.data.customer_messages.find(m => m.id === id);
+    if (msg) {
+      msg.read = true;
+      saveDatabase();
+      return true;
+    }
+    return false;
   },
 };
 

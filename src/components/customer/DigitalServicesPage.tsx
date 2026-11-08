@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Tv, Zap, CheckCircle2, AlertCircle, Loader2, RefreshCw, Receipt, ShieldCheck, ArrowRight, Copy, Check } from 'lucide-react';
 import { api } from '../../lib/api';
 import { User } from '../../types';
+import { TransactionPinModal } from './TransactionPinModal';
 
 interface DigitalServicesPageProps {
   user: User;
@@ -10,6 +11,10 @@ interface DigitalServicesPageProps {
 
 export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesPageProps) {
   const [activeTab, setActiveTab] = useState<'cable' | 'electricity'>('cable');
+
+  // PIN Authorization Modal State
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [pinAction, setPinAction] = useState<'cable' | 'electricity'>('cable');
 
   // Cable TV state
   const [cablePackages, setCablePackages] = useState<Record<string, Array<{ id: string; name: string; price: number; channels: number }>>>({});
@@ -50,7 +55,7 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
         const mappedDiscos = res.discos.map(d => ({
           id: d.id,
           name: d.name,
-          state: d.state,
+          state: d.state || 'National',
           min: d.min ?? d.min_amount ?? 1000,
         }));
         setDiscos(mappedDiscos);
@@ -87,7 +92,7 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
     }
   };
 
-  const handlePurchaseCable = async () => {
+  const promptCablePurchase = () => {
     const pkgs = cablePackages[selectedProvider] || [];
     const pkg = pkgs.find(p => p.id === selectedPackageId);
     if (!pkg) return;
@@ -97,6 +102,14 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
       setCableError(`Insufficient funds. Your balance is ₦${user.wallet_balance.toLocaleString()}, but ₦${pkgPrice.toLocaleString()} is required.`);
       return;
     }
+    setPinAction('cable');
+    setIsPinModalOpen(true);
+  };
+
+  const handlePurchaseCable = async () => {
+    const pkgs = cablePackages[selectedProvider] || [];
+    const pkg = pkgs.find(p => p.id === selectedPackageId);
+    if (!pkg) return;
 
     setSubmittingCable(true);
     setCableError(null);
@@ -133,11 +146,16 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
     }
   };
 
-  const handlePurchaseElectricity = async () => {
+  const promptElectricityPurchase = () => {
     if (user.wallet_balance < electricityAmount) {
       setElectricityError(`Insufficient funds. Your balance is ₦${user.wallet_balance.toLocaleString()}, but ₦${electricityAmount.toLocaleString()} is required.`);
       return;
     }
+    setPinAction('electricity');
+    setIsPinModalOpen(true);
+  };
+
+  const handlePurchaseElectricity = async () => {
     setSubmittingElectricity(true);
     setElectricityError(null);
     setElectricitySuccess(null);
@@ -344,7 +362,7 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
             {/* Submit Action */}
             <button
               type="button"
-              onClick={handlePurchaseCable}
+              onClick={promptCablePurchase}
               disabled={submittingCable || !smartcardNumber || !selectedPackageId}
               className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-indigo-600/20"
             >
@@ -555,7 +573,7 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
             {/* Submit */}
             <button
               type="button"
-              onClick={handlePurchaseElectricity}
+              onClick={promptElectricityPurchase}
               disabled={submittingElectricity || !meterNumber || electricityAmount < 1000}
               className="w-full py-3.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-amber-600/20"
             >
@@ -590,6 +608,23 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
           </div>
         </div>
       )}
+
+      {/* Transaction PIN Authorization Modal */}
+      <TransactionPinModal
+        isOpen={isPinModalOpen}
+        onClose={() => setIsPinModalOpen(false)}
+        onSuccess={() => {
+          setIsPinModalOpen(false);
+          if (pinAction === 'cable') {
+            handlePurchaseCable();
+          } else {
+            handlePurchaseElectricity();
+          }
+        }}
+        title={pinAction === 'cable' ? 'Authorize Cable Subscription' : 'Authorize Electricity Purchase'}
+        description={`Enter your 4-digit security PIN to authorize debit of ₦${(pinAction === 'cable' ? (currentSelectedPkg?.price ?? 0) : electricityAmount).toLocaleString()} from your wallet.`}
+        amount={pinAction === 'cable' ? (currentSelectedPkg?.price ?? 0) : electricityAmount}
+      />
     </div>
   );
 }

@@ -173,11 +173,12 @@ export interface DataPinDenomination {
 
 export interface CablePackageItem {
   id: string;
-  provider: 'DSTV' | 'GOTV' | 'STARTIMES' | 'SHOWMAX';
+  provider: 'DSTV' | 'GOTV' | 'STARTIMES' | 'SHOWMAX' | string;
   name: string;
   code: string;
   price: number;
-  cost_price: number;
+  cost_price?: number;
+  wholesale_cost?: number;
   channels: number;
   enabled: boolean;
 }
@@ -186,9 +187,10 @@ export interface ElectricityDiscoItem {
   id: string;
   name: string;
   code: string;
-  state: string;
+  state?: string;
   min_amount?: number;
   min?: number;
+  minimum_amount?: number;
   enabled: boolean;
 }
 
@@ -465,3 +467,150 @@ export interface AdminOverviewData {
     cpanel: { configured: boolean; status: string; host: string; serverIp: string };
   };
 }
+
+// -------------------------------------------------------------
+// PHASE 8 INTERFACES
+// -------------------------------------------------------------
+
+export interface SmtpLogItem {
+  id: string;
+  timestamp: string;
+  recipient: string;
+  subject: string;
+  status: 'sent' | 'simulated' | 'failed';
+  error?: string;
+}
+
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  password_masked?: string;
+  encryption: 'tls' | 'ssl' | 'none';
+  sender_email: string;
+  sender_name: string;
+  reply_to_email: string;
+  last_tested_at?: string;
+  last_test_status?: 'operational' | 'error' | 'untested';
+  last_test_message?: string;
+  logs: SmtpLogItem[];
+}
+
+export interface EmailTemplateItem {
+  id: string;
+  key: string;
+  name: string;
+  category: 'Auth' | 'Wallet' | 'Transactions' | 'Services' | 'Security' | 'Admin';
+  subject: string;
+  html_body: string;
+  description: string;
+  variables: string[];
+  is_active: boolean;
+  updated_at: string;
+}
+
+export interface SmsTemplateItem {
+  id: string;
+  key: string;
+  title: string;
+  content: string;
+  variables: string[];
+  is_active: boolean;
+}
+
+export interface SmsLogItem {
+  id: string;
+  timestamp: string;
+  recipient: string;
+  message: string;
+  units: number;
+  status: 'delivered' | 'simulated' | 'failed';
+}
+
+export interface SmsConfig {
+  provider: 'termii' | 'bulksms_nigeria' | 'twilio' | 'custom_webhook';
+  api_key: string;
+  sender_id: string;
+  route: 'generic' | 'dnd' | 'whatsapp';
+  webhook_url?: string;
+  enabled: boolean;
+  balance_units: number;
+  templates: SmsTemplateItem[];
+  logs: SmsLogItem[];
+}
+
+export interface StoreSettings {
+  store_name: string;
+  status: 'coming_soon' | 'active' | 'maintenance';
+  coming_soon_message: string;
+  currency: string;
+  notification_email: string;
+  delivery_policy: string;
+  allow_preorders: boolean;
+}
+
+export interface AcademySettings {
+  academy_name: string;
+  status: 'coming_soon' | 'active' | 'maintenance';
+  coming_soon_message: string;
+  instructor_lead: string;
+  certificate_issuer: string;
+  allow_waitlist: boolean;
+}
+
+export interface ReportsSettings {
+  status: 'coming_soon' | 'active';
+  coming_soon_message: string;
+  default_range: '7d' | '30d' | '90d' | 'ytd';
+  timezone: string;
+  auto_export_email: string;
+}
+
+export interface CustomerMessage {
+  id: string;
+  user_id: string;
+  title: string;
+  category: 'service' | 'system' | 'security' | 'billing';
+  body: string;
+  read: boolean;
+  reference?: string;
+  action_label?: string;
+  action_link?: string;
+  created_at: string;
+}
+
+export interface CustomerReportsAnalytics {
+  totalSpent: number;
+  totalFunded: number;
+  currentBalance: number;
+  categoryBreakdown: {
+    nin_verification: number;
+    bvn_verification: number;
+    data_purchase: number;
+    airtime: number;
+    cable_tv: number;
+    store_purchase: number;
+  };
+  ordersCount: number;
+  verificationsCount: number;
+  transactionsCount: number;
+  recentTransactions: Transaction[];
+}
+
+export interface AdminReportsData {
+  settings: ReportsSettings;
+  analytics: {
+    totalVolume: number;
+    totalFunding: number;
+    totalTelecomCost: number;
+    totalTelecomProfit: number;
+    totalVerifCost: number;
+    estimatedGrossMargin: number;
+    transactionCount: number;
+    categoryBreakdown: Record<string, number>;
+    ordersCount: number;
+    verificationsCount: number;
+  };
+}
+

@@ -932,5 +932,283 @@ export const api = {
       method: 'POST',
     });
   },
+
+  // -------------------------------------------------------------
+  // PHASE 8: SMTP CONFIGURATION & MAIL GATEWAY
+  // -------------------------------------------------------------
+  async getAdminSmtpConfig(): Promise<{ success: boolean; config: import('../types').SmtpConfig; logs: import('../types').SmtpLogItem[] }> {
+    return request('/api/admin/smtp');
+  },
+
+  async updateAdminSmtpConfig(config: Partial<import('../types').SmtpConfig>): Promise<{ success: boolean; message: string; config: import('../types').SmtpConfig }> {
+    return request('/api/admin/smtp', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
+
+  async testSmtpHandshake(): Promise<{ success: boolean; message: string; details?: any }> {
+    return request('/api/admin/smtp/test-connection', {
+      method: 'POST',
+    });
+  },
+
+  async sendTestSmtpEmail(data: { toEmail: string; subject?: string; body?: string }): Promise<{ success: boolean; message: string; details?: any }> {
+    return request('/api/admin/smtp/send-test', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // -------------------------------------------------------------
+  // PHASE 8: EMAIL NOTIFICATION TEMPLATES
+  // -------------------------------------------------------------
+  async getAdminEmailTemplates(): Promise<{ success: boolean; templates: import('../types').EmailTemplateItem[] }> {
+    return request('/api/admin/email-templates');
+  },
+
+  async updateAdminEmailTemplate(id: string, data: { subject?: string; html_body?: string; is_active?: boolean }): Promise<{ success: boolean; message: string; template: import('../types').EmailTemplateItem }> {
+    return request(`/api/admin/email-templates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async testAdminEmailTemplate(id: string, toEmail: string): Promise<{ success: boolean; message: string; details?: any }> {
+    return request(`/api/admin/email-templates/${id}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ toEmail }),
+    });
+  },
+
+  // -------------------------------------------------------------
+  // PHASE 8: SMS CONFIGURATION & TEMPLATES
+  // -------------------------------------------------------------
+  async getAdminSmsConfig(): Promise<{ success: boolean; config: import('../types').SmsConfig; logs: import('../types').SmsLogItem[] }> {
+    return request('/api/admin/sms-config');
+  },
+
+  async updateAdminSmsConfig(config: Partial<import('../types').SmsConfig>): Promise<{ success: boolean; message: string; config: import('../types').SmsConfig }> {
+    return request('/api/admin/sms-config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
+
+  async updateAdminSmsTemplate(id: string, data: { content?: string; is_active?: boolean }): Promise<{ success: boolean; message: string; template: import('../types').SmsTemplateItem }> {
+    return request(`/api/admin/sms-config/template/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async testAdminSmsDispatch(data: { phone: string; message: string }): Promise<{ success: boolean; message: string; log: import('../types').SmsLogItem; balance_units: number }> {
+    return request('/api/admin/sms-config/test', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // -------------------------------------------------------------
+  // PHASE 8: DIGITAL SERVICES (CABLE TV & ELECTRICITY)
+  // -------------------------------------------------------------
+  async getAdminDigitalServices(): Promise<{ success: boolean; cable_packages: import('../types').CablePackageItem[]; electricity_discos: import('../types').ElectricityDiscoItem[] }> {
+    return request('/api/admin/digital-services');
+  },
+
+  async updateAdminCablePackage(id: string, data: Partial<import('../types').CablePackageItem>): Promise<{ success: boolean; message: string; package: import('../types').CablePackageItem }> {
+    return request(`/api/admin/digital-services/cable-package/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createAdminCablePackage(data: Omit<import('../types').CablePackageItem, 'id'>): Promise<{ success: boolean; message: string; package: import('../types').CablePackageItem }> {
+    return request('/api/admin/digital-services/cable-package', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminCablePackage(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/digital-services/cable-package/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async updateAdminElectricityDisco(id: string, data: Partial<import('../types').ElectricityDiscoItem>): Promise<{ success: boolean; message: string; disco: import('../types').ElectricityDiscoItem }> {
+    return request(`/api/admin/digital-services/disco/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createAdminElectricityDisco(data: Omit<import('../types').ElectricityDiscoItem, 'id'>): Promise<{ success: boolean; message: string; disco: import('../types').ElectricityDiscoItem }> {
+    return request('/api/admin/digital-services/disco', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminElectricityDisco(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/digital-services/disco/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // -------------------------------------------------------------
+  // PHASE 8: STORE ADMINISTRATION & CUSTOMER STORE
+  // -------------------------------------------------------------
+  async getAdminStore(): Promise<{ success: boolean; items: import('../types').StoreItem[]; settings: import('../types').StoreSettings }> {
+    return request('/api/admin/store');
+  },
+
+  async updateAdminStoreSettings(settings: Partial<import('../types').StoreSettings>): Promise<{ success: boolean; message: string; settings: import('../types').StoreSettings }> {
+    return request('/api/admin/store/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  async createAdminStoreItem(data: Omit<import('../types').StoreItem, 'id' | 'created_at'>): Promise<{ success: boolean; message: string; item: import('../types').StoreItem }> {
+    return request('/api/admin/store/item', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateAdminStoreItem(id: string, data: Partial<import('../types').StoreItem>): Promise<{ success: boolean; message: string; item: import('../types').StoreItem }> {
+    return request(`/api/admin/store/item/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminStoreItem(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/store/item/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getCustomerStore(): Promise<{ success: boolean; items: import('../types').StoreItem[]; settings: import('../types').StoreSettings }> {
+    return request('/api/customer/store');
+  },
+
+  // -------------------------------------------------------------
+  // PHASE 8: ACADEMY ADMINISTRATION & CUSTOMER ACADEMY
+  // -------------------------------------------------------------
+  async getAdminAcademy(): Promise<{ success: boolean; courses: import('../types').AcademyCourse[]; settings: import('../types').AcademySettings }> {
+    return request('/api/admin/academy');
+  },
+
+  async updateAdminAcademySettings(settings: Partial<import('../types').AcademySettings>): Promise<{ success: boolean; message: string; settings: import('../types').AcademySettings }> {
+    return request('/api/admin/academy/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  async createAdminAcademyCourse(data: Omit<import('../types').AcademyCourse, 'id' | 'created_at'>): Promise<{ success: boolean; message: string; course: import('../types').AcademyCourse }> {
+    return request('/api/admin/academy/course', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateAdminAcademyCourse(id: string, data: Partial<import('../types').AcademyCourse>): Promise<{ success: boolean; message: string; course: import('../types').AcademyCourse }> {
+    return request(`/api/admin/academy/course/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminAcademyCourse(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/academy/course/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getCustomerAcademy(): Promise<{ success: boolean; courses: import('../types').AcademyCourse[]; settings: import('../types').AcademySettings }> {
+    return request('/api/customer/academy');
+  },
+
+  // -------------------------------------------------------------
+  // PHASE 8: REPORTS & RECONCILIATION
+  // -------------------------------------------------------------
+  async getAdminReports(): Promise<import('../types').AdminReportsData> {
+    return request('/api/admin/reports');
+  },
+
+  async updateAdminReportsSettings(settings: Partial<import('../types').ReportsSettings>): Promise<{ success: boolean; message: string; settings: import('../types').ReportsSettings }> {
+    return request('/api/admin/reports/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  async getCustomerReports(): Promise<{ success: boolean; settings: import('../types').ReportsSettings; analytics: import('../types').CustomerReportsAnalytics }> {
+    return request('/api/customer/reports');
+  },
+
+  // -------------------------------------------------------------
+  // PHASE 8: BROADCAST NOTIFICATIONS & MESSAGES
+  // -------------------------------------------------------------
+  async broadcastNotification(data: { title: string; message: string; type?: string; target_role?: string }): Promise<{ success: boolean; message: string; announcement: any }> {
+    return request('/api/admin/notifications/broadcast', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getCustomerMessages(): Promise<{ success: boolean; count: number; unreadCount: number; messages: import('../types').CustomerMessage[] }> {
+    return request('/api/customer/messages');
+  },
+
+  async markCustomerMessageRead(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/customer/messages/${id}/read`, {
+      method: 'PUT',
+    });
+  },
+
+  async verifyPin(pin: string): Promise<{ success: boolean; verified: boolean }> {
+    return request('/api/customer/verify-pin', {
+      method: 'POST',
+      body: JSON.stringify({ pin }),
+    });
+  },
+
+  // -------------------------------------------------------------
+  // PHASE 8 CONVENIENCE ALIASES
+  // -------------------------------------------------------------
+  async getSmtpConfig() { return this.getAdminSmtpConfig(); },
+  async updateSmtpConfig(config: any) { return this.updateAdminSmtpConfig(config); },
+  async getEmailTemplatesAdmin() { return this.getAdminEmailTemplates(); },
+  async updateEmailTemplate(id: string, data: any) { return this.updateAdminEmailTemplate(id, data); },
+  async sendTestEmailTemplate(id: string, toEmail: string) { return this.testAdminEmailTemplate(id, toEmail); },
+  async getSmsConfigAdmin() { return this.getAdminSmsConfig(); },
+  async updateSmsConfigAdmin(config: any) { return this.updateAdminSmsConfig(config); },
+  async updateSmsTemplateAdmin(id: string, data: any) { return this.updateAdminSmsTemplate(id, data); },
+  async sendTestSmsAdmin(data: { recipient?: string; phone?: string; message: string }) {
+    return this.testAdminSmsDispatch({ phone: data.phone || data.recipient || '', message: data.message });
+  },
+  async getDigitalServicesAdmin() { return this.getAdminDigitalServices(); },
+  async updateCablePackage(id: string, data: any) { return this.updateAdminCablePackage(id, data); },
+  async createCablePackage(data: any) { return this.createAdminCablePackage(data); },
+  async deleteCablePackage(id: string) { return this.deleteAdminCablePackage(id); },
+  async updateElectricityDisco(id: string, data: any) { return this.updateAdminElectricityDisco(id, data); },
+  async createElectricityDisco(data: any) { return this.createAdminElectricityDisco(data); },
+  async deleteElectricityDisco(id: string) { return this.deleteAdminElectricityDisco(id); },
+  async getStoreAdmin() { return this.getAdminStore(); },
+  async updateStoreSettings(settings: any) { return this.updateAdminStoreSettings(settings); },
+  async getAcademyAdmin() { return this.getAdminAcademy(); },
+  async updateAcademySettings(settings: any) { return this.updateAdminAcademySettings(settings); },
+  async getReportsAdmin() { return this.getAdminReports(); },
+  async updateReportsSettings(settings: any) { return this.updateAdminReportsSettings(settings); },
+  async setTransactionPin(currentPin: string, newPin: string): Promise<{ success: boolean; message: string }> {
+    return request('/api/customer/pin', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPin, newPin }),
+    });
+  },
 };
 

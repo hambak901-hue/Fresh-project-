@@ -19,6 +19,7 @@ import {
   Receipt,
   Package,
   Bell,
+  Inbox,
   User as UserIcon,
   Settings,
   HelpCircle,
@@ -46,6 +47,7 @@ import { ReportsComingSoonPage } from './ReportsComingSoonPage';
 import { TransactionsPage } from './TransactionsPage';
 import { OrdersPage } from './OrdersPage';
 import { NotificationsPage } from './NotificationsPage';
+import { MessagesPage } from './MessagesPage';
 import { ProfilePage } from './ProfilePage';
 import { SettingsPage } from './SettingsPage';
 import { SupportPage } from './SupportPage';
@@ -69,6 +71,7 @@ export type CustomerPageKey =
   | 'transactions'
   | 'orders'
   | 'notifications'
+  | 'messages'
   | 'profile'
   | 'settings'
   | 'support';
@@ -125,6 +128,7 @@ export function CustomerDashboard({
         { id: 'transactions', label: '9. Transactions', icon: Receipt },
         { id: 'orders', label: '10. Orders', icon: Package },
         { id: 'notifications', label: '11. Notifications', icon: Bell },
+        { id: 'messages', label: '12. Delivered Messages', icon: Inbox },
       ],
     },
     {
@@ -420,6 +424,8 @@ export function CustomerDashboard({
           {currentPage === 'orders' && <OrdersPage />}
 
           {currentPage === 'notifications' && <NotificationsPage />}
+
+          {currentPage === 'messages' && <MessagesPage />}
 
           {currentPage === 'profile' && (
             <ProfilePage

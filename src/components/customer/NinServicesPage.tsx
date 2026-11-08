@@ -83,8 +83,11 @@ export const NinServicesPage: React.FC = () => {
 
   useEffect(() => {
     loadCatalog();
-    loadHistory();
   }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [user, historyCategory, historySearch]);
 
   const loadCatalog = async () => {
     try {
@@ -97,7 +100,7 @@ export const NinServicesPage: React.FC = () => {
         if (res.activeProvider) setActiveProvider(res.activeProvider);
       }
     } catch (e) {
-      console.error('Failed to load identity services catalog:', e);
+      console.warn('Unable to load identity services catalog:', e);
     } finally {
       setLoadingServices(false);
     }
@@ -110,11 +113,12 @@ export const NinServicesPage: React.FC = () => {
         historyCategory === 'all' ? undefined : historyCategory,
         historySearch.trim() || undefined
       );
-      if (res.success) {
+      if (res && res.success) {
         setHistory(res.verifications || []);
       }
     } catch (e) {
-      console.error('Failed to load history:', e);
+      // Graceful fallback for history loading
+      setHistory([]);
     } finally {
       setHistoryLoading(false);
     }

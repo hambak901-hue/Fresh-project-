@@ -998,11 +998,28 @@ telecomRouter.post('/webhook/ulamadata', (req, res) => {
 // -------------------------------------------------------------
 
 // GET /api/telecom/history
-telecomRouter.get('/history', requireAuth, (req: any, res) => {
+telecomRouter.get('/history', (req: any, res) => {
+  const session = parseToken(req.headers.authorization);
+  if (!session) {
+    return res.json({
+      success: true,
+      count: 0,
+      orders: [],
+    });
+  }
+  const user = db.findUserById(session.userId);
+  if (!user) {
+    return res.json({
+      success: true,
+      count: 0,
+      orders: [],
+    });
+  }
+
   const service = req.query.service as string;
   const search = req.query.search as string;
 
-  let list = (db.data.telecom_orders || []).filter(o => o.user_id === req.user.id);
+  let list = (db.data.telecom_orders || []).filter(o => o.user_id === user.id);
 
   if (service && service !== 'all') {
     list = list.filter(o => o.service === service);

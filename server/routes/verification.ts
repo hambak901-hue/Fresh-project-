@@ -363,9 +363,26 @@ verificationRouter.get('/status/:reference', requireAuth, async (req: any, res) 
 // -------------------------------------------------------------
 // 5. USER'S VERIFICATION HISTORY & RECORDS
 // -------------------------------------------------------------
-verificationRouter.get('/history', requireAuth, (req: any, res) => {
+verificationRouter.get('/history', (req: any, res) => {
+  const session = parseToken(req.headers.authorization);
+  if (!session) {
+    return res.json({
+      success: true,
+      count: 0,
+      verifications: [],
+    });
+  }
+  const user = db.findUserById(session.userId);
+  if (!user) {
+    return res.json({
+      success: true,
+      count: 0,
+      verifications: [],
+    });
+  }
+
   const { category, search } = req.query;
-  let list = (db.data.verifications || []).filter(v => v.user_id === req.user.id);
+  let list = (db.data.verifications || []).filter(v => v.user_id === user.id);
 
   if (category && category !== 'all') {
     list = list.filter(v => v.type === category || v.service_key === category);

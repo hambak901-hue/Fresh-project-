@@ -26,6 +26,13 @@ import {
   RefreshCw,
   Wallet,
   UserCheck,
+  Tv,
+  ShoppingBag,
+  GraduationCap,
+  BarChart3,
+  Server,
+  Mail,
+  MessageSquare,
 } from 'lucide-react';
 
 // Admin child views
@@ -37,6 +44,15 @@ import { DashboardModuleManagement } from './DashboardModuleManagement';
 import { ServiceManagement } from './ServiceManagement';
 import { StaffPermissionsManagement } from './StaffPermissionsManagement';
 import { AuditLogsViewer } from './AuditLogsViewer';
+
+// Phase 8 Admin Views
+import { DigitalServicesManagement } from './DigitalServicesManagement';
+import { StoreManagement } from './StoreManagement';
+import { AcademyManagement } from './AcademyManagement';
+import { ReportsManagement } from './ReportsManagement';
+import { SmtpSettings } from './SmtpSettings';
+import { EmailTemplatesManagement } from './EmailTemplatesManagement';
+import { SmsSettingsManagement } from './SmsSettingsManagement';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
@@ -51,6 +67,13 @@ export type AdminTabKey =
   | 'website'
   | 'modules'
   | 'services'
+  | 'digital_services'
+  | 'store_admin'
+  | 'academy_admin'
+  | 'reports_admin'
+  | 'smtp'
+  | 'email_templates'
+  | 'sms'
   | 'staff'
   | 'audit';
 
@@ -82,26 +105,38 @@ export function SuperAdminDashboard({
         { id: 'overview', label: '1. Admin Overview', icon: LayoutDashboard },
         { id: 'customers', label: '2. Customer Management', icon: Users },
         { id: 'funding', label: '3. Funding Approvals', icon: Clock, badge: 'Manual' },
-      ],
-    },
-    {
-      title: 'Content & User Experience',
-      items: [
-        { id: 'website', label: '4. Website Management (CMS)', icon: Globe },
-        { id: 'modules', label: '5. Dashboard Management', icon: Layers },
+        { id: 'reports_admin', label: 'Reports & Analytics', icon: BarChart3, badge: 'Phase 8' },
       ],
     },
     {
       title: 'Commercial & Services',
       items: [
-        { id: 'services', label: '6. Service Management', icon: Cpu },
+        { id: 'services', label: 'Core Services & Pricing', icon: Cpu },
+        { id: 'digital_services', label: 'Digital Utilities (Cable & Disco)', icon: Tv, badge: 'Phase 8' },
+        { id: 'store_admin', label: 'Hardware Store', icon: ShoppingBag, badge: 'Coming Soon' },
+        { id: 'academy_admin', label: 'Agency Academy', icon: GraduationCap, badge: 'Coming Soon' },
+      ],
+    },
+    {
+      title: 'Communication & Delivery',
+      items: [
+        { id: 'smtp', label: 'SMTP Server Settings', icon: Server, badge: 'Phase 8' },
+        { id: 'email_templates', label: 'Email Templates (12)', icon: Mail },
+        { id: 'sms', label: 'SMS Gateway & Templates', icon: MessageSquare },
+      ],
+    },
+    {
+      title: 'Content & User Experience',
+      items: [
+        { id: 'website', label: 'Website Management (CMS)', icon: Globe },
+        { id: 'modules', label: 'Dashboard Management', icon: Layers },
       ],
     },
     {
       title: 'Governance & Security',
       items: [
-        { id: 'staff', label: '7. Staff & Permissions', icon: ShieldAlert },
-        { id: 'audit', label: '8. Audit Logs', icon: FileText },
+        { id: 'staff', label: 'Staff & Permissions', icon: ShieldAlert },
+        { id: 'audit', label: 'Audit Logs', icon: FileText },
       ],
     },
   ];
@@ -333,6 +368,20 @@ export function SuperAdminDashboard({
           {activeTab === 'modules' && <DashboardModuleManagement />}
 
           {activeTab === 'services' && <ServiceManagement />}
+
+          {activeTab === 'digital_services' && <DigitalServicesManagement />}
+
+          {activeTab === 'store_admin' && <StoreManagement />}
+
+          {activeTab === 'academy_admin' && <AcademyManagement />}
+
+          {activeTab === 'reports_admin' && <ReportsManagement />}
+
+          {activeTab === 'smtp' && <SmtpSettings />}
+
+          {activeTab === 'email_templates' && <EmailTemplatesManagement />}
+
+          {activeTab === 'sms' && <SmsSettingsManagement />}
 
           {activeTab === 'staff' && <StaffPermissionsManagement />}
 
