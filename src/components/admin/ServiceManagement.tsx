@@ -1,0 +1,1209 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Cpu,
+  ShieldCheck,
+  Smartphone,
+  Zap,
+  ShoppingBag,
+  GraduationCap,
+  BarChart3,
+  DollarSign,
+  Save,
+  CheckCircle2,
+  AlertCircle,
+  Plus,
+  Trash2,
+  Edit2,
+  RefreshCw,
+  Loader2,
+  FileSpreadsheet,
+  Download,
+  Server,
+  Activity,
+  ArrowUpDown,
+  Search,
+  Check,
+  Sliders,
+  ExternalLink,
+  Lock,
+  Eye,
+  EyeOff,
+  Clock,
+} from 'lucide-react';
+import { api } from '../../lib/api';
+import { StoreItem, AcademyCourse, IdentityService, ProviderConfigItem, ProviderLogItem } from '../../types';
+
+export function ServiceManagement() {
+  const [activeTab, setActiveTab] = useState<'nin' | 'providers' | 'telecom' | 'digital' | 'store' | 'academy' | 'reports'>('nin');
+
+  const [settings, setSettings] = useState<any>({});
+  const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
+  const [academyCourses, setAcademyCourses] = useState<AcademyCourse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Phase 5 Identity Services & Providers State
+  const [identityServices, setIdentityServices] = useState<IdentityService[]>([]);
+  const [serviceSearch, setServiceSearch] = useState('');
+  const [serviceCategoryFilter, setServiceCategoryFilter] = useState('all');
+  const [syncingWholesale, setSyncingWholesale] = useState(false);
+  const [editingPriceMap, setEditingPriceMap] = useState<Record<string, number>>({});
+  const [savingPriceKey, setSavingPriceKey] = useState<string | null>(null);
+
+  const [providerConfigs, setProviderConfigs] = useState<ProviderConfigItem[]>([]);
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<Record<string, { success: boolean; message: string; latency_ms: number }>>({});
+  const [providerLogs, setProviderLogs] = useState<ProviderLogItem[]>([]);
+  const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({});
+
+  // Store Item modal
+  const [editingStoreItem, setEditingStoreItem] = useState<Partial<StoreItem> | null>(null);
+
+  // Academy Course modal
+  const [editingCourse, setEditingCourse] = useState<Partial<AcademyCourse> | null>(null);
+
+  const fetchServices = async () => {
+    setLoading(true);
+    try {
+      const [res, pricingRes, providersRes, logsRes] = await Promise.all([
+        api.getAdminServices(),
+        api.getAdminVerificationPricing().catch(() => ({ services: [] })),
+        api.getAdminProviders().catch(() => ({ providers: [] })),
+        api.getAdminProviderLogs().catch(() => ({ logs: [] })),
+      ]);
+      setSettings(res.settings || {});
+      setStoreItems(res.store_items || []);
+      setAcademyCourses(res.academy_courses || []);
+      if (pricingRes?.services) {
+        setIdentityServices(pricingRes.services);
+        const map: Record<string, number> = {};
+        pricingRes.services.forEach(s => {
+          map[s.key] = s.price;
+        });
+        setEditingPriceMap(map);
+      }
+      if (providersRes?.providers) {
+        setProviderConfigs(providersRes.providers);
+      }
+      if (logsRes?.logs) {
+        setProviderLogs(logsRes.logs);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchServices();
+  }, []);
+
+  const handleSavePricing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setSuccessMsg(null);
+    try {
+      await api.updateServicePricing({
+        nin_fee: settings.nin_fee,
+        bvn_fee: settings.bvn_fee,
+        mtn_sme_1gb: settings.mtn_sme_1gb,
+        airtel_1gb: settings.airtel_1gb,
+        glo_1gb: settings.glo_1gb,
+        nine_mobile_1gb: settings.nine_mobile_1gb,
+        airtime_discount_percent: settings.airtime_discount_percent,
+      });
+      setSuccessMsg('Service pricing & telecom tariffs updated live across the platform.');
+      setTimeout(() => setSuccessMsg(null), 3500);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update pricing');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveProviders = async (updates: any) => {
+    setSaving(true);
+    try {
+      await api.updateServiceProviders(updates);
+      setSettings((prev: any) => ({ ...prev, ...updates }));
+      setSuccessMsg('Active provider routing updated.');
+      setTimeout(() => setSuccessMsg(null), 3500);
+    } catch (err: any) {
+      alert(err.message || 'Failed to switch provider');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSavePrice = async (serviceKey: string) => {
+    const newPrice = editingPriceMap[serviceKey];
+    if (newPrice === undefined || isNaN(newPrice) || newPrice < 0) return;
+    setSavingPriceKey(serviceKey);
+    try {
+      await api.updateAdminVerificationPricing(serviceKey, {
+        selling_price: Number(newPrice),
+      });
+      setSuccessMsg(`Price updated for ${serviceKey} to ₦${Number(newPrice).toLocaleString()}`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+      // update local list
+      setIdentityServices(prev =>
+        prev.map(s => {
+          if (s.key === serviceKey) {
+            const wholesale = s.wholesale_cost || 0;
+            const profit = Number(newPrice) - wholesale;
+            const margin = Number(newPrice) > 0 ? Math.round((profit / Number(newPrice)) * 100) : 0;
+            return { ...s, price: Number(newPrice), profit_per_transaction: profit, margin_percent: margin };
+          }
+          return s;
+        })
+      );
+    } catch (err: any) {
+      alert(err.message || 'Failed to update price');
+    } finally {
+      setSavingPriceKey(null);
+    }
+  };
+
+  const handleToggleService = async (service: IdentityService) => {
+    const newEnabled = !service.enabled;
+    try {
+      await api.updateAdminVerificationPricing(service.key, {
+        enabled: newEnabled,
+      });
+      setIdentityServices(prev =>
+        prev.map(s => (s.key === service.key ? { ...s, enabled: newEnabled } : s))
+      );
+    } catch (err: any) {
+      alert(err.message || 'Failed to toggle service');
+    }
+  };
+
+  const handleChangeServiceProvider = async (serviceKey: string, provider: string) => {
+    try {
+      await api.updateAdminVerificationPricing(serviceKey, {
+        provider,
+      });
+      setIdentityServices(prev =>
+        prev.map(s => (s.key === serviceKey ? { ...s, provider } : s))
+      );
+    } catch (err: any) {
+      alert(err.message || 'Failed to assign provider');
+    }
+  };
+
+  const handleSyncWholesale = async () => {
+    setSyncingWholesale(true);
+    try {
+      const res = await api.syncWholesalePrices();
+      setSuccessMsg(res.message || 'Wholesale rates synced successfully from 2SureVerify API.');
+      setTimeout(() => setSuccessMsg(null), 4000);
+      const pricingRes = await api.getAdminVerificationPricing();
+      if (pricingRes?.services) {
+        setIdentityServices(pricingRes.services);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to sync wholesale rates');
+    } finally {
+      setSyncingWholesale(false);
+    }
+  };
+
+  const handleTestProvider = async (providerId: string) => {
+    setTestingProvider(providerId);
+    try {
+      const res = await api.testAdminProvider(providerId);
+      setTestResult(prev => ({
+        ...prev,
+        [providerId]: {
+          success: res.success,
+          message: res.message,
+          latency_ms: res.latency_ms,
+        },
+      }));
+      // refresh logs
+      const logsRes = await api.getAdminProviderLogs().catch(() => ({ logs: [] }));
+      if (logsRes?.logs) setProviderLogs(logsRes.logs);
+    } catch (err: any) {
+      setTestResult(prev => ({
+        ...prev,
+        [providerId]: {
+          success: false,
+          message: err.message || 'Connection test failed',
+          latency_ms: 0,
+        },
+      }));
+    } finally {
+      setTestingProvider(null);
+    }
+  };
+
+  const handleToggleProviderActive = async (provider: ProviderConfigItem) => {
+    try {
+      const res = await api.updateAdminProvider(provider.id, {
+        is_active: !provider.is_active,
+      });
+      setProviderConfigs(prev =>
+        prev.map(p => (p.id === provider.id ? { ...p, is_active: !provider.is_active } : p))
+      );
+    } catch (err: any) {
+      alert(err.message || 'Failed to update provider status');
+    }
+  };
+
+  const handleSaveStoreItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStoreItem || !editingStoreItem.name || !editingStoreItem.price) return;
+    try {
+      if (editingStoreItem.id) {
+        await api.updateStoreItem(editingStoreItem.id, editingStoreItem);
+      } else {
+        await api.createStoreItem(editingStoreItem);
+      }
+      setEditingStoreItem(null);
+      await fetchServices();
+      setSuccessMsg('Store product saved successfully.');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to save store product');
+    }
+  };
+
+  const handleDeleteStoreItem = async (id: string) => {
+    if (!window.confirm('Delete this product from the store catalog?')) return;
+    try {
+      await api.deleteStoreItem(id);
+      await fetchServices();
+    } catch (e: any) {
+      alert(e.message || 'Failed to delete product');
+    }
+  };
+
+  const handleSaveCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCourse || !editingCourse.title) return;
+    try {
+      if (editingCourse.id) {
+        await api.updateAcademyCourse(editingCourse.id, editingCourse);
+      } else {
+        await api.createAcademyCourse(editingCourse);
+      }
+      setEditingCourse(null);
+      await fetchServices();
+      setSuccessMsg('Academy course curriculum updated.');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to save course');
+    }
+  };
+
+  const handleDeleteCourse = async (id: string) => {
+    if (!window.confirm('Delete this course from Academy?')) return;
+    try {
+      await api.deleteAcademyCourse(id);
+      await fetchServices();
+    } catch (e: any) {
+      alert(e.message || 'Failed to delete course');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header Banner */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/60 border border-slate-800 rounded-2xl p-6 sm:p-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold rounded-full mb-3">
+              <Cpu className="w-3.5 h-3.5" />
+              <span>Multi-Service Operations Center</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Service Management &amp; Catalogs
+            </h1>
+            <p className="text-sm text-slate-400 mt-1 max-w-xl">
+              Dedicated administration controls for NIN verification, telecommunications, digital utilities, Store inventory, and Academy tracks.
+            </p>
+          </div>
+          <button
+            onClick={fetchServices}
+            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition flex items-center gap-2 text-xs font-semibold self-start sm:self-auto"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh Services</span>
+          </button>
+        </div>
+
+        {/* Sub-tab Navigation */}
+        <div className="flex gap-2 mt-6 pt-6 border-t border-slate-800 text-xs overflow-x-auto">
+          {[
+            { id: 'nin', label: 'NIN & BVN Services (42 Matrix)', icon: ShieldCheck },
+            { id: 'providers', label: 'Providers & Gateways', icon: Server },
+            { id: 'telecom', label: 'Telecommunications', icon: Smartphone },
+            { id: 'digital', label: 'Digital Utilities', icon: Zap },
+            { id: 'store', label: 'Store Inventory', icon: ShoppingBag },
+            { id: 'academy', label: 'Academy Courses', icon: GraduationCap },
+            { id: 'reports', label: 'Financial Reports', icon: BarChart3 },
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium transition whitespace-nowrap ${
+                  isActive
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    : 'bg-slate-800/60 text-slate-400 hover:text-white'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {successMsg && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3.5 text-xs text-emerald-300 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      {/* 1. NIN & BVN 42-SERVICE PRICING MATRIX */}
+      {activeTab === 'nin' && (
+        <div className="space-y-6 text-xs">
+          {/* Controls Bar */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                  <span>42 Official Identity Services Pricing &amp; Margin Matrix</span>
+                </h2>
+                <p className="text-slate-400 mt-1">
+                  Manage customer selling prices, wholesale tariffs, and profit spreads for all 2SureVerify &amp; NIMC verification services.
+                </p>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleSyncWholesale}
+                  disabled={syncingWholesale}
+                  className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-xl font-semibold flex items-center gap-2 transition"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncingWholesale ? 'animate-spin' : ''}`} />
+                  <span>Sync 2SureVerify Wholesale</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Filter 42 services by name, key, or endpoint (e.g. nin_mod_name)..."
+                  value={serviceSearch}
+                  onChange={e => setServiceSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 text-xs"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                {[
+                  { id: 'all', label: 'All (42)' },
+                  { id: 'nin_verification', label: 'NIN' },
+                  { id: 'bvn_services', label: 'BVN' },
+                  { id: 'nin_modification', label: 'Modifications (16)' },
+                  { id: 'enrolment', label: 'Enrolment' },
+                  { id: 'additional_services', label: 'Additional' },
+                ].map(cat => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setServiceCategoryFilter(cat.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${
+                      serviceCategoryFilter === cat.id
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 42-Service Matrix Table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                    <th className="py-3 px-4">Service &amp; Endpoint</th>
+                    <th className="py-3 px-3">Category</th>
+                    <th className="py-3 px-3">Assigned Provider</th>
+                    <th className="py-3 px-3 text-right">Wholesale Cost</th>
+                    <th className="py-3 px-3 text-right">Selling Price (₦)</th>
+                    <th className="py-3 px-3 text-right">Profit / Margin</th>
+                    <th className="py-3 px-4 text-center">Status</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-sans">
+                  {identityServices
+                    .filter(s => {
+                      if (serviceCategoryFilter !== 'all' && s.category !== serviceCategoryFilter) return false;
+                      if (!serviceSearch.trim()) return true;
+                      const q = serviceSearch.toLowerCase();
+                      return (
+                        s.name.toLowerCase().includes(q) ||
+                        s.key.toLowerCase().includes(q) ||
+                        (s.endpoint && s.endpoint.toLowerCase().includes(q))
+                      );
+                    })
+                    .map(srv => {
+                      const wholesale = srv.wholesale_cost || 0;
+                      const currentSelling = editingPriceMap[srv.key] ?? srv.price;
+                      const profit = currentSelling - wholesale;
+                      const margin = currentSelling > 0 ? Math.round((profit / currentSelling) * 100) : 0;
+                      const isSaving = savingPriceKey === srv.key;
+
+                      return (
+                        <tr key={srv.key} className="hover:bg-slate-800/30 transition">
+                          <td className="py-3.5 px-4">
+                            <div className="font-semibold text-white">{srv.name}</div>
+                            <div className="text-[11px] font-mono text-slate-500 mt-0.5 flex items-center gap-1.5">
+                              <span>key: {srv.key}</span>
+                              {srv.endpoint && (
+                                <>
+                                  <span>&bull;</span>
+                                  <span className="text-indigo-400">api/v1/{srv.endpoint}</span>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-3">
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] uppercase font-mono tracking-wider">
+                              {srv.category.replace('_', ' ')}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-3">
+                            <select
+                              value={srv.provider || '2sureverify'}
+                              onChange={e => handleChangeServiceProvider(srv.key, e.target.value)}
+                              className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-300 text-xs focus:outline-none focus:border-indigo-500"
+                            >
+                              <option value="2sureverify">2SureVerify (Primary)</option>
+                              <option value="veripine">Veripine (Failover)</option>
+                            </select>
+                          </td>
+                          <td className="py-3.5 px-3 text-right font-mono text-slate-400">
+                            ₦{wholesale.toLocaleString()}
+                          </td>
+                          <td className="py-3.5 px-3 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span className="text-slate-500 font-mono">₦</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={10}
+                                value={currentSelling}
+                                onChange={e => {
+                                  const val = Number(e.target.value);
+                                  setEditingPriceMap(prev => ({ ...prev, [srv.key]: val }));
+                                }}
+                                className="w-24 bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-lg px-2 py-1 text-right text-white font-mono text-xs"
+                              />
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-3 text-right">
+                            <div className={`font-mono font-semibold ${profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              +₦{profit.toLocaleString()}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              ({margin}% margin)
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleService(srv)}
+                              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition ${
+                                srv.enabled !== false
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                              }`}
+                            >
+                              {srv.enabled !== false ? 'Active' : 'Disabled'}
+                            </button>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleSavePrice(srv.key)}
+                              disabled={isSaving}
+                              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold flex items-center gap-1 text-[11px] ml-auto transition"
+                            >
+                              {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                              <span>Save</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. PROVIDERS & GATEWAYS ARCHITECTURE */}
+      {activeTab === 'providers' && (
+        <div className="space-y-6 text-xs">
+          {/* Provider Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {providerConfigs.map(provider => {
+              const is2Sure = provider.id === '2sureverify';
+              const result = testResult[provider.id];
+              const isTesting = testingProvider === provider.id;
+              const isKeyVisible = showApiKey[provider.id];
+
+              return (
+                <div key={provider.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                        <Server className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-white text-sm">{provider.name}</h3>
+                          {provider.is_default && (
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold border border-emerald-500/20">
+                              Primary Engine
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-slate-400 text-[11px]">ID: {provider.id}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleProviderActive(provider)}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+                        provider.is_active
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {provider.is_active ? 'Operational' : 'Disabled'}
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-slate-400 font-medium">Provider Base URL</label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={provider.base_url}
+                        className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-300 font-mono text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-400 font-medium">API Credential / Secret Key</label>
+                        <button
+                          type="button"
+                          onClick={() => setShowApiKey(prev => ({ ...prev, [provider.id]: !isKeyVisible }))}
+                          className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+                        >
+                          {isKeyVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          <span>{isKeyVisible ? 'Hide' : 'Reveal'}</span>
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        readOnly
+                        value={
+                          isKeyVisible
+                            ? (provider.api_key || provider.api_key_masked)
+                            : (provider.api_key_masked || '••••••••••••••••••••••••••••••••')
+                        }
+                        className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-300 font-mono text-xs"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+                        <span className="text-slate-500 text-[10px] uppercase font-mono">Gateway Timeout</span>
+                        <p className="text-white font-mono font-semibold mt-0.5">{provider.timeout_seconds || 30} seconds</p>
+                      </div>
+                      <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+                        <span className="text-slate-500 text-[10px] uppercase font-mono">Auth Header</span>
+                        <p className="text-white font-mono font-semibold mt-0.5">{is2Sure ? 'X-Api-Key' : 'Bearer Token'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Test Connection Button & Result */}
+                  <div className="pt-2 border-t border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 text-xs">Verify roundtrip connectivity &amp; latency</span>
+                      <button
+                        type="button"
+                        onClick={() => handleTestProvider(provider.id)}
+                        disabled={isTesting}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-2 transition"
+                      >
+                        {isTesting ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Pinging Gateway...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Activity className="w-3.5 h-3.5" />
+                            <span>Test Live Connection</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {result && (
+                      <div
+                        className={`p-3 rounded-xl border flex items-start gap-2.5 ${
+                          result.success
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                            : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                        }`}
+                      >
+                        {result.success ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                        )}
+                        <div className="space-y-0.5 flex-1">
+                          <div className="font-semibold flex items-center justify-between">
+                            <span>{result.message}</span>
+                            {result.latency_ms > 0 && (
+                              <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-black/40">
+                                {result.latency_ms} ms
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Provider Transaction & Request Logs */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-indigo-400" />
+                  <span>Real-Time Provider Transaction &amp; Audit Logs</span>
+                </h3>
+                <p className="text-slate-400 mt-0.5">Recorded upstream request timestamps, HTTP response codes, latency, and references.</p>
+              </div>
+              <button
+                type="button"
+                onClick={fetchServices}
+                className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg flex items-center gap-1.5 transition text-xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Refresh Logs</span>
+              </button>
+            </div>
+
+            {providerLogs.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                <Server className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                <p>No upstream provider calls recorded yet. Execute a verification to inspect live logs.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                      <th className="py-2.5 px-3">Timestamp</th>
+                      <th className="py-2.5 px-3">Provider</th>
+                      <th className="py-2.5 px-3">Endpoint</th>
+                      <th className="py-2.5 px-3 text-center">Status</th>
+                      <th className="py-2.5 px-3 text-right">Latency</th>
+                      <th className="py-2.5 px-3">Reference</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                    {providerLogs.slice(0, 25).map(log => (
+                      <tr key={log.id} className="hover:bg-slate-800/30">
+                        <td className="py-2.5 px-3 text-slate-400">
+                          {new Date(log.created_at).toLocaleTimeString()}
+                        </td>
+                        <td className="py-2.5 px-3 text-white font-semibold">
+                          {log.provider}
+                        </td>
+                        <td className="py-2.5 px-3 text-indigo-300">
+                          {log.endpoint}
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              log.status_code >= 200 && log.status_code < 300
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : 'bg-rose-500/10 text-rose-400'
+                            }`}
+                          >
+                            {log.status_code}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-slate-300">
+                          {log.latency_ms}ms
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 truncate max-w-[150px]">
+                          {log.reference || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 2. TELECOMMUNICATIONS */}
+      {activeTab === 'telecom' && (
+        <form onSubmit={handleSavePricing} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 text-xs">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-sky-400" />
+                <span>Telecommunications &amp; VTU Pricing</span>
+              </h2>
+              <p className="text-slate-400 mt-0.5">Configure 1GB wholesale rates per carrier and airtime cashback spread.</p>
+            </div>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-1.5"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span>Save Telecom Rates</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="space-y-1">
+              <label className="text-slate-400">MTN SME 1GB (₦)</label>
+              <input
+                type="number"
+                value={settings.mtn_sme_1gb || 270}
+                onChange={e => setSettings({ ...settings, mtn_sme_1gb: Number(e.target.value) })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-400">Airtel Corporate 1GB (₦)</label>
+              <input
+                type="number"
+                value={settings.airtel_1gb || 290}
+                onChange={e => setSettings({ ...settings, airtel_1gb: Number(e.target.value) })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-400">Glo Corporate 1GB (₦)</label>
+              <input
+                type="number"
+                value={settings.glo_1gb || 260}
+                onChange={e => setSettings({ ...settings, glo_1gb: Number(e.target.value) })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-400">9mobile SME 1GB (₦)</label>
+              <input
+                type="number"
+                value={settings.nine_mobile_1gb || 250}
+                onChange={e => setSettings({ ...settings, nine_mobile_1gb: Number(e.target.value) })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1 pt-2 border-t border-slate-800">
+            <label className="text-slate-400 font-semibold">VTU Airtime Customer Discount (%)</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                step={0.5}
+                min={0}
+                max={10}
+                value={settings.airtime_discount_percent || 2.5}
+                onChange={e => setSettings({ ...settings, airtime_discount_percent: Number(e.target.value) })}
+                className="w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+              />
+              <span className="text-slate-400 font-mono">% discount automatically credited back to customer</span>
+            </div>
+          </div>
+        </form>
+      )}
+
+      {/* 3. DIGITAL UTILITIES */}
+      {activeTab === 'digital' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 text-xs">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-400" />
+            <span>Digital Services &amp; Utility Settings</span>
+          </h2>
+          <p className="text-slate-400">
+            Cable TV renewals and Electricity prepaid meter vending are piped directly to VTpass API gateway with sub-3s token dispatch.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+              <p className="font-semibold text-white">Cable TV Decoders (DStv, GOtv, StarTimes)</p>
+              <p className="text-slate-400">Commission margin retained: <strong>2.0%</strong> per bouquet subscription.</p>
+              <p className="text-emerald-400 font-mono">Status: Connected to MultiChoice Gateway</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+              <p className="font-semibold text-white">Prepaid Electricity DISCOs (8 National Grids)</p>
+              <p className="text-slate-400">Commission margin retained: <strong>1.0%</strong> per meter token generation.</p>
+              <p className="text-emerald-400 font-mono">Status: Connected to NERC DISCO Grid</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. STORE INVENTORY */}
+      {activeTab === 'store' && (
+        <div className="space-y-4 text-xs">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 text-indigo-400" />
+                <span>Hardware &amp; Developer Store Inventory</span>
+              </h2>
+              <p className="text-slate-400 mt-0.5">Manage biometric scanners, agency POS terminals, and developer licenses.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditingStoreItem({ name: '', category: 'Hardware', price: 50000, stock: 10, description: '', status: 'active' })}
+              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Product</span>
+            </button>
+          </div>
+
+          {editingStoreItem && (
+            <form onSubmit={handleSaveStoreItem} className="bg-slate-900 border border-indigo-500/30 rounded-2xl p-6 space-y-3">
+              <h3 className="font-bold text-white text-sm">
+                {editingStoreItem.id ? 'Edit Product' : 'Add Store Product'}
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-400">Product Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingStoreItem.name || ''}
+                    onChange={e => setEditingStoreItem({ ...editingStoreItem, name: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400">Category</label>
+                  <input
+                    type="text"
+                    value={editingStoreItem.category || 'Hardware'}
+                    onChange={e => setEditingStoreItem({ ...editingStoreItem, category: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-400">Retail Price (₦)</label>
+                  <input
+                    type="number"
+                    required
+                    value={editingStoreItem.price || 0}
+                    onChange={e => setEditingStoreItem({ ...editingStoreItem, price: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400">Current Stock Quantity</label>
+                  <input
+                    type="number"
+                    value={editingStoreItem.stock || 0}
+                    onChange={e => setEditingStoreItem({ ...editingStoreItem, stock: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-slate-400">Description</label>
+                <textarea
+                  rows={2}
+                  value={editingStoreItem.description || ''}
+                  onChange={e => setEditingStoreItem({ ...editingStoreItem, description: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                />
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold"
+                >
+                  Save Product
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingStoreItem(null)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-xl font-semibold"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {storeItems.map(item => (
+              <div key={item.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono text-[10px]">
+                      {item.category}
+                    </span>
+                    <span className="text-emerald-400 font-mono font-bold">₦{item.price.toLocaleString()}</span>
+                  </div>
+                  <h3 className="font-bold text-white text-sm">{item.name}</h3>
+                  <p className="text-slate-400 text-xs line-clamp-2">{item.description}</p>
+                </div>
+                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                  <span className="text-slate-400 font-mono">Stock: {item.stock}</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditingStoreItem(item)}
+                      className="p-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteStoreItem(item.id)}
+                      className="p-1.5 bg-slate-800 hover:bg-red-500/20 text-red-400 rounded-lg"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 5. ACADEMY COURSES */}
+      {activeTab === 'academy' && (
+        <div className="space-y-4 text-xs">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <GraduationCap className="w-4 h-4 text-emerald-400" />
+                <span>Academy Course Curriculum Management</span>
+              </h2>
+              <p className="text-slate-400 mt-0.5">Control agency accreditation tracks, enrollment fees, and module counts.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditingCourse({ title: '', level: 'Beginner to Pro', duration: '4 Weeks', modules_count: 6, price: 15000, description: '', status: 'enrolling' })}
+              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Course</span>
+            </button>
+          </div>
+
+          {editingCourse && (
+            <form onSubmit={handleSaveCourse} className="bg-slate-900 border border-indigo-500/30 rounded-2xl p-6 space-y-3">
+              <h3 className="font-bold text-white text-sm">
+                {editingCourse.id ? 'Edit Course' : 'Create Academy Course'}
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-400">Course Title</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingCourse.title || ''}
+                    onChange={e => setEditingCourse({ ...editingCourse, title: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400">Target Skill Level</label>
+                  <input
+                    type="text"
+                    value={editingCourse.level || 'Professional'}
+                    onChange={e => setEditingCourse({ ...editingCourse, level: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-slate-400">Duration</label>
+                  <input
+                    type="text"
+                    value={editingCourse.duration || '4 Weeks'}
+                    onChange={e => setEditingCourse({ ...editingCourse, duration: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400">Modules Count</label>
+                  <input
+                    type="number"
+                    value={editingCourse.modules_count || 6}
+                    onChange={e => setEditingCourse({ ...editingCourse, modules_count: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-400">Tuition Fee (₦)</label>
+                  <input
+                    type="number"
+                    value={editingCourse.price || 0}
+                    onChange={e => setEditingCourse({ ...editingCourse, price: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-slate-400">Description</label>
+                <textarea
+                  rows={2}
+                  value={editingCourse.description || ''}
+                  onChange={e => setEditingCourse({ ...editingCourse, description: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
+                />
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold"
+                >
+                  Save Course
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingCourse(null)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-xl font-semibold"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {academyCourses.map(course => (
+              <div key={course.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono text-[10px]">
+                      {course.level}
+                    </span>
+                    <span className="text-slate-400 font-mono">{course.duration}</span>
+                  </div>
+                  <h3 className="font-bold text-white text-sm">{course.title}</h3>
+                  <p className="text-slate-400 text-xs line-clamp-2">{course.description}</p>
+                </div>
+                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                  <span className="text-white font-mono font-bold">₦{course.price.toLocaleString()}</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditingCourse(course)}
+                      className="p-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCourse(course.id)}
+                      className="p-1.5 bg-slate-800 hover:bg-red-500/20 text-red-400 rounded-lg"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 6. FINANCIAL REPORTS */}
+      {activeTab === 'reports' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 text-xs">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-indigo-400" />
+                <span>Executive Ledger &amp; Reseller Spread Summary</span>
+              </h2>
+              <p className="text-slate-400 mt-0.5">Audited wholesale spread, provider costs, and daily transaction volume.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => alert('Generating full audit statement CSV package... Check server audit trail.')}
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-semibold flex items-center gap-1.5 transition"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              <span>Export CSV Journal</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
+              <p className="text-slate-400">Total Telecom Vending Cost</p>
+              <p className="text-lg font-bold font-mono text-white mt-1">UlamaData Sub-accounts</p>
+              <p className="text-[11px] text-emerald-400 mt-1">Average reseller margin: 15.2%</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
+              <p className="text-slate-400">Verification Gateway Outflow</p>
+              <p className="text-lg font-bold font-mono text-white mt-1">2SureVerify &amp; Veripine</p>
+              <p className="text-[11px] text-emerald-400 mt-1">NIMC margin: 30.0%</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
+              <p className="text-slate-400">TrueHost LON110 Ingress</p>
+              <p className="text-lg font-bold font-mono text-white mt-1">51.89.153.183:1624</p>
+              <p className="text-[11px] text-indigo-400 mt-1">99.98% Gateway Uptime</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

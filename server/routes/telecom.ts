@@ -189,8 +189,257 @@ telecomRouter.post('/purchase-airtime', requireAuth, async (req: any, res) => {
   }
 });
 
+// Cable TV Packages
+export const CABLE_PACKAGES: Record<string, Array<{ id: string; name: string; price: number; channels: number }>> = {
+  DSTV: [
+    { id: 'dstv_padi', name: 'DStv Padi', price: 3600, channels: 45 },
+    { id: 'dstv_yanga', name: 'DStv Yanga', price: 5100, channels: 85 },
+    { id: 'dstv_confam', name: 'DStv Confam', price: 9300, channels: 120 },
+    { id: 'dstv_compact', name: 'DStv Compact', price: 15700, channels: 145 },
+    { id: 'dstv_compact_plus', name: 'DStv Compact Plus', price: 25000, channels: 160 },
+    { id: 'dstv_premium', name: 'DStv Premium', price: 37000, channels: 175 },
+  ],
+  GOTV: [
+    { id: 'gotv_smallie', name: 'GOtv Smallie', price: 1575, channels: 35 },
+    { id: 'gotv_jinja', name: 'GOtv Jinja', price: 3300, channels: 45 },
+    { id: 'gotv_jolli', name: 'GOtv Jolli', price: 4850, channels: 65 },
+    { id: 'gotv_max', name: 'GOtv Max', price: 7200, channels: 75 },
+    { id: 'gotv_supa', name: 'GOtv Supa', price: 9600, channels: 85 },
+    { id: 'gotv_supa_plus', name: 'GOtv Supa+', price: 15700, channels: 95 },
+  ],
+  STARTIMES: [
+    { id: 'star_nova', name: 'StarTimes Nova Bouquet', price: 1700, channels: 30 },
+    { id: 'star_basic', name: 'StarTimes Basic Bouquet', price: 3300, channels: 40 },
+    { id: 'star_smart', name: 'StarTimes Smart Bouquet', price: 4200, channels: 50 },
+    { id: 'star_classic', name: 'StarTimes Classic Bouquet', price: 5000, channels: 65 },
+    { id: 'star_super', name: 'StarTimes Super Bouquet', price: 8200, channels: 80 },
+  ],
+};
+
+export const ELECTRICITY_DISCOS = [
+  { id: 'ikedc', name: 'Ikeja Electric (IKEDC)', state: 'Lagos Mainland', min: 1000 },
+  { id: 'ekedc', name: 'Eko Electric (EKEDC)', state: 'Lagos Island', min: 1000 },
+  { id: 'aedc', name: 'Abuja Electricity (AEDC)', state: 'Abuja, Niger, Kogi, Nasarawa', min: 1000 },
+  { id: 'ibedc', name: 'Ibadan Electricity (IBEDC)', state: 'Oyo, Ogun, Osun, Kwara', min: 1000 },
+  { id: 'kedco', name: 'Kano Electricity (KEDCO)', state: 'Kano, Katsina, Jigawa', min: 1000 },
+  { id: 'phed', name: 'Port Harcourt Electric (PHED)', state: 'Rivers, Bayelsa, Cross River, Akwa Ibom', min: 1000 },
+  { id: 'eedc', name: 'Enugu Electricity (EEDC)', state: 'Enugu, Abia, Imo, Anambra, Ebonyi', min: 1000 },
+  { id: 'jedc', name: 'Jos Electricity (JEDC)', state: 'Plateau, Bauchi, Benue, Gombe', min: 1000 },
+];
+
+// GET /api/telecom/cable-packages
+telecomRouter.get('/cable-packages', (req, res) => {
+  res.json({ packages: CABLE_PACKAGES });
+});
+
+// POST /api/telecom/verify-smartcard
+telecomRouter.post('/verify-smartcard', requireAuth, (req: any, res) => {
+  const { provider, smartcardNumber } = req.body;
+  if (!provider || !smartcardNumber || String(smartcardNumber).length < 8) {
+    return res.status(400).json({ error: 'Valid provider and smartcard number (min 8 digits) required' });
+  }
+
+  // Simulated live provider smartcard lookup
+  const mockNames: Record<string, string> = {
+    '1023456789': 'ABUBAKAR HAMBAK TECH ENTERPRISE',
+    '2039485712': 'FATIMA MOHAMMED YUSUF',
+    '7012938461': 'CHUKWUEMEKA DAVID OKONKWO',
+  };
+
+  const customerName = mockNames[String(smartcardNumber)] || `${req.user.full_name.toUpperCase()} (VERIFIED)`;
+
+  res.json({
+    success: true,
+    provider,
+    smartcardNumber,
+    customerName,
+    status: 'ACTIVE',
+    dueDate: '2026-12-15',
+  });
+});
+
+// POST /api/telecom/purchase-cable
+telecomRouter.post('/purchase-cable', requireAuth, (req: any, res) => {
+  try {
+    const { provider, smartcardNumber, packageId, phone } = req.body;
+    if (!provider || !smartcardNumber || !packageId) {
+      return res.status(400).json({ error: 'Provider, smartcard number, and package selection are required' });
+    }
+
+    const providerPkgs = CABLE_PACKAGES[provider.toUpperCase()];
+    if (!providerPkgs) {
+      return res.status(400).json({ error: 'Invalid cable provider' });
+    }
+
+    const pkg = providerPkgs.find(p => p.id === packageId);
+    if (!pkg) {
+      return res.status(404).json({ error: 'Cable bouquet package not found' });
+    }
+
+    let debitResult;
+    try {
+      debitResult = db.adjustBalance(
+        req.user.id,
+        -pkg.price,
+        'cable_tv',
+        `${provider.toUpperCase()} Subscription: ${pkg.name} for IUC/Smartcard ${smartcardNumber}`,
+        'internal',
+        { provider, smartcardNumber, packageId, packageName: pkg.name }
+      );
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
+
+    const providerRef = `VTP_CABLE_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const order: any = {
+      id: `ord_${Date.now()}`,
+      user_id: req.user.id,
+      service: 'cable',
+      network: provider.toUpperCase(),
+      phone: phone || req.user.phone_number,
+      plan: `${provider.toUpperCase()} ${pkg.name}`,
+      amount: pkg.price,
+      cost_price: Math.floor(pkg.price * 0.98),
+      profit: Math.floor(pkg.price * 0.02),
+      provider: 'vtpass',
+      provider_ref: providerRef,
+      status: 'successful',
+      created_at: new Date().toISOString(),
+    };
+
+    db.data.telecom_orders.unshift(order);
+
+    db.addNotification(
+      req.user.id,
+      'Cable TV Renewed',
+      `${provider.toUpperCase()} ${pkg.name} active on Smartcard ${smartcardNumber}. Ref: ${providerRef}`,
+      'success'
+    );
+
+    res.json({
+      success: true,
+      message: `${provider.toUpperCase()} ${pkg.name} renewed successfully for ${smartcardNumber}!`,
+      order,
+      newBalance: debitResult.user.wallet_balance,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Cable renewal failed' });
+  }
+});
+
+// GET /api/telecom/electricity-discos
+telecomRouter.get('/electricity-discos', (req, res) => {
+  res.json({ discos: ELECTRICITY_DISCOS });
+});
+
+// POST /api/telecom/verify-meter
+telecomRouter.post('/verify-meter', requireAuth, (req: any, res) => {
+  const { discoId, meterNumber, meterType = 'prepaid' } = req.body;
+  if (!discoId || !meterNumber || String(meterNumber).length < 8) {
+    return res.status(400).json({ error: 'Valid Disco and meter number (min 8 digits) required' });
+  }
+
+  const disco = ELECTRICITY_DISCOS.find(d => d.id === discoId);
+  const discoName = disco ? disco.name : discoId.toUpperCase();
+
+  res.json({
+    success: true,
+    discoId,
+    discoName,
+    meterNumber,
+    meterType,
+    customerName: `${req.user.full_name.toUpperCase()} (RESIDENCE)`,
+    address: req.user.address || 'Plot 42, Commercial Layout, Hamisu Crescent, Kano',
+    tariffClass: 'A-Non Maximum Demand (NMD)',
+  });
+});
+
+// POST /api/telecom/purchase-electricity
+telecomRouter.post('/purchase-electricity', requireAuth, (req: any, res) => {
+  try {
+    const { discoId, meterNumber, meterType = 'prepaid', amount, phone } = req.body;
+    const numAmount = Number(amount);
+
+    if (!discoId || !meterNumber || !numAmount || numAmount < 1000) {
+      return res.status(400).json({ error: 'Disco, valid meter number, and minimum ₦1,000 token amount required' });
+    }
+
+    const disco = ELECTRICITY_DISCOS.find(d => d.id === discoId);
+    const discoName = disco ? disco.name : discoId.toUpperCase();
+
+    let debitResult;
+    try {
+      debitResult = db.adjustBalance(
+        req.user.id,
+        -numAmount,
+        'store_purchase',
+        `Electricity Bill: ₦${numAmount.toLocaleString()} (${discoName}) - Meter ${meterNumber}`,
+        'internal',
+        { discoId, meterNumber, meterType, amount: numAmount }
+      );
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
+
+    // Generate standard 20-digit Nigerian electricity prepaid token
+    const tokenPart1 = Math.floor(1000 + Math.random() * 9000);
+    const tokenPart2 = Math.floor(1000 + Math.random() * 9000);
+    const tokenPart3 = Math.floor(1000 + Math.random() * 9000);
+    const tokenPart4 = Math.floor(1000 + Math.random() * 9000);
+    const tokenPart5 = Math.floor(1000 + Math.random() * 9000);
+    const token = `${tokenPart1}-${tokenPart2}-${tokenPart3}-${tokenPart4}-${tokenPart5}`;
+    const units = (numAmount / 68.5).toFixed(1); // standard kWh estimate
+    const providerRef = `VTP_ELEC_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const order: any = {
+      id: `ord_${Date.now()}`,
+      user_id: req.user.id,
+      service: 'electricity',
+      network: discoId.toUpperCase(),
+      phone: phone || req.user.phone_number,
+      plan: `₦${numAmount.toLocaleString()} Units (${units} kWh)`,
+      amount: numAmount,
+      cost_price: Math.floor(numAmount * 0.99),
+      profit: Math.floor(numAmount * 0.01),
+      provider: 'vtpass',
+      provider_ref: providerRef,
+      status: 'successful',
+      created_at: new Date().toISOString(),
+      metadata: {
+        token,
+        units: `${units} kWh`,
+        meterNumber,
+        meterType,
+        discoName,
+      },
+    };
+
+    db.data.telecom_orders.unshift(order);
+
+    db.addNotification(
+      req.user.id,
+      'Electricity Token Generated',
+      `Meter ${meterNumber}: Token ${token} (${units} kWh). Ref: ${providerRef}`,
+      'success'
+    );
+
+    res.json({
+      success: true,
+      message: `₦${numAmount.toLocaleString()} electricity token generated for Meter ${meterNumber}!`,
+      token,
+      units: `${units} kWh`,
+      order,
+      newBalance: debitResult.user.wallet_balance,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Electricity token purchase failed' });
+  }
+});
+
 // GET /api/telecom/history
 telecomRouter.get('/history', requireAuth, (req: any, res) => {
   const list = db.data.telecom_orders.filter(o => o.user_id === req.user.id);
   res.json({ orders: list });
 });
+

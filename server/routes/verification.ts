@@ -1,13 +1,15 @@
 /**
  * @file verification.ts
- * Identity verification router integrating 2SureVerify & Veripine.
- * Supports NIN (National Identity Number), BVN (Bank Verification Number), Phone & CAC.
+ * Phase 5 Complete Identity Verification, Modification & Enrolment Router.
+ * Implements 2SureVerify as primary provider with Veripine failover,
+ * wallet balance safety, automatic refunds, customer consent, and complete service coverage.
  */
 
 import { Router } from 'express';
-import { db } from '../db/database.js';
+import { db, VerificationRecord, IdentityServiceConfig } from '../db/database.js';
 import { CREDENTIALS } from '../config/credentials.js';
 import { parseToken } from './auth.js';
+import { verificationManager } from '../adapters/verification/VerificationAdapter.js';
 
 export const verificationRouter = Router();
 
@@ -24,142 +26,372 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-// GET /api/verification/services (Pricing catalogue)
+// -------------------------------------------------------------
+// 1. SERVICES CATALOGUE & PUBLIC PRICES (Never exposes wholesale costs)
+// -------------------------------------------------------------
 verificationRouter.get('/services', (req, res) => {
-  const settings = db.data.settings;
+  const services = (db.data.identity_services || []).filter(s => s.enabled);
+
+  // Group by category for customer navigation
+  const categories = {
+    nin_verification: services.filter(s => s.category === 'NIN Verification'),
+    bvn_verification: services.filter(s => s.category === 'BVN Verification'),
+    nin_modification: services.filter(s => s.category === 'NIN Modification'),
+    personalisation: services.filter(s => s.category === 'Personalisation'),
+    enrolment: services.filter(s => s.category === 'Enrolment'),
+    additional_services: services.filter(s => s.category === 'Additional Services'),
+  };
+
+  // Safe client list without wholesale_cost
+  const safeServices = services.map(s => ({
+    key: s.key,
+    name: s.name,
+    category: s.category,
+    price: s.selling_price,
+    endpoint: s.endpoint,
+    required_fields: s.required_fields,
+    description: s.description,
+    slip_type_supported: s.slip_type_supported,
+  }));
+
   res.json({
-    activeProvider: settings.active_verification_provider,
-    services: [
-      {
-        id: 'nin_standard',
-        name: 'NIN Standard Verification',
-        type: 'NIN',
-        fee: settings.nin_fee,
-        description: 'Instant NIMC NIN check with photo, biodata, tracking ID, and verifiable slip',
-        fields: ['NIN Number (11 digits)'],
-      },
-      {
-        id: 'nin_phone',
-        name: 'NIN by Phone Number Search',
-        type: 'NIN_PHONE',
-        fee: settings.nin_fee + 50,
-        description: 'Locate linked NIN record using registered Nigerian SIM card',
-        fields: ['Registered Phone Number'],
-      },
-      {
-        id: 'bvn_standard',
-        name: 'BVN Full Verification',
-        type: 'BVN',
-        fee: settings.bvn_fee,
-        description: 'Central Bank of Nigeria BVN biometric validation with phone, DOB and full names',
-        fields: ['BVN Number (11 digits)'],
-      },
-      {
-        id: 'cac_search',
-        name: 'CAC Business Registration Search',
-        type: 'CAC',
-        fee: 500,
-        description: 'Verify RC / BN / IT business registration status with Corporate Affairs Commission',
-        fields: ['RC/BN/IT Number or Company Name'],
-      },
+    success: true,
+    activeProvider: verificationManager.getPrimaryId(),
+    services: safeServices,
+    categories,
+    slipTypes: [
+      { id: 'ninStandard', name: 'NIMC Standard Slip (Recommended)', description: 'Full colored official NIMC verifiable slip with QR code' },
+      { id: 'ninPremium', name: 'NIMC Premium Digital ID Slip', description: 'Plastic-style card layout with security seal and watermark' },
+      { id: 'ninBasic', name: 'NIMC Basic Slip', description: 'Lightweight summary verification slip' },
+      { id: 'ninVnin', name: 'NIMC Virtual NIN Slip', description: 'Enterprise masked identity certificate' },
+      { id: 'bvnStandard', name: 'CBN BVN Official Certificate', description: 'Central Bank of Nigeria biometric validation certificate' },
+      { id: 'plasticBvn', name: 'Plastic BVN Digital Card Layout', description: 'Wallet-sized photo card design' },
     ],
   });
 });
 
-// POST /api/verification/verify
+// -------------------------------------------------------------
+// 2. HELPER ENDPOINTS: BVN MODIFICATION & ENROLMENT BANKS
+// -------------------------------------------------------------
+verificationRouter.get('/banks/modification', async (req, res) => {
+  try {
+    const provider = verificationManager.getProvider('2sureverify');
+    const response = await fetch(`${provider.getBaseUrl()}/api/v1/bvn_modification_banks.php`, {
+      headers: {
+        'X-Api-Key': CREDENTIALS.verification.sureverify.apiKey || '',
+        'Accept': 'application/json',
+      },
+    });
+    const json = await response.json();
+    if (json.success && Array.isArray(json.data)) {
+      // Return bank options with customer markup (wholesale + ₦4,000 margin)
+      const clientBanks = json.data.map((b: any) => ({
+        bank_name: b.bank_name,
+        price: b.price + 4000,
+      }));
+      return res.json({ success: true, data: clientBanks });
+    }
+    // Fallback if upstream unreachable
+    res.json({
+      success: true,
+      data: [
+        { bank_name: 'ACCESS BANK', price: 18000 },
+        { bank_name: 'FIRST BANK', price: 18000 },
+        { bank_name: 'GT BANK', price: 18000 },
+        { bank_name: 'ZENITH BANK', price: 18000 },
+        { bank_name: 'UBA', price: 18000 },
+        { bank_name: 'FCMB', price: 18000 },
+        { bank_name: 'STANBIC IBTC', price: 18000 },
+        { bank_name: 'OPAY / PALMPAY (MICROFINANCE)', price: 18000 },
+        { bank_name: 'NIBSS AGENCY', price: 10000 },
+      ],
+    });
+  } catch (err: any) {
+    res.json({
+      success: true,
+      data: [
+        { bank_name: 'ACCESS BANK', price: 18000 },
+        { bank_name: 'FIRST BANK', price: 18000 },
+        { bank_name: 'GT BANK', price: 18000 },
+        { bank_name: 'ZENITH BANK', price: 18000 },
+      ],
+    });
+  }
+});
+
+verificationRouter.get('/banks/enrollment', async (req, res) => {
+  try {
+    const provider = verificationManager.getProvider('2sureverify');
+    const response = await fetch(`${provider.getBaseUrl()}/api/v1/bvn_enrollment_banks.php`, {
+      headers: {
+        'X-Api-Key': CREDENTIALS.verification.sureverify.apiKey || '',
+        'Accept': 'application/json',
+      },
+    });
+    const json = await response.json();
+    if (json.success && Array.isArray(json.data)) {
+      const clientBanks = json.data.map((b: any) => ({
+        bank_name: b.bank_name,
+        price: b.price + 3000,
+      }));
+      return res.json({ success: true, data: clientBanks });
+    }
+    res.json({
+      success: true,
+      data: [
+        { bank_name: 'Access Bank', price: 6000 },
+        { bank_name: 'GTBank', price: 6000 },
+        { bank_name: 'Zenith Bank', price: 6000 },
+        { bank_name: 'First Bank', price: 6000 },
+        { bank_name: 'UBA', price: 6000 },
+        { bank_name: 'Fidelity Bank', price: 6000 },
+      ],
+    });
+  } catch {
+    res.json({
+      success: true,
+      data: [
+        { bank_name: 'Access Bank', price: 6000 },
+        { bank_name: 'GTBank', price: 6000 },
+        { bank_name: 'Zenith Bank', price: 6000 },
+      ],
+    });
+  }
+});
+
+// -------------------------------------------------------------
+// 3. MAIN VERIFICATION & DISPATCH ENGINE
+// -------------------------------------------------------------
 verificationRouter.post('/verify', requireAuth, async (req: any, res) => {
   try {
-    const { type, identifier, provider = '2sureverify' } = req.body;
+    const serviceKey = req.body.serviceKey || req.body.service_key;
+    const consent = Boolean(req.body.consent || req.body.ndpr_consent);
+    const testSandbox = Boolean(req.body.testSandbox);
+    const payload = req.body.payload || { ...req.body };
+    delete payload.serviceKey;
+    delete payload.service_key;
+    delete payload.consent;
+    delete payload.ndpr_consent;
+    delete payload.testSandbox;
 
-    if (!type || !identifier) {
-      return res.status(400).json({ error: 'Verification type and identifier are required' });
+    if (!serviceKey) {
+      return res.status(400).json({ error: 'Service key is required' });
     }
 
-    const cleanId = String(identifier).trim();
-    const fee = type === 'BVN' ? db.data.settings.bvn_fee : db.data.settings.nin_fee;
+    // Enforce consent per regulatory compliance
+    if (!consent) {
+      return res.status(400).json({
+        error: 'Customer consent is required. You must certify that the individual has authorized this verification in accordance with NDPR regulations.',
+      });
+    }
 
-    // Check user balance and debit
+    // Lookup service configuration
+    const service = (db.data.identity_services || []).find(s => s.key === serviceKey);
+    if (!service) {
+      return res.status(404).json({ error: `Service "${serviceKey}" is not recognized` });
+    }
+
+    if (!service.enabled) {
+      return res.status(400).json({ error: `Service "${service.name}" is currently disabled by administrator` });
+    }
+
+    // Validate required fields
+    for (const field of service.required_fields) {
+      if (payload[field] === undefined || String(payload[field]).trim() === '') {
+        return res.status(400).json({ error: `Missing required field: ${field}` });
+      }
+    }
+
+    // Customer selling price
+    const customerPrice = service.selling_price;
+    const searchValue = String(
+      payload.nin || payload.bvn || payload.phone || payload.firstname || payload.identifier || 'Request'
+    ).trim();
+
+    // Check user wallet balance
+    if (req.user.wallet_balance < customerPrice) {
+      return res.status(400).json({
+        error: `Insufficient wallet balance. This service costs ₦${customerPrice.toLocaleString()}. Your current balance is ₦${req.user.wallet_balance.toLocaleString()}. Please fund your wallet.`,
+      });
+    }
+
+    const txnRef = `VRF_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    // Debit customer wallet with transaction reference
     let debitResult;
     try {
       debitResult = db.adjustBalance(
         req.user.id,
-        -fee,
-        type === 'BVN' ? 'bvn_verification' : 'nin_verification',
-        `${type} Verification Query: ${cleanId}`,
+        -customerPrice,
+        service.category.includes('BVN') ? 'bvn_verification' : 'nin_verification',
+        `${service.name}: ${searchValue}`,
         'internal',
-        { type, identifier: cleanId, provider }
+        { serviceKey, payload, reference: txnRef }
       );
     } catch (err: any) {
       return res.status(400).json({ error: err.message });
     }
 
-    // Generate realistic verification response utilizing provider credentials
-    const samplePhotos = [
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
-    ];
+    // Execute through provider adapter
+    const provider = verificationManager.getProvider(service.provider);
+    const providerResult = await provider.executeService(
+      service.key,
+      service.endpoint,
+      payload,
+      Boolean(testSandbox)
+    );
 
-    const result = {
-      verificationId: `VRF_${Date.now()}`,
-      provider: provider === 'veripine' ? 'Veripine API' : '2SureVerify Gateway',
-      type,
-      searchQuery: cleanId,
-      status: 'VERIFIED',
-      data: {
-        idNumber: cleanId,
-        firstName: req.user.full_name.split(' ')[0] || 'ADAMU',
-        surname: req.user.full_name.split(' ')[1] || 'BELLO',
-        middleName: 'KABIRU',
-        dateOfBirth: '1994-06-21',
-        gender: 'Male',
-        phone: req.user.phone_number || '08031234567',
-        stateOfOrigin: 'Kano',
-        lgaOfOrigin: 'Nasarawa',
-        residenceState: 'Lagos',
-        residenceLga: 'Ikeja',
-        photo: samplePhotos[Math.floor(Math.random() * samplePhotos.length)],
-        trackingId: `NIMC-${Math.floor(100000000 + Math.random() * 900000000)}`,
-        verifiedAt: new Date().toISOString(),
-      },
-    };
+    // If provider rejected transaction (e.g. invalid NIN, format error, or upstream failure):
+    if (!providerResult.success && !providerResult.pending) {
+      // Execute automatic refund to preserve user trust!
+      db.adjustBalance(
+        req.user.id,
+        customerPrice,
+        'manual_adjustment',
+        `REFUND: Failed ${service.name} (${providerResult.message})`,
+        'internal',
+        { serviceKey, failedRef: txnRef, providerMessage: providerResult.message }
+      );
 
-    // Save record to DB
-    const record: any = {
+      db.addNotification(
+        req.user.id,
+        `${service.name} Failed - ₦${customerPrice.toLocaleString()} Refunded`,
+        `The provider could not fulfill this request (${providerResult.message}). Your wallet has been immediately refunded.`,
+        'alert'
+      );
+
+      return res.status(400).json({
+        success: false,
+        error: providerResult.message,
+        refunded: true,
+        refundedAmount: customerPrice,
+        newBalance: req.user.wallet_balance,
+      });
+    }
+
+    // Save successful / pending record to database
+    const record: VerificationRecord = {
       id: `vrf_${Date.now()}`,
       user_id: req.user.id,
-      type,
-      search_value: cleanId,
-      provider,
-      cost: fee,
-      status: 'completed',
-      result,
+      type: service.category,
+      service_key: service.key,
+      search_value: searchValue,
+      provider: service.provider,
+      cost: customerPrice,
+      provider_cost: service.wholesale_cost,
+      status: providerResult.pending ? 'pending' : 'completed',
+      reference: providerResult.reference || txnRef,
+      slip_type: payload.slip_type || 'ninStandard',
+      has_slip: Boolean(providerResult.data?.pdf_base64 || providerResult.data?.has_pdf_slip),
+      result: providerResult.data,
       created_at: new Date().toISOString(),
     };
-    db.data.verifications.unshift(record);
 
+    if (!db.data.verifications) {
+      db.data.verifications = [];
+    }
+    db.data.verifications.unshift(record);
+    db.saveDatabase();
+
+    // Log audit trail
+    db.logAudit(
+      'IDENTITY_SERVICE_EXECUTED',
+      {
+        serviceKey: service.key,
+        serviceName: service.name,
+        reference: record.reference,
+        cost: customerPrice,
+        provider: service.provider,
+      },
+      req.user.id,
+      req.user.email
+    );
+
+    // Dispatch customer notification
     db.addNotification(
       req.user.id,
-      `${type} Verification Succeeded`,
-      `Verified record for ${cleanId} successfully generated.`,
+      `${service.name} Successful`,
+      `Verification record for ${searchValue} was successfully completed. Reference: ${record.reference}`,
       'success'
     );
 
     res.json({
       success: true,
-      message: `${type} verified successfully`,
+      pending: providerResult.pending,
+      message: providerResult.message || `${service.name} completed successfully`,
+      reference: record.reference,
       newBalance: debitResult.user.wallet_balance,
-      result,
+      recordId: record.id,
+      result: providerResult.data,
+      service: {
+        key: service.key,
+        name: service.name,
+        category: service.category,
+      },
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Verification failed' });
+    res.status(500).json({ error: error.message || 'Identity processing failed' });
   }
 });
 
-// GET /api/verification/history
+// -------------------------------------------------------------
+// 4. POLL REFERENCE STATUS (GET /api/verification/status/:reference)
+// -------------------------------------------------------------
+verificationRouter.get('/status/:reference', requireAuth, async (req: any, res) => {
+  try {
+    const { reference } = req.params;
+    const provider = verificationManager.getProvider('2sureverify');
+    const result = await provider.checkStatus(reference);
+
+    // If local record exists, update its status
+    const record = (db.data.verifications || []).find(v => v.reference === reference);
+    if (record && result.success) {
+      record.status = result.pending ? 'pending' : 'completed';
+      if (result.data) {
+        record.result = { ...record.result, ...result.data };
+      }
+      db.saveDatabase();
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 5. USER'S VERIFICATION HISTORY & RECORDS
+// -------------------------------------------------------------
 verificationRouter.get('/history', requireAuth, (req: any, res) => {
-  const list = db.data.verifications.filter(v => v.user_id === req.user.id);
+  const { category, search } = req.query;
+  let list = (db.data.verifications || []).filter(v => v.user_id === req.user.id);
+
+  if (category && category !== 'all') {
+    list = list.filter(v => v.type === category || v.service_key === category);
+  }
+
+  if (search) {
+    const q = String(search).toLowerCase();
+    list = list.filter(v =>
+      v.search_value.toLowerCase().includes(q) ||
+      (v.reference && v.reference.toLowerCase().includes(q))
+    );
+  }
+
   res.json({
+    success: true,
+    count: list.length,
     verifications: list,
+  });
+});
+
+verificationRouter.get('/record/:id', requireAuth, (req: any, res) => {
+  const record = (db.data.verifications || []).find(v => v.id === req.params.id && v.user_id === req.user.id);
+  if (!record) {
+    return res.status(404).json({ error: 'Record not found' });
+  }
+  res.json({
+    success: true,
+    record,
   });
 });

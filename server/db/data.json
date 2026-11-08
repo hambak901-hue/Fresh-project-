@@ -1,0 +1,2025 @@
+{
+  "users": [
+    {
+      "id": "usr_superadmin",
+      "email": "admin@hambaktech.com.ng",
+      "password_hash": "4c8c193dc49882e6608eab266fd9244d0a663e04b42c1e61b07e2d5ff641022d",
+      "full_name": "Bakar Hambak (Super Admin)",
+      "phone_number": "+2348030001122",
+      "role": "superadmin",
+      "wallet_balance": 500000,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "HAMBAK-SUPER",
+      "created_at": "2026-01-01T00:00:00.000Z",
+      "updated_at": "2026-11-08T00:20:03.128Z",
+      "status": "active"
+    },
+    {
+      "id": "usr_customer_demo",
+      "email": "fatimohmusbau34@gmail.com",
+      "password_hash": "ece765cc8fe255d56b84d3cbf302e7cd76fd63d11bc1ff070da23dc2d79e727e",
+      "full_name": "Fatimoh Musbau",
+      "phone_number": "+2348123456789",
+      "role": "customer",
+      "wallet_balance": 14100,
+      "kyc_status": "verified",
+      "nin": "12345678901",
+      "bvn": "22334455667",
+      "tier": 2,
+      "referral_code": "FATIMOH99",
+      "created_at": "2026-02-15T00:00:00.000Z",
+      "updated_at": "2026-11-08T08:41:34.421Z",
+      "status": "active"
+    },
+    {
+      "email": "chidinma.test@example.com",
+      "password_hash": "d3b5baf8846d8c40c8e64c42b7546da648210bb772aa74c910fcac0c004aed51",
+      "full_name": "Chidinma Okafor",
+      "phone_number": "08149876543",
+      "role": "customer",
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-KMW28J",
+      "status": "active",
+      "id": "usr_1794098033993_zg9o1",
+      "created_at": "2026-11-08T00:33:53.993Z",
+      "updated_at": "2026-11-08T00:33:53.993Z"
+    }
+  ],
+  "transactions": [
+    {
+      "id": "txn_1794127294421_zggwt",
+      "user_id": "usr_customer_demo",
+      "type": "debit",
+      "amount": 200,
+      "balance_before": 14300,
+      "balance_after": 14100,
+      "category": "nin_verification",
+      "reference": "VRF_1794127294421_2mqz8",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "NIN Verification (V1 Standard): 11223344556",
+      "metadata": {
+        "serviceKey": "nin_v1",
+        "payload": {
+          "nin": "11223344556",
+          "slip_type": "ninPremium"
+        },
+        "reference": "VRF_1794127294421_2mqz8"
+      },
+      "created_at": "2026-11-08T08:41:34.421Z"
+    },
+    {
+      "id": "txn_1794127289155_wrver",
+      "user_id": "usr_customer_demo",
+      "type": "debit",
+      "amount": 200,
+      "balance_before": 14500,
+      "balance_after": 14300,
+      "category": "nin_verification",
+      "reference": "VRF_1794127289154_vrqov",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "NIN Verification (V1 Standard): 11223344556",
+      "metadata": {
+        "serviceKey": "nin_v1",
+        "payload": {
+          "nin": "11223344556",
+          "slip_type": "ninPremium"
+        },
+        "reference": "VRF_1794127289154_vrqov"
+      },
+      "created_at": "2026-11-08T08:41:29.155Z"
+    },
+    {
+      "id": "txn_1794127284047_siapa",
+      "user_id": "usr_customer_demo",
+      "type": "debit",
+      "amount": 200,
+      "balance_before": 14700,
+      "balance_after": 14500,
+      "category": "nin_verification",
+      "reference": "VRF_1794127284047_xen6k",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "NIN Verification (V1 Standard): 11223344556",
+      "metadata": {
+        "serviceKey": "nin_v1",
+        "payload": {
+          "nin": "11223344556",
+          "slip_type": "ninPremium"
+        },
+        "reference": "VRF_1794127284047_xen6k"
+      },
+      "created_at": "2026-11-08T08:41:24.047Z"
+    },
+    {
+      "id": "txn_1794127277197_93uk7",
+      "user_id": "usr_customer_demo",
+      "type": "credit",
+      "amount": 200,
+      "balance_before": 14500,
+      "balance_after": 14700,
+      "category": "manual_adjustment",
+      "reference": "REF_1794127277197",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "REFUND: Failed NIN Verification (V1 Standard) (Invalid api_key.)",
+      "metadata": {
+        "serviceKey": "nin_v1",
+        "failedRef": "VRF_1794127277127_6stqd",
+        "providerMessage": "Invalid api_key."
+      },
+      "created_at": "2026-11-08T08:41:17.197Z"
+    },
+    {
+      "id": "txn_1794127277128_fdy4g",
+      "user_id": "usr_customer_demo",
+      "type": "debit",
+      "amount": 200,
+      "balance_before": 14700,
+      "balance_after": 14500,
+      "category": "nin_verification",
+      "reference": "VRF_1794127277127_6stqd",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "NIN Verification (V1 Standard): 11223344556",
+      "metadata": {
+        "serviceKey": "nin_v1",
+        "payload": {
+          "nin": "11223344556",
+          "slip_type": "ninPremium"
+        },
+        "reference": "VRF_1794127277127_6stqd"
+      },
+      "created_at": "2026-11-08T08:41:17.128Z"
+    },
+    {
+      "id": "txn_1794125544108_grv0t",
+      "user_id": "usr_customer_demo",
+      "type": "credit",
+      "amount": 500,
+      "balance_before": 14200,
+      "balance_after": 14700,
+      "category": "manual_adjustment",
+      "reference": "REF_1794125544108",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "Admin CREDIT: ₦500 - Promotional loyalty top-up test",
+      "metadata": {
+        "adminId": "usr_superadmin",
+        "adminEmail": "admin@hambaktech.com.ng",
+        "reason": "Promotional loyalty top-up test"
+      },
+      "created_at": "2026-11-08T08:12:24.108Z"
+    },
+    {
+      "id": "txn_1794099001229_92ppc",
+      "user_id": "usr_customer_demo",
+      "type": "debit",
+      "amount": 1000,
+      "balance_before": 15200,
+      "balance_after": 14200,
+      "category": "store_purchase",
+      "reference": "REF_1794099001229",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "Electricity Bill: ₦1,000 (Ikeja Electric (IKEDC)) - Meter 01011526738",
+      "metadata": {
+        "discoId": "ikedc",
+        "meterNumber": "01011526738",
+        "meterType": "prepaid",
+        "amount": 1000
+      },
+      "created_at": "2026-11-08T00:50:01.229Z"
+    },
+    {
+      "id": "txn_1794098996452_wrrr0",
+      "user_id": "usr_customer_demo",
+      "type": "debit",
+      "amount": 250,
+      "balance_before": 15450,
+      "balance_after": 15200,
+      "category": "nin_verification",
+      "reference": "REF_1794098996452",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "NIN Verification Query: 12345678901",
+      "metadata": {
+        "type": "NIN",
+        "identifier": "12345678901",
+        "provider": "2sureverify"
+      },
+      "created_at": "2026-11-08T00:49:56.452Z"
+    },
+    {
+      "id": "txn_init_001",
+      "user_id": "usr_customer_demo",
+      "type": "credit",
+      "amount": 20000,
+      "balance_before": 0,
+      "balance_after": 20000,
+      "category": "funding",
+      "reference": "FLW_MOCK_INIT_001",
+      "gateway": "flutterwave",
+      "status": "successful",
+      "description": "Wallet top-up via Flutterwave",
+      "created_at": "2026-11-05T00:20:03.128Z"
+    },
+    {
+      "id": "txn_init_002",
+      "user_id": "usr_customer_demo",
+      "type": "debit",
+      "amount": 250,
+      "balance_before": 20000,
+      "balance_after": 19750,
+      "category": "nin_verification",
+      "reference": "2SV_NIN_INIT_002",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "Instant NIN Slip Verification",
+      "created_at": "2026-11-06T00:20:03.128Z"
+    },
+    {
+      "id": "txn_init_003",
+      "user_id": "usr_customer_demo",
+      "type": "debit",
+      "amount": 4300,
+      "balance_before": 19750,
+      "balance_after": 15450,
+      "category": "data_purchase",
+      "reference": "UD_MTN_INIT_003",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "MTN SME 10GB Data Top-up to 08123456789",
+      "created_at": "2026-11-07T00:20:03.128Z"
+    }
+  ],
+  "verifications": [
+    {
+      "id": "vrf_1794127294422",
+      "user_id": "usr_customer_demo",
+      "type": "NIN Verification",
+      "service_key": "nin_v1",
+      "search_value": "11223344556",
+      "provider": "2sureverify",
+      "cost": 200,
+      "provider_cost": 85,
+      "status": "completed",
+      "reference": "NIN_V1-3GXCEF-1794127294422",
+      "slip_type": "ninPremium",
+      "has_slip": true,
+      "result": {
+        "firstname": "OLUWASEUN",
+        "middlename": "FOLASHADE",
+        "surname": "OBIAGWU",
+        "gender": "Female",
+        "birthdate": "1995-08-14",
+        "nin": "11223344556",
+        "bvn": "22334455667",
+        "telephoneno": "08032503238",
+        "residence_state": "Lagos",
+        "residence_lga": "Ikeja",
+        "state_of_origin": "Oyo",
+        "lga_of_origin": "Ibadan North",
+        "photo": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80",
+        "tracking_id": "NIMC-983358074",
+        "user_data": {
+          "firstname": "OLUWASEUN",
+          "middlename": "FOLASHADE",
+          "surname": "OBIAGWU",
+          "gender": "Female",
+          "birthdate": "1995-08-14",
+          "nin": "11223344556",
+          "telephoneno": "08032503238",
+          "residence_state": "Lagos",
+          "residence_lga": "Ikeja"
+        },
+        "amount_charged": "130.00",
+        "balance_before": "2500.00",
+        "balance_after": "2370.00",
+        "slip_type": "ninPremium",
+        "has_pdf_slip": true
+      },
+      "created_at": "2026-11-08T08:41:34.422Z"
+    },
+    {
+      "id": "vrf_1794127289156",
+      "user_id": "usr_customer_demo",
+      "type": "NIN Verification",
+      "service_key": "nin_v1",
+      "search_value": "11223344556",
+      "provider": "2sureverify",
+      "cost": 200,
+      "provider_cost": 85,
+      "status": "completed",
+      "reference": "NIN_V1-UXTY33-1794127289156",
+      "slip_type": "ninPremium",
+      "has_slip": true,
+      "result": {
+        "firstname": "BABATUNDE",
+        "middlename": "EMMANUEL",
+        "surname": "YUSUF",
+        "gender": "Female",
+        "birthdate": "1995-08-14",
+        "nin": "11223344556",
+        "bvn": "22334455667",
+        "telephoneno": "08032503238",
+        "residence_state": "Lagos",
+        "residence_lga": "Ikeja",
+        "state_of_origin": "Oyo",
+        "lga_of_origin": "Ibadan North",
+        "photo": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80",
+        "tracking_id": "NIMC-600256851",
+        "user_data": {
+          "firstname": "BABATUNDE",
+          "middlename": "EMMANUEL",
+          "surname": "YUSUF",
+          "gender": "Female",
+          "birthdate": "1995-08-14",
+          "nin": "11223344556",
+          "telephoneno": "08032503238",
+          "residence_state": "Lagos",
+          "residence_lga": "Ikeja"
+        },
+        "amount_charged": "130.00",
+        "balance_before": "2500.00",
+        "balance_after": "2370.00",
+        "slip_type": "ninPremium",
+        "has_pdf_slip": true
+      },
+      "created_at": "2026-11-08T08:41:29.156Z"
+    },
+    {
+      "id": "vrf_1794127284048",
+      "user_id": "usr_customer_demo",
+      "type": "NIN Verification",
+      "service_key": "nin_v1",
+      "search_value": "11223344556",
+      "provider": "2sureverify",
+      "cost": 200,
+      "provider_cost": 85,
+      "status": "completed",
+      "reference": "NIN_V1-RR437J-1794127284048",
+      "slip_type": "ninPremium",
+      "has_slip": true,
+      "result": {
+        "firstname": "OLUWASEUN",
+        "middlename": "EMMANUEL",
+        "surname": "DANJUMA",
+        "gender": "Female",
+        "birthdate": "1995-08-14",
+        "nin": "11223344556",
+        "bvn": "22334455667",
+        "telephoneno": "08032503238",
+        "residence_state": "Lagos",
+        "residence_lga": "Ikeja",
+        "state_of_origin": "Oyo",
+        "lga_of_origin": "Ibadan North",
+        "photo": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80",
+        "tracking_id": "NIMC-348117559",
+        "user_data": {
+          "firstname": "OLUWASEUN",
+          "middlename": "EMMANUEL",
+          "surname": "DANJUMA",
+          "gender": "Female",
+          "birthdate": "1995-08-14",
+          "nin": "11223344556",
+          "telephoneno": "08032503238",
+          "residence_state": "Lagos",
+          "residence_lga": "Ikeja"
+        },
+        "amount_charged": "130.00",
+        "balance_before": "2500.00",
+        "balance_after": "2370.00",
+        "slip_type": "ninPremium",
+        "has_pdf_slip": true
+      },
+      "created_at": "2026-11-08T08:41:24.048Z"
+    },
+    {
+      "id": "vrf_1794098996452",
+      "user_id": "usr_customer_demo",
+      "type": "NIN",
+      "search_value": "12345678901",
+      "provider": "2sureverify",
+      "cost": 250,
+      "status": "completed",
+      "result": {
+        "verificationId": "VRF_1794098996452",
+        "provider": "2SureVerify Gateway",
+        "type": "NIN",
+        "searchQuery": "12345678901",
+        "status": "VERIFIED",
+        "data": {
+          "idNumber": "12345678901",
+          "firstName": "Fatimoh",
+          "surname": "Musbau",
+          "middleName": "KABIRU",
+          "dateOfBirth": "1994-06-21",
+          "gender": "Male",
+          "phone": "+2348123456789",
+          "stateOfOrigin": "Kano",
+          "lgaOfOrigin": "Nasarawa",
+          "residenceState": "Lagos",
+          "residenceLga": "Ikeja",
+          "photo": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80",
+          "trackingId": "NIMC-756731771",
+          "verifiedAt": "2026-11-08T00:49:56.452Z"
+        }
+      },
+      "created_at": "2026-11-08T00:49:56.452Z"
+    },
+    {
+      "id": "vrf_001",
+      "user_id": "usr_customer_demo",
+      "type": "NIN",
+      "search_value": "12345678901",
+      "provider": "2sureverify",
+      "cost": 250,
+      "status": "completed",
+      "result": {
+        "nin": "12345678901",
+        "firstname": "FATIMOH",
+        "surname": "MUSBAU",
+        "middlename": "ADEYEMI",
+        "birthdate": "1996-08-14",
+        "gender": "female",
+        "state": "Lagos",
+        "lga": "Ikeja",
+        "photo": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80",
+        "trackingId": "NIN-VRF-9827391"
+      },
+      "created_at": "2026-11-06T00:20:03.128Z"
+    }
+  ],
+  "telecom_orders": [
+    {
+      "id": "ord_1794099001229",
+      "user_id": "usr_customer_demo",
+      "service": "electricity",
+      "network": "IKEDC",
+      "phone": "+2348123456789",
+      "plan": "₦1,000 Units (14.6 kWh)",
+      "amount": 1000,
+      "cost_price": 990,
+      "profit": 10,
+      "provider": "vtpass",
+      "provider_ref": "VTP_ELEC_1794099001229_5704",
+      "status": "successful",
+      "created_at": "2026-11-08T00:50:01.229Z",
+      "metadata": {
+        "token": "7258-8652-2113-1774-3089",
+        "units": "14.6 kWh",
+        "meterNumber": "01011526738",
+        "meterType": "prepaid",
+        "discoName": "Ikeja Electric (IKEDC)"
+      }
+    },
+    {
+      "id": "ord_001",
+      "user_id": "usr_customer_demo",
+      "service": "data",
+      "network": "MTN",
+      "phone": "08123456789",
+      "plan": "MTN SME 10GB (30 Days)",
+      "amount": 4300,
+      "cost_price": 2700,
+      "profit": 1600,
+      "provider": "ulamadata",
+      "provider_ref": "UD-TXN-847291",
+      "status": "successful",
+      "created_at": "2026-11-07T00:20:03.128Z"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "notif_1794127294423_53ah4",
+      "user_id": "usr_customer_demo",
+      "title": "NIN Verification (V1 Standard) Successful",
+      "message": "Verification record for 11223344556 was successfully completed. Reference: NIN_V1-3GXCEF-1794127294422",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-08T08:41:34.423Z"
+    },
+    {
+      "id": "notif_1794127289157_6wwf1",
+      "user_id": "usr_customer_demo",
+      "title": "NIN Verification (V1 Standard) Successful",
+      "message": "Verification record for 11223344556 was successfully completed. Reference: NIN_V1-UXTY33-1794127289156",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-08T08:41:29.157Z"
+    },
+    {
+      "id": "notif_1794127284049_k160n",
+      "user_id": "usr_customer_demo",
+      "title": "NIN Verification (V1 Standard) Successful",
+      "message": "Verification record for 11223344556 was successfully completed. Reference: NIN_V1-RR437J-1794127284048",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-08T08:41:24.049Z"
+    },
+    {
+      "id": "notif_1794127277216_p7uuh",
+      "user_id": "usr_customer_demo",
+      "title": "NIN Verification (V1 Standard) Failed - ₦200 Refunded",
+      "message": "The provider could not fulfill this request (Invalid api_key.). Your wallet has been immediately refunded.",
+      "type": "alert",
+      "read": false,
+      "created_at": "2026-11-08T08:41:17.216Z"
+    },
+    {
+      "id": "notif_1794125544109_j7omo",
+      "user_id": "usr_customer_demo",
+      "title": "Wallet Credited by Admin",
+      "message": "Received ₦500. Reason: Promotional loyalty top-up test",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-08T08:12:24.109Z"
+    },
+    {
+      "id": "notif_1794099001230_p9vbz",
+      "user_id": "usr_customer_demo",
+      "title": "Electricity Token Generated",
+      "message": "Meter 01011526738: Token 7258-8652-2113-1774-3089 (14.6 kWh). Ref: VTP_ELEC_1794099001229_5704",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-08T00:50:01.230Z"
+    },
+    {
+      "id": "notif_1794098996452_3dwmu",
+      "user_id": "usr_customer_demo",
+      "title": "NIN Verification Succeeded",
+      "message": "Verified record for 12345678901 successfully generated.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-08T00:49:56.452Z"
+    },
+    {
+      "id": "notif_1794098033994_gzngv",
+      "user_id": "usr_1794098033993_zg9o1",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello Chidinma Okafor, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-08T00:33:53.994Z"
+    },
+    {
+      "id": "notif_001",
+      "user_id": "usr_customer_demo",
+      "title": "Welcome to HambakTech!",
+      "message": "Your account has been configured. You can now verify NIN, BVN, and buy cheapest Nigerian telecom data.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-05T00:20:03.128Z"
+    },
+    {
+      "id": "notif_002",
+      "user_id": "usr_customer_demo",
+      "title": "Wallet Funded Successfully",
+      "message": "Your wallet has been credited with ₦20,000 via Flutterwave gateway.",
+      "type": "info",
+      "read": true,
+      "created_at": "2026-11-05T00:20:03.128Z"
+    }
+  ],
+  "settings": {
+    "nin_fee": 250,
+    "bvn_fee": 350,
+    "mtn_sme_1gb": 270,
+    "airtel_1gb": 290,
+    "glo_1gb": 260,
+    "nine_mobile_1gb": 250,
+    "airtime_discount_percent": 2.5,
+    "maintenance_mode": false,
+    "active_verification_provider": "2sureverify",
+    "active_telecom_provider": "ulamadata",
+    "active_payment_gateway": "flutterwave",
+    "bank_transfer_account_name": "Hambak Technologies Enterprise",
+    "bank_transfer_bank": "Moniepoint MFB / Truehost LON110",
+    "bank_transfer_account_number": "8210492817",
+    "company_name": "HambakTech Technologies",
+    "support_phone": "+234 803 000 1122",
+    "support_email": "support@hambaktech.com.ng"
+  },
+  "audit_logs": [
+    {
+      "id": "audit_1794127294423",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "IDENTITY_SERVICE_EXECUTED",
+      "details": {
+        "serviceKey": "nin_v1",
+        "serviceName": "NIN Verification (V1 Standard)",
+        "reference": "NIN_V1-3GXCEF-1794127294422",
+        "cost": 200,
+        "provider": "2sureverify"
+      },
+      "created_at": "2026-11-08T08:41:34.423Z"
+    },
+    {
+      "id": "audit_1794127294409",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T08:41:34.409Z"
+    },
+    {
+      "id": "audit_1794127289156",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "IDENTITY_SERVICE_EXECUTED",
+      "details": {
+        "serviceKey": "nin_v1",
+        "serviceName": "NIN Verification (V1 Standard)",
+        "reference": "NIN_V1-UXTY33-1794127289156",
+        "cost": 200,
+        "provider": "2sureverify"
+      },
+      "created_at": "2026-11-08T08:41:29.156Z"
+    },
+    {
+      "id": "audit_1794127289138",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T08:41:29.138Z"
+    },
+    {
+      "id": "audit_1794127284048",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "IDENTITY_SERVICE_EXECUTED",
+      "details": {
+        "serviceKey": "nin_v1",
+        "serviceName": "NIN Verification (V1 Standard)",
+        "reference": "NIN_V1-RR437J-1794127284048",
+        "cost": 200,
+        "provider": "2sureverify"
+      },
+      "created_at": "2026-11-08T08:41:24.048Z"
+    },
+    {
+      "id": "audit_1794127284031",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T08:41:24.031Z"
+    },
+    {
+      "id": "audit_1794127277102",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T08:41:17.102Z"
+    },
+    {
+      "id": "audit_1794127270008",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T08:41:10.008Z"
+    },
+    {
+      "id": "audit_1794127265354",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T08:41:05.354Z"
+    },
+    {
+      "id": "audit_1794127248434",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T08:40:48.434Z"
+    },
+    {
+      "id": "audit_1794127244125",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T08:40:44.125Z"
+    },
+    {
+      "id": "audit_1794127210459",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T08:40:10.459Z"
+    },
+    {
+      "id": "audit_1794127205189",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T08:40:05.189Z"
+    },
+    {
+      "id": "audit_1794125555510",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "DASHBOARD_MODULE_UPDATED",
+      "details": {
+        "moduleId": "store",
+        "changes": {
+          "name": "Commercial Hardware Store",
+          "description": "Point-of-Sale Hardware, Card Readers & Thermal Roll Supplies",
+          "status": "active",
+          "visible": true
+        }
+      },
+      "created_at": "2026-11-08T08:12:35.510Z"
+    },
+    {
+      "id": "audit_1794125551628",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "STORE_ITEM_CREATED",
+      "details": {
+        "item": {
+          "id": "item_1794125551627",
+          "name": "HambakTech High-Speed Thermal Receipt Printer",
+          "category": "Hardware",
+          "price": 48500,
+          "stock": 15,
+          "description": "Direct USB/Bluetooth ESC/POS thermal receipt printer for NIN slips and bills.",
+          "status": "in_stock",
+          "created_at": "2026-11-08T08:12:31.627Z"
+        }
+      },
+      "created_at": "2026-11-08T08:12:31.628Z"
+    },
+    {
+      "id": "audit_1794125544109",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "WALLET_ADJUSTMENT",
+      "details": {
+        "targetUserId": "usr_customer_demo",
+        "targetEmail": "fatimohmusbau34@gmail.com",
+        "type": "credit",
+        "amount": 500,
+        "balanceBefore": 14200,
+        "balanceAfter": 14700,
+        "reason": "Promotional loyalty top-up test"
+      },
+      "created_at": "2026-11-08T08:12:24.109Z"
+    },
+    {
+      "id": "audit_1794099001193",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T00:50:01.193Z"
+    },
+    {
+      "id": "audit_1794098996435",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T00:49:56.435Z"
+    },
+    {
+      "id": "audit_1794098984831",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T00:49:44.831Z"
+    },
+    {
+      "id": "audit_1794098980844",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T00:49:40.844Z"
+    },
+    {
+      "id": "audit_1794098037641",
+      "user_id": "usr_1794098033993_zg9o1",
+      "user_email": "chidinma.test@example.com",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T00:33:57.641Z"
+    },
+    {
+      "id": "audit_1794098033994",
+      "user_id": "usr_1794098033993_zg9o1",
+      "user_email": "chidinma.test@example.com",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "chidinma.test@example.com",
+        "phone": "08149876543"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-08T00:33:53.994Z"
+    },
+    {
+      "id": "audit_1794098026148",
+      "action": "CONTACT_FORM_SUBMISSION",
+      "details": {
+        "name": "Oluwaseun Balogun",
+        "email": "seun@example.com",
+        "phone": "08031234567",
+        "subject": "Reseller API Test",
+        "messageLength": 65
+      },
+      "created_at": "2026-11-08T00:33:46.148Z"
+    },
+    {
+      "id": "audit_001",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "SYSTEM_BOOTSTRAP",
+      "details": {
+        "message": "Database initialized for Phase 01 Project Foundation and Architecture"
+      },
+      "created_at": "2026-11-08T00:20:03.128Z"
+    }
+  ],
+  "branding": {
+    "company_name": "HambakTech Enterprise",
+    "tagline": "Nigeria's Foremost Identity Verification, Telecom & Digital Services Engine",
+    "logo_url": "",
+    "favicon_url": "/favicon.ico",
+    "primary_color": "#10b981",
+    "secondary_color": "#0284c7",
+    "font_family": "Plus Jakarta Sans",
+    "support_phone": "+234 803 000 1122",
+    "support_email": "support@hambaktech.com.ng",
+    "office_address": "Plot 14, Commercial Avenue, Ikeja, Lagos, Nigeria",
+    "whatsapp_number": "+2348030001122",
+    "social_links": {
+      "twitter": "https://x.com/hambaktech",
+      "facebook": "https://facebook.com/hambaktech",
+      "linkedin": "https://linkedin.com/company/hambaktech",
+      "whatsapp": "https://wa.me/2348030001122"
+    },
+    "footer_text": "HambakTech Enterprise is Nigeria's high-reliability infrastructure provider for NIMC/BVN identity verification, SME telecoms vending, and digital payments on TrueHost LON110.",
+    "copyright_text": "© 2026 Hambak Technologies Enterprise. All Rights Reserved. Infrastructure hosted on TrueHost LON110 (51.89.153.183:1624).",
+    "seo_title": "HambakTech Enterprise | NIMC NIN, BVN, Telecom Data & Digital Services",
+    "seo_description": "All-in-one Nigerian VTU, identity verification (NIN/BVN), telecom, payments, academy, and digital services platform for HambakTech.",
+    "seo_keywords": "NIN verification, BVN validation, MTN SME data, Nigerian VTU, identity verification, airtime recharge, Truehost LON110, HambakTech"
+  },
+  "cms_sections": {
+    "hero": {
+      "badge": "Nigeria's Leading Digital Services Infrastructure",
+      "headline": "Instant Identity Verification, Telecom Bundles & Digital Payments",
+      "subheadline": "Automate NIMC NIN slips, BVN lookups, MTN & Airtel SME data vending, and utility bill clearing with enterprise 99.98% uptime on TrueHost LON110.",
+      "primaryCtaText": "Get Started Free",
+      "primaryCtaLink": "register",
+      "secondaryCtaText": "Explore Solutions",
+      "secondaryCtaLink": "services",
+      "bannerImage": "/src/assets/images/hero_fintech_portal_1794097383199.jpg"
+    },
+    "companyIntro": {
+      "badge": "Engineering Excellence & Trust",
+      "title": "Engineered for Nigerian Businesses, Developers & Agents",
+      "description": "Founded with a mission to eliminate manual identity validation and telecom friction, HambakTech operates high-throughput integration adapters with 2SureVerify, Veripine, UlamaData, and VTpass directly connected to sovereign telecommunication nodes.",
+      "founded": "2024",
+      "headquarters": "Lagos, Nigeria",
+      "infrastructure": "TrueHost LON110 Tier-3 Cloud Server (51.89.153.183:1624)",
+      "stats": [
+        {
+          "label": "Monthly Transactions",
+          "value": "₦120M+"
+        },
+        {
+          "label": "Verifications Completed",
+          "value": "45,000+"
+        },
+        {
+          "label": "API Dispatch Latency",
+          "value": "1.2s"
+        },
+        {
+          "label": "Server Availability",
+          "value": "99.98%"
+        }
+      ]
+    },
+    "howItWorks": [
+      {
+        "step": "01",
+        "title": "Open Your Account",
+        "description": "Create a free personal or corporate wallet in under 60 seconds with instant verification."
+      },
+      {
+        "step": "02",
+        "title": "Fund Your Balance",
+        "description": "Top up seamlessly via instant Flutterwave checkout or dedicated virtual bank accounts."
+      },
+      {
+        "step": "03",
+        "title": "Dispatch Instantly",
+        "description": "Process NIN & BVN slips, dispatch SME data packages, or hook into our developer REST API."
+      }
+    ],
+    "benefits": [
+      {
+        "id": "b1",
+        "title": "Sub-Second Dispatch",
+        "description": "Direct carrier pipes deliver MTN SME data and airtime in under 3 seconds.",
+        "icon": "Zap"
+      },
+      {
+        "id": "b2",
+        "title": "Regulatory Compliant",
+        "description": "Official NIMC and NIBSS data verification formats with verifiable tracking codes.",
+        "icon": "ShieldCheck"
+      },
+      {
+        "id": "b3",
+        "title": "Automated Failover",
+        "description": "Multi-provider routing between 2SureVerify & Veripine guarantees zero downtime.",
+        "icon": "Cpu"
+      },
+      {
+        "id": "b4",
+        "title": "Wholesale Profit Margins",
+        "description": "Enjoy agent discounted pricing on SME 1GB data starting as low as ₦250.",
+        "icon": "TrendingUp"
+      }
+    ],
+    "pageVisibility": {
+      "home": true,
+      "about": true,
+      "services": true,
+      "contact": true,
+      "faq": true,
+      "announcements": true,
+      "terms": true,
+      "privacy": true,
+      "ratesCalculator": true
+    }
+  },
+  "announcements": [
+    {
+      "id": "anc_001",
+      "title": "MTN SME Data Price Slash to ₦270/GB",
+      "content": "We are pleased to announce wholesale reductions across all MTN SME and Corporate Gifting data plans effective immediately. Resellers can now maximize profits with guaranteed instant delivery.",
+      "category": "offer",
+      "is_pinned": true,
+      "status": "published",
+      "created_at": "2026-11-06T00:33:37.064Z",
+      "author": "Operations Team"
+    },
+    {
+      "id": "anc_002",
+      "title": "Direct NIN Verification Slip Generator Live",
+      "content": "Our 2SureVerify & Veripine adapters now support full photo identity card rendering with high-resolution QR codes and NIMC tracking numbers ready for immediate download.",
+      "category": "update",
+      "is_pinned": true,
+      "status": "published",
+      "created_at": "2026-11-03T00:33:37.064Z",
+      "author": "Identity Division"
+    },
+    {
+      "id": "anc_003",
+      "title": "Scheduled TrueHost LON110 Server Maintenance",
+      "content": "Scheduled routine security updates on the lon110.truehost.cloud host. All API routes will be gracefully rerouted with zero downtime.",
+      "category": "maintenance",
+      "is_pinned": false,
+      "status": "published",
+      "created_at": "2026-10-29T00:33:37.064Z",
+      "author": "DevOps Lead"
+    }
+  ],
+  "faqs": [
+    {
+      "id": "faq_1",
+      "category": "general",
+      "question": "What is HambakTech Enterprise?",
+      "answer": "HambakTech Enterprise is an all-in-one Nigerian technology portal providing instant identity validation (NIN, BVN, CAC), telecommunications vending (SME data, VTU airtime, bill payment), digital payment processing, and technology academy courses.",
+      "order": 1
+    },
+    {
+      "id": "faq_2",
+      "category": "verification",
+      "question": "How does the NIN and BVN verification work?",
+      "answer": "We query sovereign databases via authorized adapters (2SureVerify and Veripine). You input the 11-digit NIN or BVN, and within seconds receive the certified biodata, official photograph, and printable NIMC slip.",
+      "order": 2
+    },
+    {
+      "id": "faq_3",
+      "category": "telecom",
+      "question": "How quickly is SME data delivered to the recipient?",
+      "answer": "Our telecom gateway dispatches data bundles through direct integration with UlamaData and VTpass carrier bridges. Delivery typically completes in 2 to 10 seconds.",
+      "order": 3
+    },
+    {
+      "id": "faq_4",
+      "category": "wallet",
+      "question": "How do I fund my wallet balance?",
+      "answer": "You can fund your wallet using automated Flutterwave card checkout or via instant bank transfer to your dedicated Moniepoint virtual account.",
+      "order": 4
+    },
+    {
+      "id": "faq_5",
+      "category": "api",
+      "question": "Can I integrate HambakTech services into my own software?",
+      "answer": "Yes! All verification and telecom services provide authenticated REST API endpoints with webhook support for developers and resellers.",
+      "order": 5
+    }
+  ],
+  "navigation": [
+    {
+      "id": "nav_home",
+      "label": "Home",
+      "pageKey": "home",
+      "enabled": true,
+      "order": 1
+    },
+    {
+      "id": "nav_about",
+      "label": "About Us",
+      "pageKey": "about",
+      "enabled": true,
+      "order": 2
+    },
+    {
+      "id": "nav_services",
+      "label": "Services",
+      "pageKey": "services",
+      "enabled": true,
+      "order": 3
+    },
+    {
+      "id": "nav_rates",
+      "label": "Pricing Calculator",
+      "pageKey": "rates",
+      "enabled": true,
+      "order": 4
+    },
+    {
+      "id": "nav_announcements",
+      "label": "Announcements",
+      "pageKey": "announcements",
+      "enabled": true,
+      "order": 5
+    },
+    {
+      "id": "nav_faq",
+      "label": "FAQ",
+      "pageKey": "faq",
+      "enabled": true,
+      "order": 6
+    },
+    {
+      "id": "nav_contact",
+      "label": "Contact",
+      "pageKey": "contact",
+      "enabled": true,
+      "order": 7
+    }
+  ],
+  "dashboard_modules": [
+    {
+      "id": "nin",
+      "name": "NIN Services",
+      "description": "NIMC & BVN Sovereign Identity Verification Engine",
+      "icon": "ShieldCheck",
+      "status": "active",
+      "visible": true,
+      "order": 1
+    },
+    {
+      "id": "telecom",
+      "name": "Telecommunications",
+      "description": "High-speed automated SME data & airtime top-up",
+      "icon": "Smartphone",
+      "status": "active",
+      "visible": true,
+      "order": 2
+    },
+    {
+      "id": "wallet",
+      "name": "My Wallet",
+      "description": "Real-time ledger, Moniepoint VA, & instant funding",
+      "icon": "Wallet",
+      "status": "active",
+      "visible": true,
+      "order": 3
+    },
+    {
+      "id": "store",
+      "name": "Commercial Hardware Store",
+      "description": "Point-of-Sale Hardware, Card Readers & Thermal Roll Supplies",
+      "icon": "ShoppingBag",
+      "status": "active",
+      "visible": true,
+      "coming_soon_message": "Official launch in Phase 5. Hardware stock being staged.",
+      "order": 4
+    },
+    {
+      "id": "digital",
+      "name": "Digital Services",
+      "description": "Instant Cable TV renewal & 20-digit electricity prepaid tokens",
+      "icon": "Zap",
+      "status": "active",
+      "visible": true,
+      "order": 5
+    },
+    {
+      "id": "academy",
+      "name": "Academy",
+      "description": "Accredited VTU reseller masterclasses & NIMC agent licensing",
+      "icon": "GraduationCap",
+      "status": "coming_soon",
+      "visible": true,
+      "coming_soon_message": "Accreditation syllabus under review.",
+      "order": 6
+    },
+    {
+      "id": "reports",
+      "name": "Reports",
+      "description": "Advanced profit margins, tax journals, and sub-reseller downlines",
+      "icon": "BarChart3",
+      "status": "coming_soon",
+      "visible": true,
+      "coming_soon_message": "Financial reporting engine rolling out.",
+      "order": 7
+    },
+    {
+      "id": "transactions",
+      "name": "Transactions",
+      "description": "Double-entry ledger audit history",
+      "icon": "Receipt",
+      "status": "active",
+      "visible": true,
+      "order": 8
+    },
+    {
+      "id": "orders",
+      "name": "Orders",
+      "description": "Carrier & utility fulfillment logs",
+      "icon": "Package",
+      "status": "active",
+      "visible": true,
+      "order": 9
+    },
+    {
+      "id": "support",
+      "name": "Support / Help Centre",
+      "description": "24/7 technical help desk & hotline",
+      "icon": "HelpCircle",
+      "status": "active",
+      "visible": true,
+      "order": 10
+    }
+  ],
+  "store_items": [
+    {
+      "id": "item_1794125551627",
+      "name": "HambakTech High-Speed Thermal Receipt Printer",
+      "category": "Hardware",
+      "price": 48500,
+      "stock": 15,
+      "description": "Direct USB/Bluetooth ESC/POS thermal receipt printer for NIN slips and bills.",
+      "status": "in_stock",
+      "created_at": "2026-11-08T08:12:31.627Z"
+    },
+    {
+      "id": "item_001",
+      "name": "HambakTech Bluetooth Biometric Fingerprint Scanner",
+      "category": "Hardware",
+      "price": 85000,
+      "stock": 45,
+      "description": "NIMC-certified optical biometric scanner with USB-C and Bluetooth for mobile NIN enrollments.",
+      "status": "active",
+      "created_at": "2026-11-08T08:12:16.832Z"
+    },
+    {
+      "id": "item_002",
+      "name": "Android Smart POS Terminal (4G + Thermal Printer)",
+      "category": "POS Terminals",
+      "price": 120000,
+      "stock": 20,
+      "description": "Pre-provisioned HambakTech agency banking POS terminal with direct Moniepoint virtual settlement.",
+      "status": "active",
+      "created_at": "2026-11-08T08:12:16.832Z"
+    },
+    {
+      "id": "item_003",
+      "name": "Enterprise VTU Reseller API Developer Key (Annual)",
+      "category": "Software License",
+      "price": 50000,
+      "stock": 999,
+      "description": "Unlimited 99.9% uptime telecom and verification API webhooks with zero rate limits.",
+      "status": "active",
+      "created_at": "2026-11-08T08:12:16.832Z"
+    }
+  ],
+  "academy_courses": [
+    {
+      "id": "crs_001",
+      "title": "Nigerian VTU Business Mastery & Automated Sells",
+      "level": "Beginner to Pro",
+      "duration": "4 Weeks",
+      "modules_count": 8,
+      "price": 15000,
+      "description": "Learn how to generate ₦150k - ₦500k monthly reselling data, airtime, and utility tokens with zero upfront inventory.",
+      "status": "enrolling",
+      "created_at": "2026-11-08T08:12:16.832Z"
+    },
+    {
+      "id": "crs_002",
+      "title": "NIMC Identity Verification Agent Licensing Course",
+      "level": "Professional",
+      "duration": "6 Weeks",
+      "modules_count": 12,
+      "price": 35000,
+      "description": "Comprehensive compliance and software operating certification for authorized NIN and BVN slip enrollment centers.",
+      "status": "enrolling",
+      "created_at": "2026-11-08T08:12:16.832Z"
+    },
+    {
+      "id": "crs_003",
+      "title": "Agency Banking & POS Terminal Fleet Operations",
+      "level": "Intermediate",
+      "duration": "2 Weeks",
+      "modules_count": 6,
+      "price": 20000,
+      "description": "Managing cash-in cash-out (CICO), float balancing, Moniepoint settlement gateways, and dispute resolution.",
+      "status": "enrolling",
+      "created_at": "2026-11-08T08:12:16.832Z"
+    }
+  ],
+  "identity_services": [
+    {
+      "key": "nin_v1",
+      "name": "NIN Verification (V1 Standard)",
+      "category": "NIN Verification",
+      "wholesale_cost": 85,
+      "selling_price": 200,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_v1.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "slip_type"
+      ],
+      "description": "Direct NIMC lookup with slip style selection (ninBasic, ninStandard, ninPremium, ninVnin, ninSpecial).",
+      "slip_type_supported": true
+    },
+    {
+      "key": "nin_v2",
+      "name": "NIN Verification (V2 Multi-Tier)",
+      "category": "NIN Verification",
+      "wholesale_cost": 95,
+      "selling_price": 220,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_v2.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "tier"
+      ],
+      "description": "Multi-tier NIN verification with tier selection (basic, standard, premium, regular, vnin, vip)."
+    },
+    {
+      "key": "nin_v3",
+      "name": "NIN Verification (V3 5-Version Selector)",
+      "category": "NIN Verification",
+      "wholesale_cost": 97,
+      "selling_price": 250,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_v3.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "tier",
+        "slip_type"
+      ],
+      "description": "5 independent upstream verification versions with custom slip styling.",
+      "slip_type_supported": true
+    },
+    {
+      "key": "phone_v1",
+      "name": "Phone Verification (V1)",
+      "category": "NIN Verification",
+      "wholesale_cost": 85,
+      "selling_price": 200,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/phone_v1.php",
+      "enabled": true,
+      "required_fields": [
+        "phone",
+        "slip_type"
+      ],
+      "description": "Locate linked NIN record using registered Nigerian SIM card.",
+      "slip_type_supported": true
+    },
+    {
+      "key": "phone_v2",
+      "name": "Phone Verification (V2 Multi-Tier)",
+      "category": "NIN Verification",
+      "wholesale_cost": 95,
+      "selling_price": 220,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/phone_v2.php",
+      "enabled": true,
+      "required_fields": [
+        "phone",
+        "tier"
+      ],
+      "description": "Phone to NIN matching across basic, standard, premium and VIP tiers."
+    },
+    {
+      "key": "phone_v3",
+      "name": "Phone Verification (V3 5-Version)",
+      "category": "NIN Verification",
+      "wholesale_cost": 102,
+      "selling_price": 250,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/phone_v3.php",
+      "enabled": true,
+      "required_fields": [
+        "phone",
+        "tier",
+        "slip_type"
+      ],
+      "description": "5-version phone to NIN resolution with slip generation.",
+      "slip_type_supported": true
+    },
+    {
+      "key": "demo_v1",
+      "name": "Demographic Verification (V1)",
+      "category": "NIN Verification",
+      "wholesale_cost": 90,
+      "selling_price": 200,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/demo_v1.php",
+      "enabled": true,
+      "required_fields": [
+        "firstname",
+        "lastname",
+        "dob",
+        "gender"
+      ],
+      "description": "Search and confirm NIN matching name, birth date, and gender."
+    },
+    {
+      "key": "demo_v2",
+      "name": "Demographic Verification (V2)",
+      "category": "NIN Verification",
+      "wholesale_cost": 95,
+      "selling_price": 220,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/demo_v2.php",
+      "enabled": true,
+      "required_fields": [
+        "firstname",
+        "lastname",
+        "dob",
+        "gender",
+        "tier"
+      ],
+      "description": "Multi-tier demographic match search."
+    },
+    {
+      "key": "demo_v3",
+      "name": "Demographic Verification (V3)",
+      "category": "NIN Verification",
+      "wholesale_cost": 97,
+      "selling_price": 250,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/demo_v3.php",
+      "enabled": true,
+      "required_fields": [
+        "firstname",
+        "lastname",
+        "dob",
+        "gender",
+        "tier",
+        "slip_type"
+      ],
+      "description": "Extended demographic matching with slip generation.",
+      "slip_type_supported": true
+    },
+    {
+      "key": "vnin_verification",
+      "name": "Virtual NIN (VNIN) Verification",
+      "category": "NIN Verification",
+      "wholesale_cost": 95,
+      "selling_price": 200,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_v2.php",
+      "enabled": true,
+      "required_fields": [
+        "nin"
+      ],
+      "description": "Verify enterprise 16-character virtual NIN or generate verifiable record."
+    },
+    {
+      "key": "bvn_v1",
+      "name": "BVN Verification (V1 Standard)",
+      "category": "BVN Verification",
+      "wholesale_cost": 85,
+      "selling_price": 250,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/bvn_v1.php",
+      "enabled": true,
+      "required_fields": [
+        "bvn",
+        "slip_type"
+      ],
+      "description": "Bank Verification Number validation with slip choice (bvnBasic, bvnAdvanced, plasticBvn).",
+      "slip_type_supported": true
+    },
+    {
+      "key": "bvn_v2",
+      "name": "BVN Verification (V2)",
+      "category": "BVN Verification",
+      "wholesale_cost": 85,
+      "selling_price": 250,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/bvn_v2.php",
+      "enabled": true,
+      "required_fields": [
+        "bvn"
+      ],
+      "description": "Standard Central Bank of Nigeria BVN biometric record check."
+    },
+    {
+      "key": "bvn_v3",
+      "name": "BVN Verification (V3 Multi-Version)",
+      "category": "BVN Verification",
+      "wholesale_cost": 85,
+      "selling_price": 250,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/bvn_v3.php",
+      "enabled": true,
+      "required_fields": [
+        "bvn",
+        "tier",
+        "slip_type"
+      ],
+      "description": "5-version BVN biometric query with document printing.",
+      "slip_type_supported": true
+    },
+    {
+      "key": "bvn_retrieval",
+      "name": "BVN Retrieval by Phone",
+      "category": "BVN Verification",
+      "wholesale_cost": 700,
+      "selling_price": 1200,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/bvn_retrieval.php",
+      "enabled": true,
+      "required_fields": [
+        "phone"
+      ],
+      "description": "Retrieve 11-digit BVN linked to a phone number."
+    },
+    {
+      "key": "nin_mod_name",
+      "name": "NIN Name Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 4000,
+      "selling_price": 6000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_mod_name.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "first_name",
+        "last_name"
+      ],
+      "description": "Official correction of first name, middle name, or surname."
+    },
+    {
+      "key": "nin_mod_phone",
+      "name": "NIN Phone Number Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 4000,
+      "selling_price": 6000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_mod_phone.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "phone"
+      ],
+      "description": "Update telephone number registered on NIMC database."
+    },
+    {
+      "key": "nin_mod_address",
+      "name": "NIN Address Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 4000,
+      "selling_price": 6000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_mod_address.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "address",
+        "state",
+        "lga"
+      ],
+      "description": "Update residential address, state, or LGA."
+    },
+    {
+      "key": "nin_mod_dob",
+      "name": "NIN Date of Birth Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 53000,
+      "selling_price": 65000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_mod_dob.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "dob"
+      ],
+      "description": "Official NIMC date of birth modification with affidavit."
+    },
+    {
+      "key": "nin_mod_dob_name",
+      "name": "NIN Name & DOB Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 58000,
+      "selling_price": 72000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_mod_dob_name.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "first_name",
+        "last_name",
+        "dob"
+      ],
+      "description": "Simultaneous correction of full names and date of birth."
+    },
+    {
+      "key": "nin_mod_name_phone",
+      "name": "NIN Name & Phone Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 8000,
+      "selling_price": 12000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_mod_name_phone.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "first_name",
+        "last_name",
+        "phone"
+      ],
+      "description": "Simultaneous update of names and registered telephone number."
+    },
+    {
+      "key": "gender_modification",
+      "name": "NIN Gender Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 5000,
+      "selling_price": 7500,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/gender_modification.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "gender"
+      ],
+      "description": "Correction of gender classification on identity record."
+    },
+    {
+      "key": "suspended_modification",
+      "name": "Suspended NIN Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 23000,
+      "selling_price": 30000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/suspended_modification.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "tracking_id"
+      ],
+      "description": "Rectification and lifting of suspension on flagged NIN."
+    },
+    {
+      "key": "bvn_generated_modification",
+      "name": "BVN Generated NIN Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 22000,
+      "selling_price": 28000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/bvn_generated_modification.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "bvn"
+      ],
+      "description": "Upgrade and bio-capture modification for auto-generated BVN-NINs."
+    },
+    {
+      "key": "child_modification",
+      "name": "Child NIN Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 13000,
+      "selling_price": 18000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/child_modification.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "parent_nin"
+      ],
+      "description": "Update child identity record with parental consent linkage."
+    },
+    {
+      "key": "nin_over_age",
+      "name": "Over-Age NIN Modification",
+      "category": "NIN Modification",
+      "wholesale_cost": 10000,
+      "selling_price": 15000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_over_age.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "age_range"
+      ],
+      "description": "Age bracket adjustment (5-9, 10-15, 15-20 years)."
+    },
+    {
+      "key": "second_nin_mod_name",
+      "name": "Second NIN Name Mod (No Email/Pass)",
+      "category": "NIN Modification",
+      "wholesale_cost": 70000,
+      "selling_price": 85000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/second_nin_mod_name.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "first_name",
+        "last_name"
+      ],
+      "description": "Secondary NIN name modification without email or password auth."
+    },
+    {
+      "key": "second_nin_mod_phone",
+      "name": "Second NIN Phone Mod (No Email/Pass)",
+      "category": "NIN Modification",
+      "wholesale_cost": 18000,
+      "selling_price": 25000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/second_nin_mod_phone.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "phone"
+      ],
+      "description": "Secondary NIN phone number modification without email or password auth."
+    },
+    {
+      "key": "second_nin_mod_name_auth",
+      "name": "Second NIN Name Mod (With Email/Pass)",
+      "category": "NIN Modification",
+      "wholesale_cost": 10000,
+      "selling_price": 15000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/second_nin_mod_name_auth.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "first_name",
+        "last_name",
+        "portal_email",
+        "portal_password"
+      ],
+      "description": "Second NIN name modification using self-service credentials."
+    },
+    {
+      "key": "second_nin_mod_phone_auth",
+      "name": "Second NIN Phone Mod (With Email/Pass)",
+      "category": "NIN Modification",
+      "wholesale_cost": 10000,
+      "selling_price": 15000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/second_nin_mod_phone_auth.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "phone",
+        "portal_email",
+        "portal_password"
+      ],
+      "description": "Second NIN phone modification using self-service credentials."
+    },
+    {
+      "key": "bvn_modification",
+      "name": "BVN Modification (Bank Specific)",
+      "category": "NIN Modification",
+      "wholesale_cost": 14000,
+      "selling_price": 18000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/bvn_modification.php",
+      "enabled": true,
+      "required_fields": [
+        "bvn",
+        "bank_name",
+        "modification_details"
+      ],
+      "description": "Official NIBSS bank-specific BVN record modification."
+    },
+    {
+      "key": "personalization",
+      "name": "NIMC Personalisation (1)",
+      "category": "Personalisation",
+      "wholesale_cost": 170,
+      "selling_price": 350,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/personalization.php",
+      "enabled": true,
+      "required_fields": [
+        "nin"
+      ],
+      "description": "High-res biometric photo personalisation and card stamping."
+    },
+    {
+      "key": "personalization_2",
+      "name": "NIMC Personalisation (2)",
+      "category": "Personalisation",
+      "wholesale_cost": 140,
+      "selling_price": 300,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/personalization_2.php",
+      "enabled": true,
+      "required_fields": [
+        "nin"
+      ],
+      "description": "Secondary digital personalisation engine."
+    },
+    {
+      "key": "bvn_enroll_adult",
+      "name": "BVN Enrolment (Adult)",
+      "category": "Enrolment",
+      "wholesale_cost": 10000,
+      "selling_price": 15000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/bvn_enroll_adult.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "first_name",
+        "last_name",
+        "phone",
+        "bank_name"
+      ],
+      "description": "Full biometric adult BVN enrolment registration."
+    },
+    {
+      "key": "bvn_enroll_child",
+      "name": "BVN Enrolment (Child)",
+      "category": "Enrolment",
+      "wholesale_cost": 8000,
+      "selling_price": 12000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/bvn_enroll_child.php",
+      "enabled": true,
+      "required_fields": [
+        "child_nin",
+        "parent_bvn",
+        "first_name",
+        "last_name"
+      ],
+      "description": "Minor / Child biometric BVN enrolment registration."
+    },
+    {
+      "key": "npc_attestation",
+      "name": "National Population Commission (NPC) Attestation",
+      "category": "Additional Services",
+      "wholesale_cost": 20000,
+      "selling_price": 26000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/npc_attestation.php",
+      "enabled": true,
+      "required_fields": [
+        "full_name",
+        "dob",
+        "state_of_origin",
+        "lga"
+      ],
+      "description": "Official Federal Government NPC birth attestation certificate."
+    },
+    {
+      "key": "newspaper",
+      "name": "National Newspaper Publication (Change of Name)",
+      "category": "Additional Services",
+      "wholesale_cost": 1500,
+      "selling_price": 2500,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/newspaper.php",
+      "enabled": true,
+      "required_fields": [
+        "old_name",
+        "new_name",
+        "address",
+        "reason"
+      ],
+      "description": "Gazetted national daily change of name publication with clipping."
+    },
+    {
+      "key": "cac_business",
+      "name": "CAC Business Name Registration",
+      "category": "Additional Services",
+      "wholesale_cost": 35000,
+      "selling_price": 45000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/cac_business.php",
+      "enabled": true,
+      "required_fields": [
+        "business_name",
+        "nature_of_business",
+        "proprietor_nin",
+        "proprietor_phone"
+      ],
+      "description": "Full BN business registration certificate & status report from CAC."
+    },
+    {
+      "key": "cac_company",
+      "name": "CAC Company Registration (Limited Liability)",
+      "category": "Additional Services",
+      "wholesale_cost": 45000,
+      "selling_price": 60000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/cac_company.php",
+      "enabled": true,
+      "required_fields": [
+        "company_name",
+        "directors_count",
+        "share_capital",
+        "director_nins"
+      ],
+      "description": "Full RC private limited company incorporation certificate."
+    },
+    {
+      "key": "tin_registration",
+      "name": "Tax Identification Number (TIN) Registration",
+      "category": "Additional Services",
+      "wholesale_cost": 1000,
+      "selling_price": 2000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/tin_registration.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "business_name",
+        "email",
+        "phone"
+      ],
+      "description": "Federal Inland Revenue Service (FIRS) / JTB Tax ID generation."
+    },
+    {
+      "key": "validation",
+      "name": "NIN Validation & Sync",
+      "category": "Additional Services",
+      "wholesale_cost": 700,
+      "selling_price": 1200,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/validation.php",
+      "enabled": true,
+      "required_fields": [
+        "nin"
+      ],
+      "description": "Real-time synchronization and validation of dormant or unlinked NIN."
+    },
+    {
+      "key": "ipe_clearance",
+      "name": "IPE Clearance (Internal Processing Error)",
+      "category": "Additional Services",
+      "wholesale_cost": 400,
+      "selling_price": 800,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/ipe_clearance.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "tracking_id"
+      ],
+      "description": "Instant resolution of NIMC portal Internal Processing Error."
+    },
+    {
+      "key": "delinking",
+      "name": "NIN / BVN Delinking",
+      "category": "Additional Services",
+      "wholesale_cost": 3500,
+      "selling_price": 5000,
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/delinking.php",
+      "enabled": true,
+      "required_fields": [
+        "nin",
+        "bvn",
+        "phone"
+      ],
+      "description": "Delinking wrongly associated BVN from NIMC profile."
+    }
+  ],
+  "provider_configs": [
+    {
+      "id": "2sureverify",
+      "name": "2SureVerify Gateway (Primary)",
+      "base_url": "https://2sureverify.com",
+      "api_key": "664469ea92436a4c7ff997281a32a742dcd84f9a5e6603f0",
+      "is_active": true,
+      "is_default": true,
+      "timeout_seconds": 30,
+      "last_ping_status": "error",
+      "last_ping_time": "2026-11-08T08:40:05.482Z",
+      "last_ping_latency": 272
+    },
+    {
+      "id": "veripine",
+      "name": "Veripine Identity API (Secondary Failover)",
+      "base_url": "https://api.veripine.com/v1",
+      "api_key": "ninbvn_6443d1d6279df9af26b60dc4",
+      "is_active": true,
+      "is_default": false,
+      "timeout_seconds": 30,
+      "last_ping_status": "operational",
+      "last_ping_time": "2026-11-08T08:39:07.300Z",
+      "last_ping_latency": 210
+    }
+  ],
+  "provider_logs": [
+    {
+      "id": "plog_1794127277196_stt0",
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_v1.php",
+      "method": "POST",
+      "status_code": 401,
+      "request_body": "{\"nin\":\"11223344556\",\"slip_type\":\"ninPremium\"}",
+      "response_body": "{\"success\":false,\"message\":\"Invalid api_key.\"}",
+      "latency_ms": 66,
+      "reference": null,
+      "created_at": "2026-11-08T08:41:17.196Z"
+    }
+  ]
+}

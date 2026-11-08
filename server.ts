@@ -5,6 +5,7 @@
  */
 
 import express from 'express';
+import http from 'http';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -14,6 +15,9 @@ import { walletRouter } from './server/routes/wallet.js';
 import { verificationRouter } from './server/routes/verification.js';
 import { telecomRouter } from './server/routes/telecom.js';
 import { cpanelRouter } from './server/routes/cpanel.js';
+import { cmsRouter } from './server/routes/cms.js';
+import { customerRouter } from './server/routes/customer.js';
+import { adminRouter } from './server/routes/admin.js';
 import { CREDENTIALS } from './server/config/credentials.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,7 +25,10 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const portArgIndex = process.argv.indexOf('--port');
+  const cliPort = portArgIndex !== -1 && process.argv[portArgIndex + 1] ? Number(process.argv[portArgIndex + 1]) : null;
+  // AI Studio requires port 3000. In Cloud Run containers, process.env.PORT is 8080 (reserved for container ingress).
+  const PORT = cliPort || (process.env.PORT && process.env.PORT !== '8080' ? Number(process.env.PORT) : 3000);
   const isProd = process.env.NODE_ENV === 'production';
 
   app.use(cors());
@@ -45,12 +52,20 @@ async function startServer() {
   app.use('/api/verification', verificationRouter);
   app.use('/api/telecom', telecomRouter);
   app.use('/api/cpanel', cpanelRouter);
+  app.use('/api/cms', cmsRouter);
+  app.use('/api/customer', customerRouter);
+  app.use('/api/admin', adminRouter);
+
+  const httpServer = http.createServer(app);
 
   // Development: Vite middleware mode / Production: Static bundle
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR === 'true' ? false : { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -62,7 +77,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[HambakTech Enterprise] Server running on http://0.0.0.0:${PORT}`);
   });
 }

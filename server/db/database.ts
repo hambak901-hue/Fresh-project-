@@ -24,6 +24,68 @@ export interface User {
   created_at: string;
   updated_at: string;
   status: 'active' | 'suspended';
+  avatar_url?: string;
+  transaction_pin_hash?: string;
+  email_verified?: boolean;
+  address?: string;
+  state?: string;
+  lga?: string;
+  bio?: string;
+  kyc_documents?: Array<{
+    id: string;
+    id_type: string;
+    id_number: string;
+    doc_url?: string;
+    submitted_at: string;
+    status: 'pending' | 'verified' | 'rejected';
+    review_notes?: string;
+  }>;
+  notification_preferences?: {
+    email_alerts: boolean;
+    sms_alerts: boolean;
+    transaction_receipts: boolean;
+    security_warnings: boolean;
+  };
+  security_settings?: {
+    two_factor_enabled: boolean;
+    login_alerts: boolean;
+  };
+  permissions?: string[]; // e.g. ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'staff']
+}
+
+export interface DashboardModuleConfig {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  status: 'active' | 'coming_soon' | 'disabled';
+  visible: boolean;
+  coming_soon_message?: string;
+  order?: number;
+}
+
+export interface StoreItem {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  stock: number;
+  description: string;
+  image_url?: string;
+  status: 'active' | 'draft' | 'out_of_stock';
+  created_at: string;
+}
+
+export interface AcademyCourse {
+  id: string;
+  title: string;
+  level: string;
+  duration: string;
+  modules_count: number;
+  price: number;
+  description: string;
+  status: 'draft' | 'enrolling' | 'active';
+  created_at: string;
 }
 
 export interface Transaction {
@@ -45,13 +107,59 @@ export interface Transaction {
 export interface VerificationRecord {
   id: string;
   user_id: string;
-  type: 'NIN' | 'BVN' | 'CAC' | 'PHONE';
+  type: string;
+  service_key?: string;
   search_value: string;
   provider: '2sureverify' | 'veripine';
   cost: number;
-  status: 'completed' | 'failed' | 'processing';
+  provider_cost?: number;
+  status: 'completed' | 'failed' | 'pending';
+  reference?: string;
+  slip_type?: string;
+  has_slip?: boolean;
   result?: any;
   created_at: string;
+}
+
+export interface ProviderLog {
+  id: string;
+  provider: string;
+  endpoint: string;
+  method: string;
+  status_code: number;
+  request_body: string | null;
+  response_body: string | null;
+  latency_ms: number;
+  reference: string | null;
+  created_at: string;
+}
+
+export interface IdentityServiceConfig {
+  key: string;
+  name: string;
+  category: 'NIN Verification' | 'BVN Verification' | 'NIN Modification' | 'Personalisation' | 'Enrolment' | 'Additional Services';
+  wholesale_cost: number;
+  selling_price: number;
+  provider: '2sureverify' | 'veripine';
+  endpoint: string;
+  enabled: boolean;
+  required_fields: string[];
+  description: string;
+  version?: string;
+  slip_type_supported?: boolean;
+}
+
+export interface ProviderConfigItem {
+  id: '2sureverify' | 'veripine';
+  name: string;
+  base_url: string;
+  api_key: string;
+  is_active: boolean;
+  is_default: boolean;
+  timeout_seconds: number;
+  last_ping_status?: 'operational' | 'error' | 'untested';
+  last_ping_time?: string;
+  last_ping_latency?: number;
 }
 
 export interface TelecomOrder {
@@ -110,6 +218,103 @@ export interface AuditLog {
   created_at: string;
 }
 
+export interface BrandSettings {
+  company_name: string;
+  tagline: string;
+  logo_url: string;
+  favicon_url: string;
+  primary_color: string;
+  secondary_color: string;
+  font_family: string;
+  support_phone: string;
+  support_email: string;
+  office_address: string;
+  whatsapp_number: string;
+  social_links: {
+    twitter?: string;
+    facebook?: string;
+    instagram?: string;
+    linkedin?: string;
+    whatsapp?: string;
+  };
+  footer_text: string;
+  copyright_text: string;
+  seo_title: string;
+  seo_description: string;
+  seo_keywords: string;
+}
+
+export interface AnnouncementItem {
+  id: string;
+  title: string;
+  content: string;
+  category: 'update' | 'maintenance' | 'offer' | 'security' | 'general';
+  is_pinned: boolean;
+  status: 'published' | 'draft';
+  created_at: string;
+  author: string;
+}
+
+export interface FaqItem {
+  id: string;
+  question: string;
+  answer: string;
+  category: 'general' | 'verification' | 'telecom' | 'wallet' | 'api';
+  order: number;
+}
+
+export interface NavMenuItem {
+  id: string;
+  label: string;
+  pageKey: string;
+  enabled: boolean;
+  order: number;
+}
+
+export interface CmsSections {
+  hero: {
+    badge: string;
+    headline: string;
+    subheadline: string;
+    primaryCtaText: string;
+    primaryCtaLink: string;
+    secondaryCtaText: string;
+    secondaryCtaLink: string;
+    bannerImage: string;
+  };
+  companyIntro: {
+    badge: string;
+    title: string;
+    description: string;
+    founded: string;
+    headquarters: string;
+    infrastructure: string;
+    stats: Array<{ label: string; value: string }>;
+  };
+  howItWorks: Array<{
+    step: string;
+    title: string;
+    description: string;
+  }>;
+  benefits: Array<{
+    id: string;
+    title: string;
+    description: string;
+    icon: string;
+  }>;
+  pageVisibility: {
+    home: boolean;
+    about: boolean;
+    services: boolean;
+    contact: boolean;
+    faq: boolean;
+    announcements: boolean;
+    terms: boolean;
+    privacy: boolean;
+    ratesCalculator: boolean;
+  };
+}
+
 interface DatabaseSchema {
   users: User[];
   transactions: Transaction[];
@@ -118,6 +323,17 @@ interface DatabaseSchema {
   notifications: Notification[];
   settings: SystemSettings;
   audit_logs: AuditLog[];
+  branding: BrandSettings;
+  cms_sections: CmsSections;
+  announcements: AnnouncementItem[];
+  faqs: FaqItem[];
+  navigation: NavMenuItem[];
+  dashboard_modules: DashboardModuleConfig[];
+  store_items: StoreItem[];
+  academy_courses: AcademyCourse[];
+  identity_services: IdentityServiceConfig[];
+  provider_configs: ProviderConfigItem[];
+  provider_logs: ProviderLog[];
 }
 
 const DB_DIR = path.resolve(process.cwd(), 'server', 'db');
@@ -299,9 +515,295 @@ function getDefaultData(): DatabaseSchema {
         user_id: 'usr_superadmin',
         user_email: 'admin@hambaktech.com.ng',
         action: 'SYSTEM_BOOTSTRAP',
-        details: { message: 'Database initialized for Phase 01 Project Foundation and Architecture' },
+        details: { message: 'Database initialized for Phase 01 & 02 Architecture and CMS' },
         created_at: new Date().toISOString(),
       },
+    ],
+    branding: {
+      company_name: 'HambakTech Enterprise',
+      tagline: "Nigeria's Foremost Identity Verification, Telecom & Digital Services Engine",
+      logo_url: '',
+      favicon_url: '/favicon.ico',
+      primary_color: '#10b981',
+      secondary_color: '#0284c7',
+      font_family: 'Plus Jakarta Sans',
+      support_phone: '+234 803 000 1122',
+      support_email: 'support@hambaktech.com.ng',
+      office_address: 'Plot 14, Commercial Avenue, Ikeja, Lagos, Nigeria',
+      whatsapp_number: '+2348030001122',
+      social_links: {
+        twitter: 'https://x.com/hambaktech',
+        facebook: 'https://facebook.com/hambaktech',
+        linkedin: 'https://linkedin.com/company/hambaktech',
+        whatsapp: 'https://wa.me/2348030001122',
+      },
+      footer_text: "HambakTech Enterprise is Nigeria's high-reliability infrastructure provider for NIMC/BVN identity verification, SME telecoms vending, and digital payments on TrueHost LON110.",
+      copyright_text: '© 2026 Hambak Technologies Enterprise. All Rights Reserved. Infrastructure hosted on TrueHost LON110 (51.89.153.183:1624).',
+      seo_title: 'HambakTech Enterprise | NIMC NIN, BVN, Telecom Data & Digital Services',
+      seo_description: 'All-in-one Nigerian VTU, identity verification (NIN/BVN), telecom, payments, academy, and digital services platform for HambakTech.',
+      seo_keywords: 'NIN verification, BVN validation, MTN SME data, Nigerian VTU, identity verification, airtime recharge, Truehost LON110, HambakTech',
+    },
+    cms_sections: {
+      hero: {
+        badge: "Nigeria's Leading Digital Services Infrastructure",
+        headline: 'Instant Identity Verification, Telecom Bundles & Digital Payments',
+        subheadline: 'Automate NIMC NIN slips, BVN lookups, MTN & Airtel SME data vending, and utility bill clearing with enterprise 99.98% uptime on TrueHost LON110.',
+        primaryCtaText: 'Get Started Free',
+        primaryCtaLink: 'register',
+        secondaryCtaText: 'Explore Solutions',
+        secondaryCtaLink: 'services',
+        bannerImage: '/src/assets/images/hero_fintech_portal_1794097383199.jpg',
+      },
+      companyIntro: {
+        badge: 'Engineering Excellence & Trust',
+        title: 'Engineered for Nigerian Businesses, Developers & Agents',
+        description: 'Founded with a mission to eliminate manual identity validation and telecom friction, HambakTech operates high-throughput integration adapters with 2SureVerify, Veripine, UlamaData, and VTpass directly connected to sovereign telecommunication nodes.',
+        founded: '2024',
+        headquarters: 'Lagos, Nigeria',
+        infrastructure: 'TrueHost LON110 Tier-3 Cloud Server (51.89.153.183:1624)',
+        stats: [
+          { label: 'Monthly Transactions', value: '₦120M+' },
+          { label: 'Verifications Completed', value: '45,000+' },
+          { label: 'API Dispatch Latency', value: '1.2s' },
+          { label: 'Server Availability', value: '99.98%' },
+        ],
+      },
+      howItWorks: [
+        {
+          step: '01',
+          title: 'Open Your Account',
+          description: 'Create a free personal or corporate wallet in under 60 seconds with instant verification.',
+        },
+        {
+          step: '02',
+          title: 'Fund Your Balance',
+          description: 'Top up seamlessly via instant Flutterwave checkout or dedicated virtual bank accounts.',
+        },
+        {
+          step: '03',
+          title: 'Dispatch Instantly',
+          description: 'Process NIN & BVN slips, dispatch SME data packages, or hook into our developer REST API.',
+        },
+      ],
+      benefits: [
+        {
+          id: 'b1',
+          title: 'Sub-Second Dispatch',
+          description: 'Direct carrier pipes deliver MTN SME data and airtime in under 3 seconds.',
+          icon: 'Zap',
+        },
+        {
+          id: 'b2',
+          title: 'Regulatory Compliant',
+          description: 'Official NIMC and NIBSS data verification formats with verifiable tracking codes.',
+          icon: 'ShieldCheck',
+        },
+        {
+          id: 'b3',
+          title: 'Automated Failover',
+          description: 'Multi-provider routing between 2SureVerify & Veripine guarantees zero downtime.',
+          icon: 'Cpu',
+        },
+        {
+          id: 'b4',
+          title: 'Wholesale Profit Margins',
+          description: 'Enjoy agent discounted pricing on SME 1GB data starting as low as ₦250.',
+          icon: 'TrendingUp',
+        },
+      ],
+      pageVisibility: {
+        home: true,
+        about: true,
+        services: true,
+        contact: true,
+        faq: true,
+        announcements: true,
+        terms: true,
+        privacy: true,
+        ratesCalculator: true,
+      },
+    },
+    announcements: [
+      {
+        id: 'anc_001',
+        title: 'MTN SME Data Price Slash to ₦270/GB',
+        content: 'We are pleased to announce wholesale reductions across all MTN SME and Corporate Gifting data plans effective immediately. Resellers can now maximize profits with guaranteed instant delivery.',
+        category: 'offer',
+        is_pinned: true,
+        status: 'published',
+        created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+        author: 'Operations Team',
+      },
+      {
+        id: 'anc_002',
+        title: 'Direct NIN Verification Slip Generator Live',
+        content: 'Our 2SureVerify & Veripine adapters now support full photo identity card rendering with high-resolution QR codes and NIMC tracking numbers ready for immediate download.',
+        category: 'update',
+        is_pinned: true,
+        status: 'published',
+        created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
+        author: 'Identity Division',
+      },
+      {
+        id: 'anc_003',
+        title: 'Scheduled TrueHost LON110 Server Maintenance',
+        content: 'Scheduled routine security updates on the lon110.truehost.cloud host. All API routes will be gracefully rerouted with zero downtime.',
+        category: 'maintenance',
+        is_pinned: false,
+        status: 'published',
+        created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
+        author: 'DevOps Lead',
+      },
+    ],
+    faqs: [
+      {
+        id: 'faq_1',
+        category: 'general',
+        question: 'What is HambakTech Enterprise?',
+        answer: 'HambakTech Enterprise is an all-in-one Nigerian technology portal providing instant identity validation (NIN, BVN, CAC), telecommunications vending (SME data, VTU airtime, bill payment), digital payment processing, and technology academy courses.',
+        order: 1,
+      },
+      {
+        id: 'faq_2',
+        category: 'verification',
+        question: 'How does the NIN and BVN verification work?',
+        answer: 'We query sovereign databases via authorized adapters (2SureVerify and Veripine). You input the 11-digit NIN or BVN, and within seconds receive the certified biodata, official photograph, and printable NIMC slip.',
+        order: 2,
+      },
+      {
+        id: 'faq_3',
+        category: 'telecom',
+        question: 'How quickly is SME data delivered to the recipient?',
+        answer: 'Our telecom gateway dispatches data bundles through direct integration with UlamaData and VTpass carrier bridges. Delivery typically completes in 2 to 10 seconds.',
+        order: 3,
+      },
+      {
+        id: 'faq_4',
+        category: 'wallet',
+        question: 'How do I fund my wallet balance?',
+        answer: 'You can fund your wallet using automated Flutterwave card checkout or via instant bank transfer to your dedicated Moniepoint virtual account.',
+        order: 4,
+      },
+      {
+        id: 'faq_5',
+        category: 'api',
+        question: 'Can I integrate HambakTech services into my own software?',
+        answer: 'Yes! All verification and telecom services provide authenticated REST API endpoints with webhook support for developers and resellers.',
+        order: 5,
+      },
+    ],
+    navigation: [
+      { id: 'nav_home', label: 'Home', pageKey: 'home', enabled: true, order: 1 },
+      { id: 'nav_about', label: 'About Us', pageKey: 'about', enabled: true, order: 2 },
+      { id: 'nav_services', label: 'Services', pageKey: 'services', enabled: true, order: 3 },
+      { id: 'nav_rates', label: 'Pricing Calculator', pageKey: 'rates', enabled: true, order: 4 },
+      { id: 'nav_announcements', label: 'Announcements', pageKey: 'announcements', enabled: true, order: 5 },
+      { id: 'nav_faq', label: 'FAQ', pageKey: 'faq', enabled: true, order: 6 },
+      { id: 'nav_contact', label: 'Contact', pageKey: 'contact', enabled: true, order: 7 },
+    ],
+    dashboard_modules: [
+      { id: 'nin', name: 'NIN Services', description: 'NIMC & BVN Sovereign Identity Verification Engine', icon: 'ShieldCheck', status: 'active', visible: true, order: 1 },
+      { id: 'telecom', name: 'Telecommunications', description: 'High-speed automated SME data & airtime top-up', icon: 'Smartphone', status: 'active', visible: true, order: 2 },
+      { id: 'wallet', name: 'My Wallet', description: 'Real-time ledger, Moniepoint VA, & instant funding', icon: 'Wallet', status: 'active', visible: true, order: 3 },
+      { id: 'store', name: 'Store', description: 'Biometric scanners, POS terminals, and developer API licenses', icon: 'ShoppingBag', status: 'coming_soon', visible: true, coming_soon_message: 'Official launch in Phase 5. Hardware stock being staged.', order: 4 },
+      { id: 'digital', name: 'Digital Services', description: 'Instant Cable TV renewal & 20-digit electricity prepaid tokens', icon: 'Zap', status: 'active', visible: true, order: 5 },
+      { id: 'academy', name: 'Academy', description: 'Accredited VTU reseller masterclasses & NIMC agent licensing', icon: 'GraduationCap', status: 'coming_soon', visible: true, coming_soon_message: 'Accreditation syllabus under review.', order: 6 },
+      { id: 'reports', name: 'Reports', description: 'Advanced profit margins, tax journals, and sub-reseller downlines', icon: 'BarChart3', status: 'coming_soon', visible: true, coming_soon_message: 'Financial reporting engine rolling out.', order: 7 },
+      { id: 'transactions', name: 'Transactions', description: 'Double-entry ledger audit history', icon: 'Receipt', status: 'active', visible: true, order: 8 },
+      { id: 'orders', name: 'Orders', description: 'Carrier & utility fulfillment logs', icon: 'Package', status: 'active', visible: true, order: 9 },
+      { id: 'support', name: 'Support / Help Centre', description: '24/7 technical help desk & hotline', icon: 'HelpCircle', status: 'active', visible: true, order: 10 },
+    ],
+    store_items: [
+      { id: 'item_001', name: 'HambakTech Bluetooth Biometric Fingerprint Scanner', category: 'Hardware', price: 85000, stock: 45, description: 'NIMC-certified optical biometric scanner with USB-C and Bluetooth for mobile NIN enrollments.', status: 'active', created_at: new Date().toISOString() },
+      { id: 'item_002', name: 'Android Smart POS Terminal (4G + Thermal Printer)', category: 'POS Terminals', price: 120000, stock: 20, description: 'Pre-provisioned HambakTech agency banking POS terminal with direct Moniepoint virtual settlement.', status: 'active', created_at: new Date().toISOString() },
+      { id: 'item_003', name: 'Enterprise VTU Reseller API Developer Key (Annual)', category: 'Software License', price: 50000, stock: 999, description: 'Unlimited 99.9% uptime telecom and verification API webhooks with zero rate limits.', status: 'active', created_at: new Date().toISOString() },
+    ],
+    academy_courses: [
+      { id: 'crs_001', title: 'Nigerian VTU Business Mastery & Automated Sells', level: 'Beginner to Pro', duration: '4 Weeks', modules_count: 8, price: 15000, description: 'Learn how to generate ₦150k - ₦500k monthly reselling data, airtime, and utility tokens with zero upfront inventory.', status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'crs_002', title: 'NIMC Identity Verification Agent Licensing Course', level: 'Professional', duration: '6 Weeks', modules_count: 12, price: 35000, description: 'Comprehensive compliance and software operating certification for authorized NIN and BVN slip enrollment centers.', status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'crs_003', title: 'Agency Banking & POS Terminal Fleet Operations', level: 'Intermediate', duration: '2 Weeks', modules_count: 6, price: 20000, description: 'Managing cash-in cash-out (CICO), float balancing, Moniepoint settlement gateways, and dispute resolution.', status: 'enrolling', created_at: new Date().toISOString() },
+    ],
+    provider_configs: [
+      {
+        id: '2sureverify',
+        name: '2SureVerify Gateway (Primary)',
+        base_url: 'https://2sureverify.com',
+        api_key: '664469ea92436a4c7ff997281a32a742dcd84f9a5e6603f0',
+        is_active: true,
+        is_default: true,
+        timeout_seconds: 30,
+        last_ping_status: 'operational',
+        last_ping_time: new Date().toISOString(),
+        last_ping_latency: 185,
+      },
+      {
+        id: 'veripine',
+        name: 'Veripine Identity API (Secondary Failover)',
+        base_url: 'https://api.veripine.com/v1',
+        api_key: 'ninbvn_6443d1d6279df9af26b60dc4',
+        is_active: true,
+        is_default: false,
+        timeout_seconds: 30,
+        last_ping_status: 'operational',
+        last_ping_time: new Date().toISOString(),
+        last_ping_latency: 210,
+      },
+    ],
+    provider_logs: [],
+    identity_services: [
+      // 1. NIN Verification
+      { key: 'nin_v1', name: 'NIN Verification (V1 Standard)', category: 'NIN Verification', wholesale_cost: 85, selling_price: 200, provider: '2sureverify', endpoint: '/api/v1/nin_v1.php', enabled: true, required_fields: ['nin', 'slip_type'], description: 'Direct NIMC lookup with slip style selection (ninBasic, ninStandard, ninPremium, ninVnin, ninSpecial).', slip_type_supported: true },
+      { key: 'nin_v2', name: 'NIN Verification (V2 Multi-Tier)', category: 'NIN Verification', wholesale_cost: 95, selling_price: 220, provider: '2sureverify', endpoint: '/api/v1/nin_v2.php', enabled: true, required_fields: ['nin', 'tier'], description: 'Multi-tier NIN verification with tier selection (basic, standard, premium, regular, vnin, vip).' },
+      { key: 'nin_v3', name: 'NIN Verification (V3 5-Version Selector)', category: 'NIN Verification', wholesale_cost: 97, selling_price: 250, provider: '2sureverify', endpoint: '/api/v1/nin_v3.php', enabled: true, required_fields: ['nin', 'tier', 'slip_type'], description: '5 independent upstream verification versions with custom slip styling.', slip_type_supported: true },
+      { key: 'phone_v1', name: 'Phone Verification (V1)', category: 'NIN Verification', wholesale_cost: 85, selling_price: 200, provider: '2sureverify', endpoint: '/api/v1/phone_v1.php', enabled: true, required_fields: ['phone', 'slip_type'], description: 'Locate linked NIN record using registered Nigerian SIM card.', slip_type_supported: true },
+      { key: 'phone_v2', name: 'Phone Verification (V2 Multi-Tier)', category: 'NIN Verification', wholesale_cost: 95, selling_price: 220, provider: '2sureverify', endpoint: '/api/v1/phone_v2.php', enabled: true, required_fields: ['phone', 'tier'], description: 'Phone to NIN matching across basic, standard, premium and VIP tiers.' },
+      { key: 'phone_v3', name: 'Phone Verification (V3 5-Version)', category: 'NIN Verification', wholesale_cost: 102, selling_price: 250, provider: '2sureverify', endpoint: '/api/v1/phone_v3.php', enabled: true, required_fields: ['phone', 'tier', 'slip_type'], description: '5-version phone to NIN resolution with slip generation.', slip_type_supported: true },
+      { key: 'demo_v1', name: 'Demographic Verification (V1)', category: 'NIN Verification', wholesale_cost: 90, selling_price: 200, provider: '2sureverify', endpoint: '/api/v1/demo_v1.php', enabled: true, required_fields: ['firstname', 'lastname', 'dob', 'gender'], description: 'Search and confirm NIN matching name, birth date, and gender.' },
+      { key: 'demo_v2', name: 'Demographic Verification (V2)', category: 'NIN Verification', wholesale_cost: 95, selling_price: 220, provider: '2sureverify', endpoint: '/api/v1/demo_v2.php', enabled: true, required_fields: ['firstname', 'lastname', 'dob', 'gender', 'tier'], description: 'Multi-tier demographic match search.' },
+      { key: 'demo_v3', name: 'Demographic Verification (V3)', category: 'NIN Verification', wholesale_cost: 97, selling_price: 250, provider: '2sureverify', endpoint: '/api/v1/demo_v3.php', enabled: true, required_fields: ['firstname', 'lastname', 'dob', 'gender', 'tier', 'slip_type'], description: 'Extended demographic matching with slip generation.', slip_type_supported: true },
+      { key: 'vnin_verification', name: 'Virtual NIN (VNIN) Verification', category: 'NIN Verification', wholesale_cost: 95, selling_price: 200, provider: '2sureverify', endpoint: '/api/v1/nin_v2.php', enabled: true, required_fields: ['nin'], description: 'Verify enterprise 16-character virtual NIN or generate verifiable record.' },
+
+      // 2. BVN Verification
+      { key: 'bvn_v1', name: 'BVN Verification (V1 Standard)', category: 'BVN Verification', wholesale_cost: 85, selling_price: 250, provider: '2sureverify', endpoint: '/api/v1/bvn_v1.php', enabled: true, required_fields: ['bvn', 'slip_type'], description: 'Bank Verification Number validation with slip choice (bvnBasic, bvnAdvanced, plasticBvn).', slip_type_supported: true },
+      { key: 'bvn_v2', name: 'BVN Verification (V2)', category: 'BVN Verification', wholesale_cost: 85, selling_price: 250, provider: '2sureverify', endpoint: '/api/v1/bvn_v2.php', enabled: true, required_fields: ['bvn'], description: 'Standard Central Bank of Nigeria BVN biometric record check.' },
+      { key: 'bvn_v3', name: 'BVN Verification (V3 Multi-Version)', category: 'BVN Verification', wholesale_cost: 85, selling_price: 250, provider: '2sureverify', endpoint: '/api/v1/bvn_v3.php', enabled: true, required_fields: ['bvn', 'tier', 'slip_type'], description: '5-version BVN biometric query with document printing.', slip_type_supported: true },
+      { key: 'bvn_retrieval', name: 'BVN Retrieval by Phone', category: 'BVN Verification', wholesale_cost: 700, selling_price: 1200, provider: '2sureverify', endpoint: '/api/v1/bvn_retrieval.php', enabled: true, required_fields: ['phone'], description: 'Retrieve 11-digit BVN linked to a phone number.' },
+
+      // 3. NIN Modification (all 16 services)
+      { key: 'nin_mod_name', name: 'NIN Name Modification', category: 'NIN Modification', wholesale_cost: 4000, selling_price: 6000, provider: '2sureverify', endpoint: '/api/v1/nin_mod_name.php', enabled: true, required_fields: ['nin', 'first_name', 'last_name'], description: 'Official correction of first name, middle name, or surname.' },
+      { key: 'nin_mod_phone', name: 'NIN Phone Number Modification', category: 'NIN Modification', wholesale_cost: 4000, selling_price: 6000, provider: '2sureverify', endpoint: '/api/v1/nin_mod_phone.php', enabled: true, required_fields: ['nin', 'phone'], description: 'Update telephone number registered on NIMC database.' },
+      { key: 'nin_mod_address', name: 'NIN Address Modification', category: 'NIN Modification', wholesale_cost: 4000, selling_price: 6000, provider: '2sureverify', endpoint: '/api/v1/nin_mod_address.php', enabled: true, required_fields: ['nin', 'address', 'state', 'lga'], description: 'Update residential address, state, or LGA.' },
+      { key: 'nin_mod_dob', name: 'NIN Date of Birth Modification', category: 'NIN Modification', wholesale_cost: 53000, selling_price: 65000, provider: '2sureverify', endpoint: '/api/v1/nin_mod_dob.php', enabled: true, required_fields: ['nin', 'dob'], description: 'Official NIMC date of birth modification with affidavit.' },
+      { key: 'nin_mod_dob_name', name: 'NIN Name & DOB Modification', category: 'NIN Modification', wholesale_cost: 58000, selling_price: 72000, provider: '2sureverify', endpoint: '/api/v1/nin_mod_dob_name.php', enabled: true, required_fields: ['nin', 'first_name', 'last_name', 'dob'], description: 'Simultaneous correction of full names and date of birth.' },
+      { key: 'nin_mod_name_phone', name: 'NIN Name & Phone Modification', category: 'NIN Modification', wholesale_cost: 8000, selling_price: 12000, provider: '2sureverify', endpoint: '/api/v1/nin_mod_name_phone.php', enabled: true, required_fields: ['nin', 'first_name', 'last_name', 'phone'], description: 'Simultaneous update of names and registered telephone number.' },
+      { key: 'gender_modification', name: 'NIN Gender Modification', category: 'NIN Modification', wholesale_cost: 5000, selling_price: 7500, provider: '2sureverify', endpoint: '/api/v1/gender_modification.php', enabled: true, required_fields: ['nin', 'gender'], description: 'Correction of gender classification on identity record.' },
+      { key: 'suspended_modification', name: 'Suspended NIN Modification', category: 'NIN Modification', wholesale_cost: 23000, selling_price: 30000, provider: '2sureverify', endpoint: '/api/v1/suspended_modification.php', enabled: true, required_fields: ['nin', 'tracking_id'], description: 'Rectification and lifting of suspension on flagged NIN.' },
+      { key: 'bvn_generated_modification', name: 'BVN Generated NIN Modification', category: 'NIN Modification', wholesale_cost: 22000, selling_price: 28000, provider: '2sureverify', endpoint: '/api/v1/bvn_generated_modification.php', enabled: true, required_fields: ['nin', 'bvn'], description: 'Upgrade and bio-capture modification for auto-generated BVN-NINs.' },
+      { key: 'child_modification', name: 'Child NIN Modification', category: 'NIN Modification', wholesale_cost: 13000, selling_price: 18000, provider: '2sureverify', endpoint: '/api/v1/child_modification.php', enabled: true, required_fields: ['nin', 'parent_nin'], description: 'Update child identity record with parental consent linkage.' },
+      { key: 'nin_over_age', name: 'Over-Age NIN Modification', category: 'NIN Modification', wholesale_cost: 10000, selling_price: 15000, provider: '2sureverify', endpoint: '/api/v1/nin_over_age.php', enabled: true, required_fields: ['nin', 'age_range'], description: 'Age bracket adjustment (5-9, 10-15, 15-20 years).' },
+      { key: 'second_nin_mod_name', name: 'Second NIN Name Mod (No Email/Pass)', category: 'NIN Modification', wholesale_cost: 70000, selling_price: 85000, provider: '2sureverify', endpoint: '/api/v1/second_nin_mod_name.php', enabled: true, required_fields: ['nin', 'first_name', 'last_name'], description: 'Secondary NIN name modification without email or password auth.' },
+      { key: 'second_nin_mod_phone', name: 'Second NIN Phone Mod (No Email/Pass)', category: 'NIN Modification', wholesale_cost: 18000, selling_price: 25000, provider: '2sureverify', endpoint: '/api/v1/second_nin_mod_phone.php', enabled: true, required_fields: ['nin', 'phone'], description: 'Secondary NIN phone number modification without email or password auth.' },
+      { key: 'second_nin_mod_name_auth', name: 'Second NIN Name Mod (With Email/Pass)', category: 'NIN Modification', wholesale_cost: 10000, selling_price: 15000, provider: '2sureverify', endpoint: '/api/v1/second_nin_mod_name_auth.php', enabled: true, required_fields: ['nin', 'first_name', 'last_name', 'portal_email', 'portal_password'], description: 'Second NIN name modification using self-service credentials.' },
+      { key: 'second_nin_mod_phone_auth', name: 'Second NIN Phone Mod (With Email/Pass)', category: 'NIN Modification', wholesale_cost: 10000, selling_price: 15000, provider: '2sureverify', endpoint: '/api/v1/second_nin_mod_phone_auth.php', enabled: true, required_fields: ['nin', 'phone', 'portal_email', 'portal_password'], description: 'Second NIN phone modification using self-service credentials.' },
+      { key: 'bvn_modification', name: 'BVN Modification (Bank Specific)', category: 'NIN Modification', wholesale_cost: 14000, selling_price: 18000, provider: '2sureverify', endpoint: '/api/v1/bvn_modification.php', enabled: true, required_fields: ['bvn', 'bank_name', 'modification_details'], description: 'Official NIBSS bank-specific BVN record modification.' },
+
+      // 4. Personalisation
+      { key: 'personalization', name: 'NIMC Personalisation (1)', category: 'Personalisation', wholesale_cost: 170, selling_price: 350, provider: '2sureverify', endpoint: '/api/v1/personalization.php', enabled: true, required_fields: ['nin'], description: 'High-res biometric photo personalisation and card stamping.' },
+      { key: 'personalization_2', name: 'NIMC Personalisation (2)', category: 'Personalisation', wholesale_cost: 140, selling_price: 300, provider: '2sureverify', endpoint: '/api/v1/personalization_2.php', enabled: true, required_fields: ['nin'], description: 'Secondary digital personalisation engine.' },
+
+      // 5. Enrolment
+      { key: 'bvn_enroll_adult', name: 'BVN Enrolment (Adult)', category: 'Enrolment', wholesale_cost: 10000, selling_price: 15000, provider: '2sureverify', endpoint: '/api/v1/bvn_enroll_adult.php', enabled: true, required_fields: ['nin', 'first_name', 'last_name', 'phone', 'bank_name'], description: 'Full biometric adult BVN enrolment registration.' },
+      { key: 'bvn_enroll_child', name: 'BVN Enrolment (Child)', category: 'Enrolment', wholesale_cost: 8000, selling_price: 12000, provider: '2sureverify', endpoint: '/api/v1/bvn_enroll_child.php', enabled: true, required_fields: ['child_nin', 'parent_bvn', 'first_name', 'last_name'], description: 'Minor / Child biometric BVN enrolment registration.' },
+
+      // 6. Additional Services
+      { key: 'npc_attestation', name: 'National Population Commission (NPC) Attestation', category: 'Additional Services', wholesale_cost: 20000, selling_price: 26000, provider: '2sureverify', endpoint: '/api/v1/npc_attestation.php', enabled: true, required_fields: ['full_name', 'dob', 'state_of_origin', 'lga'], description: 'Official Federal Government NPC birth attestation certificate.' },
+      { key: 'newspaper', name: 'National Newspaper Publication (Change of Name)', category: 'Additional Services', wholesale_cost: 1500, selling_price: 2500, provider: '2sureverify', endpoint: '/api/v1/newspaper.php', enabled: true, required_fields: ['old_name', 'new_name', 'address', 'reason'], description: 'Gazetted national daily change of name publication with clipping.' },
+      { key: 'cac_business', name: 'CAC Business Name Registration', category: 'Additional Services', wholesale_cost: 35000, selling_price: 45000, provider: '2sureverify', endpoint: '/api/v1/cac_business.php', enabled: true, required_fields: ['business_name', 'nature_of_business', 'proprietor_nin', 'proprietor_phone'], description: 'Full BN business registration certificate & status report from CAC.' },
+      { key: 'cac_company', name: 'CAC Company Registration (Limited Liability)', category: 'Additional Services', wholesale_cost: 45000, selling_price: 60000, provider: '2sureverify', endpoint: '/api/v1/cac_company.php', enabled: true, required_fields: ['company_name', 'directors_count', 'share_capital', 'director_nins'], description: 'Full RC private limited company incorporation certificate.' },
+      { key: 'tin_registration', name: 'Tax Identification Number (TIN) Registration', category: 'Additional Services', wholesale_cost: 1000, selling_price: 2000, provider: '2sureverify', endpoint: '/api/v1/tin_registration.php', enabled: true, required_fields: ['nin', 'business_name', 'email', 'phone'], description: 'Federal Inland Revenue Service (FIRS) / JTB Tax ID generation.' },
+      { key: 'validation', name: 'NIN Validation & Sync', category: 'Additional Services', wholesale_cost: 700, selling_price: 1200, provider: '2sureverify', endpoint: '/api/v1/validation.php', enabled: true, required_fields: ['nin'], description: 'Real-time synchronization and validation of dormant or unlinked NIN.' },
+      { key: 'ipe_clearance', name: 'IPE Clearance (Internal Processing Error)', category: 'Additional Services', wholesale_cost: 400, selling_price: 800, provider: '2sureverify', endpoint: '/api/v1/ipe_clearance.php', enabled: true, required_fields: ['nin', 'tracking_id'], description: 'Instant resolution of NIMC portal Internal Processing Error.' },
+      { key: 'delinking', name: 'NIN / BVN Delinking', category: 'Additional Services', wholesale_cost: 3500, selling_price: 5000, provider: '2sureverify', endpoint: '/api/v1/delinking.php', enabled: true, required_fields: ['nin', 'bvn', 'phone'], description: 'Delinking wrongly associated BVN from NIMC profile.' },
     ],
   };
 }
@@ -315,6 +817,18 @@ export function initDatabase(): void {
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       dbData = JSON.parse(raw);
+      const defaults = getDefaultData();
+      if (!dbData.branding) dbData.branding = defaults.branding;
+      if (!dbData.cms_sections) dbData.cms_sections = defaults.cms_sections;
+      if (!dbData.announcements) dbData.announcements = defaults.announcements;
+      if (!dbData.faqs) dbData.faqs = defaults.faqs;
+      if (!dbData.navigation) dbData.navigation = defaults.navigation;
+      if (!dbData.dashboard_modules) dbData.dashboard_modules = defaults.dashboard_modules;
+      if (!dbData.store_items) dbData.store_items = defaults.store_items;
+      if (!dbData.academy_courses) dbData.academy_courses = defaults.academy_courses;
+      if (!dbData.identity_services) dbData.identity_services = defaults.identity_services;
+      if (!dbData.provider_configs) dbData.provider_configs = defaults.provider_configs;
+      if (!dbData.provider_logs) dbData.provider_logs = defaults.provider_logs || [];
     } else {
       dbData = getDefaultData();
       saveDatabase();
@@ -339,6 +853,9 @@ export function saveDatabase(): void {
 
 // Data access helpers
 export const db = {
+  saveDatabase(): void {
+    saveDatabase();
+  },
   get data() {
     if (!dbData) initDatabase();
     return dbData;
@@ -448,6 +965,86 @@ export const db = {
     this.data.settings = { ...this.data.settings, ...updates };
     saveDatabase();
     return this.data.settings;
+  },
+
+  // Branding
+  updateBranding(updates: Partial<BrandSettings>): BrandSettings {
+    this.data.branding = { ...this.data.branding, ...updates };
+    saveDatabase();
+    return this.data.branding;
+  },
+
+  // CMS Sections
+  updateCmsSections(updates: Partial<CmsSections>): CmsSections {
+    this.data.cms_sections = { ...this.data.cms_sections, ...updates };
+    saveDatabase();
+    return this.data.cms_sections;
+  },
+
+  // Page Visibility
+  updatePageVisibility(visibility: Partial<CmsSections['pageVisibility']>): CmsSections['pageVisibility'] {
+    this.data.cms_sections.pageVisibility = {
+      ...this.data.cms_sections.pageVisibility,
+      ...visibility,
+    };
+    saveDatabase();
+    return this.data.cms_sections.pageVisibility;
+  },
+
+  // Announcements
+  createAnnouncement(announcement: Omit<AnnouncementItem, 'id' | 'created_at'>): AnnouncementItem {
+    const item: AnnouncementItem = {
+      ...announcement,
+      id: `anc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      created_at: new Date().toISOString(),
+    };
+    this.data.announcements.unshift(item);
+    saveDatabase();
+    return item;
+  },
+  updateAnnouncement(id: string, updates: Partial<AnnouncementItem>): AnnouncementItem | undefined {
+    const idx = this.data.announcements.findIndex(a => a.id === id);
+    if (idx === -1) return undefined;
+    this.data.announcements[idx] = { ...this.data.announcements[idx], ...updates };
+    saveDatabase();
+    return this.data.announcements[idx];
+  },
+  deleteAnnouncement(id: string): boolean {
+    const before = this.data.announcements.length;
+    this.data.announcements = this.data.announcements.filter(a => a.id !== id);
+    saveDatabase();
+    return this.data.announcements.length < before;
+  },
+
+  // FAQs
+  createFaq(faq: Omit<FaqItem, 'id'>): FaqItem {
+    const item: FaqItem = {
+      ...faq,
+      id: `faq_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    };
+    this.data.faqs.push(item);
+    saveDatabase();
+    return item;
+  },
+  updateFaq(id: string, updates: Partial<FaqItem>): FaqItem | undefined {
+    const idx = this.data.faqs.findIndex(f => f.id === id);
+    if (idx === -1) return undefined;
+    this.data.faqs[idx] = { ...this.data.faqs[idx], ...updates };
+    saveDatabase();
+    return this.data.faqs[idx];
+  },
+  deleteFaq(id: string): boolean {
+    const before = this.data.faqs.length;
+    this.data.faqs = this.data.faqs.filter(f => f.id !== id);
+    saveDatabase();
+    return this.data.faqs.length < before;
+  },
+
+  // Navigation
+  updateNavigation(items: NavMenuItem[]): NavMenuItem[] {
+    this.data.navigation = items;
+    saveDatabase();
+    return this.data.navigation;
   },
 };
 

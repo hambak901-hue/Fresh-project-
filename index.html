@@ -12,6 +12,32 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+      // Ignore Vite HMR WebSocket connection errors in Cloud Run iframe environment per runtime constraints
+      window.addEventListener('unhandledrejection', function(e) {
+        var reason = e && e.reason;
+        var msg = reason && (reason.message || String(reason));
+        var stack = reason && reason.stack;
+        if (
+          (msg && (msg.indexOf('WebSocket') !== -1 || msg.indexOf('@vite/client') !== -1 || msg.indexOf('closed without opened') !== -1)) ||
+          (stack && (stack.indexOf('@vite/client') !== -1 || stack.indexOf('WebSocket') !== -1))
+        ) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      });
+      window.addEventListener('error', function(e) {
+        var msg = e && (e.message || String(e));
+        var file = e && e.filename;
+        if (
+          (msg && (msg.indexOf('WebSocket') !== -1 || msg.indexOf('@vite/client') !== -1)) ||
+          (file && file.indexOf('@vite/client') !== -1)
+        ) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+    </script>
   </head>
   <body class="bg-slate-950 text-slate-100 antialiased selection:bg-emerald-500 selection:text-white">
     <div id="root"></div>
