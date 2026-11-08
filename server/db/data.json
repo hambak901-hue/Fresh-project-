@@ -22,14 +22,14 @@
       "full_name": "Fatimoh Musbau",
       "phone_number": "+2348123456789",
       "role": "customer",
-      "wallet_balance": 14100,
+      "wallet_balance": 19100,
       "kyc_status": "verified",
       "nin": "12345678901",
       "bvn": "22334455667",
       "tier": 2,
       "referral_code": "FATIMOH99",
       "created_at": "2026-02-15T00:00:00.000Z",
-      "updated_at": "2026-11-08T08:41:34.421Z",
+      "updated_at": "2026-11-08T09:53:53.838Z",
       "status": "active"
     },
     {
@@ -49,6 +49,29 @@
     }
   ],
   "transactions": [
+    {
+      "id": "txn_1794131629038_5bou",
+      "user_id": "usr_customer_demo",
+      "type": "credit",
+      "amount": 5000,
+      "balance_before": 14100,
+      "balance_after": 19100,
+      "category": "funding",
+      "reference": "PSTK_1794131629038_RX2DK",
+      "gateway": "paystack",
+      "status": "successful",
+      "description": "Paystack Online Card/Transfer Top-up: ₦5,000",
+      "metadata": {
+        "gateway": "paystack",
+        "initialized_at": "2026-11-08T09:53:49.104Z",
+        "customer_email": "fatimohmusbau34@gmail.com",
+        "customer_name": "Fatimoh Musbau",
+        "verified_at": "2026-11-08T09:53:53.838Z",
+        "channel": "card",
+        "paystack_paid_at": "2026-11-08T09:53:53.838Z"
+      },
+      "created_at": "2026-11-08T09:53:49.104Z"
+    },
     {
       "id": "txn_1794127294421_zggwt",
       "user_id": "usr_customer_demo",
@@ -496,6 +519,15 @@
   ],
   "notifications": [
     {
+      "id": "notif_1794131633840_24lf1",
+      "user_id": "usr_customer_demo",
+      "title": "Wallet Credited (Paystack)",
+      "message": "₦5,000 was successfully credited to your wallet via Paystack. Reference: PSTK_1794131629038_RX2DK.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-08T09:53:53.840Z"
+    },
+    {
       "id": "notif_1794127294423_53ah4",
       "user_id": "usr_customer_demo",
       "title": "NIN Verification (V1 Standard) Successful",
@@ -606,6 +638,84 @@
     "support_email": "support@hambaktech.com.ng"
   },
   "audit_logs": [
+    {
+      "id": "audit_1794131633839",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "action": "PAYSTACK_PAYMENT_VERIFIED",
+      "details": {
+        "reference": "PSTK_1794131629038_RX2DK",
+        "amount": 5000,
+        "userId": "usr_customer_demo",
+        "email": "fatimohmusbau34@gmail.com"
+      },
+      "created_at": "2026-11-08T09:53:53.839Z"
+    },
+    {
+      "id": "audit_1794129928489",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "DASHBOARD_MODULE_UPDATED",
+      "details": {
+        "moduleId": "nin",
+        "changes": {
+          "visible": true
+        }
+      },
+      "created_at": "2026-11-08T09:25:28.489Z"
+    },
+    {
+      "id": "audit_1794129927269",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "DASHBOARD_MODULE_UPDATED",
+      "details": {
+        "moduleId": "nin",
+        "changes": {
+          "visible": false
+        }
+      },
+      "created_at": "2026-11-08T09:25:27.269Z"
+    },
+    {
+      "id": "audit_1794129921078",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "DASHBOARD_MODULE_UPDATED",
+      "details": {
+        "moduleId": "nin",
+        "changes": {
+          "visible": true
+        }
+      },
+      "created_at": "2026-11-08T09:25:21.078Z"
+    },
+    {
+      "id": "audit_1794129919871",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "DASHBOARD_MODULE_UPDATED",
+      "details": {
+        "moduleId": "nin",
+        "changes": {
+          "visible": false
+        }
+      },
+      "created_at": "2026-11-08T09:25:19.871Z"
+    },
+    {
+      "id": "audit_1794129919741",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "DASHBOARD_MODULE_UPDATED",
+      "details": {
+        "moduleId": "nin",
+        "changes": {
+          "visible": false
+        }
+      },
+      "created_at": "2026-11-08T09:25:19.741Z"
+    },
     {
       "id": "audit_1794127294423",
       "user_id": "usr_customer_demo",
@@ -2010,6 +2120,42 @@
   ],
   "provider_logs": [
     {
+      "id": "plog_1794131633837_3fzw",
+      "provider": "paystack",
+      "endpoint": "/transaction/verify/PSTK_1794131629038_RX2DK",
+      "method": "GET",
+      "status_code": 401,
+      "request_body": null,
+      "response_body": "{\"status\":false,\"message\":\"Invalid key\",\"meta\":{\"nextStep\":\"Ensure that you provide the correct authorization key for the request\"},\"type\":\"validation_error\",\"code\":\"invalid_Key\"}",
+      "latency_ms": 134,
+      "reference": "PSTK_1794131629038_RX2DK",
+      "created_at": "2026-11-08T09:53:53.837Z"
+    },
+    {
+      "id": "plog_1794131629254_940o",
+      "provider": "paystack",
+      "endpoint": "/transaction/initialize",
+      "method": "POST",
+      "status_code": 401,
+      "request_body": "{\"email\":\"fatimohmusbau34@gmail.com\",\"amount\":500000,\"reference\":\"PSTK_1794131629038_RX2DK\",\"callback_url\":\"https://ais-dev-zq7fbcajpw6rgv4jweomup-615209616188.europe-west2.run.app/customer/wallet?payment_ref=PSTK_1794131629038_RX2DK\",\"currency\":\"NGN\",\"metadata\":{\"userId\":\"usr_customer_demo\",\"transactionId\":\"txn_1794131629038_5bou\",\"custom_fields\":[{\"display_name\":\"Customer Email\",\"variable_name\":\"customer_email\",\"value\":\"fatimohmusbau34@gmail.com\"},{\"display_name\":\"Service Portal\",\"variable_name\":\"portal\",\"value\":\"HambakTech Enterprise\"}]}}",
+      "response_body": "{\"status\":false,\"message\":\"Invalid key\",\"meta\":{\"nextStep\":\"Ensure that you provide the correct authorization key for the request\"},\"type\":\"validation_error\",\"code\":\"invalid_Key\"}",
+      "latency_ms": 147,
+      "reference": "PSTK_1794131629038_RX2DK",
+      "created_at": "2026-11-08T09:53:49.254Z"
+    },
+    {
+      "id": "plog_1794130822880_ew05",
+      "provider": "ulamadata_webhook",
+      "endpoint": "/webhook/ulamadata",
+      "method": "POST",
+      "status_code": 200,
+      "request_body": "{\"ident\":\"test_wh_ref_1\",\"status\":\"success\"}",
+      "response_body": "{\"processed\":true}",
+      "latency_ms": 15,
+      "reference": "test_wh_ref_1",
+      "created_at": "2026-11-08T09:40:22.880Z"
+    },
+    {
       "id": "plog_1794127277196_stt0",
       "provider": "2sureverify",
       "endpoint": "/api/v1/nin_v1.php",
@@ -2020,6 +2166,821 @@
       "latency_ms": 66,
       "reference": null,
       "created_at": "2026-11-08T08:41:17.196Z"
+    }
+  ],
+  "telecom_plans": [
+    {
+      "id": "mtn_sme_500mb",
+      "provider_plan_id": 7,
+      "network": "MTN",
+      "name": "MTN SME 500MB (30 Days)",
+      "size": "500MB",
+      "type": "SME",
+      "validity": "30 Days",
+      "wholesale_cost": 130,
+      "price": 150,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "mtn_sme_1gb",
+      "provider_plan_id": 8,
+      "network": "MTN",
+      "name": "MTN SME 1.0GB (30 Days)",
+      "size": "1GB",
+      "type": "SME",
+      "validity": "30 Days",
+      "wholesale_cost": 245,
+      "price": 270,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "mtn_sme_2gb",
+      "provider_plan_id": 9,
+      "network": "MTN",
+      "name": "MTN SME 2.0GB (30 Days)",
+      "size": "2GB",
+      "type": "SME",
+      "validity": "30 Days",
+      "wholesale_cost": 490,
+      "price": 540,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "mtn_sme_3gb",
+      "provider_plan_id": 10,
+      "network": "MTN",
+      "name": "MTN SME 3.0GB (30 Days)",
+      "size": "3GB",
+      "type": "SME",
+      "validity": "30 Days",
+      "wholesale_cost": 735,
+      "price": 810,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "mtn_sme_5gb",
+      "provider_plan_id": 11,
+      "network": "MTN",
+      "name": "MTN SME 5.0GB (30 Days)",
+      "size": "5GB",
+      "type": "SME",
+      "validity": "30 Days",
+      "wholesale_cost": 1225,
+      "price": 1350,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "mtn_sme_10gb",
+      "provider_plan_id": 12,
+      "network": "MTN",
+      "name": "MTN SME 10.0GB (30 Days)",
+      "size": "10GB",
+      "type": "SME",
+      "validity": "30 Days",
+      "wholesale_cost": 2450,
+      "price": 2700,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "mtn_cg_1gb",
+      "provider_plan_id": 14,
+      "network": "MTN",
+      "name": "MTN Corporate Gifting 1.0GB",
+      "size": "1GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 260,
+      "price": 290,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "mtn_cg_2gb",
+      "provider_plan_id": 15,
+      "network": "MTN",
+      "name": "MTN Corporate Gifting 2.0GB",
+      "size": "2GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 520,
+      "price": 580,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "mtn_cg_5gb",
+      "provider_plan_id": 16,
+      "network": "MTN",
+      "name": "MTN Corporate Gifting 5.0GB",
+      "size": "5GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 1300,
+      "price": 1450,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "airtel_cg_500mb",
+      "provider_plan_id": 20,
+      "network": "AIRTEL",
+      "name": "Airtel Corporate 500MB",
+      "size": "500MB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 140,
+      "price": 160,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "airtel_cg_1gb",
+      "provider_plan_id": 21,
+      "network": "AIRTEL",
+      "name": "Airtel Corporate 1.0GB",
+      "size": "1GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 265,
+      "price": 290,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "airtel_cg_2gb",
+      "provider_plan_id": 22,
+      "network": "AIRTEL",
+      "name": "Airtel Corporate 2.0GB",
+      "size": "2GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 530,
+      "price": 580,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "airtel_cg_5gb",
+      "provider_plan_id": 23,
+      "network": "AIRTEL",
+      "name": "Airtel Corporate 5.0GB",
+      "size": "5GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 1325,
+      "price": 1450,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "airtel_cg_10gb",
+      "provider_plan_id": 24,
+      "network": "AIRTEL",
+      "name": "Airtel Corporate 10.0GB",
+      "size": "10GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 2650,
+      "price": 2900,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "glo_cg_500mb",
+      "provider_plan_id": 30,
+      "network": "GLO",
+      "name": "Glo Corporate 500MB",
+      "size": "500MB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 125,
+      "price": 145,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "glo_cg_1gb",
+      "provider_plan_id": 31,
+      "network": "GLO",
+      "name": "Glo Corporate 1.0GB",
+      "size": "1GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 240,
+      "price": 260,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "glo_cg_2gb",
+      "provider_plan_id": 32,
+      "network": "GLO",
+      "name": "Glo Corporate 2.0GB",
+      "size": "2GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 480,
+      "price": 520,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "glo_cg_3gb",
+      "provider_plan_id": 33,
+      "network": "GLO",
+      "name": "Glo Corporate 3.0GB",
+      "size": "3GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 720,
+      "price": 780,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "glo_cg_5gb",
+      "provider_plan_id": 34,
+      "network": "GLO",
+      "name": "Glo Corporate 5.0GB",
+      "size": "5GB",
+      "type": "Corporate",
+      "validity": "30 Days",
+      "wholesale_cost": 1200,
+      "price": 1300,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "9mobile_sme_1gb",
+      "provider_plan_id": 40,
+      "network": "9MOBILE",
+      "name": "9mobile SME 1.0GB",
+      "size": "1GB",
+      "type": "SME",
+      "validity": "30 Days",
+      "wholesale_cost": 220,
+      "price": 250,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "9mobile_sme_2gb",
+      "provider_plan_id": 41,
+      "network": "9MOBILE",
+      "name": "9mobile SME 2.0GB",
+      "size": "2GB",
+      "type": "SME",
+      "validity": "30 Days",
+      "wholesale_cost": 440,
+      "price": 500,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "9mobile_sme_3gb",
+      "provider_plan_id": 42,
+      "network": "9MOBILE",
+      "name": "9mobile SME 3.0GB",
+      "size": "3GB",
+      "type": "SME",
+      "validity": "30 Days",
+      "wholesale_cost": 660,
+      "price": 750,
+      "enabled": true,
+      "provider": "ulamadata"
+    },
+    {
+      "id": "9mobile_sme_5gb",
+      "provider_plan_id": 43,
+      "network": "9MOBILE",
+      "name": "9mobile SME 5.0GB",
+      "size": "5GB",
+      "type": "SME",
+      "validity": "30 Days",
+      "wholesale_cost": 1100,
+      "price": 1250,
+      "enabled": true,
+      "provider": "ulamadata"
+    }
+  ],
+  "airtime_pin_denominations": [
+    {
+      "id": "mtn_pin_100",
+      "network": "MTN",
+      "value": 100,
+      "wholesale_cost": 98,
+      "price": 100,
+      "enabled": true
+    },
+    {
+      "id": "mtn_pin_200",
+      "network": "MTN",
+      "value": 200,
+      "wholesale_cost": 196,
+      "price": 200,
+      "enabled": true
+    },
+    {
+      "id": "mtn_pin_500",
+      "network": "MTN",
+      "value": 500,
+      "wholesale_cost": 490,
+      "price": 500,
+      "enabled": true
+    },
+    {
+      "id": "mtn_pin_1000",
+      "network": "MTN",
+      "value": 1000,
+      "wholesale_cost": 980,
+      "price": 1000,
+      "enabled": true
+    },
+    {
+      "id": "airtel_pin_100",
+      "network": "AIRTEL",
+      "value": 100,
+      "wholesale_cost": 98,
+      "price": 100,
+      "enabled": true
+    },
+    {
+      "id": "airtel_pin_200",
+      "network": "AIRTEL",
+      "value": 200,
+      "wholesale_cost": 196,
+      "price": 200,
+      "enabled": true
+    },
+    {
+      "id": "airtel_pin_500",
+      "network": "AIRTEL",
+      "value": 500,
+      "wholesale_cost": 490,
+      "price": 500,
+      "enabled": true
+    },
+    {
+      "id": "airtel_pin_1000",
+      "network": "AIRTEL",
+      "value": 1000,
+      "wholesale_cost": 980,
+      "price": 1000,
+      "enabled": true
+    },
+    {
+      "id": "glo_pin_100",
+      "network": "GLO",
+      "value": 100,
+      "wholesale_cost": 97,
+      "price": 100,
+      "enabled": true
+    },
+    {
+      "id": "glo_pin_200",
+      "network": "GLO",
+      "value": 200,
+      "wholesale_cost": 194,
+      "price": 200,
+      "enabled": true
+    },
+    {
+      "id": "glo_pin_500",
+      "network": "GLO",
+      "value": 500,
+      "wholesale_cost": 485,
+      "price": 500,
+      "enabled": true
+    },
+    {
+      "id": "9mobile_pin_100",
+      "network": "9MOBILE",
+      "value": 100,
+      "wholesale_cost": 97,
+      "price": 100,
+      "enabled": true
+    },
+    {
+      "id": "9mobile_pin_200",
+      "network": "9MOBILE",
+      "value": 200,
+      "wholesale_cost": 194,
+      "price": 200,
+      "enabled": true
+    }
+  ],
+  "data_pin_denominations": [
+    {
+      "id": "mtn_dpin_1gb",
+      "network": "MTN",
+      "name": "MTN 1GB Data Card PIN",
+      "size": "1GB",
+      "wholesale_cost": 275,
+      "price": 320,
+      "enabled": true
+    },
+    {
+      "id": "mtn_dpin_2gb",
+      "network": "MTN",
+      "name": "MTN 2GB Data Card PIN",
+      "size": "2GB",
+      "wholesale_cost": 550,
+      "price": 620,
+      "enabled": true
+    },
+    {
+      "id": "mtn_dpin_5gb",
+      "network": "MTN",
+      "name": "MTN 5GB Data Card PIN",
+      "size": "5GB",
+      "wholesale_cost": 1375,
+      "price": 1550,
+      "enabled": true
+    },
+    {
+      "id": "airtel_dpin_1gb",
+      "network": "AIRTEL",
+      "name": "Airtel 1GB Data Card PIN",
+      "size": "1GB",
+      "wholesale_cost": 290,
+      "price": 340,
+      "enabled": true
+    },
+    {
+      "id": "airtel_dpin_2gb",
+      "network": "AIRTEL",
+      "name": "Airtel 2GB Data Card PIN",
+      "size": "2GB",
+      "wholesale_cost": 580,
+      "price": 650,
+      "enabled": true
+    },
+    {
+      "id": "glo_dpin_1gb",
+      "network": "GLO",
+      "name": "Glo 1GB Data Card PIN",
+      "size": "1GB",
+      "wholesale_cost": 260,
+      "price": 310,
+      "enabled": true
+    }
+  ],
+  "cable_packages": [
+    {
+      "id": "gotv_smallie",
+      "provider": "gotv",
+      "name": "GOtv Smallie Monthly",
+      "code": "gotv-smallie",
+      "channels": 35,
+      "wholesale_cost": 1850,
+      "price": 1900,
+      "enabled": true
+    },
+    {
+      "id": "gotv_jinja",
+      "provider": "gotv",
+      "name": "GOtv Jinja Bouquet",
+      "code": "gotv-jinja",
+      "channels": 47,
+      "wholesale_cost": 4100,
+      "price": 4200,
+      "enabled": true
+    },
+    {
+      "id": "gotv_jolli",
+      "provider": "gotv",
+      "name": "GOtv Jolli Bouquet",
+      "code": "gotv-jolli",
+      "channels": 68,
+      "wholesale_cost": 6050,
+      "price": 6200,
+      "enabled": true
+    },
+    {
+      "id": "gotv_max",
+      "provider": "gotv",
+      "name": "GOtv Max Bouquet",
+      "code": "gotv-max",
+      "channels": 75,
+      "wholesale_cost": 8300,
+      "price": 8500,
+      "enabled": true
+    },
+    {
+      "id": "gotv_supa",
+      "provider": "gotv",
+      "name": "GOtv Supa Bouquet",
+      "code": "gotv-supa",
+      "channels": 85,
+      "wholesale_cost": 10750,
+      "price": 11000,
+      "enabled": true
+    },
+    {
+      "id": "dstv_padi",
+      "provider": "dstv",
+      "name": "DStv Padi Bouquet",
+      "code": "dstv-padi",
+      "channels": 45,
+      "wholesale_cost": 4300,
+      "price": 4400,
+      "enabled": true
+    },
+    {
+      "id": "dstv_yanga",
+      "provider": "dstv",
+      "name": "DStv Yanga Bouquet",
+      "code": "dstv-yanga",
+      "channels": 85,
+      "wholesale_cost": 5850,
+      "price": 6000,
+      "enabled": true
+    },
+    {
+      "id": "dstv_confam",
+      "provider": "dstv",
+      "name": "DStv Confam Bouquet",
+      "code": "dstv-confam",
+      "channels": 105,
+      "wholesale_cost": 10750,
+      "price": 11000,
+      "enabled": true
+    },
+    {
+      "id": "dstv_compact",
+      "provider": "dstv",
+      "name": "DStv Compact Bouquet",
+      "code": "dstv-compact",
+      "channels": 130,
+      "wholesale_cost": 18600,
+      "price": 19000,
+      "enabled": true
+    },
+    {
+      "id": "dstv_compact_plus",
+      "provider": "dstv",
+      "name": "DStv Compact Plus",
+      "code": "dstv-compact-plus",
+      "channels": 145,
+      "wholesale_cost": 30300,
+      "price": 31000,
+      "enabled": true
+    },
+    {
+      "id": "dstv_premium",
+      "provider": "dstv",
+      "name": "DStv Premium Bouquet",
+      "code": "dstv-premium",
+      "channels": 160,
+      "wholesale_cost": 43000,
+      "price": 44000,
+      "enabled": true
+    },
+    {
+      "id": "startimes_nova",
+      "provider": "startimes",
+      "name": "Startimes Nova Bouquet",
+      "code": "startimes-nova",
+      "channels": 30,
+      "wholesale_cost": 2100,
+      "price": 2200,
+      "enabled": true
+    },
+    {
+      "id": "startimes_basic",
+      "provider": "startimes",
+      "name": "Startimes Basic Bouquet",
+      "code": "startimes-basic",
+      "channels": 40,
+      "wholesale_cost": 3900,
+      "price": 4000,
+      "enabled": true
+    },
+    {
+      "id": "startimes_smart",
+      "provider": "startimes",
+      "name": "Startimes Smart Bouquet",
+      "code": "startimes-smart",
+      "channels": 47,
+      "wholesale_cost": 4700,
+      "price": 4800,
+      "enabled": true
+    },
+    {
+      "id": "startimes_classic",
+      "provider": "startimes",
+      "name": "Startimes Classic Bouquet",
+      "code": "startimes-classic",
+      "channels": 65,
+      "wholesale_cost": 5850,
+      "price": 6000,
+      "enabled": true
+    },
+    {
+      "id": "startimes_super",
+      "provider": "startimes",
+      "name": "Startimes Super Bouquet",
+      "code": "startimes-super",
+      "channels": 80,
+      "wholesale_cost": 8800,
+      "price": 9000,
+      "enabled": true
+    },
+    {
+      "id": "showmax_mobile",
+      "provider": "showmax",
+      "name": "Showmax Mobile Only",
+      "code": "showmax-mobile",
+      "channels": 1,
+      "wholesale_cost": 1500,
+      "price": 1600,
+      "enabled": true
+    },
+    {
+      "id": "showmax_standard",
+      "provider": "showmax",
+      "name": "Showmax All Devices",
+      "code": "showmax-standard",
+      "channels": 1,
+      "wholesale_cost": 3350,
+      "price": 3500,
+      "enabled": true
+    }
+  ],
+  "electricity_discos": [
+    {
+      "id": "ikedc",
+      "name": "Ikeja Electric (IKEDC)",
+      "code": "ikeja-electric",
+      "minimum_amount": 1000,
+      "enabled": true
+    },
+    {
+      "id": "ekedc",
+      "name": "Eko Electric (EKEDC)",
+      "code": "eko-electric",
+      "minimum_amount": 1000,
+      "enabled": true
+    },
+    {
+      "id": "aedc",
+      "name": "Abuja Electricity (AEDC)",
+      "code": "abuja-electric",
+      "minimum_amount": 1000,
+      "enabled": true
+    },
+    {
+      "id": "ibedc",
+      "name": "Ibadan Electricity (IBEDC)",
+      "code": "ibadan-electric",
+      "minimum_amount": 1000,
+      "enabled": true
+    },
+    {
+      "id": "kedco",
+      "name": "Kano Electricity (KEDCO)",
+      "code": "kano-electric",
+      "minimum_amount": 1000,
+      "enabled": true
+    },
+    {
+      "id": "phed",
+      "name": "Port Harcourt Electric (PHED)",
+      "code": "portharcourt-electric",
+      "minimum_amount": 1000,
+      "enabled": true
+    },
+    {
+      "id": "jed",
+      "name": "Jos Electricity (JED)",
+      "code": "jos-electric",
+      "minimum_amount": 1000,
+      "enabled": true
+    },
+    {
+      "id": "kaedco",
+      "name": "Kaduna Electricity (KAEDCO)",
+      "code": "kaduna-electric",
+      "minimum_amount": 1000,
+      "enabled": true
+    },
+    {
+      "id": "bedc",
+      "name": "Benin Electricity (BEDC)",
+      "code": "benin-electric",
+      "minimum_amount": 1000,
+      "enabled": true
+    },
+    {
+      "id": "eedc",
+      "name": "Enugu Electricity (EEDC)",
+      "code": "enugu-electric",
+      "minimum_amount": 1000,
+      "enabled": true
+    }
+  ],
+  "exam_packages": [
+    {
+      "id": "waec_pin",
+      "exam_name": "WAEC",
+      "name": "WAEC Result Checker PIN & Serial",
+      "description": "Access and verify official West African Senior School Certificate Examination results.",
+      "wholesale_cost": 3500,
+      "price": 3800,
+      "enabled": true
+    },
+    {
+      "id": "neco_token",
+      "exam_name": "NECO",
+      "name": "NECO Official Result Token",
+      "description": "Electronic token for viewing and printing National Examination Council June/July & Nov/Dec results.",
+      "wholesale_cost": 1550,
+      "price": 1800,
+      "enabled": true
+    },
+    {
+      "id": "nabteb_pin",
+      "exam_name": "NABTEB",
+      "name": "NABTEB Result Scratch Card PIN",
+      "description": "National Business and Technical Examinations Board result checker token.",
+      "wholesale_cost": 1500,
+      "price": 1800,
+      "enabled": true
+    },
+    {
+      "id": "jamb_utme_pin",
+      "exam_name": "JAMB",
+      "name": "JAMB UTME Registration e-PIN",
+      "description": "Joint Admissions and Matriculation Board Universal Tertiary Matriculation e-PIN profile code.",
+      "wholesale_cost": 8000,
+      "price": 8500,
+      "enabled": true
+    },
+    {
+      "id": "jamb_de_pin",
+      "exam_name": "JAMB",
+      "name": "JAMB Direct Entry (DE) e-PIN",
+      "description": "JAMB Direct Entry registration PIN for polytechnic and university diploma graduates.",
+      "wholesale_cost": 9000,
+      "price": 9500,
+      "enabled": true
+    }
+  ],
+  "airtime_swap_configs": [
+    {
+      "network": "MTN",
+      "conversion_rate_percent": 80,
+      "merchant_phone": "08134567890",
+      "ussd_code": "*600*recipient*amount*PIN#",
+      "enabled": true
+    },
+    {
+      "network": "AIRTEL",
+      "conversion_rate_percent": 80,
+      "merchant_phone": "08023456789",
+      "ussd_code": "*432*1*recipient*amount*PIN#",
+      "enabled": true
+    },
+    {
+      "network": "GLO",
+      "conversion_rate_percent": 75,
+      "merchant_phone": "08051234567",
+      "ussd_code": "*131*recipient*amount*PIN#",
+      "enabled": true
+    },
+    {
+      "network": "9MOBILE",
+      "conversion_rate_percent": 75,
+      "merchant_phone": "08091234567",
+      "ussd_code": "*223*PIN*amount*recipient#",
+      "enabled": true
+    }
+  ],
+  "bulk_sms_records": [],
+  "telecom_provider_configs": [
+    {
+      "id": "ulamadata",
+      "name": "UlamaData High-Speed Gateway",
+      "base_url": "https://ulamadata.com/api",
+      "api_key": "7aOkA4OzIF6xfuUIXbvk7ByxVGH0U5gSNy1OfpYb",
+      "is_active": true,
+      "is_default": true,
+      "timeout_seconds": 12
+    },
+    {
+      "id": "vtpass",
+      "name": "VTpass Utility Bridge",
+      "base_url": "https://api-service.vtpass.com/api",
+      "api_key": "c0eb1581608e693f07a44b1e21b44b3a",
+      "is_active": true,
+      "is_default": false,
+      "timeout_seconds": 12
     }
   ]
 }

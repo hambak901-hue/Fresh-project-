@@ -1,10 +1,11 @@
 /**
  * @file WalletModal.tsx
- * Modal for testing wallet funding, viewing ledger transactions, and Moniepoint bank details.
+ * Modal for wallet top-up, Paystack online authorization, Flutterwave Coming Soon preview,
+ * dedicated Moniepoint bank details, and instant ledger verification.
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, Wallet, ArrowDownLeft, ArrowUpRight, Copy, Check, CreditCard, ShieldCheck } from 'lucide-react';
+import { X, Wallet, ArrowDownLeft, ArrowUpRight, Copy, Check, CreditCard, ShieldCheck, Clock, ExternalLink, RefreshCw } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import confetti from 'canvas-confetti';
@@ -17,39 +18,73 @@ interface WalletModalProps {
 export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
   const { user, updateBalance } = useAuth();
   const [amount, setAmount] = useState<string>('5000');
-  const [gateway, setGateway] = useState<'flutterwave' | 'paystack' | 'manual'>('flutterwave');
+  const [gateway, setGateway] = useState<'paystack' | 'manual' | 'flutterwave'>('paystack');
   const [loading, setLoading] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [summary, setSummary] = useState<any>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [paystackSession, setPaystackSession] = useState<any | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      api.getWalletSummary()
-        .then(data => setSummary(data))
-        .catch(console.error);
+      loadSummary();
     }
   }, [isOpen]);
+
+  const loadSummary = async () => {
+    try {
+      const data = await api.getWalletSummary();
+      setSummary(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   if (!isOpen) return null;
 
   const handleFund = async () => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setPaystackSession(null);
+
     const num = Number(amount);
-    if (!num || num < 100) return;
+    if (!num || num < 100) {
+      setErrorMessage('Minimum funding amount is ₦100');
+      return;
+    }
+
+    if (gateway === 'flutterwave') {
+      setErrorMessage('Flutterwave is currently in Coming Soon mode. Please use Paystack for instant online card/transfer payments or Moniepoint Bank Transfer.');
+      return;
+    }
+
+    if (gateway === 'manual') {
+      setSuccessMessage('Transfer to our dedicated Moniepoint account below, then your balance will be credited upon receipt.');
+      return;
+    }
+
+    // Paystack online authorization
     setLoading(true);
     try {
-      const res = await api.fundWallet(num, gateway);
-      if (res.success) {
-        updateBalance(res.balance);
-        confetti({
-          particleCount: 50,
-          spread: 60,
-          origin: { y: 0.7 },
-        });
-        const updated = await api.getWalletSummary();
-        setSummary(updated);
+      const initRes = await api.initializePaystack(num);
+      if (initRes.success) {
+        setPaystackSession(initRes);
+        // Automatically verify in background / simulation
+        const verifyRes = await api.verifyPaystackPayment(initRes.reference);
+        if (verifyRes.success) {
+          updateBalance(verifyRes.balance);
+          setSuccessMessage(`Payment of ₦${num.toLocaleString()} verified and credited to wallet successfully!`);
+          confetti({
+            particleCount: 50,
+            spread: 60,
+            origin: { y: 0.7 },
+          });
+          await loadSummary();
+        }
       }
     } catch (err: any) {
-      alert(err.message || 'Funding failed');
+      setErrorMessage(err.message || 'Payment initiation failed');
     } finally {
       setLoading(false);
     }
@@ -85,6 +120,18 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
 
         {/* Body */}
         <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          {errorMessage && (
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold">
+              {errorMessage}
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+              {successMessage}
+            </div>
+          )}
+
           {/* Quick Preset Buttons */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-2">Select Amount (NGN)</label>
@@ -116,30 +163,47 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
           {/* Payment Gateway Select */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-2">Select Payment Channel</label>
-            <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="grid grid-cols-3 gap-2 text-xs">
               <button
                 type="button"
-                onClick={() => setGateway('flutterwave')}
+                onClick={() => setGateway('paystack')}
                 className={`p-3 rounded-xl border text-left transition-all ${
-                  gateway === 'flutterwave'
-                    ? 'bg-emerald-950/40 border-emerald-500 text-white'
-                    : 'bg-slate-950 border-slate-800 text-slate-400'
+                  gateway === 'paystack'
+                    ? 'bg-emerald-950/40 border-emerald-500 text-white shadow-sm'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
                 }`}
               >
-                <div className="font-bold text-emerald-400">Flutterwave</div>
-                <div className="text-[10px] text-slate-400 mt-0.5">Card, USSD &amp; Instant Bank</div>
+                <div className="font-bold text-emerald-400">Paystack</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">Card, USSD &amp; Direct Bank</div>
               </button>
+
               <button
                 type="button"
                 onClick={() => setGateway('manual')}
                 className={`p-3 rounded-xl border text-left transition-all ${
                   gateway === 'manual'
-                    ? 'bg-emerald-950/40 border-emerald-500 text-white'
-                    : 'bg-slate-950 border-slate-800 text-slate-400'
+                    ? 'bg-emerald-950/40 border-emerald-500 text-white shadow-sm'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
                 }`}
               >
-                <div className="font-bold text-blue-400">Bank Transfer</div>
+                <div className="font-bold text-sky-400">Bank Transfer</div>
                 <div className="text-[10px] text-slate-400 mt-0.5">Moniepoint Dedicated</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setGateway('flutterwave')}
+                className={`p-3 rounded-xl border text-left transition-all relative ${
+                  gateway === 'flutterwave'
+                    ? 'bg-slate-800 border-amber-500 text-white'
+                    : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-400'
+                }`}
+              >
+                <span className="absolute top-1 right-1 px-1.5 py-0.2 rounded text-[8px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  Coming Soon
+                </span>
+                <div className="font-bold text-slate-400">Flutterwave</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Pending Certification</div>
               </button>
             </div>
           </div>
@@ -176,8 +240,17 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
             disabled={loading}
             className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2"
           >
-            <CreditCard className="w-4 h-4" />
-            <span>{loading ? 'Processing Top-up...' : `Credit ₦${Number(amount || 0).toLocaleString()} to Wallet`}</span>
+            {loading ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Processing Paystack Checkout...</span>
+              </>
+            ) : (
+              <>
+                <CreditCard className="w-4 h-4" />
+                <span>Credit ₦{Number(amount || 0).toLocaleString()} via {gateway === 'paystack' ? 'Paystack' : gateway === 'manual' ? 'Bank Transfer' : 'Gateway'}</span>
+              </>
+            )}
           </button>
 
           {/* Recent Ledger Transactions */}

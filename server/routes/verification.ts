@@ -30,29 +30,30 @@ function requireAuth(req: any, res: any, next: any) {
 // 1. SERVICES CATALOGUE & PUBLIC PRICES (Never exposes wholesale costs)
 // -------------------------------------------------------------
 verificationRouter.get('/services', (req, res) => {
-  const services = (db.data.identity_services || []).filter(s => s.enabled);
-
-  // Group by category for customer navigation
-  const categories = {
-    nin_verification: services.filter(s => s.category === 'NIN Verification'),
-    bvn_verification: services.filter(s => s.category === 'BVN Verification'),
-    nin_modification: services.filter(s => s.category === 'NIN Modification'),
-    personalisation: services.filter(s => s.category === 'Personalisation'),
-    enrolment: services.filter(s => s.category === 'Enrolment'),
-    additional_services: services.filter(s => s.category === 'Additional Services'),
-  };
+  const services: IdentityServiceConfig[] = (db.data.identity_services || []).filter((s: IdentityServiceConfig) => s.enabled);
 
   // Safe client list without wholesale_cost
-  const safeServices = services.map(s => ({
+  const safeServices = services.map((s: IdentityServiceConfig) => ({
     key: s.key,
     name: s.name,
     category: s.category,
     price: s.selling_price,
+    selling_price: s.selling_price,
     endpoint: s.endpoint,
     required_fields: s.required_fields,
     description: s.description,
     slip_type_supported: s.slip_type_supported,
   }));
+
+  // Group by category for customer navigation
+  const categories = {
+    nin_verification: safeServices.filter(s => s.category === 'NIN Verification'),
+    bvn_verification: safeServices.filter(s => s.category === 'BVN Verification'),
+    nin_modification: safeServices.filter(s => s.category === 'NIN Modification'),
+    personalisation: safeServices.filter(s => s.category === 'Personalisation'),
+    enrolment: safeServices.filter(s => s.category === 'Enrolment'),
+    additional_services: safeServices.filter(s => s.category === 'Additional Services'),
+  };
 
   res.json({
     success: true,

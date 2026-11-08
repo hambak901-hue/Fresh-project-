@@ -97,24 +97,139 @@ export const api = {
     return request<{ logs: any[] }>('/api/system/audit-logs');
   },
 
-  // Wallet
+  // Wallet & Payment Gateways (Phase 7 Complete)
   async getWalletSummary(): Promise<{
+    success: boolean;
+    wallet_id: string;
     balance: number;
     currency: string;
+    status: string;
     totalSpent: number;
     totalFunded: number;
+    pendingFunding: number;
     transactionCount: number;
     recentTransactions: Transaction[];
+    activeGateway: string;
+    availableGateways: Array<{ id: string; name: string; status: string; is_active: boolean }>;
     bankDetails: { accountName: string; bank: string; accountNumber: string };
   }> {
     return request('/api/wallet/summary');
   },
 
-  async fundWallet(amount: number, gateway = 'flutterwave'): Promise<{ success: boolean; balance: number; transaction: Transaction }> {
-    return request('/api/wallet/fund', {
+  async getWalletStatement(params?: { startDate?: string; endDate?: string; category?: string; type?: string }): Promise<any> {
+    const qs = new URLSearchParams(params as any).toString();
+    return request(`/api/wallet/statement${qs ? `?${qs}` : ''}`);
+  },
+
+  async getWalletTransactions(params?: { page?: number; limit?: number; search?: string }): Promise<{
+    success: boolean;
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    transactions: Transaction[];
+  }> {
+    const qs = new URLSearchParams(params as any).toString();
+    return request(`/api/wallet/transactions${qs ? `?${qs}` : ''}`);
+  },
+
+  async initializePaystack(amount: number, callbackUrl?: string): Promise<{
+    success: boolean;
+    message: string;
+    authorization_url: string;
+    access_code: string;
+    reference: string;
+    amount: number;
+    is_simulated?: boolean;
+  }> {
+    return request('/api/wallet/paystack/initialize', {
       method: 'POST',
-      body: JSON.stringify({ amount, gateway }),
+      body: JSON.stringify({ amount, callback_url: callbackUrl }),
     });
+  },
+
+  async verifyPaystackPayment(reference: string): Promise<{
+    success: boolean;
+    message: string;
+    balance: number;
+    transaction: Transaction;
+    already_credited?: boolean;
+  }> {
+    return request('/api/wallet/paystack/verify', {
+      method: 'POST',
+      body: JSON.stringify({ reference }),
+    });
+  },
+
+  async submitManualFunding(data: {
+    amount: number;
+    sender_name: string;
+    bank_name: string;
+    reference: string;
+    remarks?: string;
+    payment_proof_url?: string;
+  }): Promise<{ success: boolean; message: string; transaction: Transaction }> {
+    return request('/api/wallet/manual-funding', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getPaymentGateways(): Promise<{
+    activeGateway: string;
+    gateways: Array<{ id: string; name: string; status: 'active' | 'coming_soon' | 'disabled'; is_active: boolean }>;
+  }> {
+    return request('/api/wallet/gateways');
+  },
+
+  async switchPaymentGateway(gatewayId: string): Promise<{ success: boolean; message: string; activeGateway: string }> {
+    return request('/api/wallet/admin/gateways/switch', {
+      method: 'POST',
+      body: JSON.stringify({ gatewayId }),
+    });
+  },
+
+  async getAdminPendingFundings(): Promise<{ success: boolean; count: number; pending: any[] }> {
+    return request('/api/wallet/admin/pending-fundings');
+  },
+
+  async approveAdminFunding(id: string): Promise<{ success: boolean; message: string; transaction: Transaction; userBalance: number }> {
+    return request(`/api/wallet/admin/approve-funding/${id}`, {
+      method: 'POST',
+    });
+  },
+
+  async rejectAdminFunding(id: string, reason?: string): Promise<{ success: boolean; message: string; transaction: Transaction }> {
+    return request(`/api/wallet/admin/reject-funding/${id}`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async adminAdjustWalletBalance(data: {
+    customerId: string;
+    type: 'credit' | 'debit';
+    amount: number;
+    reason: string;
+  }): Promise<{ success: boolean; message: string; newBalance: number; transaction: Transaction }> {
+    return request('/api/wallet/admin/adjust-balance', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getAdminFinancialReports(): Promise<{
+    success: boolean;
+    timestamp: string;
+    reports: {
+      funding: { totalFunding: number; paystackFunding: number; manualFunding: number; fundingTransactionsCount: number };
+      sales: { totalServiceSales: number; telecomSales: number; identityVerificationSales: number };
+      expenditure: { totalProviderExpenditure: number; telecomProviderCost: number; identityProviderCost: number };
+      profit: { grossProfit: number; profitMarginPercent: number };
+      float: { totalCustomerFloat: number; totalCustomers: number };
+    };
+  }> {
+    return request('/api/wallet/admin/financial-reports');
   },
 
   // Verification (Phase 5 Complete 2SureVerify Integration)
@@ -180,8 +295,25 @@ export const api = {
     return request(`/api/verification/record/${id}`);
   },
 
-  // Telecom (Phase 6 ready)
-  async getTelecomPlans(): Promise<{ activeProvider: string; plans: any[] }> {
+  // Telecom (Phase 6 Complete Ulamadata Integration)
+  async getTelecomProviders(): Promise<{
+    success: boolean;
+    activeProvider: string;
+    providers: import('../types').TelecomProviderStatus[];
+    wallet_balance: number;
+    message: string;
+  }> {
+    return request('/api/telecom/providers');
+  },
+
+  async switchTelecomProvider(providerId: string): Promise<{ success: boolean; message: string; activeProvider: string }> {
+    return request('/api/telecom/providers/switch', {
+      method: 'POST',
+      body: JSON.stringify({ providerId }),
+    });
+  },
+
+  async getTelecomPlans(): Promise<{ activeProvider: string; plans: import('../types').TelecomPlanItem[] }> {
     return request('/api/telecom/plans');
   },
 
@@ -192,47 +324,177 @@ export const api = {
     });
   },
 
-  async purchaseAirtime(network: string, phone: string, amount: number): Promise<{ success: boolean; message: string; order: TelecomOrder; newBalance: number }> {
+  async purchaseAirtime(network: string, phone: string, amount: number): Promise<{ success: boolean; message: string; order: TelecomOrder; discountSaved: number; newBalance: number }> {
     return request('/api/telecom/purchase-airtime', {
       method: 'POST',
       body: JSON.stringify({ network, phone, amount }),
     });
   },
 
-  async getCablePackages(): Promise<{ packages: Record<string, Array<{ id: string; name: string; price: number; channels: number }>> }> {
+  async getAirtimePinDenominations(): Promise<{ denominations: import('../types').AirtimePinDenomination[] }> {
+    return request('/api/telecom/airtime-pins/denominations');
+  },
+
+  async purchaseAirtimePin(data: { network: string; denomination: number; quantity: number; businessName?: string }): Promise<{
+    success: boolean;
+    message: string;
+    pins: Array<{ serial: string; pin: string; load_code: string; value: number }>;
+    order: TelecomOrder;
+    newBalance: number;
+  }> {
+    return request('/api/telecom/purchase-airtime-pin', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getAirtimeSwapConfig(): Promise<{ configs: import('../types').AirtimeSwapConfigItem[] }> {
+    return request('/api/telecom/airtime-swap/config');
+  },
+
+  async initiateAirtimeSwap(data: {
+    network: string;
+    phone: string;
+    amount: number;
+    bankName?: string;
+    accountNumber?: string;
+    accountName?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    swapDetails: any;
+    order: TelecomOrder;
+  }> {
+    return request('/api/telecom/airtime-swap', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getCablePackages(): Promise<{ packages: Record<string, import('../types').CablePackageItem[]>; rawList: import('../types').CablePackageItem[] }> {
     return request('/api/telecom/cable-packages');
   },
 
-  async verifySmartcard(provider: string, smartcardNumber: string): Promise<any> {
+  async verifySmartcard(provider: string, smartcardNumber: string): Promise<{
+    success: boolean;
+    provider: string;
+    smartcardNumber: string;
+    customerName: string;
+    dueDate: string;
+    status: string;
+    bouquet?: string;
+  }> {
     return request('/api/telecom/verify-smartcard', {
       method: 'POST',
       body: JSON.stringify({ provider, smartcardNumber }),
     });
   },
 
-  async purchaseCable(data: { provider: string; smartcardNumber: string; packageId: string; phone?: string }): Promise<any> {
+  async purchaseCable(data: { provider: string; smartcardNumber: string; packageId: string; phone?: string }): Promise<{
+    success: boolean;
+    message: string;
+    order: TelecomOrder;
+    newBalance: number;
+  }> {
     return request('/api/telecom/purchase-cable', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
-  async getElectricityDiscos(): Promise<{ discos: Array<{ id: string; name: string; state: string; min: number }> }> {
+  async getDataPinDenominations(): Promise<{ denominations: import('../types').DataPinDenomination[] }> {
+    return request('/api/telecom/data-pins/denominations');
+  },
+
+  async purchaseDataPin(data: { network: string; planId: string; quantity: number; businessName?: string }): Promise<{
+    success: boolean;
+    message: string;
+    pins: Array<{ serial: string; pin: string; size: string; load_code: string }>;
+    order: TelecomOrder;
+    newBalance: number;
+  }> {
+    return request('/api/telecom/purchase-data-pin', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async sendBulkSms(data: { senderId: string; recipients: string[] | string; message: string }): Promise<{
+    success: boolean;
+    message: string;
+    messageId: string;
+    pages: number;
+    recipientCount: number;
+    order: TelecomOrder;
+    newBalance: number;
+  }> {
+    return request('/api/telecom/send-bulksms', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getElectricityDiscos(): Promise<{ discos: import('../types').ElectricityDiscoItem[] }> {
     return request('/api/telecom/electricity-discos');
   },
 
-  async verifyMeter(discoId: string, meterNumber: string, meterType?: string): Promise<any> {
+  async verifyMeter(discoId: string, meterNumber: string, meterType?: string): Promise<{
+    success: boolean;
+    discoId: string;
+    discoName: string;
+    meterNumber: string;
+    meterType: string;
+    customerName: string;
+    address: string;
+    tariffClass: string;
+  }> {
     return request('/api/telecom/verify-meter', {
       method: 'POST',
       body: JSON.stringify({ discoId, meterNumber, meterType }),
     });
   },
 
-  async purchaseElectricity(data: { discoId: string; meterNumber: string; meterType?: string; amount: number; phone?: string }): Promise<any> {
+  async purchaseElectricity(data: { discoId: string; meterNumber: string; meterType?: string; amount: number; phone?: string }): Promise<{
+    success: boolean;
+    message: string;
+    token: string;
+    units: string;
+    order: TelecomOrder;
+    newBalance: number;
+  }> {
     return request('/api/telecom/purchase-electricity', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  },
+
+  async getExamPackages(): Promise<{ packages: import('../types').ExamPackageItem[] }> {
+    return request('/api/telecom/exam-packages');
+  },
+
+  async purchaseExamPin(data: { examId: string; quantity: number; phone?: string }): Promise<{
+    success: boolean;
+    message: string;
+    pins: Array<{ serial: string; pin: string; exam: string }>;
+    order: TelecomOrder;
+    newBalance: number;
+  }> {
+    return request('/api/telecom/purchase-exam-pin', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async verifyTelecomTransaction(reference: string): Promise<{ success: boolean; result: any; order?: TelecomOrder }> {
+    return request(`/api/telecom/verify/${encodeURIComponent(reference)}`);
+  },
+
+  async getTelecomHistory(service?: string, search?: string): Promise<{ success: boolean; count: number; orders: TelecomOrder[] }> {
+    const params = new URLSearchParams();
+    if (service) params.set('service', service);
+    if (search) params.set('search', search);
+    const qs = params.toString();
+    return request(`/api/telecom/history${qs ? `?${qs}` : ''}`);
   },
 
   // cPanel & TrueHost LON110 (Phase 10 ready)
@@ -408,12 +670,6 @@ export const api = {
     });
   },
 
-  async submitManualFunding(data: { amount: number; sender_name: string; bank_name?: string; reference: string; payment_proof_url?: string }): Promise<{ success: boolean; message: string; transaction: Transaction }> {
-    return request('/api/customer/manual-funding', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
 
   async getCustomerNotifications(): Promise<{ success: boolean; notifications: import('../types').NotificationItem[]; unread_count: number }> {
     return request('/api/customer/notifications');
@@ -439,9 +695,6 @@ export const api = {
     });
   },
 
-  async getTelecomHistory(): Promise<{ orders: TelecomOrder[] }> {
-    return request('/api/telecom/history');
-  },
 
   // ---------------------------------------------------------------------------
   // Super Admin & Global Management (Phase 4)

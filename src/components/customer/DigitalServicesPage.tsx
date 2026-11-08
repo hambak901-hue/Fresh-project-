@@ -47,8 +47,14 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
 
     api.getElectricityDiscos().then(res => {
       if (res?.discos) {
-        setDiscos(res.discos);
-        if (res.discos[0]) setSelectedDisco(res.discos[0].id);
+        const mappedDiscos = res.discos.map(d => ({
+          id: d.id,
+          name: d.name,
+          state: d.state,
+          min: d.min ?? d.min_amount ?? 1000,
+        }));
+        setDiscos(mappedDiscos);
+        if (mappedDiscos[0]) setSelectedDisco(mappedDiscos[0].id);
       }
     }).catch(() => {});
   }, []);
@@ -86,8 +92,9 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
     const pkg = pkgs.find(p => p.id === selectedPackageId);
     if (!pkg) return;
 
-    if (user.wallet_balance < pkg.price) {
-      setCableError(`Insufficient funds. Your balance is ₦${user.wallet_balance.toLocaleString()}, but ₦${pkg.price.toLocaleString()} is required.`);
+    const pkgPrice = pkg?.price ?? 0;
+    if (user.wallet_balance < pkgPrice) {
+      setCableError(`Insufficient funds. Your balance is ₦${user.wallet_balance.toLocaleString()}, but ₦${pkgPrice.toLocaleString()} is required.`);
       return;
     }
 
@@ -349,7 +356,7 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
               ) : (
                 <>
                   <Receipt className="w-4 h-4" />
-                  <span>Renew {selectedProvider} (₦{currentSelectedPkg?.price.toLocaleString() || '0'})</span>
+                  <span>Renew {selectedProvider} (₦{(currentSelectedPkg?.price ?? 0).toLocaleString()})</span>
                 </>
               )}
             </button>

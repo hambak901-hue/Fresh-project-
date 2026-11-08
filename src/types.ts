@@ -126,17 +126,100 @@ export interface ProviderLogItem {
 export interface TelecomOrder {
   id: string;
   user_id: string;
-  service: 'data' | 'airtime' | 'cable' | 'electricity';
-  network: 'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE';
+  service: 'data' | 'airtime' | 'airtime_pin' | 'airtime_swap' | 'cable' | 'data_pin' | 'bulksms' | 'electricity' | 'exam';
+  network: string;
   phone: string;
   plan: string;
   amount: number;
   cost_price: number;
   profit: number;
-  provider: 'ulamadata' | 'vtpass';
+  provider: string;
   provider_ref: string;
   status: 'successful' | 'pending' | 'failed';
+  metadata?: any;
   created_at: string;
+}
+
+export interface TelecomPlanItem {
+  id: string;
+  network: 'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE';
+  name: string;
+  size: string;
+  validity: string;
+  type: 'SME' | 'Corporate' | 'Gifting' | 'Direct';
+  price: number;
+  cost_price: number;
+  provider_plan_id: number;
+  enabled: boolean;
+}
+
+export interface AirtimePinDenomination {
+  id: string;
+  network: string;
+  denomination: number;
+  price: number;
+  discount_percent: number;
+  enabled: boolean;
+}
+
+export interface DataPinDenomination {
+  id: string;
+  network: string;
+  size: string;
+  plan_name: string;
+  price: number;
+  enabled: boolean;
+}
+
+export interface CablePackageItem {
+  id: string;
+  provider: 'DSTV' | 'GOTV' | 'STARTIMES' | 'SHOWMAX';
+  name: string;
+  code: string;
+  price: number;
+  cost_price: number;
+  channels: number;
+  enabled: boolean;
+}
+
+export interface ElectricityDiscoItem {
+  id: string;
+  name: string;
+  code: string;
+  state: string;
+  min_amount?: number;
+  min?: number;
+  enabled: boolean;
+}
+
+export interface ExamPackageItem {
+  id: string;
+  name: string;
+  code: string;
+  price: number;
+  cost_price: number;
+  description: string;
+  enabled: boolean;
+}
+
+export interface AirtimeSwapConfigItem {
+  network: string;
+  conversion_rate: number;
+  merchant_phone: string;
+  ussd_template: string;
+  min_amount: number;
+  max_amount: number;
+  enabled: boolean;
+}
+
+export interface TelecomProviderStatus {
+  id: string;
+  name: string;
+  is_primary: boolean;
+  balance?: number;
+  currency?: string;
+  latency_ms?: number;
+  status?: string;
 }
 
 export interface NotificationItem {

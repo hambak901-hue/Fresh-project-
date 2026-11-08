@@ -358,7 +358,7 @@ export const NinServicesPage: React.FC = () => {
                     >
                       <span className="truncate pr-2">{srv.name}</span>
                       <span className="font-mono font-bold text-emerald-400 shrink-0">
-                        ₦{srv.price.toLocaleString()}
+                        ₦{(srv.price ?? (srv as any).selling_price ?? 0).toLocaleString()}
                       </span>
                     </button>
                   );
@@ -764,7 +764,7 @@ export const NinServicesPage: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <span>Confirm &amp; Debit ₦{currentService.price.toLocaleString()}</span>
+                    <span>Confirm &amp; Debit ₦{(currentService.price ?? (currentService as any).selling_price ?? 0).toLocaleString()}</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
