@@ -1,0 +1,31 @@
+# ==============================================================================
+# HAMBAKTECH ENTERPRISE PORTAL — PRODUCTION APACHE / LITESPEED CONFIGURATION
+# cPanel Native Deployment Engine
+# ==============================================================================
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /backend/
+
+    # Security: Disable direct viewing of config, sql, and core system files
+    RewriteRule ^(config|core|database|logs|storage)/.*$ - [F,L]
+    RewriteRule \.(sql|json|env|log|md|sh)$ - [F,L]
+
+    # Handle Authorization Header for Bearer Tokens on cPanel FastCGI
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Allow direct access to existing files/folders
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Route all API traffic to index.php front controller
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# Prevent directory browsing
+Options -Indexes
+
+# UTF-8 Encoding default
+AddDefaultCharset UTF-8
