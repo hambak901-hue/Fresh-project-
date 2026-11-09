@@ -6,7 +6,7 @@
  */
 
 import { Router } from 'express';
-import { db, hashPassword, User } from '../db/database.js';
+import { db, hashPassword, verifyPassword, hashPin, verifyPin, User } from '../db/database.js';
 import { parseToken } from './auth.js';
 import { sendEmail } from '../services/mailer.js';
 
@@ -15,20 +15,10 @@ export const customerRouter = Router();
 function requireCustomer(req: any, res: any, next: any) {
   const session = parseToken(req.headers.authorization);
   if (!session) {
-    const demo = db.findUserById('usr_customer_demo') || db.data.users[0];
-    if (demo) {
-      req.user = demo;
-      return next();
-    }
     return res.status(401).json({ error: 'Authentication required' });
   }
   const user = db.findUserById(session.userId);
   if (!user) {
-    const demo = db.findUserById('usr_customer_demo') || db.data.users[0];
-    if (demo) {
-      req.user = demo;
-      return next();
-    }
     return res.status(401).json({ error: 'User does not exist' });
   }
   if (user.status === 'suspended') {
@@ -169,7 +159,7 @@ customerRouter.put('/password', requireCustomer, (req: any, res) => {
     return res.status(400).json({ error: 'New password must be at least 6 characters' });
   }
 
-  if (req.user.password_hash !== hashPassword(current_password)) {
+  if (!verifyPassword(current_password, req.user.password_hash)) {
     return res.status(401).json({ error: 'Current password is incorrect' });
   }
 
@@ -202,13 +192,13 @@ customerRouter.put('/pin', requireCustomer, (req: any, res) => {
 
   // If user already has PIN, verify current_pin
   if (req.user.transaction_pin_hash) {
-    if (!current_pin || req.user.transaction_pin_hash !== hashPassword(String(current_pin))) {
+    if (!current_pin || !verifyPin(String(current_pin), req.user.transaction_pin_hash)) {
       return res.status(401).json({ error: 'Current transaction PIN is incorrect' });
     }
   }
 
   const updated = db.updateUser(req.user.id, {
-    transaction_pin_hash: hashPassword(String(pin)),
+    transaction_pin_hash: hashPin(String(pin)),
   });
 
   db.logAudit('TRANSACTION_PIN_UPDATED', {}, req.user.id, req.user.email);
@@ -234,16 +224,12 @@ customerRouter.post('/verify-pin', requireCustomer, (req: any, res) => {
     return res.status(400).json({ error: 'Please enter a valid 4-digit PIN' });
   }
 
-  // If user hasn't set PIN yet, permit default 1234 and initialize it
+  // If user hasn't set PIN yet, do not permit default 1234
   if (!req.user.transaction_pin_hash) {
-    if (String(pin) === '1234') {
-      db.updateUser(req.user.id, { transaction_pin_hash: hashPassword('1234') });
-      return res.json({ success: true, verified: true });
-    }
-    return res.status(400).json({ error: 'Default PIN is 1234. Please enter 1234 or configure your PIN in Settings.' });
+    return res.status(400).json({ error: 'Transaction PIN has not been configured. Please configure your 4-digit PIN in Security Settings before transacting.' });
   }
 
-  if (req.user.transaction_pin_hash !== hashPassword(String(pin))) {
+  if (!verifyPin(String(pin), req.user.transaction_pin_hash)) {
     return res.status(401).json({ error: 'Incorrect 4-digit transaction PIN' });
   }
 
@@ -336,6 +322,12 @@ customerRouter.post('/manual-funding', requireCustomer, (req: any, res) => {
     return res.status(400).json({ error: 'Sender name and transaction reference are required' });
   }
 
+  const cleanRef = reference.trim().toUpperCase();
+  const existingRef = db.data.transactions.find(t => t.reference === cleanRef);
+  if (existingRef) {
+    return res.status(400).json({ error: `A transaction with reference "${cleanRef}" has already been submitted.` });
+  }
+
   // Create pending transaction in ledger
   const txnId = `txn_${Date.now()}`;
   const transaction: any = {
@@ -346,7 +338,7 @@ customerRouter.post('/manual-funding', requireCustomer, (req: any, res) => {
     balance_before: req.user.wallet_balance,
     balance_after: req.user.wallet_balance, // not credited until approved
     category: 'funding',
-    reference: reference.trim().toUpperCase(),
+    reference: cleanRef,
     gateway: 'manual_transfer',
     status: 'pending',
     description: `Manual Bank Transfer: ₦${numAmount.toLocaleString()} from ${sender_name} (${bank_name || 'Bank'})`,

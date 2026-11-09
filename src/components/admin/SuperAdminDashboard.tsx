@@ -94,7 +94,7 @@ export function SuperAdminDashboard({
   onSwitchToPublic,
   onSwitchToPhaseConsole,
 }: SuperAdminDashboardProps) {
-  const { user, logout, quickSwitch } = useAuth();
+  const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTabKey>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -315,31 +315,6 @@ export function SuperAdminDashboard({
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Quick Role Switcher for verification */}
-            <div className="hidden sm:flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs">
-              <span className="text-[10px] font-mono text-slate-500 px-2">Role:</span>
-              <button
-                type="button"
-                onClick={() => quickSwitch('superadmin')}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono transition ${
-                  user?.role === 'superadmin'
-                    ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                SuperAdmin
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  quickSwitch('customer');
-                  onSwitchToCustomerPortal();
-                }}
-                className="px-2.5 py-1 rounded-lg text-[11px] font-mono text-slate-400 hover:text-white"
-              >
-                Customer
-              </button>
-            </div>
 
             {/* Quick Customer Portal Button */}
             <button

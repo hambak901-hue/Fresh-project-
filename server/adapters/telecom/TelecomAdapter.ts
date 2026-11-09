@@ -66,7 +66,7 @@ export class UlamadataAdapter implements TelecomProviderInterface {
   private baseUrl: string;
 
   constructor(apiKey?: string, baseUrl?: string) {
-    this.apiKey = apiKey || CREDENTIALS.telecom.ulamaData.apiKey || '7aOkA4OzIF6xfuUIXbvk7ByxVGH0U5gSNy1OfpYb';
+    this.apiKey = apiKey || CREDENTIALS.telecom.ulamaData.apiKey || process.env.ULAMADATA_API_KEY || '';
     this.baseUrl = baseUrl || 'https://ulamadata.com/api';
   }
 
@@ -198,13 +198,21 @@ export class UlamadataAdapter implements TelecomProviderInterface {
         latency_ms: result.latency,
       };
     }
-    // Simulation / sandbox fallback
+    if (process.env.ENABLE_MOCK_SIMULATION === 'true') {
+      return {
+        success: true,
+        balance: 148650.00,
+        currency: 'NGN',
+        message: 'Ulamadata Live Balance (Operational Sandbox Mode)',
+        latency_ms: result.latency || 120,
+      };
+    }
     return {
-      success: true,
-      balance: 148650.00,
+      success: false,
+      balance: 0,
       currency: 'NGN',
-      message: 'Ulamadata Live Balance (Operational Sandbox Mode)',
-      latency_ms: result.latency || 120,
+      message: result.data?.message || 'Ulamadata gateway balance query failed',
+      latency_ms: result.latency || 0,
     };
   }
 
@@ -238,24 +246,38 @@ export class UlamadataAdapter implements TelecomProviderInterface {
       };
     }
 
-    // High fidelity offline/sandbox delivery
+    if (process.env.ENABLE_MOCK_SIMULATION === 'true') {
+      return {
+        success: true,
+        status: 'successful',
+        message: `₦${params.amount.toLocaleString()} ${params.network} airtime dispatched to ${params.phone}`,
+        reference: `HT_AIR_${Date.now()}`,
+        provider_reference: String(providerRef),
+        provider: this.getName(),
+        network: params.network,
+        amount: params.amount,
+        cost_price: costPrice,
+        data: {
+          network: params.network,
+          phone: params.phone,
+          amount: params.amount,
+          delivered_at: new Date().toISOString(),
+        },
+        is_simulated: true,
+      };
+    }
+
     return {
-      success: true,
-      status: 'successful',
-      message: `₦${params.amount.toLocaleString()} ${params.network} airtime dispatched to ${params.phone}`,
+      success: false,
+      status: 'failed',
+      message: res.data?.message || res.data?.error || `Airtime recharge failed with provider (HTTP ${res.status})`,
       reference: `HT_AIR_${Date.now()}`,
       provider_reference: String(providerRef),
       provider: this.getName(),
       network: params.network,
       amount: params.amount,
-      cost_price: costPrice,
-      data: {
-        network: params.network,
-        phone: params.phone,
-        amount: params.amount,
-        delivered_at: new Date().toISOString(),
-      },
-      is_simulated: true,
+      cost_price: 0,
+      data: res.data,
     };
   }
 
@@ -287,23 +309,38 @@ export class UlamadataAdapter implements TelecomProviderInterface {
       };
     }
 
+    if (process.env.ENABLE_MOCK_SIMULATION === 'true') {
+      return {
+        success: true,
+        status: 'successful',
+        message: `${params.network} data plan delivered to ${params.phone}`,
+        reference: `HT_DAT_${Date.now()}`,
+        provider_reference: String(providerRef),
+        provider: this.getName(),
+        network: params.network,
+        amount: 0,
+        cost_price: 0,
+        data: {
+          plan_id: params.plan_id,
+          phone: params.phone,
+          network: params.network,
+          delivered_at: new Date().toISOString(),
+        },
+        is_simulated: true,
+      };
+    }
+
     return {
-      success: true,
-      status: 'successful',
-      message: `${params.network} data plan delivered to ${params.phone}`,
+      success: false,
+      status: 'failed',
+      message: res.data?.message || res.data?.error || `Data vending failed with provider (HTTP ${res.status})`,
       reference: `HT_DAT_${Date.now()}`,
       provider_reference: String(providerRef),
       provider: this.getName(),
       network: params.network,
       amount: 0,
       cost_price: 0,
-      data: {
-        plan_id: params.plan_id,
-        phone: params.phone,
-        network: params.network,
-        delivered_at: new Date().toISOString(),
-      },
-      is_simulated: true,
+      data: res.data,
     };
   }
 
@@ -714,9 +751,9 @@ export class VTpassTelecomAdapter implements TelecomProviderInterface {
   private baseUrl: string;
 
   constructor(apiKey?: string, publicKey?: string, secretKey?: string, baseUrl?: string) {
-    this.apiKey = apiKey || CREDENTIALS.telecom.vtpass.apiKey || 'c0eb1581608e693f07a44b1e21b44b3a';
-    this.publicKey = publicKey || CREDENTIALS.telecom.vtpass.publicKey || 'PK_70323b6a3fb2a9935cb088d504dba889827c54d65c5';
-    this.secretKey = secretKey || CREDENTIALS.telecom.vtpass.secretKey || 'SK_49251b696102fd8cc7cb0b4577ea754b2a403aa504e';
+    this.apiKey = apiKey || CREDENTIALS.telecom.vtpass.apiKey || process.env.VTPASS_API_KEY || '';
+    this.publicKey = publicKey || CREDENTIALS.telecom.vtpass.publicKey || process.env.VTPASS_PUBLIC_KEY || '';
+    this.secretKey = secretKey || CREDENTIALS.telecom.vtpass.secretKey || process.env.VTPASS_SECRET_KEY || '';
     this.baseUrl = baseUrl || 'https://api-service.vtpass.com/api';
   }
 

@@ -59,7 +59,7 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
 
   const handleDownloadSlip = () => {
     // Generate downloadable text certificate / simulated PDF payload
-    const content = `FEDERAL REPUBLIC OF NIGERIA - VERIFIED SLIP\nName: ${fullName}\nID: ${idNumber}\nTracking: ${trackingId}\nVerified: ${verifiedAt}\nProvider: 2SureVerify Gateway`;
+    const content = `FEDERAL REPUBLIC OF NIGERIA - VERIFIED SLIP\nName: ${fullName}\nID: ${idNumber}\nTracking: ${trackingId}\nVerified: ${verifiedAt}\nProvider: Sovereign NIMC Identity Gateway`;
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -137,7 +137,7 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
                 </div>
               </div>
               <p className="text-[10px] text-slate-400 font-mono mt-1">
-                Official Verification Tracking ID: {trackingId} &bull; Validated via 2SureVerify
+                Official Verification Tracking ID: {trackingId} &bull; Validated via Sovereign Identity Core
               </p>
             </div>
 

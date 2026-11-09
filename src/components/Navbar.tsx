@@ -13,7 +13,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, serverOnline }) => {
-  const { user, quickSwitch, logout } = useAuth();
+  const { user, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   return (
@@ -102,36 +102,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, serverOnline 
                         Tier {user?.tier || 1} Verified
                       </span>
                     </div>
-                  </div>
-
-                  <div className="p-1">
-                    <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-500">
-                      Demo Role Switcher
-                    </div>
-                    <button
-                      onClick={() => {
-                        quickSwitch('superadmin');
-                        setDropdownOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left ${
-                        user?.role === 'superadmin' ? 'bg-purple-950/40 text-purple-300 font-bold' : 'text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      <span>Super Admin</span>
-                      {user?.role === 'superadmin' && <CheckCircle2 className="w-3.5 h-3.5 text-purple-400" />}
-                    </button>
-                    <button
-                      onClick={() => {
-                        quickSwitch('customer');
-                        setDropdownOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left ${
-                        user?.role === 'customer' ? 'bg-blue-950/40 text-blue-300 font-bold' : 'text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      <span>Customer View</span>
-                      {user?.role === 'customer' && <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />}
-                    </button>
                   </div>
 
                   <div className="p-1 border-t border-slate-800">

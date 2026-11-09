@@ -32,14 +32,13 @@ function requireAuth(req: any, res: any, next: any) {
 verificationRouter.get('/services', (req, res) => {
   const services: IdentityServiceConfig[] = (db.data.identity_services || []).filter((s: IdentityServiceConfig) => s.enabled);
 
-  // Safe client list without wholesale_cost
+  // Safe client list without wholesale_cost or provider endpoint internals
   const safeServices = services.map((s: IdentityServiceConfig) => ({
     key: s.key,
     name: s.name,
     category: s.category,
     price: s.selling_price,
     selling_price: s.selling_price,
-    endpoint: s.endpoint,
     required_fields: s.required_fields,
     description: s.description,
     slip_type_supported: s.slip_type_supported,
@@ -57,7 +56,6 @@ verificationRouter.get('/services', (req, res) => {
 
   res.json({
     success: true,
-    activeProvider: verificationManager.getPrimaryId(),
     services: safeServices,
     categories,
     slipTypes: [
@@ -396,10 +394,18 @@ verificationRouter.get('/history', (req: any, res) => {
     );
   }
 
+  const safeList = list.map(v => {
+    const { provider_cost, provider, ...safe } = v;
+    return {
+      ...safe,
+      gateway: 'Sovereign NIMC Identity Gateway',
+    };
+  });
+
   res.json({
     success: true,
-    count: list.length,
-    verifications: list,
+    count: safeList.length,
+    verifications: safeList,
   });
 });
 
@@ -408,8 +414,14 @@ verificationRouter.get('/record/:id', requireAuth, (req: any, res) => {
   if (!record) {
     return res.status(404).json({ error: 'Record not found' });
   }
+
+  const { provider_cost, provider, ...safeRecord } = record;
+
   res.json({
     success: true,
-    record,
+    record: {
+      ...safeRecord,
+      gateway: 'Sovereign NIMC Identity Gateway',
+    },
   });
 });

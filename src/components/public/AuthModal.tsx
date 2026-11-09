@@ -22,7 +22,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialMode = 'login',
   onSuccess,
 }) => {
-  const { login, register, quickSwitch } = useAuth();
+  const { login, register } = useAuth();
   const { branding } = useCms();
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -107,23 +107,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }, 800);
     } catch (err: any) {
       setError(err.message || 'Registration failed. Email may already be in use.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleQuickDemo = async (role: 'superadmin' | 'customer') => {
-    setError(null);
-    try {
-      setLoading(true);
-      await quickSwitch(role);
-      setSuccessMsg(`Logged in as ${role === 'superadmin' ? 'Super Administrator' : 'Verified Customer'}!`);
-      setTimeout(() => {
-        onClose();
-        if (onSuccess) onSuccess();
-      }, 600);
-    } catch (err: any) {
-      setError(err.message || 'Quick login failed');
     } finally {
       setLoading(false);
     }
@@ -387,32 +370,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
           </form>
         )}
-
-        {/* Quick Demo Autofill section */}
-        <div className="pt-2 border-t border-slate-800/80">
-          <div className="flex items-center justify-between text-[11px] text-slate-500 mb-2">
-            <span>Instant Demo Review Accounts</span>
-            <span className="font-mono text-emerald-400 text-[10px]">1-Click Login</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickDemo('superadmin')}
-              className="px-3 py-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-purple-500/30 text-left transition-colors"
-            >
-              <div className="text-[11px] font-bold text-purple-300">Super Admin</div>
-              <div className="text-[10px] text-slate-500 truncate">admin@hambaktech.com.ng</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickDemo('customer')}
-              className="px-3 py-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-blue-500/30 text-left transition-colors"
-            >
-              <div className="text-[11px] font-bold text-blue-300">Customer Demo</div>
-              <div className="text-[10px] text-slate-500 truncate">fatimohmusbau34@gmail.com</div>
-            </button>
-          </div>
-        </div>
 
         {/* Trust marker */}
         <div className="flex items-center justify-center gap-2 text-[10px] text-slate-500">

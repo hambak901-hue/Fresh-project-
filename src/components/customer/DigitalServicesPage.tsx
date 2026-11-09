@@ -198,7 +198,7 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
               Digital Services & Utilities
             </h1>
             <p className="text-sm text-slate-400 mt-1 max-w-xl">
-              Instant Cable TV renewal and 20-digit prepaid electricity meter tokens powered by VTpass direct API gateway.
+              Instant Cable TV renewal and 20-digit prepaid electricity meter tokens powered by automated multi-utility infrastructure.
             </p>
           </div>
           <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 text-right sm:min-w-[180px]">

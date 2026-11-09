@@ -7,6 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 
 export interface User {
   id: string;
@@ -564,48 +565,87 @@ const DB_FILE = path.join(DB_DIR, 'data.json');
 let dbData: DatabaseSchema;
 
 export function hashPassword(plainText: string): string {
-  return crypto.createHash('sha256').update(plainText + 'hambaktech_salt_2026').digest('hex');
+  return bcrypt.hashSync(plainText, 10);
+}
+
+export function verifyPassword(plainText: string, hash?: string): boolean {
+  if (!plainText || !hash) return false;
+  if (hash.startsWith('$2a$') || hash.startsWith('$2b$') || hash.startsWith('$2y$')) {
+    try {
+      return bcrypt.compareSync(plainText, hash);
+    } catch {
+      return false;
+    }
+  }
+  // Backward compatibility migration for legacy SHA-256 hashes
+  const legacyHash = crypto.createHash('sha256').update(plainText + 'hambaktech_salt_2026').digest('hex');
+  return legacyHash === hash;
+}
+
+export function hashPin(plainPin: string): string {
+  return bcrypt.hashSync(String(plainPin), 10);
+}
+
+export function verifyPin(plainPin: string, hash?: string): boolean {
+  if (!plainPin || !hash) return false;
+  if (hash.startsWith('$2a$') || hash.startsWith('$2b$') || hash.startsWith('$2y$')) {
+    try {
+      return bcrypt.compareSync(String(plainPin), hash);
+    } catch {
+      return false;
+    }
+  }
+  const legacyHash = crypto.createHash('sha256').update(String(plainPin) + 'hambaktech_salt_2026').digest('hex');
+  return legacyHash === hash;
 }
 
 function getDefaultData(): DatabaseSchema {
-  const superAdminPasswordHash = hashPassword('Hamohullah19@..');
-  const demoUserPasswordHash = hashPassword('Password123!');
+  const initialAdminEmail = (process.env.INITIAL_ADMIN_EMAIL || 'admin@hambaktech.com.ng').toLowerCase();
+  const initialAdminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'Admin@HambakTech2026!';
+  const superAdminPasswordHash = hashPassword(initialAdminPassword);
+
+  const defaultUsers: User[] = [
+    {
+      id: 'usr_superadmin',
+      email: initialAdminEmail,
+      password_hash: superAdminPasswordHash,
+      full_name: 'Bakar Hambak (Super Admin)',
+      phone_number: '+2348030001122',
+      role: 'superadmin',
+      wallet_balance: 500000,
+      kyc_status: 'verified',
+      tier: 3,
+      referral_code: 'HAMBAK-SUPER',
+      created_at: new Date('2026-01-01').toISOString(),
+      updated_at: new Date().toISOString(),
+      status: 'active',
+    },
+  ];
+
+  // In non-production testing, seed demo customer if requested or in development
+  if (process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_CUSTOMER === 'true') {
+    const demoPassword = process.env.DEMO_CUSTOMER_PASSWORD || 'Customer@HambakTech2026!';
+    defaultUsers.push({
+      id: 'usr_customer_demo',
+      email: 'customer@hambaktech.com.ng',
+      password_hash: hashPassword(demoPassword),
+      full_name: 'Fatimoh Musbau',
+      phone_number: '+2348123456789',
+      role: 'customer',
+      wallet_balance: 50000,
+      kyc_status: 'verified',
+      nin: '12345678901',
+      bvn: '22334455667',
+      tier: 2,
+      referral_code: 'FATIMOH99',
+      created_at: new Date('2026-02-15').toISOString(),
+      updated_at: new Date().toISOString(),
+      status: 'active',
+    });
+  }
 
   return {
-    users: [
-      {
-        id: 'usr_superadmin',
-        email: 'admin@hambaktech.com.ng',
-        password_hash: superAdminPasswordHash,
-        full_name: 'Bakar Hambak (Super Admin)',
-        phone_number: '+2348030001122',
-        role: 'superadmin',
-        wallet_balance: 500000,
-        kyc_status: 'verified',
-        tier: 3,
-        referral_code: 'HAMBAK-SUPER',
-        created_at: new Date('2026-01-01').toISOString(),
-        updated_at: new Date().toISOString(),
-        status: 'active',
-      },
-      {
-        id: 'usr_customer_demo',
-        email: 'fatimohmusbau34@gmail.com',
-        password_hash: demoUserPasswordHash,
-        full_name: 'Fatimoh Musbau',
-        phone_number: '+2348123456789',
-        role: 'customer',
-        wallet_balance: 15450,
-        kyc_status: 'verified',
-        nin: '12345678901',
-        bvn: '22334455667',
-        tier: 2,
-        referral_code: 'FATIMOH99',
-        created_at: new Date('2026-02-15').toISOString(),
-        updated_at: new Date().toISOString(),
-        status: 'active',
-      },
-    ],
+    users: defaultUsers,
     transactions: [
       {
         id: 'txn_init_001',
@@ -949,7 +989,7 @@ function getDefaultData(): DatabaseSchema {
         id: '2sureverify',
         name: '2SureVerify Gateway (Primary)',
         base_url: 'https://2sureverify.com',
-        api_key: '664469ea92436a4c7ff997281a32a742dcd84f9a5e6603f0',
+        api_key: process.env.SUREVERIFY_API_KEY || '',
         is_active: true,
         is_default: true,
         timeout_seconds: 30,
@@ -961,7 +1001,7 @@ function getDefaultData(): DatabaseSchema {
         id: 'veripine',
         name: 'Veripine Identity API (Secondary Failover)',
         base_url: 'https://api.veripine.com/v1',
-        api_key: 'ninbvn_6443d1d6279df9af26b60dc4',
+        api_key: process.env.VERIPINE_API_KEY || '',
         is_active: true,
         is_default: false,
         timeout_seconds: 30,
@@ -1128,8 +1168,8 @@ function getDefaultData(): DatabaseSchema {
     ],
     bulk_sms_records: [],
     telecom_provider_configs: [
-      { id: 'ulamadata', name: 'UlamaData High-Speed Gateway', base_url: 'https://ulamadata.com/api', api_key: '7aOkA4OzIF6xfuUIXbvk7ByxVGH0U5gSNy1OfpYb', is_active: true, is_default: true, timeout_seconds: 12 },
-      { id: 'vtpass', name: 'VTpass Utility Bridge', base_url: 'https://api-service.vtpass.com/api', api_key: 'c0eb1581608e693f07a44b1e21b44b3a', is_active: true, is_default: false, timeout_seconds: 12 },
+      { id: 'ulamadata', name: 'UlamaData High-Speed Gateway', base_url: 'https://ulamadata.com/api', api_key: process.env.ULAMADATA_API_KEY || '', is_active: true, is_default: true, timeout_seconds: 12 },
+      { id: 'vtpass', name: 'VTpass Utility Bridge', base_url: 'https://api-service.vtpass.com/api', api_key: process.env.VTPASS_API_KEY || '', is_active: true, is_default: false, timeout_seconds: 12 },
     ],
     smtp_config: {
       host: 'lon110.truehost.cloud',
@@ -1459,12 +1499,7 @@ export function initDatabase(): void {
       if (!dbData.reports_settings) dbData.reports_settings = defaults.reports_settings;
       if (!dbData.customer_messages) dbData.customer_messages = defaults.customer_messages;
 
-      // Ensure demo users have default transaction PIN 1234
-      for (const u of dbData.users) {
-        if (!u.transaction_pin_hash) {
-          u.transaction_pin_hash = hashPassword('1234');
-        }
-      }
+      // Users must configure their own individual transaction PIN; no default 1234
       saveDatabase();
     } else {
       dbData = getDefaultData();

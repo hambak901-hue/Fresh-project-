@@ -276,7 +276,7 @@ export const Phase1FoundationView: React.FC<{ onProceedToPhase2?: () => void }> 
               <div className="mt-4 p-2.5 rounded-lg bg-slate-950 font-mono text-[11px] text-slate-300 border border-slate-800/80">
                 <div className="text-[10px] text-slate-500 uppercase">Key Status</div>
                 <div className="text-emerald-400 font-semibold truncate">
-                  {status?.credentials.sureverify.keyMasked || '664469ea...03f0'}
+                  {status?.credentials.sureverify.configured ? 'Active in Environment (Secured)' : 'Pending Environment Configuration'}
                 </div>
               </div>
             </div>
@@ -296,7 +296,7 @@ export const Phase1FoundationView: React.FC<{ onProceedToPhase2?: () => void }> 
               <div className="mt-4 p-2.5 rounded-lg bg-slate-950 font-mono text-[11px] text-slate-300 border border-slate-800/80">
                 <div className="text-[10px] text-slate-500 uppercase">Key Status</div>
                 <div className="text-cyan-400 font-semibold truncate">
-                  {status?.credentials.veripine.keyMasked || 'ninbvn_6443...b60dc4'}
+                  {status?.credentials.veripine.configured ? 'Active in Environment (Secured)' : 'Pending Environment Configuration'}
                 </div>
               </div>
             </div>
@@ -316,7 +316,7 @@ export const Phase1FoundationView: React.FC<{ onProceedToPhase2?: () => void }> 
               <div className="mt-4 p-2.5 rounded-lg bg-slate-950 font-mono text-[11px] text-slate-300 border border-slate-800/80">
                 <div className="text-[10px] text-slate-500 uppercase">Key Status</div>
                 <div className="text-amber-400 font-semibold truncate">
-                  {status?.credentials.ulamaData.keyMasked || '7aOkA4Oz...OfpYb'}
+                  {status?.credentials.ulamaData.configured ? 'Active in Environment (Secured)' : 'Pending Environment Configuration'}
                 </div>
               </div>
             </div>
@@ -336,15 +336,15 @@ export const Phase1FoundationView: React.FC<{ onProceedToPhase2?: () => void }> 
               <div className="mt-4 p-2.5 rounded-lg bg-slate-950 font-mono text-[11px] text-slate-300 border border-slate-800/80 space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-500">API Key:</span>
-                  <span className="text-indigo-400">{status?.credentials.vtpass.apiKeyMasked || 'c0eb1581...'}</span>
+                  <span className="text-indigo-400">{status?.credentials.vtpass.configured ? 'Active in Environment (Secured)' : 'Pending'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Public:</span>
-                  <span className="text-indigo-400">{status?.credentials.vtpass.publicKeyMasked || 'PK_70323...'}</span>
+                  <span className="text-indigo-400">{status?.credentials.vtpass.configured ? 'Configured' : 'Pending'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Secret:</span>
-                  <span className="text-indigo-400">{status?.credentials.vtpass.secretKeyMasked || 'SK_49251...'}</span>
+                  <span className="text-indigo-400">{status?.credentials.vtpass.configured ? 'Configured' : 'Pending'}</span>
                 </div>
               </div>
             </div>
@@ -364,15 +364,15 @@ export const Phase1FoundationView: React.FC<{ onProceedToPhase2?: () => void }> 
               <div className="mt-4 p-2.5 rounded-lg bg-slate-950 font-mono text-[11px] text-slate-300 border border-slate-800/80 space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Client ID:</span>
-                  <span className="text-purple-400">{status?.credentials.flutterwave.clientIdMasked || 'ee617da5...'}</span>
+                  <span className="text-purple-400">{status?.credentials.flutterwave.configured ? 'Active in Environment (Secured)' : 'Pending'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Secret:</span>
-                  <span className="text-purple-400">{status?.credentials.flutterwave.secretKeyMasked || 'EA7eW5uf...'}</span>
+                  <span className="text-purple-400">{status?.credentials.flutterwave.configured ? 'Configured' : 'Pending'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Encryption:</span>
-                  <span className="text-emerald-400">Configured</span>
+                  <span className="text-emerald-400">{status?.credentials.flutterwave.configured ? 'Configured' : 'Pending'}</span>
                 </div>
               </div>
             </div>
@@ -630,15 +630,15 @@ export const Phase1FoundationView: React.FC<{ onProceedToPhase2?: () => void }> 
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-800/80">
                   <span className="text-slate-500">Username:</span>
-                  <span className="font-mono text-slate-300">qfqzpeqx</span>
+                  <span className="font-mono text-slate-300">Environment Configured</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-800/80">
                   <span className="text-slate-500">Password:</span>
-                  <span className="font-mono text-slate-300">2h9PAQk[kE[t96 (Secured)</span>
+                  <span className="font-mono text-slate-300">Environment Configured</span>
                 </div>
                 <div className="flex justify-between py-1">
                   <span className="text-slate-500">Target Path:</span>
-                  <span className="font-mono text-slate-300">/home/qfqzpeqx/public_html</span>
+                  <span className="font-mono text-slate-300">/home/hambaktech/public_html</span>
                 </div>
               </div>
 

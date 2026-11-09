@@ -49,8 +49,8 @@ function requireAdmin(req: any, res: any, next: any) {
 // 0. PROVIDER MANAGEMENT & BALANCE
 // -------------------------------------------------------------
 
-// GET /api/telecom/providers
-telecomRouter.get('/providers', requireAuth, async (req: any, res) => {
+// GET /api/telecom/providers (Admin only)
+telecomRouter.get('/providers', requireAdmin, async (req: any, res) => {
   try {
     const primary = telecomManager.getPrimaryProvider();
     const balanceInfo = await primary.checkBalance();
@@ -97,9 +97,12 @@ telecomRouter.post('/providers/switch', requireAdmin, (req: any, res) => {
 // GET /api/telecom/plans - dynamic data plans from DB
 telecomRouter.get('/plans', (req, res) => {
   const plans = (db.data.telecom_plans || []).filter(p => p.enabled !== false);
+  const safePlans = plans.map(p => {
+    const { wholesale_cost, ...safe } = p;
+    return safe;
+  });
   res.json({
-    activeProvider: telecomManager.getPrimaryId(),
-    plans,
+    plans: safePlans,
   });
 });
 
@@ -115,6 +118,10 @@ telecomRouter.post('/purchase-data', requireAuth, async (req: any, res) => {
     const plan = (db.data.telecom_plans || []).find(p => p.id === planId);
     if (!plan) {
       return res.status(404).json({ error: 'Selected data bundle plan not found' });
+    }
+
+    if (plan.enabled === false) {
+      return res.status(400).json({ error: 'This data bundle plan is currently disabled by administrator' });
     }
 
     const cleanPhone = String(phone).replace(/\s+/g, '');
@@ -144,6 +151,30 @@ telecomRouter.post('/purchase-data', requireAuth, async (req: any, res) => {
       phone: cleanPhone,
       plan_id: plan.provider_plan_id,
     });
+
+    if (!result.success) {
+      db.adjustBalance(
+        req.user.id,
+        plan.price,
+        'manual_adjustment',
+        `REFUND: Failed ${plan.name} (${result.message})`,
+        'internal',
+        { planId: plan.id, providerMessage: result.message }
+      );
+      db.addNotification(
+        req.user.id,
+        'Data Order Failed - Refunded',
+        `Could not complete ${plan.name} to ${cleanPhone}: ${result.message}. Your wallet was refunded.`,
+        'alert'
+      );
+      return res.status(400).json({
+        success: false,
+        error: result.message,
+        refunded: true,
+        refundedAmount: plan.price,
+        newBalance: req.user.wallet_balance,
+      });
+    }
 
     const costPrice = (plan as any).wholesale_cost || (plan as any).cost_price || Math.floor(plan.price * 0.85);
     const profit = plan.price - costPrice;
@@ -230,6 +261,30 @@ telecomRouter.post('/purchase-airtime', requireAuth, async (req: any, res) => {
       amount: numAmount,
     });
 
+    if (!result.success) {
+      db.adjustBalance(
+        req.user.id,
+        payableAmount,
+        'manual_adjustment',
+        `REFUND: Failed ₦${numAmount} ${network} airtime (${result.message})`,
+        'internal',
+        { network, amount: numAmount, providerMessage: result.message }
+      );
+      db.addNotification(
+        req.user.id,
+        'Airtime Recharge Failed - Refunded',
+        `Airtime recharge of ₦${numAmount} to ${cleanPhone} failed: ${result.message}. Your wallet was refunded.`,
+        'alert'
+      );
+      return res.status(400).json({
+        success: false,
+        error: result.message,
+        refunded: true,
+        refundedAmount: payableAmount,
+        newBalance: req.user.wallet_balance,
+      });
+    }
+
     const costPrice = Math.round(numAmount * 0.975);
     const profit = payableAmount - costPrice;
 
@@ -274,7 +329,11 @@ telecomRouter.post('/purchase-airtime', requireAuth, async (req: any, res) => {
 // GET /api/telecom/airtime-pins/denominations
 telecomRouter.get('/airtime-pins/denominations', (req, res) => {
   const denoms = (db.data.airtime_pin_denominations || []).filter(d => d.enabled !== false);
-  res.json({ denominations: denoms });
+  const safeDenoms = denoms.map(d => {
+    const { wholesale_cost, ...safe } = d;
+    return safe;
+  });
+  res.json({ denominations: safeDenoms });
 });
 
 // POST /api/telecom/purchase-airtime-pin
@@ -291,6 +350,10 @@ telecomRouter.post('/purchase-airtime-pin', requireAuth, async (req: any, res) =
     const found = (db.data.airtime_pin_denominations || []).find(
       d => d.network.toUpperCase() === network.toUpperCase() && ((d as any).value === denomVal || (d as any).denomination === denomVal)
     );
+
+    if (found && found.enabled === false) {
+      return res.status(400).json({ error: 'This denomination is currently disabled by administrator' });
+    }
     const unitPrice = found ? found.price : denomVal;
     const totalAmount = unitPrice * qtyVal;
 
@@ -316,6 +379,30 @@ telecomRouter.post('/purchase-airtime-pin', requireAuth, async (req: any, res) =
       quantity: qtyVal,
       business_name: businessName || req.user.full_name || 'HambakTech Enterprise',
     });
+
+    if (!result.success) {
+      db.adjustBalance(
+        req.user.id,
+        totalAmount,
+        'manual_adjustment',
+        `REFUND: Failed Airtime PIN generation (${result.message || 'Provider error'})`,
+        'internal',
+        { network, denomination: denomVal, quantity: qtyVal }
+      );
+      db.addNotification(
+        req.user.id,
+        'Airtime PIN Generation Failed - Refunded',
+        `Generation of ${qtyVal}x ₦${denomVal} ${network} Airtime PINs failed: ${result.message || 'Provider error'}. Your wallet was refunded.`,
+        'alert'
+      );
+      return res.status(400).json({
+        success: false,
+        error: result.message || 'Airtime PIN generation failed at provider',
+        refunded: true,
+        refundedAmount: totalAmount,
+        newBalance: req.user.wallet_balance,
+      });
+    }
 
     const order: any = {
       id: `ord_apin_${Date.now()}`,
@@ -423,13 +510,17 @@ telecomRouter.post('/airtime-swap', requireAuth, async (req: any, res) => {
 // GET /api/telecom/cable-packages
 telecomRouter.get('/cable-packages', (req, res) => {
   const pkgs = (db.data.cable_packages || []).filter(p => p.enabled !== false);
+  const safePkgs = pkgs.map(p => {
+    const { wholesale_cost, ...safe } = p;
+    return safe;
+  });
   const grouped: Record<string, any[]> = {
-    DSTV: pkgs.filter(p => p.provider.toUpperCase() === 'DSTV'),
-    GOTV: pkgs.filter(p => p.provider.toUpperCase() === 'GOTV'),
-    STARTIMES: pkgs.filter(p => p.provider.toUpperCase() === 'STARTIMES'),
-    SHOWMAX: pkgs.filter(p => p.provider.toUpperCase() === 'SHOWMAX'),
+    DSTV: safePkgs.filter(p => p.provider.toUpperCase() === 'DSTV'),
+    GOTV: safePkgs.filter(p => p.provider.toUpperCase() === 'GOTV'),
+    STARTIMES: safePkgs.filter(p => p.provider.toUpperCase() === 'STARTIMES'),
+    SHOWMAX: safePkgs.filter(p => p.provider.toUpperCase() === 'SHOWMAX'),
   };
-  res.json({ packages: grouped, rawList: pkgs });
+  res.json({ packages: grouped, rawList: safePkgs });
 });
 
 // POST /api/telecom/verify-smartcard
@@ -472,6 +563,9 @@ telecomRouter.post('/purchase-cable', requireAuth, async (req: any, res) => {
     if (!pkg) {
       return res.status(404).json({ error: 'Cable bouquet package not found' });
     }
+    if (pkg.enabled === false) {
+      return res.status(400).json({ error: 'This cable package is currently disabled by administrator' });
+    }
 
     let debitResult;
     try {
@@ -496,6 +590,30 @@ telecomRouter.post('/purchase-cable', requireAuth, async (req: any, res) => {
       amount: pkg.price,
       phone: phone || req.user.phone_number,
     });
+
+    if (!result.success) {
+      db.adjustBalance(
+        req.user.id,
+        pkg.price,
+        'manual_adjustment',
+        `REFUND: Failed ${pkg.provider} ${pkg.name} cable subscription (${result.message || 'Provider error'})`,
+        'internal',
+        { provider: pkg.provider, smartcardNumber, packageId }
+      );
+      db.addNotification(
+        req.user.id,
+        'Cable TV Subscription Failed - Refunded',
+        `Subscription for ${pkg.provider} (${pkg.name}) failed: ${result.message || 'Provider error'}. Your wallet was refunded.`,
+        'alert'
+      );
+      return res.status(400).json({
+        success: false,
+        error: result.message || 'Cable subscription failed at provider',
+        refunded: true,
+        refundedAmount: pkg.price,
+        newBalance: req.user.wallet_balance,
+      });
+    }
 
     const costPrice = (pkg as any).wholesale_cost || (pkg as any).cost_price || Math.floor(pkg.price * 0.98);
     const profit = pkg.price - costPrice;
@@ -548,7 +666,11 @@ telecomRouter.post('/purchase-cable', requireAuth, async (req: any, res) => {
 // GET /api/telecom/data-pins/denominations
 telecomRouter.get('/data-pins/denominations', (req, res) => {
   const denoms = (db.data.data_pin_denominations || []).filter(d => d.enabled !== false);
-  res.json({ denominations: denoms });
+  const safeDenoms = denoms.map(d => {
+    const { wholesale_cost, ...safe } = d;
+    return safe;
+  });
+  res.json({ denominations: safeDenoms });
 });
 
 // POST /api/telecom/purchase-data-pin
@@ -560,6 +682,9 @@ telecomRouter.post('/purchase-data-pin', requireAuth, async (req: any, res) => {
     const pinConfig = (db.data.data_pin_denominations || []).find(d => d.id === planId);
     if (!pinConfig) {
       return res.status(404).json({ error: 'Data PIN denomination not found' });
+    }
+    if (pinConfig.enabled === false) {
+      return res.status(400).json({ error: 'This data PIN denomination is currently disabled by administrator' });
     }
 
     const totalAmount = pinConfig.price * qtyVal;
@@ -586,6 +711,30 @@ telecomRouter.post('/purchase-data-pin', requireAuth, async (req: any, res) => {
       quantity: qtyVal,
       business_name: businessName || req.user.full_name || 'HambakTech Enterprise',
     });
+
+    if (!result.success) {
+      db.adjustBalance(
+        req.user.id,
+        totalAmount,
+        'manual_adjustment',
+        `REFUND: Failed Data PIN generation (${result.message || 'Provider error'})`,
+        'internal',
+        { network: pinConfig.network, size: pinConfig.size, quantity: qtyVal }
+      );
+      db.addNotification(
+        req.user.id,
+        'Data PIN Generation Failed - Refunded',
+        `Generation of ${qtyVal}x ${pinConfig.size} Data PIN cards failed: ${result.message || 'Provider error'}. Your wallet was refunded.`,
+        'alert'
+      );
+      return res.status(400).json({
+        success: false,
+        error: result.message || 'Data PIN generation failed at provider',
+        refunded: true,
+        refundedAmount: totalAmount,
+        newBalance: req.user.wallet_balance,
+      });
+    }
 
     const order: any = {
       id: `ord_dpin_${Date.now()}`,
@@ -723,10 +872,10 @@ telecomRouter.get('/electricity-discos', (req, res) => {
   res.json({ discos });
 });
 
-// POST /api/telecom/verify-meter
 telecomRouter.post('/verify-meter', requireAuth, async (req: any, res) => {
   try {
-    const { discoId, meterNumber, meterType = 'prepaid' } = req.body;
+    const discoId = req.body.discoId || req.body.disco;
+    const { meterNumber, meterType = 'prepaid' } = req.body;
     if (!discoId || !meterNumber || String(meterNumber).length < 8) {
       return res.status(400).json({ error: 'Valid Disco and meter number (min 8 digits) required' });
     }
@@ -789,6 +938,30 @@ telecomRouter.post('/purchase-electricity', requireAuth, async (req: any, res) =
       phone: phone || req.user.phone_number,
     });
 
+    if (!result.success) {
+      db.adjustBalance(
+        req.user.id,
+        numAmount,
+        'manual_adjustment',
+        `REFUND: Failed electricity token purchase (${result.message || 'Provider error'})`,
+        'internal',
+        { discoId, meterNumber, meterType, amount: numAmount }
+      );
+      db.addNotification(
+        req.user.id,
+        'Electricity Purchase Failed - Refunded',
+        `Electricity token for Meter ${meterNumber} failed: ${result.message || 'Provider error'}. Your wallet was refunded.`,
+        'alert'
+      );
+      return res.status(400).json({
+        success: false,
+        error: result.message || 'Electricity token purchase failed at provider',
+        refunded: true,
+        refundedAmount: numAmount,
+        newBalance: req.user.wallet_balance,
+      });
+    }
+
     const order: any = {
       id: `ord_elec_${Date.now()}`,
       user_id: req.user.id,
@@ -835,7 +1008,11 @@ telecomRouter.post('/purchase-electricity', requireAuth, async (req: any, res) =
 // GET /api/telecom/exam-packages
 telecomRouter.get('/exam-packages', (req, res) => {
   const pkgs = (db.data.exam_packages || []).filter(p => p.enabled !== false);
-  res.json({ packages: pkgs });
+  const safePkgs = pkgs.map(p => {
+    const { wholesale_cost, ...safe } = p;
+    return safe;
+  });
+  res.json({ packages: safePkgs });
 });
 
 // POST /api/telecom/purchase-exam-pin
@@ -847,6 +1024,9 @@ telecomRouter.post('/purchase-exam-pin', requireAuth, async (req: any, res) => {
     const pkg = (db.data.exam_packages || []).find(p => p.id === examId);
     if (!pkg) {
       return res.status(404).json({ error: 'Exam scratch card package not found' });
+    }
+    if (pkg.enabled === false) {
+      return res.status(400).json({ error: 'This exam scratch card is currently disabled by administrator' });
     }
 
     const totalAmount = pkg.price * qtyVal;
@@ -873,6 +1053,30 @@ telecomRouter.post('/purchase-exam-pin', requireAuth, async (req: any, res) => {
       amount: totalAmount,
       phone: phone || req.user.phone_number,
     });
+
+    if (!result.success) {
+      db.adjustBalance(
+        req.user.id,
+        totalAmount,
+        'manual_adjustment',
+        `REFUND: Failed exam PIN generation (${result.message || 'Provider error'})`,
+        'internal',
+        { examId, examName: pkg.name, quantity: qtyVal }
+      );
+      db.addNotification(
+        req.user.id,
+        'Exam Scratch Card Purchase Failed - Refunded',
+        `Purchase of ${qtyVal}x ${pkg.name} cards failed: ${result.message || 'Provider error'}. Your wallet was refunded.`,
+        'alert'
+      );
+      return res.status(400).json({
+        success: false,
+        error: result.message || 'Exam PIN purchase failed at provider',
+        refunded: true,
+        refundedAmount: totalAmount,
+        newBalance: req.user.wallet_balance,
+      });
+    }
 
     const costPrice = ((pkg as any).wholesale_cost || (pkg as any).cost_price || Math.floor(pkg.price * 0.95)) * qtyVal;
     const profit = totalAmount - costPrice;
@@ -942,9 +1146,9 @@ telecomRouter.post('/webhook/ulamadata', (req, res) => {
     const payload = req.body;
     const authHeader = req.headers.authorization;
 
-    // Optional verification of webhook signature or token
-    const expectedToken = '7aOkA4OzIF6xfuUIXbvk7ByxVGH0U5gSNy1OfpYb';
-    if (authHeader && !authHeader.includes(expectedToken)) {
+    // Verification of webhook signature or token from environment
+    const expectedToken = process.env.ULAMADATA_WEBHOOK_SECRET || process.env.ULAMADATA_API_KEY || '';
+    if (expectedToken && authHeader && !authHeader.includes(expectedToken)) {
       return res.status(401).json({ error: 'Unauthorized webhook caller' });
     }
 
@@ -1035,9 +1239,14 @@ telecomRouter.get('/history', (req: any, res) => {
     );
   }
 
+  const safeOrders = list.map(o => {
+    const { cost_price, profit, provider, ...safe } = o;
+    return safe;
+  });
+
   res.json({
     success: true,
-    count: list.length,
-    orders: list,
+    count: safeOrders.length,
+    orders: safeOrders,
   });
 });

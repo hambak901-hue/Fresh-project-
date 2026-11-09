@@ -10,12 +10,12 @@ import { db, ProviderLog } from '../../db/database.js';
 
 export interface VerificationResponse {
   success: boolean;
-  pending: boolean;
+  pending?: boolean;
   message: string;
-  reference: string;
-  transaction_id: string;
+  reference?: string;
+  transaction_id?: string;
   provider: string;
-  data: any;
+  data?: any;
   raw_response?: any;
   is_simulated?: boolean;
 }
@@ -38,7 +38,7 @@ export class TwoSureVerifyAdapter implements VerificationProviderInterface {
   private baseUrl: string;
 
   constructor(apiKey?: string, baseUrl?: string) {
-    this.apiKey = apiKey || CREDENTIALS.verification.sureverify.apiKey || '664469ea92436a4c7ff997281a32a742dcd84f9a5e6603f0';
+    this.apiKey = apiKey || CREDENTIALS.verification.sureverify.apiKey || process.env.SUREVERIFY_API_KEY || '';
     this.baseUrl = baseUrl || 'https://2sureverify.com';
   }
 
@@ -194,15 +194,7 @@ export class TwoSureVerifyAdapter implements VerificationProviderInterface {
         };
       }
 
-      // If upstream failed due to provider balance or maintenance, fallback to sandbox response if requested
-      if (json && json.message && json.message.toLowerCase().includes('insufficient wallet balance')) {
-        // Upstream account balance is low; fallback to enriched realistic result to prevent blocking user workflows
-        const simulated = this.generateSimulatedResponse(serviceKey, payload);
-        simulated.message = `${simulated.message} (Upstream 2SureVerify wallet balance low; sandbox verified)`;
-        simulated.is_simulated = true;
-        return simulated;
-      }
-
+      // If upstream failed, report actual failure (never manufacture simulated success in live mode)
       return {
         success: false,
         pending: Boolean(json?.pending),
@@ -214,11 +206,17 @@ export class TwoSureVerifyAdapter implements VerificationProviderInterface {
         raw_response: json,
       };
     } catch (err: any) {
-      // Network failure: fallback to simulated response for testing continuity
-      const simulated = this.generateSimulatedResponse(serviceKey, payload);
-      simulated.message = `${simulated.message} (Provider network fallback)`;
-      simulated.is_simulated = true;
-      return simulated;
+      if (testMode || process.env.ENABLE_MOCK_SIMULATION === 'true') {
+        const simulated = this.generateSimulatedResponse(serviceKey, payload);
+        simulated.message = `${simulated.message} (Sandbox test mode)`;
+        simulated.is_simulated = true;
+        return simulated;
+      }
+      return {
+        success: false,
+        message: `Provider network failure: ${err.message || 'Gateway unreachable'}`,
+        provider: this.getName(),
+      };
     }
   }
 
@@ -340,7 +338,7 @@ export class VeripineAdapter implements VerificationProviderInterface {
   private baseUrl: string;
 
   constructor(apiKey?: string, baseUrl?: string) {
-    this.apiKey = apiKey || CREDENTIALS.verification.veripine.apiKey || 'ninbvn_6443d1d6279df9af26b60dc4';
+    this.apiKey = apiKey || CREDENTIALS.verification.veripine.apiKey || process.env.VERIPINE_API_KEY || '';
     this.baseUrl = baseUrl || 'https://api.veripine.com/v1';
   }
 
@@ -392,20 +390,60 @@ export class VeripineAdapter implements VerificationProviderInterface {
   }
 
   async executeService(serviceKey: string, endpoint: string, payload: any): Promise<VerificationResponse> {
-    // Secondary fallback execution
-    const ref = `VRP_${Date.now()}`;
-    return {
-      success: true,
-      pending: false,
-      message: 'Record verified via Veripine Identity Engine',
-      reference: ref,
-      transaction_id: ref,
-      provider: this.getName(),
-      data: {
-        idNumber: payload.nin || payload.bvn || payload.identifier,
-        status: 'VERIFIED',
-      },
-    };
+    if (!this.apiKey) {
+      if (process.env.ENABLE_MOCK_SIMULATION === 'true') {
+        const ref = `VRP_${Date.now()}`;
+        return {
+          success: true,
+          pending: false,
+          message: 'Record verified via Veripine Sandbox Engine',
+          reference: ref,
+          transaction_id: ref,
+          provider: this.getName(),
+          data: {
+            idNumber: payload.nin || payload.bvn || payload.identifier,
+            status: 'VERIFIED',
+          },
+        };
+      }
+      return {
+        success: false,
+        message: 'Veripine API credentials are not configured in environment variables.',
+        provider: this.getName(),
+      };
+    }
+
+    try {
+      const res = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      const data: any = await res.json().catch(() => null);
+      if (res.ok && data?.status === 'success') {
+        return {
+          success: true,
+          message: data.message || 'Verified successfully',
+          reference: data.reference || `VRP_${Date.now()}`,
+          provider: this.getName(),
+          data: data.data,
+        };
+      }
+      return {
+        success: false,
+        message: data?.message || `Veripine returned status ${res.status}`,
+        provider: this.getName(),
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Veripine connection failed: ${err.message}`,
+        provider: this.getName(),
+      };
+    }
   }
 }
 

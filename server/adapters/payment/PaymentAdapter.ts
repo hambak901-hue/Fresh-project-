@@ -61,7 +61,7 @@ export class PaystackAdapter implements PaymentGatewayInterface {
   private baseUrl = 'https://api.paystack.co';
 
   constructor(secretKey?: string) {
-    this.secretKey = secretKey || CREDENTIALS.payments?.paystack?.secretKey || process.env.PAYSTACK_SECRET_KEY || 'sk_test_7aOkA4OzIF6xfuUIXbvk7ByxVGH0U5gSNy1OfpYb';
+    this.secretKey = secretKey || CREDENTIALS.payments?.paystack?.secretKey || process.env.PAYSTACK_SECRET_KEY || '';
   }
 
   getId(): string {
@@ -144,21 +144,31 @@ export class PaystackAdapter implements PaymentGatewayInterface {
         };
       }
     } catch (err: any) {
-      console.warn('Paystack live initialization network fallback:', err.message);
+      console.warn('Paystack live initialization error:', err.message);
     }
 
-    // High fidelity preview authorization link
-    const simulatedAuthUrl = `https://checkout.paystack.com/${params.reference.toLowerCase()}`;
+    if (process.env.ENABLE_MOCK_SIMULATION === 'true') {
+      const simulatedAuthUrl = `https://checkout.paystack.com/${params.reference.toLowerCase()}`;
+      return {
+        success: true,
+        reference: params.reference,
+        authorization_url: simulatedAuthUrl,
+        access_code: `pstk_acc_${Date.now()}`,
+        amount: params.amount,
+        currency: 'NGN',
+        gateway: 'paystack',
+        message: 'Paystack checkout session created (Sandbox Ready)',
+        is_simulated: true,
+      };
+    }
+
     return {
-      success: true,
+      success: false,
       reference: params.reference,
-      authorization_url: simulatedAuthUrl,
-      access_code: `pstk_acc_${Date.now()}`,
       amount: params.amount,
       currency: 'NGN',
       gateway: 'paystack',
-      message: 'Paystack checkout session created (Sandbox Ready)',
-      is_simulated: true,
+      message: 'Paystack live payment initialization failed. Valid credentials required.',
     };
   }
 
@@ -204,24 +214,26 @@ export class PaystackAdapter implements PaymentGatewayInterface {
         };
       }
     } catch (err: any) {
-      console.warn('Paystack remote verification fallback:', err.message);
+      console.warn('Paystack remote verification error:', err.message);
     }
 
-    // Look up in database pending transactions if in sandbox
-    const txn = db.data.transactions.find(t => t.reference === reference);
-    if (txn) {
-      return {
-        success: true,
-        verified: true,
-        reference,
-        amount: txn.amount,
-        currency: 'NGN',
-        gateway: 'paystack',
-        customer_email: '',
-        paid_at: new Date().toISOString(),
-        channel: 'card',
-        message: 'Transaction verified on Paystack gateway',
-      };
+    // Only allow sandbox verification lookup if explicitly enabled in environment
+    if (process.env.ENABLE_MOCK_SIMULATION === 'true') {
+      const txn = db.data.transactions.find(t => t.reference === reference);
+      if (txn) {
+        return {
+          success: true,
+          verified: true,
+          reference,
+          amount: txn.amount,
+          currency: 'NGN',
+          gateway: 'paystack',
+          customer_email: '',
+          paid_at: new Date().toISOString(),
+          channel: 'card',
+          message: 'Transaction verified on Paystack gateway (Sandbox Mode)',
+        };
+      }
     }
 
     return {
@@ -232,7 +244,7 @@ export class PaystackAdapter implements PaymentGatewayInterface {
       currency: 'NGN',
       gateway: 'paystack',
       customer_email: '',
-      message: 'Transaction reference not found on Paystack',
+      message: 'Transaction reference could not be verified on Paystack gateway',
     };
   }
 

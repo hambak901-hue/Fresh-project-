@@ -1,58 +1,94 @@
 /**
  * @file system.ts
  * System diagnostics, integration status, and settings router.
+ * Administrative endpoints are strictly protected with requireAdmin.
  */
 
 import { Router } from 'express';
 import { db } from '../db/database.js';
 import { CREDENTIALS } from '../config/credentials.js';
 import { testSmtpConnection, sendEmail } from '../services/mailer.js';
+import { parseToken } from './auth.js';
 
 export const systemRouter = Router();
 
-// GET /api/system/status
-systemRouter.get('/status', async (req, res) => {
+// Middleware: Require Admin or SuperAdmin
+function requireAdmin(req: any, res: any, next: any) {
+  const session = parseToken(req.headers.authorization);
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication token required' });
+  }
+
+  const user = db.findUserById(session.userId);
+  if (!user) {
+    return res.status(401).json({ error: 'User does not exist' });
+  }
+
+  if (user.status === 'suspended') {
+    return res.status(403).json({ error: 'Your account is suspended.' });
+  }
+
+  if (user.role !== 'admin' && user.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Access denied: Administrator privileges required' });
+  }
+
+  req.user = user;
+  next();
+}
+
+// -------------------------------------------------------------
+// PUBLIC ENDPOINTS
+// -------------------------------------------------------------
+
+// GET /api/system/rates - Public rates & pricing for calculators
+systemRouter.get('/rates', (req, res) => {
+  res.json({
+    success: true,
+    rates: {
+      nin_fee: db.data.settings.nin_fee,
+      bvn_fee: db.data.settings.bvn_fee,
+      mtn_sme_1gb: db.data.settings.mtn_sme_1gb,
+      airtel_1gb: db.data.settings.airtel_1gb,
+      glo_1gb: db.data.settings.glo_1gb,
+      nine_mobile_1gb: db.data.settings.nine_mobile_1gb,
+      airtime_discount_percent: db.data.settings.airtime_discount_percent,
+    },
+  });
+});
+
+// -------------------------------------------------------------
+// ADMINISTRATOR-ONLY ENDPOINTS
+// -------------------------------------------------------------
+
+// GET /api/system/status - Protected admin diagnostics. Never exposes credential secrets or fragments.
+systemRouter.get('/status', requireAdmin, async (req: any, res) => {
   const credentialsStatus = {
     veripine: {
       configured: Boolean(CREDENTIALS.verification.veripine.apiKey),
-      keyMasked: CREDENTIALS.verification.veripine.apiKey.slice(0, 10) + '...' + CREDENTIALS.verification.veripine.apiKey.slice(-6),
     },
     sureverify: {
       configured: Boolean(CREDENTIALS.verification.sureverify.apiKey),
-      keyMasked: CREDENTIALS.verification.sureverify.apiKey.slice(0, 8) + '...' + CREDENTIALS.verification.sureverify.apiKey.slice(-6),
     },
     ulamaData: {
       configured: Boolean(CREDENTIALS.telecom.ulamaData.apiKey),
-      keyMasked: CREDENTIALS.telecom.ulamaData.apiKey.slice(0, 8) + '...' + CREDENTIALS.telecom.ulamaData.apiKey.slice(-6),
     },
     vtpass: {
       configured: Boolean(CREDENTIALS.telecom.vtpass.apiKey && CREDENTIALS.telecom.vtpass.secretKey),
-      apiKeyMasked: CREDENTIALS.telecom.vtpass.apiKey.slice(0, 8) + '...',
-      publicKeyMasked: CREDENTIALS.telecom.vtpass.publicKey.slice(0, 8) + '...',
-      secretKeyMasked: CREDENTIALS.telecom.vtpass.secretKey.slice(0, 8) + '...',
     },
     flutterwave: {
       configured: Boolean(CREDENTIALS.payments.flutterwave.clientId && CREDENTIALS.payments.flutterwave.secretKey),
-      clientIdMasked: CREDENTIALS.payments.flutterwave.clientId.slice(0, 8) + '...',
-      secretKeyMasked: CREDENTIALS.payments.flutterwave.secretKey.slice(0, 8) + '...',
-      encryptionKeyConfigured: Boolean(CREDENTIALS.payments.flutterwave.encryptionKey),
     },
     smtpMail: {
       configured: Boolean(CREDENTIALS.mail.host && CREDENTIALS.mail.user),
       host: CREDENTIALS.mail.host,
       port: CREDENTIALS.mail.port,
-      user: CREDENTIALS.mail.user,
+      sender: CREDENTIALS.mail.user,
       supportEmail: CREDENTIALS.mail.supportEmail,
-      webmailUrl: CREDENTIALS.mail.webmailUrl,
     },
     cpanel: {
       serverName: CREDENTIALS.cpanel.serverName,
       serverIp: CREDENTIALS.cpanel.serverIp,
-      sftpHost: CREDENTIALS.cpanel.ftpHost,
-      sftpPort: CREDENTIALS.cpanel.ftpPort,
-      sftpUser: CREDENTIALS.cpanel.ftpUser,
-      sftpPassConfigured: Boolean(CREDENTIALS.cpanel.ftpPass),
-      nameservers: CREDENTIALS.cpanel.nameservers,
+      sftpConfigured: Boolean(CREDENTIALS.cpanel.ftpUser && CREDENTIALS.cpanel.ftpPass),
     },
   };
 
@@ -73,8 +109,8 @@ systemRouter.get('/status', async (req, res) => {
   });
 });
 
-// POST /api/system/test-smtp
-systemRouter.post('/test-smtp', async (req, res) => {
+// POST /api/system/test-smtp (Admin only)
+systemRouter.post('/test-smtp', requireAdmin, async (req: any, res) => {
   const { toEmail } = req.body;
   const target = toEmail || CREDENTIALS.mail.supportEmail;
 
@@ -88,7 +124,6 @@ systemRouter.post('/test-smtp', async (req, res) => {
       `<div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f8fafc; border-radius: 8px;">
         <h2 style="color: #059669;">HambakTech Mail Gateway Verified</h2>
         <p>This email confirms that the SMTP credentials on <strong>lon110.truehost.cloud</strong> are properly connected and authorized.</p>
-        <p>Sender: <code>${CREDENTIALS.mail.user}</code></p>
         <p>Target: <code>${target}</code></p>
         <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;" />
         <small style="color: #64748b;">HambakTech Enterprise Systems &bull; Phase 01 Architecture</small>
@@ -102,16 +137,16 @@ systemRouter.post('/test-smtp', async (req, res) => {
   });
 });
 
-// GET /api/system/audit-logs
-systemRouter.get('/audit-logs', (req, res) => {
+// GET /api/system/audit-logs (Admin only)
+systemRouter.get('/audit-logs', requireAdmin, (req: any, res) => {
   res.json({
     logs: db.data.audit_logs.slice(0, 50),
   });
 });
 
-// POST /api/system/update-settings
-systemRouter.post('/update-settings', (req, res) => {
+// POST /api/system/update-settings (Admin only)
+systemRouter.post('/update-settings', requireAdmin, (req: any, res) => {
   const updated = db.updateSettings(req.body);
-  db.logAudit('SETTINGS_UPDATED', req.body);
+  db.logAudit('SETTINGS_UPDATED', req.body, req.user?.id, req.user?.email);
   res.json({ success: true, settings: updated });
 });

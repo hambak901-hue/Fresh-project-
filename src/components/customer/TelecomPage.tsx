@@ -610,7 +610,7 @@ export const TelecomPage: React.FC = () => {
             <Smartphone className="w-4 h-4" />
             <span className="uppercase tracking-wider">Telecommunications Engine</span>
             <span className="text-slate-600">&bull;</span>
-            <span className="text-slate-300">Phase 06 Ulamadata Sovereign Gateway</span>
+            <span className="text-slate-300">Carrier Network Direct Gateway</span>
           </div>
           <h1 className="text-2xl font-black text-white tracking-tight mt-1">
             Carrier &amp; Utility Vending Hub
@@ -623,10 +623,10 @@ export const TelecomPage: React.FC = () => {
         {/* Live Provider Status Badge */}
         <div className="flex items-center gap-3">
           <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-right">
-            <div className="text-[10px] uppercase font-bold text-slate-400">Provider Gateway</div>
+            <div className="text-[10px] uppercase font-bold text-slate-400">Carrier Gateway</div>
             <div className="text-xs font-bold text-emerald-400 flex items-center justify-end gap-1.5 mt-0.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              {activeProvider === 'ulamadata' ? 'UlamaData Primary' : 'VTpass Utility Bridge'}
+              {activeProvider === 'ulamadata' ? 'Primary Route (Active)' : 'Redundant Route (Active)'}
             </div>
           </div>
           <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-right">
@@ -875,12 +875,12 @@ export const TelecomPage: React.FC = () => {
             <h3 className="text-sm font-bold text-white">VTU Gateway Architecture</h3>
             <div className="space-y-3 text-xs text-slate-300">
               <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <span className="text-slate-400">Wholesale Gateway:</span>
-                <span className="font-bold text-emerald-400">Ulamadata Sovereign Core</span>
+                <span className="text-slate-400">Carrier Gateway:</span>
+                <span className="font-bold text-emerald-400">Enterprise Telecom Core</span>
               </div>
               <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <span className="text-slate-400">Failover Bridge:</span>
-                <span className="font-semibold text-slate-300">VTpass Auto-Switch</span>
+                <span className="text-slate-400">Route Redundancy:</span>
+                <span className="font-semibold text-slate-300">Carrier Auto-Switch</span>
               </div>
               <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
                 <span className="text-slate-400">Delivery Latency:</span>
@@ -1049,7 +1049,7 @@ export const TelecomPage: React.FC = () => {
               <div className="text-xs text-slate-500">Select a plan to view specifications</div>
             )}
             <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
-              <span className="font-bold text-white">Direct Dynamic Catalogue:</span> Plans are synced directly with the Ulamadata database, ensuring instant activation and automated refund if unfulfilled.
+              <span className="font-bold text-white">Direct Dynamic Catalogue:</span> Plans are synced directly with the carrier databases, ensuring instant activation and automated refund if unfulfilled.
             </div>
           </div>
         </div>
@@ -2087,7 +2087,7 @@ export const TelecomPage: React.FC = () => {
                 type="text"
                 value={queryRef}
                 onChange={e => setQueryRef(e.target.value)}
-                placeholder="Query live transaction reference on Ulamadata network..."
+                placeholder="Query live transaction reference on carrier network..."
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-mono focus:border-emerald-500"
               />
             </div>

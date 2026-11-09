@@ -4,7 +4,7 @@
  */
 
 import { Router } from 'express';
-import { db, hashPassword } from '../db/database.js';
+import { db, hashPassword, verifyPassword } from '../db/database.js';
 import { sendEmail } from '../services/mailer.js';
 
 export const authRouter = Router();
@@ -108,9 +108,15 @@ authRouter.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Your account has been suspended. Please contact support@hambaktech.com.ng.' });
     }
 
-    const hashedPassword = hashPassword(password);
-    if (user.password_hash !== hashedPassword) {
+    const isMatch = verifyPassword(password, user.password_hash);
+    if (!isMatch) {
       return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    // Auto-migrate legacy SHA-256 hashes to bcrypt on successful login
+    if (!user.password_hash.startsWith('$2')) {
+      user.password_hash = hashPassword(password);
+      db.saveDatabase();
     }
 
     const token = generateToken(user.id, user.role);
@@ -148,26 +154,6 @@ authRouter.get('/me', (req, res) => {
 
   return res.json({
     success: true,
-    user: safeUser,
-  });
-});
-
-// POST /api/auth/quick-switch (Demo/review switcher to seamlessly test Customer, Admin & Super Admin)
-authRouter.post('/quick-switch', (req, res) => {
-  const { role } = req.body;
-  let targetUser = db.data.users.find(u => u.role === (role || 'superadmin'));
-
-  if (!targetUser) {
-    targetUser = db.data.users[0];
-  }
-
-  const token = generateToken(targetUser.id, targetUser.role);
-  const safeUser = { ...targetUser };
-  delete (safeUser as any).password_hash;
-
-  return res.json({
-    success: true,
-    token,
     user: safeUser,
   });
 });

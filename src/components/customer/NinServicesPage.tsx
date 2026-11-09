@@ -255,9 +255,9 @@ export const NinServicesPage: React.FC = () => {
             <ShieldCheck className="w-4 h-4" />
             <span>Sovereign Identity Pipeline (Phase 5)</span>
             <span className="text-slate-600">&bull;</span>
-            <span className="text-slate-300">Primary Provider: 2SureVerify Gateway</span>
+            <span className="text-slate-300">Identity Gateway: Verified Direct Pipeline</span>
             <span className="text-slate-600">&bull;</span>
-            <span className="text-slate-400">Veripine Failover</span>
+            <span className="text-slate-400">High-Availability Failover</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mt-1">
             NIN &amp; BVN Verification Desk
@@ -750,7 +750,7 @@ export const NinServicesPage: React.FC = () => {
                         : 'bg-slate-800 text-slate-400'
                     }`}
                   >
-                    {useTestSandbox ? 'ACTIVE (Sandbox)' : 'OFF (Live 2SureVerify)'}
+                    {useTestSandbox ? 'ACTIVE (Sandbox)' : 'OFF (Live Verification)'}
                   </button>
                 </div>
               </div>
@@ -764,7 +764,7 @@ export const NinServicesPage: React.FC = () => {
                 {submitting ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Executing Query with 2SureVerify...</span>
+                    <span>Executing Verification Query...</span>
                   </>
                 ) : (
                   <>
@@ -791,7 +791,7 @@ export const NinServicesPage: React.FC = () => {
                         Federal Republic of Nigeria
                       </div>
                       <div className="text-[11px] text-slate-400">
-                        {currentService.name} &bull; Validated via 2SureVerify
+                        {currentService.name} &bull; Validated via Sovereign Identity Registry
                       </div>
                     </div>
                   </div>
@@ -868,8 +868,8 @@ export const NinServicesPage: React.FC = () => {
                 {/* Additional Raw Payload view */}
                 <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-850 space-y-2">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-300">Raw Upstream JSON Response</span>
-                    <span className="text-[10px] font-mono text-slate-500">2SureVerify API v1</span>
+                    <span className="font-semibold text-slate-300">Raw Registry Response</span>
+                    <span className="text-[10px] font-mono text-slate-500">Identity Gateway v1</span>
                   </div>
                   <pre className="p-3 rounded-xl bg-slate-950 text-[10px] font-mono text-slate-400 overflow-x-auto max-h-40">
                     {JSON.stringify(verifiedResult, null, 2)}
@@ -884,7 +884,7 @@ export const NinServicesPage: React.FC = () => {
                 <div>
                   <h3 className="text-base font-bold text-white">No Verification Loaded</h3>
                   <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                    Select a service from the left and submit valid credentials to execute the query against 2SureVerify and view the verified biodata slip.
+                    Select a service from the left and submit valid credentials to execute the query against the identity registry and view the verified biodata slip.
                   </p>
                 </div>
                 <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800/80 max-w-md mx-auto text-left text-xs space-y-2">

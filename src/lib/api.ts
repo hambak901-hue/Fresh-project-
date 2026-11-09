@@ -68,15 +68,6 @@ export const api = {
     return request<{ success: boolean; user: User }>('/api/auth/me');
   },
 
-  async quickSwitch(role: 'customer' | 'admin' | 'superadmin'): Promise<{ success: boolean; token: string; user: User }> {
-    const res = await request<{ success: boolean; token: string; user: User }>('/api/auth/quick-switch', {
-      method: 'POST',
-      body: JSON.stringify({ role }),
-    });
-    setStoredToken(res.token);
-    return res;
-  },
-
   logout(): void {
     clearStoredToken();
   },

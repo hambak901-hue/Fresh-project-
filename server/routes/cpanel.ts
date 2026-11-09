@@ -1,64 +1,95 @@
 /**
  * @file cpanel.ts
- * cPanel & TrueHost LON110 server deployment management.
- * Provides live configuration status, deployment scripts, and credentials testing.
+ * cPanel & TrueHost server deployment management.
+ * Strictly restricted to authenticated Administrators and Super Administrators.
  */
 
 import { Router } from 'express';
 import { CREDENTIALS } from '../config/credentials.js';
 import { db } from '../db/database.js';
+import { parseToken } from './auth.js';
 
 export const cpanelRouter = Router();
 
-// GET /api/cpanel/info
-cpanelRouter.get('/info', (req, res) => {
+// Middleware: Require Admin or SuperAdmin
+function requireAdmin(req: any, res: any, next: any) {
+  const session = parseToken(req.headers.authorization);
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication token required' });
+  }
+
+  const user = db.findUserById(session.userId);
+  if (!user) {
+    return res.status(401).json({ error: 'User does not exist' });
+  }
+
+  if (user.status === 'suspended') {
+    return res.status(403).json({ error: 'Your account is suspended.' });
+  }
+
+  if (user.role !== 'admin' && user.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Access denied: Administrator privileges required' });
+  }
+
+  req.user = user;
+  next();
+}
+
+// Apply requireAdmin to all cPanel routes
+cpanelRouter.use(requireAdmin);
+
+// GET /api/cpanel/info (Admin only)
+cpanelRouter.get('/info', (req: any, res) => {
+  const isConfigured = Boolean(CREDENTIALS.cpanel.ftpUser && CREDENTIALS.cpanel.ftpPass);
+
   res.json({
     server: {
       name: CREDENTIALS.cpanel.serverName,
       ip: CREDENTIALS.cpanel.serverIp,
       sftpHost: CREDENTIALS.cpanel.ftpHost,
       sftpPort: CREDENTIALS.cpanel.ftpPort,
-      sftpUser: CREDENTIALS.cpanel.ftpUser,
-      authMethod: 'Password Authentication',
-      status: 'CONFIGURED',
+      sftpConfigured: isConfigured,
+      authMethod: 'SSH / SFTP Key or Password Authentication',
+      status: isConfigured ? 'CONFIGURED' : 'PENDING_CREDENTIALS',
       nameservers: CREDENTIALS.cpanel.nameservers,
       webmail: CREDENTIALS.mail.webmailUrl,
       supportEmail: CREDENTIALS.mail.supportEmail,
     },
     deploymentTarget: {
       type: 'cPanel Cloud Hosting with Node.js Application Manager',
-      passengerRoot: '/home/qfqzpeqx/public_html',
+      passengerRoot: process.env.CPANEL_APP_ROOT || '/home/hambaktech/public_html',
       entryFile: 'server.js',
       nodeVersion: 'v20.x or v22.x',
     },
   });
 });
 
-// POST /api/cpanel/test-sftp
-cpanelRouter.post('/test-sftp', (req, res) => {
-  // Validate credentials present
+// POST /api/cpanel/test-sftp (Admin only)
+cpanelRouter.post('/test-sftp', (req: any, res) => {
   const { ftpHost, ftpPort, ftpUser, ftpPass } = CREDENTIALS.cpanel;
   if (!ftpHost || !ftpPort || !ftpUser || !ftpPass) {
-    return res.status(400).json({ success: false, message: 'SFTP credentials incomplete' });
+    return res.status(400).json({
+      success: false,
+      message: 'SFTP credentials incomplete. Set CPANEL_SFTP_HOST, CPANEL_SFTP_USER, and CPANEL_SFTP_PASS in secure environment.',
+    });
   }
 
-  db.logAudit('CPANEL_SFTP_TEST', { host: ftpHost, port: ftpPort, user: ftpUser });
+  db.logAudit('CPANEL_SFTP_VERIFIED', { host: ftpHost, port: ftpPort }, req.user?.id, req.user?.email);
 
   res.json({
     success: true,
-    message: `Ready for SFTP connection to ${ftpHost}:${ftpPort} as user "${ftpUser}".`,
+    message: `SFTP environment credentials configured for ${ftpHost}:${ftpPort}. Ready for production release pipeline.`,
     connectionDetails: {
       protocol: 'SFTP (SSH File Transfer Protocol)',
       host: ftpHost,
       port: ftpPort,
-      user: ftpUser,
-      verifiedAt: new Date().toISOString(),
+      configuredAt: new Date().toISOString(),
     },
   });
 });
 
-// GET /api/cpanel/export-package
-cpanelRouter.get('/export-package', (req, res) => {
+// GET /api/cpanel/export-package (Admin only)
+cpanelRouter.get('/export-package', (req: any, res) => {
   const htaccessContent = `# HambakTech Enterprise cPanel .htaccess
 # Reverse proxy / Passenger Node.js app routing
 DirectoryIndex ""
@@ -102,6 +133,7 @@ CREATE TABLE IF NOT EXISTS \`transactions\` (
   \`description\` TEXT,
   \`metadata\` JSON,
   \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (\`user_id\`) REFERENCES \`users\`(\`id\`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 `;
@@ -110,7 +142,7 @@ CREATE TABLE IF NOT EXISTS \`transactions\` (
     htaccess: htaccessContent,
     sqlMigration: sqlMigrationSchema,
     setupInstructions: [
-      '1. Log into cPanel at LON110 (51.89.153.183:2083)',
+      '1. Log into cPanel at LON110',
       '2. Navigate to "Setup Node.js App"',
       '3. Select Node.js 20.x, set Application root to "hambaktech", Application URL to "hambaktech.com.ng"',
       '4. Set Application startup file to "server.js"',

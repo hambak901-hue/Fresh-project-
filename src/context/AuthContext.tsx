@@ -1,6 +1,7 @@
 /**
  * @file AuthContext.tsx
  * Authentication context for session persistence and reactive user state.
+ * Strictly enforces token-based security with zero bypass or unauthenticated role elevation.
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
@@ -14,7 +15,6 @@ interface AuthContextType {
   login: (email: string, pass: string) => Promise<void>;
   register: (data: { email: string; password: string; full_name: string; phone_number: string }) => Promise<void>;
   logout: () => void;
-  quickSwitch: (role: 'customer' | 'admin' | 'superadmin') => Promise<void>;
   refreshUser: () => Promise<void>;
   updateBalance: (balance: number) => void;
 }
@@ -31,17 +31,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await api.getMe();
       if (res.success && res.user) {
         setUser(res.user);
-      }
-    } catch {
-      // If token expired or invalid, auto fallback to default superadmin session for smooth preview
-      try {
-        const switchRes = await api.quickSwitch('superadmin');
-        setUser(switchRes.user);
-        setToken(switchRes.token);
-      } catch {
+      } else {
         setUser(null);
+        setToken(null);
         clearStoredToken();
       }
+    } catch {
+      // If token expired or invalid, clear session cleanly. Never elevate privileges.
+      setUser(null);
+      setToken(null);
+      clearStoredToken();
     } finally {
       setLoading(false);
     }
@@ -51,14 +50,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (getStoredToken()) {
       refreshUser();
     } else {
-      // Default initial login as Super Admin for direct review
-      api.quickSwitch('superadmin')
-        .then(res => {
-          setUser(res.user);
-          setToken(res.token);
-        })
-        .catch(() => {})
-        .finally(() => setLoading(false));
+      setLoading(false);
     }
   }, []);
 
@@ -90,17 +82,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(null);
   };
 
-  const quickSwitch = async (role: 'customer' | 'admin' | 'superadmin') => {
-    setLoading(true);
-    try {
-      const res = await api.quickSwitch(role);
-      setUser(res.user);
-      setToken(res.token);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const updateBalance = (balance: number) => {
     if (user) {
       setUser({ ...user, wallet_balance: balance });
@@ -116,7 +97,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         register,
         logout,
-        quickSwitch,
         refreshUser,
         updateBalance,
       }}

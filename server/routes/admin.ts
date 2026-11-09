@@ -18,21 +18,11 @@ export const adminRouter = Router();
 function requireAdmin(req: any, res: any, next: any) {
   const session = parseToken(req.headers.authorization);
   if (!session) {
-    const superAdmin = db.findUserById('usr_superadmin');
-    if (superAdmin) {
-      req.user = superAdmin;
-      return next();
-    }
     return res.status(401).json({ error: 'Authentication token required' });
   }
 
   const user = db.findUserById(session.userId);
   if (!user) {
-    const superAdmin = db.findUserById('usr_superadmin');
-    if (superAdmin) {
-      req.user = superAdmin;
-      return next();
-    }
     return res.status(401).json({ error: 'User does not exist' });
   }
 
@@ -583,6 +573,30 @@ adminRouter.get('/services', requireAdmin, (req, res) => {
     settings: db.data.settings,
     store_items: db.data.store_items || [],
     academy_courses: db.data.academy_courses || [],
+  });
+});
+
+adminRouter.post('/services/update-price', requireAdmin, (req: any, res) => {
+  const { serviceKey, sellingPrice, selling_price } = req.body;
+  const targetPrice = Number(sellingPrice !== undefined ? sellingPrice : selling_price);
+  if (!serviceKey || isNaN(targetPrice)) {
+    return res.status(400).json({ error: 'Valid serviceKey and sellingPrice are required' });
+  }
+
+  const services = db.data.identity_services || [];
+  const idx = services.findIndex(s => s.key === serviceKey);
+  if (idx === -1) {
+    return res.status(404).json({ error: `Service "${serviceKey}" not found` });
+  }
+
+  services[idx].selling_price = targetPrice;
+  db.saveDatabase();
+  db.logAudit('SERVICE_PRICE_UPDATED', { serviceKey, newPrice: targetPrice }, req.user.id, req.user.email);
+
+  res.json({
+    success: true,
+    message: `Updated selling price for ${services[idx].name} to ₦${targetPrice.toLocaleString()}`,
+    service: services[idx],
   });
 });
 
