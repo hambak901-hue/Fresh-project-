@@ -22,7 +22,7 @@ import {
   Smartphone,
   ShieldCheck,
 } from 'lucide-react';
-import { api } from '../../lib/api';
+import { api, getStoredToken } from '../../lib/api';
 import { AdminOverviewData, Transaction } from '../../types';
 
 interface AdminOverviewProps {
@@ -32,16 +32,25 @@ interface AdminOverviewProps {
 export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   const [data, setData] = useState<AdminOverviewData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const fetchOverview = async () => {
+    const token = getStoredToken();
+    if (!token) {
+      setLoading(false);
+      setError('Administrator authentication token required to view enterprise telemetry.');
+      return;
+    }
+
     setLoading(true);
+    setError(null);
     try {
       const res = await api.getAdminOverview();
       setData(res);
-    } catch (e) {
-      console.error('Failed to load admin overview:', e);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load admin overview metrics.');
     } finally {
       setLoading(false);
     }
@@ -89,6 +98,27 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
       <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
         <p className="text-sm">Aggregating enterprise telemetry & database metrics...</p>
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div className="p-8 max-w-xl mx-auto my-12 bg-slate-900 border border-amber-500/30 rounded-2xl text-center space-y-4 shadow-xl shadow-slate-950/50">
+        <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <h3 className="text-base font-bold text-white">Administrator Access Required</h3>
+        <p className="text-xs text-slate-400 leading-relaxed">{error}</p>
+        <div className="pt-2 flex justify-center gap-3">
+          <button
+            onClick={fetchOverview}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-2 transition"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Retry Connection</span>
+          </button>
+        </div>
       </div>
     );
   }

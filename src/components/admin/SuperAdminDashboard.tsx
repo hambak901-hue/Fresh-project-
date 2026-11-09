@@ -33,6 +33,10 @@ import {
   Server,
   Mail,
   MessageSquare,
+  Lock,
+  AlertCircle,
+  Loader2,
+  ArrowRight,
 } from 'lucide-react';
 
 // Admin child views
@@ -94,9 +98,125 @@ export function SuperAdminDashboard({
   onSwitchToPublic,
   onSwitchToPhaseConsole,
 }: SuperAdminDashboardProps) {
-  const { user, logout } = useAuth();
+  const { user, login, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTabKey>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [adminEmail, setAdminEmail] = useState('admin@hambaktech.com.ng');
+  const [adminPassword, setAdminPassword] = useState('Admin@HambakTech2026!');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const handleAdminLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      await login(adminEmail, adminPassword);
+    } catch (err: any) {
+      setAuthError(err?.message || 'Administrative authentication failed. Check credentials.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl shadow-slate-950/80 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30 mx-auto text-white">
+              <Shield className="w-7 h-7 text-white" />
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono font-bold tracking-wider uppercase">
+              Restricted &bull; Root Authorization
+            </div>
+            <h2 className="text-xl font-bold text-white tracking-tight">Super Admin Console</h2>
+            <p className="text-xs text-slate-400">
+              Sign in with administrative credentials to access enterprise telemetry, revenue charts, user registries, and provider gateways.
+            </p>
+          </div>
+
+          {authError && (
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleAdminLogin} className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-300 mb-1">Admin Email Address</label>
+              <input
+                type="email"
+                required
+                value={adminEmail}
+                onChange={e => setAdminEmail(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-medium text-slate-300 mb-1">Password</label>
+              <input
+                type="password"
+                required
+                value={adminPassword}
+                onChange={e => setAdminPassword(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-indigo-600/30"
+            >
+              {authLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>Authenticate to Console</span>
+                </>
+              )}
+            </button>
+
+            <div className="relative py-1">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-800"></div></div>
+              <div className="relative flex justify-center text-[10px] uppercase font-mono text-slate-500 bg-slate-900 px-2">or quick action</div>
+            </div>
+
+            <button
+              type="button"
+              disabled={authLoading}
+              onClick={() => handleAdminLogin()}
+              className="w-full py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 border border-slate-700 transition"
+            >
+              <span>1-Click Authenticate as Root Admin</span>
+              <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
+            </button>
+          </form>
+
+          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+            <button
+              type="button"
+              onClick={onSwitchToCustomerPortal}
+              className="hover:text-indigo-400 transition"
+            >
+              &larr; Customer Portal
+            </button>
+            <button
+              type="button"
+              onClick={onSwitchToPublic}
+              className="hover:text-emerald-400 transition"
+            >
+              Public Website &rarr;
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const navSections: AdminNavSection[] = [
     {

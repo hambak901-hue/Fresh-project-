@@ -18,9 +18,22 @@ function generateToken(userId: string, role: string): string {
 export function parseToken(tokenHeader?: string): { userId: string; role: string } | null {
   if (!tokenHeader) return null;
   try {
-    const raw = tokenHeader.replace(/^Bearer\s+/i, '');
-    const decoded = JSON.parse(Buffer.from(raw, 'base64').toString('utf-8'));
-    return decoded;
+    const raw = tokenHeader.replace(/^Bearer\s+/i, '').trim();
+    let jsonStr = '';
+    if (raw.includes('.')) {
+      // Standard JWT format: header.payload.signature
+      const parts = raw.split('.');
+      jsonStr = Buffer.from(parts[1], 'base64').toString('utf-8');
+    } else {
+      jsonStr = Buffer.from(raw, 'base64').toString('utf-8');
+    }
+    const decoded = JSON.parse(jsonStr);
+    const userId = decoded.userId || decoded.sub || decoded.id;
+    if (!userId) return null;
+    return {
+      userId,
+      role: decoded.role || 'customer',
+    };
   } catch {
     return null;
   }
