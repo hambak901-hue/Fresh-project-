@@ -47,6 +47,7 @@ import {
   Download,
   ShieldCheck,
 } from 'lucide-react';
+import { TransactionPinModal } from './TransactionPinModal';
 
 type TelecomTab =
   | 'airtime'
@@ -73,6 +74,13 @@ export const TelecomPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+
+  // PIN Authorization State
+  const [isPinModalOpen, setIsPinModalOpen] = useState<boolean>(false);
+  const [pendingPinAction, setPendingPinAction] = useState<(() => Promise<void>) | null>(null);
+  const [pinModalTitle, setPinModalTitle] = useState<string>('Authorize Purchase');
+  const [pinModalDesc, setPinModalDesc] = useState<string>('');
+  const [pinModalAmount, setPinModalAmount] = useState<number | undefined>(undefined);
 
   // 1. Airtime State
   const [airtimeNetwork, setAirtimeNetwork] = useState<'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE'>('MTN');
@@ -242,7 +250,7 @@ export const TelecomPage: React.FC = () => {
   };
 
   // 1. Purchase Airtime
-  const handlePurchaseAirtime = async (e: React.FormEvent) => {
+  const handlePurchaseAirtime = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -256,24 +264,30 @@ export const TelecomPage: React.FC = () => {
       return;
     }
 
-    try {
-      setLoading(true);
-      const res = await api.purchaseAirtime(airtimeNetwork, cleanPhone, airtimeAmount);
-      if (res.success) {
-        setSuccessMsg(res.message);
-        setAirtimePhone('');
-        await refreshUser();
-        await loadOrders();
+    setPinModalTitle('Authorize Airtime Top-Up');
+    setPinModalDesc(`Enter your 4-digit security PIN to authorize ₦${airtimeAmount.toLocaleString()} recharge on ${airtimeNetwork} for ${cleanPhone}.`);
+    setPinModalAmount(airtimeAmount);
+    setPendingPinAction(() => async () => {
+      try {
+        setLoading(true);
+        const res = await api.purchaseAirtime(airtimeNetwork, cleanPhone, airtimeAmount);
+        if (res.success) {
+          setSuccessMsg(res.message);
+          setAirtimePhone('');
+          await refreshUser();
+          await loadOrders();
+        }
+      } catch (err: any) {
+        setError(err.message || 'Failed to recharge airtime.');
+      } finally {
+        setLoading(false);
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to recharge airtime.');
-    } finally {
-      setLoading(false);
-    }
+    });
+    setIsPinModalOpen(true);
   };
 
   // 2. Purchase Data
-  const handlePurchaseData = async (e: React.FormEvent) => {
+  const handlePurchaseData = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -287,20 +301,29 @@ export const TelecomPage: React.FC = () => {
       return;
     }
 
-    try {
-      setLoading(true);
-      const res = await api.purchaseData(selectedPlanId, cleanPhone);
-      if (res.success) {
-        setSuccessMsg(res.message);
-        setDataPhone('');
-        await refreshUser();
-        await loadOrders();
+    const currentPlan = dataPlans.find(p => p.id === selectedPlanId);
+    const price = currentPlan?.price || 0;
+
+    setPinModalTitle('Authorize Data Bundle');
+    setPinModalDesc(`Enter your 4-digit security PIN to authorize ${currentPlan?.plan_name || 'data'} for ${cleanPhone}.`);
+    setPinModalAmount(price);
+    setPendingPinAction(() => async () => {
+      try {
+        setLoading(true);
+        const res = await api.purchaseData(selectedPlanId, cleanPhone);
+        if (res.success) {
+          setSuccessMsg(res.message);
+          setDataPhone('');
+          await refreshUser();
+          await loadOrders();
+        }
+      } catch (err: any) {
+        setError(err.message || 'Failed to dispatch data. Check wallet balance.');
+      } finally {
+        setLoading(false);
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to dispatch data. Check wallet balance.');
-    } finally {
-      setLoading(false);
-    }
+    });
+    setIsPinModalOpen(true);
   };
 
   // 3. Purchase Airtime PINs
@@ -2290,6 +2313,19 @@ export const TelecomPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Transaction PIN Authorization Modal */}
+      <TransactionPinModal
+        isOpen={isPinModalOpen}
+        onClose={() => setIsPinModalOpen(false)}
+        onSuccess={() => {
+          setIsPinModalOpen(false);
+          if (pendingPinAction) pendingPinAction();
+        }}
+        title={pinModalTitle}
+        description={pinModalDesc}
+        amount={pinModalAmount}
+      />
     </div>
   );
 };

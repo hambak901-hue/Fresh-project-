@@ -10,11 +10,14 @@ namespace HambakTech\Core;
 
 class Security
 {
-    private const SALT = 'hambaktech_salt_2026';
+    private static function getSalt(): string
+    {
+        return getenv('APP_SALT') ?: '';
+    }
 
     public static function hashPassword(string $password): string
     {
-        return password_hash($password, PASSWORD_BCRYPT, ['cost' => 10]);
+        return password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
     }
 
     public static function verifyPassword(string $plainText, ?string $hash): bool
@@ -29,7 +32,7 @@ class Security
         }
 
         // Backward compatibility for legacy sha256 hashes
-        $legacyHash = hash('sha256', $plainText . self::SALT);
+        $legacyHash = hash('sha256', $plainText . self::getSalt());
         return hash_equals($legacyHash, $hash);
     }
 
@@ -48,7 +51,7 @@ class Security
             return password_verify((string)$plainPin, $hash);
         }
 
-        $legacyHash = hash('sha256', (string)$plainPin . self::SALT);
+        $legacyHash = hash('sha256', (string)$plainPin . self::getSalt());
         return hash_equals($legacyHash, $hash);
     }
 

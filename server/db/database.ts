@@ -52,6 +52,93 @@ export interface User {
     login_alerts: boolean;
   };
   permissions?: string[]; // e.g. ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'staff']
+  dob?: string;
+  date_of_birth?: string;
+  kyc_level?: 0 | 1 | 2 | 3;
+  virtual_account?: {
+    status: 'unassigned' | 'pending_kyc' | 'active' | 'suspended';
+    account_number?: string;
+    account_name?: string;
+    bank_name?: string;
+    bank_code?: string;
+    provider?: string;
+    assigned_at?: string;
+  };
+}
+
+export interface KycSubmission {
+  id: string;
+  user_id: string;
+  user_email: string;
+  user_name: string;
+  target_level: 1 | 2 | 3;
+  status: 'pending' | 'approved' | 'rejected' | 'info_requested';
+  verification_method: 'automated' | 'manual' | 'hybrid';
+  verification_reference?: string;
+  full_legal_name: string;
+  date_of_birth: string;
+  phone_number: string;
+  email: string;
+  residential_address: string;
+  state: string;
+  lga: string;
+  nin?: string;
+  bvn?: string;
+  id_type: 'nin_slip' | 'drivers_license' | 'voters_card' | 'international_passport';
+  id_number: string;
+  id_document_url?: string;
+  selfie_url?: string;
+  proof_of_address_url?: string;
+  consent_obtained: boolean;
+  consent_timestamp: string;
+  submitted_at: string;
+  reviewed_at?: string;
+  reviewer_id?: string;
+  reviewer_email?: string;
+  reviewer_name?: string;
+  review_notes?: string;
+  rejection_reason?: string;
+  additional_info_requested?: string;
+  automated_verification_result?: {
+    verified: boolean;
+    provider: string;
+    reference: string;
+    name_matched: boolean;
+    timestamp: string;
+  };
+  review_history?: Array<{
+    id: string;
+    action: 'submitted' | 'approved' | 'rejected' | 'info_requested' | 'resubmitted';
+    reviewer: string;
+    notes: string;
+    timestamp: string;
+  }>;
+}
+
+export interface ServiceSecurityRule {
+  service_key: string;
+  service_name: string;
+  category: 'telecom' | 'identity' | 'digital' | 'wallet';
+  requires_pin: boolean;
+  min_kyc_level: 0 | 1 | 2 | 3;
+  daily_limit: number;
+  description: string;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export interface VirtualAccountItem {
+  id: string;
+  user_id: string;
+  account_number: string;
+  account_name: string;
+  bank_name: string;
+  bank_code: string;
+  provider: 'monnify' | 'providus' | 'wema' | 'flutterwave' | 'reserved_stub';
+  status: 'active' | 'suspended' | 'closed' | 'pending_kyc';
+  assigned_at: string;
+  total_inflow: number;
+  last_funding_at?: string;
 }
 
 export interface DashboardModuleConfig {
@@ -556,6 +643,10 @@ interface DatabaseSchema {
   academy_settings: AcademySettingsItem;
   reports_settings: ReportsSettingsItem;
   customer_messages: CustomerMessageItem[];
+  uploaded_documents?: any[];
+  kyc_submissions?: KycSubmission[];
+  service_security_rules?: ServiceSecurityRule[];
+  virtual_accounts?: VirtualAccountItem[];
 }
 
 const DB_DIR = path.resolve(process.cwd(), 'server', 'db');
@@ -578,7 +669,8 @@ export function verifyPassword(plainText: string, hash?: string): boolean {
     }
   }
   // Backward compatibility migration for legacy SHA-256 hashes
-  const legacyHash = crypto.createHash('sha256').update(plainText + 'hambaktech_salt_2026').digest('hex');
+  const salt = process.env.APP_SALT || 'hambaktech_salt_2026';
+  const legacyHash = crypto.createHash('sha256').update(plainText + salt).digest('hex');
   return legacyHash === hash;
 }
 
@@ -595,7 +687,8 @@ export function verifyPin(plainPin: string, hash?: string): boolean {
       return false;
     }
   }
-  const legacyHash = crypto.createHash('sha256').update(String(plainPin) + 'hambaktech_salt_2026').digest('hex');
+  const salt = process.env.APP_SALT || 'hambaktech_salt_2026';
+  const legacyHash = crypto.createHash('sha256').update(String(plainPin) + salt).digest('hex');
   return legacyHash === hash;
 }
 
@@ -1458,6 +1551,226 @@ function getDefaultData(): DatabaseSchema {
         created_at: new Date(Date.now() - 3600000 * 48).toISOString(),
       },
     ],
+    service_security_rules: [
+      {
+        service_key: 'airtime',
+        service_name: 'Airtime Vending (VTU)',
+        category: 'telecom',
+        requires_pin: true,
+        min_kyc_level: 1,
+        daily_limit: 50000,
+        description: 'Instant recharge for MTN, Airtel, Glo, and 9mobile.',
+      },
+      {
+        service_key: 'data',
+        service_name: 'Data Bundles (SME, CG, Direct)',
+        category: 'telecom',
+        requires_pin: true,
+        min_kyc_level: 1,
+        daily_limit: 100000,
+        description: 'High-speed data bundles across all Nigerian telecom carriers.',
+      },
+      {
+        service_key: 'airtime_pin',
+        service_name: 'Airtime PIN Recharge Cards',
+        category: 'telecom',
+        requires_pin: true,
+        min_kyc_level: 1,
+        daily_limit: 50000,
+        description: 'Custom branded printable airtime recharge cards.',
+      },
+      {
+        service_key: 'data_pin',
+        service_name: 'Data PIN Cards',
+        category: 'telecom',
+        requires_pin: true,
+        min_kyc_level: 1,
+        daily_limit: 50000,
+        description: 'Printable data recharge pins for business resale.',
+      },
+      {
+        service_key: 'airtime_swap',
+        service_name: 'Airtime to Cash (Swap)',
+        category: 'telecom',
+        requires_pin: true,
+        min_kyc_level: 2,
+        daily_limit: 150000,
+        description: 'Instant conversion of excess airtime to wallet balance.',
+      },
+      {
+        service_key: 'cable',
+        service_name: 'Cable TV Subscription',
+        category: 'telecom',
+        requires_pin: true,
+        min_kyc_level: 1,
+        daily_limit: 50000,
+        description: 'Instant bouquet renewal for DSTV, GOtv, Startimes, and Showmax.',
+      },
+      {
+        service_key: 'electricity',
+        service_name: 'Electricity Bills (STS Tokens)',
+        category: 'telecom',
+        requires_pin: true,
+        min_kyc_level: 1,
+        daily_limit: 100000,
+        description: 'Prepaid meter STS token generation and postpaid bill settlement.',
+      },
+      {
+        service_key: 'exam',
+        service_name: 'Examination Scratch Cards',
+        category: 'telecom',
+        requires_pin: true,
+        min_kyc_level: 1,
+        daily_limit: 50000,
+        description: 'WAEC, NECO, NABTEB, and JAMB registration/result checker tokens.',
+      },
+      {
+        service_key: 'bulksms',
+        service_name: 'Corporate Bulk SMS',
+        category: 'telecom',
+        requires_pin: true,
+        min_kyc_level: 2,
+        daily_limit: 100000,
+        description: 'High-throughput DND and corporate SMS dispatch gateway.',
+      },
+      {
+        service_key: 'nin_verification',
+        service_name: 'NIN Standard Verification',
+        category: 'identity',
+        requires_pin: false,
+        min_kyc_level: 1,
+        daily_limit: 20000,
+        description: 'Instant NIMC database identity query and standard slip retrieval.',
+      },
+      {
+        service_key: 'bvn_verification',
+        service_name: 'BVN Verification',
+        category: 'identity',
+        requires_pin: false,
+        min_kyc_level: 1,
+        daily_limit: 20000,
+        description: 'Instant Central Bank of Nigeria BVN biometric identity validation.',
+      },
+      {
+        service_key: 'nin_modification',
+        service_name: 'NIN Modification & Premium Services',
+        category: 'identity',
+        requires_pin: true,
+        min_kyc_level: 2,
+        daily_limit: 100000,
+        description: 'NIMC record modifications (DOB, Name, Address, Phone re-linking).',
+      },
+      {
+        service_key: 'virtual_account',
+        service_name: 'Dedicated Virtual Bank Account',
+        category: 'wallet',
+        requires_pin: true,
+        min_kyc_level: 2,
+        daily_limit: 500000,
+        description: 'Individually assigned customer NUBAN for instant automated wallet funding.',
+      },
+    ],
+    kyc_submissions: [
+      {
+        id: 'kyc_sub_demo_01',
+        user_id: 'usr_customer_demo',
+        user_email: 'fatimohmusbau34@gmail.com',
+        user_name: 'Fatimoh Musbau',
+        target_level: 2,
+        status: 'approved',
+        verification_method: 'automated',
+        verification_reference: '2SV_NIN_VER_998124',
+        full_legal_name: 'Fatimoh Adeyemi Musbau',
+        date_of_birth: '1996-08-14',
+        phone_number: '+2348123456789',
+        email: 'fatimohmusbau34@gmail.com',
+        residential_address: '14 Airport Road, Ikeja, Lagos State',
+        state: 'Lagos',
+        lga: 'Ikeja',
+        nin: '12345678901',
+        bvn: '22334455667',
+        id_type: 'nin_slip',
+        id_number: '12345678901',
+        id_document_url: '/public/assets/aistudio/IMG_0484_0fb633df.png',
+        consent_obtained: true,
+        consent_timestamp: '2026-02-15T10:30:00.000Z',
+        submitted_at: '2026-02-15T10:30:00.000Z',
+        reviewed_at: '2026-02-15T11:00:00.000Z',
+        reviewer_name: 'Bakar Hambak (Super Admin)',
+        review_notes: 'Automated 2SureVerify NIN biometric matching verified 100%. Approved to Level 2.',
+        automated_verification_result: {
+          verified: true,
+          provider: '2sureverify',
+          reference: '2SV_AUTO_998124',
+          name_matched: true,
+          timestamp: '2026-02-15T10:35:00.000Z',
+        },
+        review_history: [
+          {
+            id: 'rh_001',
+            action: 'submitted',
+            reviewer: 'Customer Self-Service',
+            notes: 'Submitted Level 2 identity verification with NIN slip',
+            timestamp: '2026-02-15T10:30:00.000Z',
+          },
+          {
+            id: 'rh_002',
+            action: 'approved',
+            reviewer: 'Bakar Hambak (Super Admin)',
+            notes: 'Verified via NIMC registry. Account upgraded to Tier 2.',
+            timestamp: '2026-02-15T11:00:00.000Z',
+          },
+        ],
+      },
+      {
+        id: 'kyc_sub_chidinma_02',
+        user_id: 'usr_1794098033993_zg9o1',
+        user_email: 'chidinma.test@example.com',
+        user_name: 'Chidinma Okafor',
+        target_level: 2,
+        status: 'pending',
+        verification_method: 'manual',
+        full_legal_name: 'Chidinma Emeka Okafor',
+        date_of_birth: '1998-11-20',
+        phone_number: '08149876543',
+        email: 'chidinma.test@example.com',
+        residential_address: '28 New Market Road, Onitsha, Anambra State',
+        state: 'Anambra',
+        lga: 'Onitsha North',
+        nin: '98765432109',
+        bvn: '55667788990',
+        id_type: 'voters_card',
+        id_number: 'VIN-9920148102',
+        id_document_url: '/public/assets/aistudio/IMG_0485_9e5b9616.png',
+        consent_obtained: true,
+        consent_timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+        submitted_at: new Date(Date.now() - 3600000 * 5).toISOString(),
+        review_history: [
+          {
+            id: 'rh_003',
+            action: 'submitted',
+            reviewer: 'Customer Self-Service',
+            notes: 'Customer submitted INEC Voter Card for Level 2 verification.',
+            timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+          },
+        ],
+      },
+    ],
+    virtual_accounts: [
+      {
+        id: 'va_demo_001',
+        user_id: 'usr_customer_demo',
+        account_number: '8031234567',
+        account_name: 'HAMBAK / FATIMOH MUSBAU',
+        bank_name: 'Providus Bank',
+        bank_code: '101',
+        provider: 'providus',
+        status: 'active',
+        assigned_at: '2026-02-16T12:00:00.000Z',
+        total_inflow: 250000,
+        last_funding_at: '2026-11-05T14:20:00.000Z',
+      },
+    ],
   };
 }
 
@@ -1498,6 +1811,15 @@ export function initDatabase(): void {
       if (!dbData.academy_settings) dbData.academy_settings = defaults.academy_settings;
       if (!dbData.reports_settings) dbData.reports_settings = defaults.reports_settings;
       if (!dbData.customer_messages) dbData.customer_messages = defaults.customer_messages;
+      if (!dbData.service_security_rules || dbData.service_security_rules.length === 0) {
+        dbData.service_security_rules = defaults.service_security_rules;
+      }
+      if (!dbData.kyc_submissions) {
+        dbData.kyc_submissions = defaults.kyc_submissions || [];
+      }
+      if (!dbData.virtual_accounts) {
+        dbData.virtual_accounts = defaults.virtual_accounts || [];
+      }
 
       // Users must configure their own individual transaction PIN; no default 1234
       saveDatabase();
@@ -1965,6 +2287,117 @@ export const db = {
       return true;
     }
     return false;
+  },
+
+  // -------------------------------------------------------------
+  // STAGE 4: KYC, SECURITY RULES, VIRTUAL ACCOUNT HELPERS
+  // -------------------------------------------------------------
+  getKycSubmissions(filter?: { status?: string; level?: string; search?: string }): KycSubmission[] {
+    let list = this.data.kyc_submissions || [];
+    if (filter?.status && filter.status !== 'all') {
+      list = list.filter(k => k.status === filter.status);
+    }
+    if (filter?.level && filter.level !== 'all') {
+      list = list.filter(k => String(k.target_level) === String(filter.level));
+    }
+    if (filter?.search) {
+      const q = filter.search.toLowerCase();
+      list = list.filter(k =>
+        k.user_name?.toLowerCase().includes(q) ||
+        k.user_email?.toLowerCase().includes(q) ||
+        k.nin?.includes(q) ||
+        k.id_number?.includes(q) ||
+        k.id?.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  },
+
+  findKycSubmissionById(id: string): KycSubmission | undefined {
+    return (this.data.kyc_submissions || []).find(k => k.id === id);
+  },
+
+  findKycSubmissionByUserId(userId: string): KycSubmission | undefined {
+    return (this.data.kyc_submissions || []).find(k => k.user_id === userId);
+  },
+
+  createKycSubmission(submission: KycSubmission): KycSubmission {
+    if (!this.data.kyc_submissions) this.data.kyc_submissions = [];
+    this.data.kyc_submissions = this.data.kyc_submissions.filter(k => k.user_id !== submission.user_id);
+    this.data.kyc_submissions.unshift(submission);
+    saveDatabase();
+    return submission;
+  },
+
+  updateKycSubmission(id: string, updates: Partial<KycSubmission>): KycSubmission | undefined {
+    if (!this.data.kyc_submissions) return undefined;
+    const idx = this.data.kyc_submissions.findIndex(k => k.id === id);
+    if (idx === -1) return undefined;
+    this.data.kyc_submissions[idx] = { ...this.data.kyc_submissions[idx], ...updates };
+    saveDatabase();
+    return this.data.kyc_submissions[idx];
+  },
+
+  getServiceSecurityRules(): ServiceSecurityRule[] {
+    return this.data.service_security_rules || [];
+  },
+
+  getServiceSecurityRule(serviceKey: string): ServiceSecurityRule | undefined {
+    return (this.data.service_security_rules || []).find(r => r.service_key === serviceKey);
+  },
+
+  updateServiceSecurityRule(serviceKey: string, updates: Partial<ServiceSecurityRule>): ServiceSecurityRule | undefined {
+    if (!this.data.service_security_rules) this.data.service_security_rules = [];
+    const idx = this.data.service_security_rules.findIndex(r => r.service_key === serviceKey);
+    if (idx === -1) return undefined;
+    this.data.service_security_rules[idx] = {
+      ...this.data.service_security_rules[idx],
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+    saveDatabase();
+    return this.data.service_security_rules[idx];
+  },
+
+  getVirtualAccount(userId: string): VirtualAccountItem | undefined {
+    return (this.data.virtual_accounts || []).find(v => v.user_id === userId);
+  },
+
+  assignVirtualAccount(userId: string, data: Partial<VirtualAccountItem>): VirtualAccountItem {
+    if (!this.data.virtual_accounts) this.data.virtual_accounts = [];
+    let acc = this.data.virtual_accounts.find(v => v.user_id === userId);
+    if (acc) {
+      Object.assign(acc, data);
+    } else {
+      acc = {
+        id: `va_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        user_id: userId,
+        account_number: data.account_number || `803${Math.floor(1000000 + Math.random() * 9000000)}`,
+        account_name: data.account_name || 'HambakTech Customer',
+        bank_name: data.bank_name || 'Providus Bank',
+        bank_code: data.bank_code || '101',
+        provider: data.provider || 'providus',
+        status: data.status || 'active',
+        assigned_at: new Date().toISOString(),
+        total_inflow: data.total_inflow || 0,
+      };
+      this.data.virtual_accounts.unshift(acc);
+    }
+    // Also attach to user record
+    const user = this.findUserById(userId);
+    if (user) {
+      user.virtual_account = {
+        status: acc.status as any,
+        account_number: acc.account_number,
+        account_name: acc.account_name,
+        bank_name: acc.bank_name,
+        bank_code: acc.bank_code,
+        provider: acc.provider,
+        assigned_at: acc.assigned_at,
+      };
+    }
+    saveDatabase();
+    return acc;
   },
 };
 

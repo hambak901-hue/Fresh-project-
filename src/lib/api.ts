@@ -3,7 +3,7 @@
  * Frontend HTTP client for HambakTech server APIs.
  */
 
-import { User, Transaction, VerificationRecord, TelecomOrder, SystemStatusResponse } from '../types';
+import { User, Transaction, VerificationRecord, TelecomOrder, SystemStatusResponse, KycSubmission, ServiceSecurityRule, VirtualAccountItem } from '../types';
 
 const TOKEN_KEY = 'hambaktech_auth_token';
 
@@ -23,6 +23,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const token = getStoredToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Requested-With': 'XMLHttpRequest',
     ...(options.headers as Record<string, string>),
   };
 
@@ -1199,6 +1200,172 @@ export const api = {
     return request('/api/customer/pin', {
       method: 'PUT',
       body: JSON.stringify({ currentPin, newPin }),
+    });
+  },
+
+  // -------------------------------------------------------------
+  // STAGE 4: KYC & TRANSACTION AUTHORIZATION APIS
+  // -------------------------------------------------------------
+  async getKycStatus(): Promise<{
+    success: boolean;
+    user: User;
+    level_info: {
+      level: number;
+      name: string;
+      daily_limit: number;
+      description: string;
+      allowed_services: string[];
+    };
+    active_submission: KycSubmission | null;
+    virtual_account: VirtualAccountItem | null;
+    rules: ServiceSecurityRule[];
+  }> {
+    return request('/api/kyc/status');
+  },
+
+  async submitKyc(data: {
+    target_level: number;
+    full_legal_name: string;
+    date_of_birth: string;
+    phone_number: string;
+    email: string;
+    residential_address: string;
+    state: string;
+    lga: string;
+    nin?: string;
+    bvn?: string;
+    id_type: string;
+    id_number: string;
+    id_document_url?: string;
+    selfie_url?: string;
+    proof_of_address_url?: string;
+    consent_obtained: boolean;
+    auto_verify?: boolean;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    submission: KycSubmission;
+    instant_verified?: boolean;
+    verification_reference?: string;
+  }> {
+    return request('/api/kyc/submit', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async authorizePurchase(data: {
+    service_key: string;
+    amount: number;
+    pin?: string;
+    details?: any;
+  }): Promise<{
+    success: boolean;
+    authorized: boolean;
+    message: string;
+    balance_remaining: number;
+    service_rule: ServiceSecurityRule;
+  }> {
+    return request('/api/kyc/authorize-purchase', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getVirtualAccount(): Promise<{
+    success: boolean;
+    virtual_account: VirtualAccountItem | null;
+    message?: string;
+    eligible?: boolean;
+    required_level?: number;
+    current_level?: number;
+  }> {
+    return request('/api/kyc/virtual-account');
+  },
+
+  async getAdminKycSubmissions(params: {
+    status?: string;
+    level?: string;
+    search?: string;
+  } = {}): Promise<{
+    success: boolean;
+    submissions: KycSubmission[];
+    metrics: {
+      total: number;
+      pending: number;
+      approved: number;
+      rejected: number;
+      info_requested: number;
+    };
+  }> {
+    const q = new URLSearchParams();
+    if (params.status) q.append('status', params.status);
+    if (params.level) q.append('level', params.level);
+    if (params.search) q.append('search', params.search);
+    const queryString = q.toString() ? `?${q.toString()}` : '';
+    return request(`/api/kyc/admin/submissions${queryString}`);
+  },
+
+  async getAdminKycSubmission(id: string): Promise<{
+    success: boolean;
+    submission: KycSubmission;
+    user: User;
+  }> {
+    return request(`/api/kyc/admin/submissions/${id}`);
+  },
+
+  async reviewKycSubmission(id: string, data: {
+    action: 'approve' | 'reject' | 'request_info';
+    notes: string;
+    rejection_reason?: string;
+    additional_info_requested?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    submission: KycSubmission;
+  }> {
+    return request(`/api/kyc/admin/submissions/${id}/review`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async autoVerifyKycSubmission(id: string): Promise<{
+    success: boolean;
+    message: string;
+    result: {
+      verified: boolean;
+      provider: string;
+      reference: string;
+      name_matched: boolean;
+      timestamp: string;
+    };
+  }> {
+    return request(`/api/kyc/admin/submissions/${id}/auto-verify`, {
+      method: 'POST',
+    });
+  },
+
+  async getAdminServiceSecurityRules(): Promise<{
+    success: boolean;
+    rules: ServiceSecurityRule[];
+  }> {
+    return request('/api/kyc/admin/service-rules');
+  },
+
+  async updateAdminServiceSecurityRule(key: string, data: {
+    requires_pin?: boolean;
+    min_kyc_level?: number;
+    daily_limit?: number;
+    description?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    rule: ServiceSecurityRule;
+  }> {
+    return request(`/api/kyc/admin/service-rules/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
     });
   },
 };

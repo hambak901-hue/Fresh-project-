@@ -3,7 +3,7 @@
     {
       "id": "usr_superadmin",
       "email": "admin@hambaktech.com.ng",
-      "password_hash": "$2b$10$fxswAaOlNHXxDC7oxq8hsej237ab5iK1AjKg9ruQTX.qIyMLjUBpi",
+      "password_hash": "$2b$10$TcyENUW7vAgc9jrUpdgPsudlpZO.ujYY3vbtWB/2r3ixOZW3jOXze",
       "full_name": "Bakar Hambak (Super Admin)",
       "phone_number": "+2348030001122",
       "role": "superadmin",
@@ -2483,6 +2483,180 @@
     "support_email": "support@hambaktech.com.ng"
   },
   "audit_logs": [
+    {
+      "id": "audit_1794244908996",
+      "user_email": "target@hambaktech.com.ng",
+      "action": "LOGIN_LOCKED_OUT",
+      "details": {
+        "ip": "127.0.0.1",
+        "email": "target@hambaktech.com.ng"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:48.996Z"
+    },
+    {
+      "id": "audit_1794244908976",
+      "user_email": "target@hambaktech.com.ng",
+      "action": "LOGIN_LOCKED_OUT",
+      "details": {
+        "ip": "127.0.0.1",
+        "email": "target@hambaktech.com.ng"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:48.976Z"
+    },
+    {
+      "id": "audit_1794244908955",
+      "user_email": "target@hambaktech.com.ng",
+      "action": "LOGIN_LOCKED_OUT",
+      "details": {
+        "ip": "127.0.0.1",
+        "email": "target@hambaktech.com.ng"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:48.955Z"
+    },
+    {
+      "id": "audit_1794244908934",
+      "user_email": "target@hambaktech.com.ng",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:48.934Z"
+    },
+    {
+      "id": "audit_1794244908913",
+      "user_email": "target@hambaktech.com.ng",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:48.913Z"
+    },
+    {
+      "id": "audit_1794244908892",
+      "user_email": "target@hambaktech.com.ng",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:48.892Z"
+    },
+    {
+      "id": "audit_1794244903330",
+      "user_email": "attack@hambaktech.com.ng",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:43.330Z"
+    },
+    {
+      "id": "audit_1794244903310",
+      "user_email": "attack@hambaktech.com.ng",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:43.310Z"
+    },
+    {
+      "id": "audit_1794244897512",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "CPANEL_SFTP_SOCKET_CONNECTED",
+      "details": {
+        "host": "51.89.153.183",
+        "port": 1624,
+        "latencyMs": 28
+      },
+      "created_at": "2026-11-09T17:21:37.512Z"
+    },
+    {
+      "id": "audit_1794244897444",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:37.444Z"
+    },
+    {
+      "id": "audit_1794244891145",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "DOCUMENT_UPLOADED",
+      "details": {
+        "documentId": "doc_1794244891142_ka0rd",
+        "mimeType": "image/png",
+        "sizeBytes": 70
+      },
+      "created_at": "2026-11-09T17:21:31.145Z"
+    },
+    {
+      "id": "audit_1794244891099",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:31.099Z"
+    },
+    {
+      "id": "audit_1794244876187",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:21:16.187Z"
+    },
+    {
+      "id": "audit_1794244842395",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "Incorrect password",
+        "userId": "usr_superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:20:42.395Z"
+    },
+    {
+      "id": "audit_1794244838322",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "Incorrect password",
+        "userId": "usr_superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:20:38.322Z"
+    },
+    {
+      "id": "audit_1794244826838",
+      "user_email": "invalid@hambaktech.com.ng",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-09T17:20:26.838Z"
+    },
     {
       "id": "audit_1794240995597",
       "user_id": "usr_1794240995593_alwu2",
@@ -6580,6 +6754,18 @@
       "body": "All telecom and identity verification adapters are operating with sub-second failover between 2SureVerify, Veripine, and UlamaData nodes.",
       "read": true,
       "created_at": "2026-11-06T10:36:53.826Z"
+    }
+  ],
+  "uploaded_documents": [
+    {
+      "id": "doc_1794244891142_ka0rd",
+      "user_id": "usr_superadmin",
+      "original_name": "id_card.png",
+      "secure_name": "doc_1794244891142_0b8f9b02-68dc-4eba-8e21-a7e0b309fd05.png",
+      "mime_type": "image/png",
+      "size_bytes": 70,
+      "created_at": "2026-11-09T17:21:31.142Z",
+      "data_uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
     }
   ]
 }

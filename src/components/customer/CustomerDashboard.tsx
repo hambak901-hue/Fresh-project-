@@ -51,6 +51,7 @@ import { MessagesPage } from './MessagesPage';
 import { ProfilePage } from './ProfilePage';
 import { SettingsPage } from './SettingsPage';
 import { SupportPage } from './SupportPage';
+import { CustomerKycPage } from './CustomerKycPage';
 
 interface CustomerDashboardProps {
   onOpenFundModal: () => void;
@@ -72,6 +73,7 @@ export type CustomerPageKey =
   | 'orders'
   | 'notifications'
   | 'messages'
+  | 'kyc'
   | 'profile'
   | 'settings'
   | 'support';
@@ -134,9 +136,10 @@ export function CustomerDashboard({
     {
       title: 'Account & Security',
       items: [
-        { id: 'profile', label: '12. My Profile', icon: UserIcon },
-        { id: 'settings', label: '13. Settings', icon: Settings },
-        { id: 'support', label: '14. Support / Help Centre', icon: HelpCircle },
+        { id: 'kyc', label: '13. Identity & KYC', icon: ShieldCheck, badge: user.kyc_status === 'verified' ? 'Verified' : 'Required' },
+        { id: 'profile', label: '14. My Profile', icon: UserIcon },
+        { id: 'settings', label: '15. Settings & PIN', icon: Settings },
+        { id: 'support', label: '16. Support / Help Centre', icon: HelpCircle },
       ],
     },
   ];
@@ -426,6 +429,13 @@ export function CustomerDashboard({
           {currentPage === 'notifications' && <NotificationsPage />}
 
           {currentPage === 'messages' && <MessagesPage />}
+
+          {currentPage === 'kyc' && (
+            <CustomerKycPage
+              user={user}
+              onRefreshUser={refreshUser}
+            />
+          )}
 
           {currentPage === 'profile' && (
             <ProfilePage

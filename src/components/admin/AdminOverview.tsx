@@ -22,6 +22,7 @@ import {
   Smartphone,
   ShieldCheck,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { api, getStoredToken } from '../../lib/api';
 import { AdminOverviewData, Transaction } from '../../types';
 
@@ -30,6 +31,7 @@ interface AdminOverviewProps {
 }
 
 export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
+  const { user } = useAuth();
   const [data, setData] = useState<AdminOverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +39,12 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const fetchOverview = async () => {
+    if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
+      setLoading(false);
+      setError('Administrator authentication token required to view enterprise telemetry.');
+      return;
+    }
+
     const token = getStoredToken();
     if (!token) {
       setLoading(false);
@@ -58,7 +66,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
 
   useEffect(() => {
     fetchOverview();
-  }, []);
+  }, [user]);
 
   const handleApproveFunding = async (id: string) => {
     setActionLoading(id);

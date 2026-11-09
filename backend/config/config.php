@@ -45,10 +45,10 @@ return [
         'version' => '2.5.0-STAGE2',
     ],
     'security' => [
-        'jwt_secret' => getenv('JWT_SECRET') ?: 'hambaktech_jwt_enterprise_secret_key_2026_super_secure',
+        'jwt_secret' => getenv('JWT_SECRET') ?: '',
         'jwt_expiry' => 86400 * 7, // 7 days
         'hash_cost' => 12,
-        'salt' => 'hambaktech_salt_2026',
+        'salt' => getenv('APP_SALT') ?: '',
     ],
     'database' => [
         'driver' => 'mysql',
@@ -56,7 +56,7 @@ return [
         'port' => (int)(getenv('DB_PORT') ?: 3306),
         'database' => getenv('DB_DATABASE') ?: 'hambaktech_db',
         'username' => getenv('DB_USERNAME') ?: 'hambaktech_user',
-        'password' => getenv('DB_PASSWORD') ?: 'HambakTech2026_SecurePass!',
+        'password' => getenv('DB_PASSWORD') ?: '',
         'charset' => 'utf8mb4',
         'collation' => 'utf8mb4_unicode_ci',
     ],
@@ -84,8 +84,8 @@ return [
             'timeout' => 30,
         ],
         'paystack' => [
-            'public_key' => getenv('PAYSTACK_PUBLIC_KEY') ?: 'pk_live_hambaktech_mock_key',
-            'secret_key' => getenv('PAYSTACK_SECRET_KEY') ?: 'sk_live_hambaktech_mock_key',
+            'public_key' => getenv('PAYSTACK_PUBLIC_KEY') ?: '',
+            'secret_key' => getenv('PAYSTACK_SECRET_KEY') ?: '',
             'base_url' => 'https://api.paystack.co',
         ],
         'flutterwave' => [

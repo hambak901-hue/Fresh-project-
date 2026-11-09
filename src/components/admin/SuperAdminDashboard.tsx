@@ -57,6 +57,7 @@ import { ReportsManagement } from './ReportsManagement';
 import { SmtpSettings } from './SmtpSettings';
 import { EmailTemplatesManagement } from './EmailTemplatesManagement';
 import { SmsSettingsManagement } from './SmsSettingsManagement';
+import { AdminKycManagement } from './AdminKycManagement';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
@@ -79,6 +80,7 @@ export type AdminTabKey =
   | 'email_templates'
   | 'sms'
   | 'staff'
+  | 'kyc_admin'
   | 'audit';
 
 interface AdminNavItem {
@@ -101,8 +103,8 @@ export function SuperAdminDashboard({
   const { user, login, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTabKey>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [adminEmail, setAdminEmail] = useState('admin@hambaktech.com.ng');
-  const [adminPassword, setAdminPassword] = useState('Admin@HambakTech2026!');
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -149,6 +151,7 @@ export function SuperAdminDashboard({
               <input
                 type="email"
                 required
+                placeholder="admin@hambaktech.com.ng"
                 value={adminEmail}
                 onChange={e => setAdminEmail(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
@@ -160,6 +163,7 @@ export function SuperAdminDashboard({
               <input
                 type="password"
                 required
+                placeholder="••••••••••••"
                 value={adminPassword}
                 onChange={e => setAdminPassword(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
@@ -168,7 +172,7 @@ export function SuperAdminDashboard({
 
             <button
               type="submit"
-              disabled={authLoading}
+              disabled={authLoading || !adminEmail || !adminPassword}
               className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-indigo-600/30"
             >
               {authLoading ? (
@@ -179,21 +183,6 @@ export function SuperAdminDashboard({
                   <span>Authenticate to Console</span>
                 </>
               )}
-            </button>
-
-            <div className="relative py-1">
-              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-800"></div></div>
-              <div className="relative flex justify-center text-[10px] uppercase font-mono text-slate-500 bg-slate-900 px-2">or quick action</div>
-            </div>
-
-            <button
-              type="button"
-              disabled={authLoading}
-              onClick={() => handleAdminLogin()}
-              className="w-full py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 border border-slate-700 transition"
-            >
-              <span>1-Click Authenticate as Root Admin</span>
-              <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
             </button>
           </form>
 
@@ -255,6 +244,7 @@ export function SuperAdminDashboard({
     {
       title: 'Governance & Security',
       items: [
+        { id: 'kyc_admin', label: 'KYC & PIN Policies', icon: ShieldCheck, badge: 'Stage 4' },
         { id: 'staff', label: 'Staff & Permissions', icon: ShieldAlert },
         { id: 'audit', label: 'Audit Logs', icon: FileText },
       ],
@@ -479,6 +469,8 @@ export function SuperAdminDashboard({
           {activeTab === 'sms' && <SmsSettingsManagement />}
 
           {activeTab === 'staff' && <StaffPermissionsManagement />}
+
+          {activeTab === 'kyc_admin' && <AdminKycManagement />}
 
           {activeTab === 'audit' && <AuditLogsViewer />}
         </main>

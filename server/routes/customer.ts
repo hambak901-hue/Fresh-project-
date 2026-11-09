@@ -9,6 +9,7 @@ import { Router } from 'express';
 import { db, hashPassword, verifyPassword, hashPin, verifyPin, User } from '../db/database.js';
 import { parseToken } from './auth.js';
 import { sendEmail } from '../services/mailer.js';
+import { validateUploadFile, validateUploadBuffer, generateSecureFilename } from '../services/security.js';
 
 export const customerRouter = Router();
 
@@ -270,12 +271,110 @@ customerRouter.put('/preferences', requireCustomer, (req: any, res) => {
   });
 });
 
+// POST /api/customer/upload - Secure Document Upload (KYC, Receipts, Profile Image)
+customerRouter.post('/upload', requireCustomer, (req: any, res) => {
+  try {
+    const { fileData, fileName, mimeType } = req.body;
+    if (!fileData) {
+      return res.status(400).json({ error: 'No file data provided' });
+    }
+
+    let buffer: Buffer;
+    let declaredMime = mimeType;
+
+    if (fileData.startsWith('data:')) {
+      const match = fileData.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) {
+        return res.status(400).json({ error: 'Invalid data URI format' });
+      }
+      declaredMime = match[1];
+      buffer = Buffer.from(match[2], 'base64');
+    } else {
+      buffer = Buffer.from(fileData, 'base64');
+    }
+
+    const validation = validateUploadBuffer(buffer, declaredMime, fileName);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const secureName = generateSecureFilename(validation.extension);
+    const documentId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const relativeUrl = `/api/customer/document/${documentId}`;
+
+    // Store in-memory document metadata for protected download
+    if (!db.data.uploaded_documents) {
+      (db.data as any).uploaded_documents = [];
+    }
+
+    (db.data as any).uploaded_documents.push({
+      id: documentId,
+      user_id: req.user.id,
+      original_name: fileName || secureName,
+      secure_name: secureName,
+      mime_type: validation.mimeType,
+      size_bytes: buffer.length,
+      created_at: new Date().toISOString(),
+      // store base64 data for protected retrieval
+      data_uri: `data:${validation.mimeType};base64,${buffer.toString('base64')}`,
+    });
+    db.saveDatabase();
+
+    db.logAudit('DOCUMENT_UPLOADED', { documentId, mimeType: validation.mimeType, sizeBytes: buffer.length }, req.user.id, req.user.email);
+
+    return res.status(201).json({
+      success: true,
+      document_id: documentId,
+      url: relativeUrl,
+      secure_name: secureName,
+      mime_type: validation.mimeType,
+      size_bytes: buffer.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'File upload failed' });
+  }
+});
+
+// GET /api/customer/document/:id - Protected document retrieval (Requires ownership or admin)
+customerRouter.get('/document/:id', requireCustomer, (req: any, res) => {
+  const docs = (db.data as any).uploaded_documents || [];
+  const doc = docs.find((d: any) => d.id === req.params.id);
+
+  if (!doc) {
+    return res.status(404).json({ error: 'Document not found' });
+  }
+
+  // Authorization check: User must own the document OR be an administrator
+  const isOwner = doc.user_id === req.user.id;
+  const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+
+  if (!isOwner && !isAdmin) {
+    db.logAudit('UNAUTHORIZED_DOCUMENT_ACCESS', { documentId: req.params.id, targetUserId: doc.user_id }, req.user.id, req.user.email);
+    return res.status(403).json({ error: 'Access denied: You do not have permission to view this document.' });
+  }
+
+  res.setHeader('Content-Type', doc.mime_type);
+  res.setHeader('Content-Disposition', `inline; filename="${doc.secure_name}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  const base64Data = doc.data_uri.replace(/^data:[^;]+;base64,/, '');
+  const buffer = Buffer.from(base64Data, 'base64');
+  return res.send(buffer);
+});
+
 // POST /api/customer/kyc-submit - Submit KYC verification documents
 customerRouter.post('/kyc-submit', requireCustomer, (req: any, res) => {
   const { id_type, id_number, doc_url, notes } = req.body;
 
   if (!id_type || !id_number) {
     return res.status(400).json({ error: 'ID Type and ID number are required' });
+  }
+
+  if (doc_url) {
+    const fileCheck = validateUploadFile(doc_url);
+    if (!fileCheck.valid) {
+      return res.status(400).json({ error: fileCheck.error });
+    }
   }
 
   const existingDocs = req.user.kyc_documents || [];
@@ -320,6 +419,13 @@ customerRouter.post('/manual-funding', requireCustomer, (req: any, res) => {
   }
   if (!sender_name || !reference) {
     return res.status(400).json({ error: 'Sender name and transaction reference are required' });
+  }
+
+  if (payment_proof_url) {
+    const fileCheck = validateUploadFile(payment_proof_url);
+    if (!fileCheck.valid) {
+      return res.status(400).json({ error: fileCheck.error });
+    }
   }
 
   const cleanRef = reference.trim().toUpperCase();

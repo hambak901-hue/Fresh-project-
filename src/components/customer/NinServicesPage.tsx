@@ -12,6 +12,7 @@ import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { VerificationRecord, IdentityService } from '../../types';
 import { IdentitySlipModal } from './IdentitySlipModal';
+import { TransactionPinModal } from './TransactionPinModal';
 import {
   ShieldCheck,
   Search,
@@ -73,6 +74,7 @@ export const NinServicesPage: React.FC = () => {
   const [verifiedResult, setVerifiedResult] = useState<any | null>(null);
   const [activeSlipRecord, setActiveSlipRecord] = useState<any | null>(null);
   const [slipModalOpen, setSlipModalOpen] = useState<boolean>(false);
+  const [pinModalOpen, setPinModalOpen] = useState<boolean>(false);
 
   // History state
   const [history, setHistory] = useState<VerificationRecord[]>([]);
@@ -166,7 +168,7 @@ export const NinServicesPage: React.FC = () => {
     if (cat === 'additional') setSelectedServiceKey('npc_attestation');
   };
 
-  const handleExecuteService = async (e: React.FormEvent) => {
+  const handleExecuteService = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMessage(null);
@@ -175,6 +177,8 @@ export const NinServicesPage: React.FC = () => {
       setError('Regulatory compliance: You must confirm that you have obtained authorization from the individual before proceeding.');
       return;
     }
+
+    if (!currentService) return;
 
     // Client-side field validations
     for (const field of currentService.required_fields) {
@@ -194,6 +198,12 @@ export const NinServicesPage: React.FC = () => {
       return;
     }
 
+    // Prompt for 4-digit Transaction PIN before debiting wallet
+    setPinModalOpen(true);
+  };
+
+  const executeVerificationWithPin = async () => {
+    if (!currentService) return;
     try {
       setSubmitting(true);
       const res = await api.executeIdentityService(
@@ -1008,6 +1018,19 @@ export const NinServicesPage: React.FC = () => {
         isOpen={slipModalOpen}
         onClose={() => setSlipModalOpen(false)}
         record={activeSlipRecord}
+      />
+
+      {/* Transaction PIN Authorization Modal */}
+      <TransactionPinModal
+        isOpen={pinModalOpen}
+        onClose={() => setPinModalOpen(false)}
+        onSuccess={() => {
+          setPinModalOpen(false);
+          executeVerificationWithPin();
+        }}
+        title="Authorize Identity Query"
+        description={`Enter your 4-digit security PIN to authorize query on ${currentService?.name || 'Identity Service'}.`}
+        amount={currentService?.customer_price}
       />
     </div>
   );

@@ -45,6 +45,93 @@ export interface User {
     login_alerts: boolean;
   };
   permissions?: string[];
+  dob?: string;
+  date_of_birth?: string;
+  kyc_level?: 0 | 1 | 2 | 3;
+  virtual_account?: {
+    status: 'unassigned' | 'pending_kyc' | 'active' | 'suspended';
+    account_number?: string;
+    account_name?: string;
+    bank_name?: string;
+    bank_code?: string;
+    provider?: string;
+    assigned_at?: string;
+  };
+}
+
+export interface KycSubmission {
+  id: string;
+  user_id: string;
+  user_email: string;
+  user_name: string;
+  target_level: 1 | 2 | 3;
+  status: 'pending' | 'approved' | 'rejected' | 'info_requested';
+  verification_method: 'automated' | 'manual' | 'hybrid';
+  verification_reference?: string;
+  full_legal_name: string;
+  date_of_birth: string;
+  phone_number: string;
+  email: string;
+  residential_address: string;
+  state: string;
+  lga: string;
+  nin?: string;
+  bvn?: string;
+  id_type: 'nin_slip' | 'drivers_license' | 'voters_card' | 'international_passport';
+  id_number: string;
+  id_document_url?: string;
+  selfie_url?: string;
+  proof_of_address_url?: string;
+  consent_obtained: boolean;
+  consent_timestamp: string;
+  submitted_at: string;
+  reviewed_at?: string;
+  reviewer_id?: string;
+  reviewer_email?: string;
+  reviewer_name?: string;
+  review_notes?: string;
+  rejection_reason?: string;
+  additional_info_requested?: string;
+  automated_verification_result?: {
+    verified: boolean;
+    provider: string;
+    reference: string;
+    name_matched: boolean;
+    timestamp: string;
+  };
+  review_history?: Array<{
+    id: string;
+    action: 'submitted' | 'approved' | 'rejected' | 'info_requested' | 'resubmitted';
+    reviewer: string;
+    notes: string;
+    timestamp: string;
+  }>;
+}
+
+export interface ServiceSecurityRule {
+  service_key: string;
+  service_name: string;
+  category: 'telecom' | 'identity' | 'digital' | 'wallet';
+  requires_pin: boolean;
+  min_kyc_level: 0 | 1 | 2 | 3;
+  daily_limit: number;
+  description: string;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export interface VirtualAccountItem {
+  id: string;
+  user_id: string;
+  account_number: string;
+  account_name: string;
+  bank_name: string;
+  bank_code: string;
+  provider: 'monnify' | 'providus' | 'wema' | 'flutterwave' | 'reserved_stub';
+  status: 'active' | 'suspended' | 'closed' | 'pending_kyc';
+  assigned_at: string;
+  total_inflow: number;
+  last_funding_at?: string;
 }
 
 export interface Transaction {
@@ -613,4 +700,81 @@ export interface AdminReportsData {
     verificationsCount: number;
   };
 }
+
+export interface KycSubmission {
+  id: string;
+  user_id: string;
+  user_email: string;
+  user_name: string;
+  target_level: 1 | 2 | 3;
+  status: 'pending' | 'approved' | 'rejected' | 'info_requested';
+  verification_method: 'automated' | 'manual' | 'hybrid';
+  verification_reference?: string;
+  full_legal_name: string;
+  date_of_birth: string;
+  phone_number: string;
+  email: string;
+  residential_address: string;
+  state: string;
+  lga: string;
+  nin?: string;
+  bvn?: string;
+  id_type: 'nin_slip' | 'drivers_license' | 'voters_card' | 'international_passport';
+  id_number: string;
+  id_document_url?: string;
+  selfie_url?: string;
+  proof_of_address_url?: string;
+  consent_obtained: boolean;
+  consent_timestamp: string;
+  submitted_at: string;
+  reviewed_at?: string;
+  reviewer_id?: string;
+  reviewer_email?: string;
+  reviewer_name?: string;
+  review_notes?: string;
+  rejection_reason?: string;
+  additional_info_requested?: string;
+  automated_verification_result?: {
+    verified: boolean;
+    provider: string;
+    reference: string;
+    name_matched: boolean;
+    timestamp: string;
+  };
+  review_history?: Array<{
+    id: string;
+    action: 'submitted' | 'approved' | 'rejected' | 'info_requested' | 'resubmitted';
+    reviewer: string;
+    notes: string;
+    timestamp: string;
+  }>;
+}
+
+export interface ServiceSecurityRule {
+  service_key: string;
+  service_name: string;
+  category: 'telecom' | 'identity' | 'digital' | 'wallet';
+  requires_pin: boolean;
+  min_kyc_level: 0 | 1 | 2 | 3;
+  daily_limit: number;
+  description: string;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export interface VirtualAccountItem {
+  id: string;
+  user_id: string;
+  account_number: string;
+  account_name: string;
+  bank_name: string;
+  bank_code: string;
+  provider: 'monnify' | 'providus' | 'wema' | 'flutterwave' | 'reserved_stub';
+  status: 'active' | 'suspended' | 'closed' | 'pending_kyc';
+  assigned_at: string;
+  total_inflow: number;
+  last_funding_at?: string;
+  webhook_reference?: string;
+}
+
 

@@ -2,9 +2,11 @@
  * @file cpanel.ts
  * cPanel & TrueHost server deployment management.
  * Strictly restricted to authenticated Administrators and Super Administrators.
+ * Performs genuine socket connectivity tests and guards server migration assets.
  */
 
 import { Router } from 'express';
+import net from 'net';
 import { CREDENTIALS } from '../config/credentials.js';
 import { db } from '../db/database.js';
 import { parseToken } from './auth.js';
@@ -32,6 +34,14 @@ function requireAdmin(req: any, res: any, next: any) {
   }
 
   req.user = user;
+  next();
+}
+
+// Middleware: Require SuperAdmin
+function requireSuperAdmin(req: any, res: any, next: any) {
+  if (req.user?.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Super Admin authorization required for this action' });
+  }
   next();
 }
 
@@ -64,32 +74,91 @@ cpanelRouter.get('/info', (req: any, res) => {
   });
 });
 
-// POST /api/cpanel/test-sftp (Admin only)
-cpanelRouter.post('/test-sftp', (req: any, res) => {
+// POST /api/cpanel/test-sftp (Admin only - Genuine socket connection test)
+cpanelRouter.post('/test-sftp', async (req: any, res) => {
   const { ftpHost, ftpPort, ftpUser, ftpPass } = CREDENTIALS.cpanel;
-  if (!ftpHost || !ftpPort || !ftpUser || !ftpPass) {
+  if (!ftpHost || !ftpPort) {
     return res.status(400).json({
       success: false,
-      message: 'SFTP credentials incomplete. Set CPANEL_SFTP_HOST, CPANEL_SFTP_USER, and CPANEL_SFTP_PASS in secure environment.',
+      message: 'SFTP host or port not configured.',
     });
   }
 
-  db.logAudit('CPANEL_SFTP_VERIFIED', { host: ftpHost, port: ftpPort }, req.user?.id, req.user?.email);
+  const startTime = Date.now();
+  const socket = new net.Socket();
+  let settled = false;
 
-  res.json({
-    success: true,
-    message: `SFTP environment credentials configured for ${ftpHost}:${ftpPort}. Ready for production release pipeline.`,
-    connectionDetails: {
-      protocol: 'SFTP (SSH File Transfer Protocol)',
+  socket.setTimeout(4000);
+
+  const cleanup = () => {
+    if (!socket.destroyed) {
+      socket.destroy();
+    }
+  };
+
+  const handleSuccess = (banner?: string) => {
+    if (settled) return;
+    settled = true;
+    const latency = Date.now() - startTime;
+    cleanup();
+    db.logAudit('CPANEL_SFTP_SOCKET_CONNECTED', { host: ftpHost, port: ftpPort, latencyMs: latency }, req.user?.id, req.user?.email);
+    return res.json({
+      success: true,
+      message: `Genuine TCP handshake verified to SFTP port ${ftpPort} at ${ftpHost} (${latency}ms).`,
+      latencyMs: latency,
+      banner: banner ? banner.trim().slice(0, 80) : undefined,
+      connectionDetails: {
+        protocol: 'SFTP / SSH',
+        host: ftpHost,
+        port: ftpPort,
+        configuredCredentials: Boolean(ftpUser && ftpPass),
+        timestamp: new Date().toISOString(),
+      },
+    });
+  };
+
+  const handleFailure = (err: any) => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    db.logAudit('CPANEL_SFTP_SOCKET_FAILED', { host: ftpHost, port: ftpPort, error: err.message }, req.user?.id, req.user?.email);
+    return res.status(502).json({
+      success: false,
+      message: `Connection test failed to ${ftpHost}:${ftpPort}: ${err.message || 'Host unreachable or port blocked'}`,
       host: ftpHost,
       port: ftpPort,
-      configuredAt: new Date().toISOString(),
-    },
+    });
+  };
+
+  socket.on('data', (data) => {
+    // SSH server usually sends SSH-2.0 banner immediately upon connect
+    handleSuccess(data.toString('utf-8'));
   });
+
+  socket.on('connect', () => {
+    // If connected, give 500ms to receive SSH identification banner
+    setTimeout(() => {
+      handleSuccess();
+    }, 500);
+  });
+
+  socket.on('timeout', () => {
+    handleFailure(new Error('Connection timed out after 4000ms'));
+  });
+
+  socket.on('error', (err) => {
+    handleFailure(err);
+  });
+
+  try {
+    socket.connect(ftpPort, ftpHost);
+  } catch (err: any) {
+    handleFailure(err);
+  }
 });
 
-// GET /api/cpanel/export-package (Admin only)
-cpanelRouter.get('/export-package', (req: any, res) => {
+// GET /api/cpanel/export-package (SuperAdmin only)
+cpanelRouter.get('/export-package', requireSuperAdmin, (req: any, res) => {
   const htaccessContent = `# HambakTech Enterprise cPanel .htaccess
 # Reverse proxy / Passenger Node.js app routing
 DirectoryIndex ""
@@ -137,6 +206,8 @@ CREATE TABLE IF NOT EXISTS \`transactions\` (
   FOREIGN KEY (\`user_id\`) REFERENCES \`users\`(\`id\`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 `;
+
+  db.logAudit('CPANEL_EXPORT_PACKAGE_ACCESSED', {}, req.user?.id, req.user?.email);
 
   res.json({
     htaccess: htaccessContent,

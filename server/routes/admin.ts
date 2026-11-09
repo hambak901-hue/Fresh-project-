@@ -48,7 +48,7 @@ function requireSuperAdmin(req: any, res: any, next: any) {
 
 function sanitizeUser(u: any) {
   if (!u) return u;
-  const { password_hash, transaction_pin_hash, ...safe } = u;
+  const { password_hash, transaction_pin_hash, reset_password_token, reset_password_expires, ...safe } = u;
   return safe;
 }
 

@@ -18,9 +18,10 @@ import { cpanelRouter } from './server/routes/cpanel.js';
 import { cmsRouter } from './server/routes/cms.js';
 import { customerRouter } from './server/routes/customer.js';
 import { adminRouter } from './server/routes/admin.js';
+import { kycRouter } from './server/routes/kyc.js';
 import { CREDENTIALS } from './server/config/credentials.js';
 
-import { rateLimiter, sanitizeBody } from './server/services/security.js';
+import { rateLimiter, sanitizeBody, csrfProtection } from './server/services/security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,6 +58,9 @@ async function startServer() {
     next();
   });
 
+  // CSRF Header Protection
+  app.use(csrfProtection);
+
   // Health and root API ping
   app.get('/api/health', (req, res) => {
     res.json({
@@ -72,6 +76,7 @@ async function startServer() {
   app.use('/api/auth/register', rateLimiter('auth', 20, 60000));
   app.use('/api/verification/verify', rateLimiter('financial', 50, 60000));
   app.use('/api/wallet/manual-funding', rateLimiter('financial', 30, 60000));
+  app.use('/api/customer/upload', rateLimiter('upload', 20, 60000));
 
   // Mount API modules
   app.use('/api/auth', authRouter);
@@ -83,6 +88,7 @@ async function startServer() {
   app.use('/api/cms', cmsRouter);
   app.use('/api/customer', customerRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/kyc', kycRouter);
 
   const httpServer = http.createServer(app);
 
