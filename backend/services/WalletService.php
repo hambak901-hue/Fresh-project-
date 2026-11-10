@@ -313,4 +313,132 @@ class WalletService
             'failed_count' => (int)($stats['failed_count'] ?? 0),
         ];
     }
+
+    /**
+     * Reversal of an existing transaction with ledger auditing.
+     */
+    public function reverseTransaction(string $transactionId, string $adminId, string $reason): array
+    {
+        return $this->db->withTransaction(function (Database $db) use ($transactionId, $adminId, $reason) {
+            $tx = $db->fetchOne('SELECT * FROM transactions WHERE id = :id', ['id' => $transactionId]);
+            if (!$tx) {
+                throw new RuntimeException('Transaction not found for reversal.');
+            }
+
+            if ($tx['status'] !== 'successful') {
+                throw new RuntimeException("Cannot reverse a transaction with status '{$tx['status']}'.");
+            }
+
+            $amount = (float)$tx['amount'];
+            $userId = $tx['user_id'];
+            $reference = 'REV_' . strtoupper(bin2hex(random_bytes(6)));
+
+            // If original transaction was DEBIT, reversing it means CREDITING the user back
+            // If original transaction was CREDIT, reversing it means DEBITING the user
+            if ($tx['type'] === 'debit') {
+                $result = $this->credit(
+                    $userId,
+                    $amount,
+                    'reversal',
+                    $reference,
+                    "Reversal of #{$tx['reference']}: {$reason}",
+                    'internal',
+                    ['original_transaction_id' => $transactionId, 'reversed_by' => $adminId]
+                );
+            } else {
+                $result = $this->debit(
+                    $userId,
+                    $amount,
+                    'reversal',
+                    $reference,
+                    "Reversal of #{$tx['reference']}: {$reason}",
+                    'internal',
+                    ['original_transaction_id' => $transactionId, 'reversed_by' => $adminId]
+                );
+            }
+
+            // Mark original transaction as reversed in metadata
+            $meta = !empty($tx['metadata']) ? json_decode($tx['metadata'], true) : [];
+            $meta['reversed_at'] = date('Y-m-d H:i:s');
+            $meta['reversed_by'] = $adminId;
+            $meta['reversal_reference'] = $reference;
+            $meta['reversal_reason'] = $reason;
+
+            $db->execute(
+                'UPDATE transactions SET metadata = :meta WHERE id = :id',
+                ['meta' => json_encode($meta), 'id' => $transactionId]
+            );
+
+            return array_merge($result, ['reversal_reference' => $reference]);
+        });
+    }
+
+    /**
+     * Get detailed, filterable official customer financial statement
+     */
+    public function getStatement(string $userId, ?string $startDate = null, ?string $endDate = null, ?string $category = null, ?string $type = null): array
+    {
+        $wallet = $this->db->fetchOne('SELECT balance, currency, status FROM wallets WHERE user_id = :uid', ['uid' => $userId]);
+        $user = $this->db->fetchOne('SELECT id, full_name, email, phone_number, created_at FROM users WHERE id = :uid', ['uid' => $userId]);
+
+        $sql = 'SELECT id, type, amount, balance_before, balance_after, category, reference, gateway, status, description, created_at 
+                FROM transactions 
+                WHERE user_id = :uid ';
+        $params = ['uid' => $userId];
+
+        if (!empty($startDate)) {
+            $sql .= 'AND created_at >= :start ';
+            $params['start'] = $startDate . ' 00:00:00';
+        }
+        if (!empty($endDate)) {
+            $sql .= 'AND created_at <= :end ';
+            $params['end'] = $endDate . ' 23:59:59';
+        }
+        if (!empty($category) && $category !== 'all') {
+            $sql .= 'AND category = :cat ';
+            $params['cat'] = $category;
+        }
+        if (!empty($type) && $type !== 'all') {
+            $sql .= 'AND type = :type ';
+            $params['type'] = strtolower($type);
+        }
+
+        $sql .= 'ORDER BY created_at DESC LIMIT 500';
+
+        $txns = $this->db->fetchAll($sql, $params);
+        $totalCredits = 0.0;
+        $totalDebits = 0.0;
+
+        foreach ($txns as &$t) {
+            $t['amount'] = (float)$t['amount'];
+            $t['balance_before'] = (float)$t['balance_before'];
+            $t['balance_after'] = (float)$t['balance_after'];
+            if ($t['status'] === 'successful') {
+                if ($t['type'] === 'credit') {
+                    $totalCredits += $t['amount'];
+                } else {
+                    $totalDebits += $t['amount'];
+                }
+            }
+        }
+
+        return [
+            'account' => [
+                'userId' => $userId,
+                'name' => $user['full_name'] ?? 'HambakTech Customer',
+                'email' => $user['email'] ?? '',
+                'phone' => $user['phone_number'] ?? '',
+                'currentBalance' => (float)($wallet['balance'] ?? 0.00),
+                'currency' => $wallet['currency'] ?? 'NGN',
+                'status' => $wallet['status'] ?? 'active',
+            ],
+            'statement' => [
+                'totalCredits' => $totalCredits,
+                'totalDebits' => $totalDebits,
+                'transactionCount' => count($txns),
+                'generatedAt' => date('c'),
+                'transactions' => $txns,
+            ],
+        ];
+    }
 }

@@ -145,20 +145,13 @@ export class PaystackAdapter implements PaymentGatewayInterface {
       }
     } catch (err: any) {
       console.warn('Paystack live initialization error:', err.message);
-    }
-
-    if (process.env.ENABLE_MOCK_SIMULATION === 'true') {
-      const simulatedAuthUrl = `https://checkout.paystack.com/${params.reference.toLowerCase()}`;
       return {
-        success: true,
+        success: false,
         reference: params.reference,
-        authorization_url: simulatedAuthUrl,
-        access_code: `pstk_acc_${Date.now()}`,
         amount: params.amount,
         currency: 'NGN',
         gateway: 'paystack',
-        message: 'Paystack checkout session created (Sandbox Ready)',
-        is_simulated: true,
+        message: err.message || 'Paystack live payment initialization failed.',
       };
     }
 
@@ -213,39 +206,30 @@ export class PaystackAdapter implements PaymentGatewayInterface {
           raw_response: item,
         };
       }
+
+      return {
+        success: false,
+        verified: false,
+        reference,
+        amount: 0,
+        currency: 'NGN',
+        gateway: 'paystack',
+        customer_email: '',
+        message: data.message || 'Transaction reference could not be verified on Paystack gateway',
+      };
     } catch (err: any) {
       console.warn('Paystack remote verification error:', err.message);
+      return {
+        success: false,
+        verified: false,
+        reference,
+        amount: 0,
+        currency: 'NGN',
+        gateway: 'paystack',
+        customer_email: '',
+        message: err.message || 'Paystack network verification failed',
+      };
     }
-
-    // Only allow sandbox verification lookup if explicitly enabled in environment
-    if (process.env.ENABLE_MOCK_SIMULATION === 'true') {
-      const txn = db.data.transactions.find(t => t.reference === reference);
-      if (txn) {
-        return {
-          success: true,
-          verified: true,
-          reference,
-          amount: txn.amount,
-          currency: 'NGN',
-          gateway: 'paystack',
-          customer_email: '',
-          paid_at: new Date().toISOString(),
-          channel: 'card',
-          message: 'Transaction verified on Paystack gateway (Sandbox Mode)',
-        };
-      }
-    }
-
-    return {
-      success: false,
-      verified: false,
-      reference,
-      amount: 0,
-      currency: 'NGN',
-      gateway: 'paystack',
-      customer_email: '',
-      message: 'Transaction reference could not be verified on Paystack gateway',
-    };
   }
 
   /**
@@ -253,7 +237,7 @@ export class PaystackAdapter implements PaymentGatewayInterface {
    * Paystack signs all webhooks with HMAC SHA512 using your secret key in `x-paystack-signature`
    */
   validateWebhookSignature(rawBody: string | Buffer, signatureHeader: string): boolean {
-    if (!signatureHeader) return false;
+    if (!signatureHeader || !this.secretKey) return false;
     try {
       const hash = crypto
         .createHmac('sha512', this.secretKey)
@@ -267,16 +251,19 @@ export class PaystackAdapter implements PaymentGatewayInterface {
 }
 
 /**
- * Flutterwave Gateway Adapter (Prepared as Coming Soon)
- * Retains separate architecture and configuration interface
+ * Flutterwave Gateway Adapter (Live & Activated)
+ * Official Docs: https://developer.flutterwave.com/docs/quickstart
  */
 export class FlutterwaveAdapter implements PaymentGatewayInterface {
   private secretKey: string;
   private publicKey: string;
+  private secretHash: string;
+  private baseUrl = 'https://api.flutterwave.com/v3';
 
   constructor() {
-    this.secretKey = CREDENTIALS.payments?.flutterwave?.secretKey || '';
-    this.publicKey = CREDENTIALS.payments?.flutterwave?.clientId || '';
+    this.secretKey = CREDENTIALS.payments?.flutterwave?.secretKey || process.env.FLUTTERWAVE_SECRET_KEY || '';
+    this.publicKey = CREDENTIALS.payments?.flutterwave?.clientId || process.env.FLUTTERWAVE_PUBLIC_KEY || '';
+    this.secretHash = process.env.FLW_SECRET_HASH || 'HambakTech_FLW_Webhook_Secure_Key';
   }
 
   getId(): string {
@@ -288,19 +275,182 @@ export class FlutterwaveAdapter implements PaymentGatewayInterface {
   }
 
   getStatus(): 'active' | 'coming_soon' | 'disabled' {
-    return 'coming_soon';
+    return 'active';
   }
 
-  async initializePayment(params: any): Promise<PaymentInitializationResult> {
-    throw new Error('Flutterwave integration is currently marked as Coming Soon and is not operational for public checkout.');
+  async initializePayment(params: {
+    email: string;
+    amount: number;
+    reference: string;
+    callback_url?: string;
+    metadata?: any;
+  }): Promise<PaymentInitializationResult> {
+    if (!this.secretKey) {
+      return {
+        success: false,
+        reference: params.reference,
+        amount: params.amount,
+        currency: 'NGN',
+        gateway: 'flutterwave',
+        message: 'Flutterwave Secret Key is not configured. Please supply FLUTTERWAVE_SECRET_KEY.',
+      };
+    }
+
+    const payload = {
+      tx_ref: params.reference,
+      amount: String(params.amount),
+      currency: 'NGN',
+      redirect_url: params.callback_url || `${process.env.APP_URL || 'https://hambaktech.com.ng'}/customer/wallet?payment_ref=${params.reference}`,
+      payment_options: 'card,ussd,banktransfer,account',
+      meta: {
+        ...params.metadata,
+        platform: 'HambakTech Enterprise',
+        service: 'Wallet Funding',
+      },
+      customer: {
+        email: params.email,
+        name: params.metadata?.customer_name || 'HambakTech Customer',
+      },
+      customizations: {
+        title: 'HambakTech Wallet Top-Up',
+        description: 'Official wallet funding for telecommunications and NIMC verification',
+        logo: 'https://hambaktech.com.ng/logo.svg',
+      },
+    };
+
+    try {
+      const start = Date.now();
+      const res = await fetch(`${this.baseUrl}/payments`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.secretKey}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const latency = Date.now() - start;
+      const data: any = await res.json().catch(() => ({}));
+
+      if (typeof db.logProviderCall === 'function') {
+        db.logProviderCall('flutterwave', '/payments', 'POST', res.status, payload, data, latency, params.reference);
+      }
+
+      if (res.ok && data.status === 'success' && data.data?.link) {
+        return {
+          success: true,
+          reference: params.reference,
+          authorization_url: data.data.link,
+          amount: params.amount,
+          currency: 'NGN',
+          gateway: 'flutterwave',
+          message: 'Flutterwave hosted payment link generated successfully',
+        };
+      }
+
+      const msg = data.message || `Flutterwave payment initialization failed (HTTP ${res.status})`;
+      return {
+        success: false,
+        reference: params.reference,
+        amount: params.amount,
+        currency: 'NGN',
+        gateway: 'flutterwave',
+        message: msg,
+      };
+    } catch (err: any) {
+      console.warn('Flutterwave live initialization error:', err.message);
+      return {
+        success: false,
+        reference: params.reference,
+        amount: params.amount,
+        currency: 'NGN',
+        gateway: 'flutterwave',
+        message: err.message || 'Flutterwave network communication failure.',
+      };
+    }
   }
 
   async verifyPayment(reference: string): Promise<PaymentVerificationResult> {
-    throw new Error('Flutterwave gateway is currently in Coming Soon mode.');
+    if (!this.secretKey) {
+      return {
+        success: false,
+        verified: false,
+        reference,
+        amount: 0,
+        currency: 'NGN',
+        gateway: 'flutterwave',
+        customer_email: '',
+        message: 'Flutterwave Secret Key is not configured.',
+      };
+    }
+
+    try {
+      const start = Date.now();
+      const res = await fetch(`${this.baseUrl}/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.secretKey}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      });
+
+      const latency = Date.now() - start;
+      const data: any = await res.json().catch(() => ({}));
+
+      if (typeof db.logProviderCall === 'function') {
+        db.logProviderCall('flutterwave', `/transactions/verify_by_reference?tx_ref=${reference}`, 'GET', res.status, null, data, latency, reference);
+      }
+
+      if (res.ok && data.status === 'success' && data.data) {
+        const item = data.data;
+        const verified = item.status === 'successful';
+        const nairaAmount = parseFloat(item.amount || '0');
+
+        return {
+          success: true,
+          verified,
+          reference,
+          amount: nairaAmount,
+          currency: item.currency || 'NGN',
+          gateway: 'flutterwave',
+          customer_email: item.customer?.email || '',
+          paid_at: item.created_at,
+          channel: item.payment_type,
+          message: data.message || 'Flutterwave verification processed',
+          raw_response: item,
+        };
+      }
+
+      return {
+        success: false,
+        verified: false,
+        reference,
+        amount: 0,
+        currency: 'NGN',
+        gateway: 'flutterwave',
+        customer_email: '',
+        message: data.message || 'Transaction reference could not be verified on Flutterwave gateway',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        verified: false,
+        reference,
+        amount: 0,
+        currency: 'NGN',
+        gateway: 'flutterwave',
+        customer_email: '',
+        message: err.message || 'Flutterwave verification communication error',
+      };
+    }
   }
 
   validateWebhookSignature(rawBody: string | Buffer, signatureHeader: string): boolean {
-    return false;
+    if (!signatureHeader) return false;
+    // Flutterwave sends secret hash configured in dashboard webhook settings in the `verif-hash` header
+    return signatureHeader === this.secretHash || (!!this.secretKey && signatureHeader === this.secretKey);
   }
 }
 

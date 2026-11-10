@@ -20,10 +20,19 @@ ON DUPLICATE KEY UPDATE name=VALUES(name);
 INSERT INTO providers (id, name, provider_type, base_url, api_key, is_active, is_default, timeout_seconds, balance, last_ping_status) VALUES
 ('2sureverify', '2SureVerify Gateway (Primary)', 'identity', 'https://2sureverify.com', '', 1, 1, 30, 48250.00, 'operational'),
 ('veripine', 'Veripine Identity API (Secondary Failover)', 'identity', 'https://api.veripine.com/v1', '', 1, 0, 30, 15000.00, 'operational'),
-('ulamadata', 'UlamaData Telecom API (Primary)', 'telecom', 'https://ulamadata.com', '', 1, 1, 30, 38920.00, 'operational'),
+('ulamadata', 'UlamaData Telecom API (Primary)', 'telecom', 'https://www.ulamadata.ng', '', 1, 1, 30, 38920.00, 'operational'),
 ('vtpass', 'VTpass Gateway (Secondary Telecom)', 'telecom', 'https://api-service.vtpass.com/api', '', 1, 0, 30, 12500.00, 'operational'),
-('paystack', 'Paystack Merchant Checkout', 'payment', 'https://api.paystack.co', 'pk_live_hambaktech_mock_key', 1, 1, 30, 0.00, 'operational')
+('paystack', 'Paystack Merchant Checkout', 'payment', 'https://api.paystack.co', '', 1, 1, 30, 0.00, 'operational'),
+('flutterwave', 'Flutterwave Enterprise Gateway', 'payment', 'https://api.flutterwave.com/v3', '', 1, 0, 30, 0.00, 'operational')
 ON DUPLICATE KEY UPDATE name=VALUES(name);
+
+INSERT INTO system_settings (id, setting_key, setting_value, category, description) VALUES
+('set_bank_name', 'bank_transfer_bank', 'Moniepoint MFB', 'payment', 'Official receiving bank name for customer manual funding'),
+('set_bank_acc', 'bank_transfer_account_number', '5210471634', 'payment', 'Official Moniepoint account number for bank transfer deposits'),
+('set_bank_title', 'bank_transfer_account_name', 'Hambaktech_Services', 'payment', 'Official beneficiary account name for bank transfer deposits'),
+('set_active_gateway', 'active_payment_gateway', 'paystack', 'payment', 'Active default online payment gateway (paystack / flutterwave)')
+ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value);
+
 
 -- -----------------------------------------------------------------------------
 -- 3. SERVICE CATEGORIES SEED

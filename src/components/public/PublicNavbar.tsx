@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { useCms } from '../../context/CmsContext';
 import { useAuth } from '../../context/AuthContext';
-import { Menu, X, Settings, UserCircle, LogOut, Wallet, Shield, Layers } from 'lucide-react';
+import { Menu, X, Settings, UserCircle, LogOut, Wallet, Shield, ShieldCheck, Layers } from 'lucide-react';
 
 interface PublicNavbarProps {
   activePage: string;

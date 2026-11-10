@@ -357,32 +357,22 @@ export class UlamadataAdapter implements TelecomProviderInterface {
     const res = await this.executeHttp('/airtimepin/', 'POST', payload);
     const providerRef = res.data?.ident || `UD_APIN_${Date.now()}`;
 
-    // Generate authenticated pins if API simulated
-    const pins: Array<{ serial: string; pin: string; load_code: string; value: number }> = [];
-    const loadCode = params.network.toUpperCase().includes('MTN')
-      ? '*555*PIN#'
-      : params.network.toUpperCase().includes('AIRTEL')
-      ? '*126*PIN#'
-      : params.network.toUpperCase().includes('GLO')
-      ? '*123*PIN#'
-      : '*222*PIN#';
-
-    for (let i = 0; i < params.quantity; i++) {
-      const pinPart1 = Math.floor(1000 + Math.random() * 9000);
-      const pinPart2 = Math.floor(1000 + Math.random() * 9000);
-      const pinPart3 = Math.floor(1000 + Math.random() * 9000);
-      const pinPart4 = Math.floor(1000 + Math.random() * 9000);
-      const fullPin = `${pinPart1}${pinPart2}${pinPart3}${pinPart4}`;
-      const serial = `SN-${Date.now().toString().slice(-6)}-${Math.floor(100000 + Math.random() * 900000)}`;
-
-      pins.push({
-        serial,
-        pin: fullPin,
-        load_code: loadCode.replace('PIN', fullPin),
-        value: params.value,
-      });
+    if (!res.ok || (res.data?.status !== 'success' && res.data?.Status !== 'successful')) {
+      return {
+        success: false,
+        status: 'failed',
+        message: res.data?.message || res.data?.msg || `Failed to generate airtime PINs with provider (HTTP ${res.status})`,
+        reference: `HT_APIN_${Date.now()}`,
+        provider_reference: String(providerRef),
+        provider: this.getName(),
+        network: params.network,
+        amount: params.value * params.quantity,
+        cost_price: 0,
+        data: res.data,
+      };
     }
 
+    const cards = res.data?.cards || res.data?.pins || [];
     const totalAmount = params.value * params.quantity;
     const costPrice = Math.round(totalAmount * 0.98);
 
@@ -397,14 +387,14 @@ export class UlamadataAdapter implements TelecomProviderInterface {
       amount: totalAmount,
       cost_price: costPrice,
       data: {
-        pins,
-        quantity: params.quantity,
+        pins: cards,
+        quantity: cards.length || params.quantity,
         denomination: params.value,
         business_name: params.business_name || 'HambakTech',
         network: params.network,
         generated_at: new Date().toISOString(),
       },
-      is_simulated: !res.ok,
+      is_simulated: false,
     };
   }
 
@@ -478,17 +468,7 @@ export class UlamadataAdapter implements TelecomProviderInterface {
       };
     }
 
-    // High fidelity validation mock
-    const sampleNames = ['ALHAJI MUSA BELLO', 'DR. CHUKWUDI EZE', 'FATIMOH ADEYEMI', 'BABATUNDE ADENIYI', 'MRS. NGOZI OKONKWO'];
-    const assignedName = sampleNames[Math.abs(params.smartcard_number.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % sampleNames.length];
-
-    return {
-      success: true,
-      customer_name: assignedName,
-      due_date: '2026-12-15',
-      status: 'ACTIVE_ACCOUNT',
-      bouquet: `${params.provider.toUpperCase()} Classic Plus`,
-    };
+    throw new Error('Smartcard could not be validated with cable provider. Please verify IUC/Smartcard number.');
   }
 
   // 7. Vend Cable TV Subscription
@@ -501,6 +481,22 @@ export class UlamadataAdapter implements TelecomProviderInterface {
 
     const res = await this.executeHttp('/cablesub/', 'POST', payload);
     const providerRef = res.data?.ident || `UD_CAB_${Date.now()}`;
+
+    if (!res.ok || (res.data?.status !== 'success' && res.data?.Status !== 'successful')) {
+      return {
+        success: false,
+        status: 'failed',
+        message: res.data?.message || res.data?.msg || `Cable subscription failed with provider (HTTP ${res.status})`,
+        reference: `HT_CAB_${Date.now()}`,
+        provider_reference: String(providerRef),
+        provider: this.getName(),
+        network: params.provider.toUpperCase(),
+        amount: params.amount,
+        cost_price: 0,
+        data: res.data,
+      };
+    }
+
     const costPrice = Math.round(params.amount * 0.985);
 
     return {
@@ -519,7 +515,7 @@ export class UlamadataAdapter implements TelecomProviderInterface {
         package: params.package_name,
         activated_at: new Date().toISOString(),
       },
-      is_simulated: !res.ok,
+      is_simulated: false,
     };
   }
 
@@ -535,27 +531,22 @@ export class UlamadataAdapter implements TelecomProviderInterface {
     const res = await this.executeHttp('/datapin/', 'POST', payload);
     const providerRef = res.data?.ident || `UD_DPIN_${Date.now()}`;
 
-    const pins: Array<{ serial: string; pin: string; size: string; load_code: string }> = [];
-    const loadCode = params.network.toUpperCase().includes('MTN')
-      ? '*460*PIN#'
-      : params.network.toUpperCase().includes('AIRTEL')
-      ? '*141*PIN#'
-      : '*123*PIN#';
-
-    for (let i = 0; i < params.quantity; i++) {
-      const pin1 = Math.floor(1000 + Math.random() * 9000);
-      const pin2 = Math.floor(1000 + Math.random() * 9000);
-      const pin3 = Math.floor(1000 + Math.random() * 9000);
-      const fullPin = `${pin1}${pin2}${pin3}`;
-      const serial = `DPN-${Date.now().toString().slice(-6)}-${Math.floor(100000 + Math.random() * 900000)}`;
-
-      pins.push({
-        serial,
-        pin: fullPin,
-        size: params.size,
-        load_code: loadCode.replace('PIN', fullPin),
-      });
+    if (!res.ok || (res.data?.status !== 'success' && res.data?.Status !== 'successful')) {
+      return {
+        success: false,
+        status: 'failed',
+        message: res.data?.message || res.data?.msg || `Data PIN generation failed with provider (HTTP ${res.status})`,
+        reference: `HT_DPIN_${Date.now()}`,
+        provider_reference: String(providerRef),
+        provider: this.getName(),
+        network: params.network,
+        amount: 0,
+        cost_price: 0,
+        data: res.data,
+      };
     }
+
+    const cards = res.data?.cards || res.data?.pins || [];
 
     return {
       success: true,
@@ -568,14 +559,14 @@ export class UlamadataAdapter implements TelecomProviderInterface {
       amount: 0,
       cost_price: 0,
       data: {
-        pins,
+        pins: cards,
         size: params.size,
-        quantity: params.quantity,
+        quantity: cards.length || params.quantity,
         network: params.network,
         business_name: params.business_name || 'HambakTech',
         generated_at: new Date().toISOString(),
       },
-      is_simulated: !res.ok,
+      is_simulated: false,
     };
   }
 
@@ -592,7 +583,11 @@ export class UlamadataAdapter implements TelecomProviderInterface {
     };
 
     const res = await this.executeHttp('/bulksms/', 'POST', payload);
-    const messageId = res.data?.ident || `SMS_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+    const messageId = res.data?.ident || `SMS_${Date.now()}`;
+
+    if (!res.ok) {
+      throw new Error(res.data?.message || 'Bulk SMS delivery rejected by gateway');
+    }
 
     return {
       success: true,
@@ -611,10 +606,10 @@ export class UlamadataAdapter implements TelecomProviderInterface {
     const endpoint = `/validatemeter/?meter_number=${encodeURIComponent(params.meter_number)}&disco_name=${discoId}&MeterType=${typeId}`;
 
     const res = await this.executeHttp(endpoint, 'GET');
-    if (res.ok && res.data?.name) {
+    if (res.ok && (res.data?.name || res.data?.customer_name)) {
       return {
         success: true,
-        customer_name: res.data.name,
+        customer_name: res.data.name || res.data.customer_name,
         address: res.data.address || 'Verified Residential Address, Nigeria',
         meter_number: params.meter_number,
         disco: params.disco,
@@ -622,17 +617,7 @@ export class UlamadataAdapter implements TelecomProviderInterface {
       };
     }
 
-    const sampleCust = ['ENGR. IBRAHIM DANTATA', 'CHIEF OLUWASEUN FALANA', 'DR. AMINA YUSUF', 'MR. EMMANUEL OKAFOR'];
-    const assignedName = sampleCust[Math.abs(params.meter_number.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % sampleCust.length];
-
-    return {
-      success: true,
-      customer_name: assignedName,
-      address: 'Plot 18, Commercial Avenue, Ikeja Industrial Zone, Lagos',
-      meter_number: params.meter_number,
-      disco: params.disco,
-      meter_type: params.meter_type,
-    };
+    throw new Error('Meter number could not be validated with distribution company. Check meter number and disco.');
   }
 
   // 11. Vend Electricity Bill Payment & Token
@@ -647,14 +632,23 @@ export class UlamadataAdapter implements TelecomProviderInterface {
     const res = await this.executeHttp('/billpayment/', 'POST', payload);
     const providerRef = res.data?.ident || `UD_ELEC_${Date.now()}`;
 
-    // Standard 20-digit STS Nigerian prepaid token
-    const tokenPart1 = Math.floor(1000 + Math.random() * 9000);
-    const tokenPart2 = Math.floor(1000 + Math.random() * 9000);
-    const tokenPart3 = Math.floor(1000 + Math.random() * 9000);
-    const tokenPart4 = Math.floor(1000 + Math.random() * 9000);
-    const tokenPart5 = Math.floor(1000 + Math.random() * 9000);
-    const token = `${tokenPart1}-${tokenPart2}-${tokenPart3}-${tokenPart4}-${tokenPart5}`;
-    const units = (params.amount / 72.5).toFixed(1);
+    if (!res.ok || (res.data?.status !== 'success' && res.data?.Status !== 'successful')) {
+      return {
+        success: false,
+        status: 'failed',
+        message: res.data?.message || res.data?.msg || `Electricity payment rejected by provider (HTTP ${res.status})`,
+        reference: `HT_ELEC_${Date.now()}`,
+        provider_reference: String(providerRef),
+        provider: this.getName(),
+        network: params.disco.toUpperCase(),
+        amount: params.amount,
+        cost_price: 0,
+        data: res.data,
+      };
+    }
+
+    const token = res.data?.token || res.data?.Token || res.data?.purchased_code || null;
+    const units = res.data?.units || res.data?.Units || (params.amount / 72.5).toFixed(1);
 
     return {
       success: true,
@@ -675,7 +669,7 @@ export class UlamadataAdapter implements TelecomProviderInterface {
         phone: params.phone,
         generated_at: new Date().toISOString(),
       },
-      is_simulated: !res.ok,
+      is_simulated: false,
     };
   }
 
@@ -689,16 +683,22 @@ export class UlamadataAdapter implements TelecomProviderInterface {
     const res = await this.executeHttp('/exam/', 'POST', payload);
     const providerRef = res.data?.ident || `UD_EXAM_${Date.now()}`;
 
-    const pins: Array<{ serial: string; pin: string; exam: string }> = [];
-    for (let i = 0; i < params.quantity; i++) {
-      const serial = `${params.exam_name.toUpperCase()}-${Date.now().toString().slice(-6)}-${Math.floor(100000 + Math.random() * 900000)}`;
-      const pin = `${Math.floor(1000 + Math.random() * 9000)}-${Math.floor(1000 + Math.random() * 9000)}-${Math.floor(1000 + Math.random() * 9000)}`;
-      pins.push({
-        serial,
-        pin,
-        exam: params.exam_name.toUpperCase(),
-      });
+    if (!res.ok || (res.data?.status !== 'success' && res.data?.Status !== 'successful')) {
+      return {
+        success: false,
+        status: 'failed',
+        message: res.data?.message || res.data?.msg || `Exam card purchase failed with provider (HTTP ${res.status})`,
+        reference: `HT_EXAM_${Date.now()}`,
+        provider_reference: String(providerRef),
+        provider: this.getName(),
+        network: params.exam_name.toUpperCase(),
+        amount: params.amount,
+        cost_price: 0,
+        data: res.data,
+      };
     }
+
+    const cards = res.data?.cards || res.data?.pins || [];
 
     return {
       success: true,
@@ -711,12 +711,12 @@ export class UlamadataAdapter implements TelecomProviderInterface {
       amount: params.amount,
       cost_price: Math.round(params.amount * 0.95),
       data: {
-        pins,
+        pins: cards,
         exam_name: params.exam_name.toUpperCase(),
-        quantity: params.quantity,
+        quantity: cards.length || params.quantity,
         generated_at: new Date().toISOString(),
       },
-      is_simulated: !res.ok,
+      is_simulated: false,
     };
   }
 

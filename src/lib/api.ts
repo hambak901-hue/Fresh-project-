@@ -140,7 +140,7 @@ export const api = {
   }> {
     return request('/api/wallet/paystack/initialize', {
       method: 'POST',
-      body: JSON.stringify({ amount, callback_url: callbackUrl }),
+      body: JSON.stringify({ gateway: 'paystack', amount, callback_url: callbackUrl }),
     });
   },
 
@@ -153,21 +153,124 @@ export const api = {
   }> {
     return request('/api/wallet/paystack/verify', {
       method: 'POST',
-      body: JSON.stringify({ reference }),
+      body: JSON.stringify({ reference, gateway: 'paystack' }),
     });
   },
 
-  async submitManualFunding(data: {
+  async initializeFlutterwave(amount: number, callbackUrl?: string): Promise<{
+    success: boolean;
+    message: string;
+    authorization_url: string;
+    reference: string;
+    amount: number;
+  }> {
+    return request('/api/wallet/flutterwave/initialize', {
+      method: 'POST',
+      body: JSON.stringify({ gateway: 'flutterwave', amount, callback_url: callbackUrl }),
+    });
+  },
+
+  async verifyFlutterwavePayment(reference: string): Promise<{
+    success: boolean;
+    message: string;
+    balance: number;
+    transaction: Transaction;
+    already_credited?: boolean;
+  }> {
+    return request('/api/wallet/flutterwave/verify', {
+      method: 'POST',
+      body: JSON.stringify({ reference, gateway: 'flutterwave' }),
+    });
+  },
+
+  async initializePayment(gateway: string, amount: number, callbackUrl?: string): Promise<{
+    success: boolean;
+    message: string;
+    authorization_url: string;
+    reference: string;
+    amount: number;
+    gateway: string;
+  }> {
+    return request('/api/wallet/fund/initiate', {
+      method: 'POST',
+      body: JSON.stringify({ gateway, amount, callback_url: callbackUrl }),
+    });
+  },
+
+  async verifyFunding(reference: string, gateway?: string): Promise<{
+    success: boolean;
+    message: string;
+    balance: number;
+    transaction: Transaction;
+    already_credited?: boolean;
+  }> {
+    return request('/api/wallet/fund/verify', {
+      method: 'POST',
+      body: JSON.stringify({ reference, gateway }),
+    });
+  },
+
+  async getVirtualAccount(): Promise<{
+    success: boolean;
+    has_virtual_account: boolean;
+    status: string;
+    account_number?: string;
+    bank_name?: string;
+    message?: string;
+    bankDetails?: {
+      bank: string;
+      accountNumber: string;
+      accountName: string;
+    };
+  }> {
+    return request('/api/wallet/virtual-account');
+  },
+
+  async getWalletStatement(params?: { start_date?: string; end_date?: string; category?: string }): Promise<{
+    success: boolean;
+    opening_balance: number;
+    closing_balance: number;
+    total_inflow: number;
+    total_outflow: number;
+    entries: any[];
+  }> {
+    const qs = new URLSearchParams(params as any).toString();
+    return request(`/api/wallet/statement${qs ? `?${qs}` : ''}`);
+  },
+
+  async reverseTransaction(transactionId: number, reason: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    return request('/api/admin/transactions/reverse', {
+      method: 'POST',
+      body: JSON.stringify({ transaction_id: transactionId, reason }),
+    });
+  },
+
+  async updateBankSettings(bank: string, accountNumber: string, accountName: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    return request('/api/admin/bank-settings', {
+      method: 'POST',
+      body: JSON.stringify({ bank, account_number: accountNumber, account_name: accountName }),
+    });
+  },
+
+  async submitManualFunding(data: FormData | {
     amount: number;
     sender_name: string;
     bank_name: string;
     reference: string;
+    payment_date?: string;
+    payment_method?: string;
     remarks?: string;
     payment_proof_url?: string;
-  }): Promise<{ success: boolean; message: string; transaction: Transaction }> {
+  }): Promise<{ success: boolean; message: string; transaction?: Transaction; id?: number }> {
     return request('/api/wallet/manual-funding', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: data instanceof FormData ? data : JSON.stringify(data),
     });
   },
 

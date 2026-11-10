@@ -90,9 +90,25 @@ class SystemController
             'cpanel_compatibility' => '100% Ready',
             'php_version' => PHP_VERSION,
             'extensions' => $extensions,
-            'database_tables_count' => count($tables),
-            'htaccess_configured' => file_exists(dirname(__DIR__) . '/.htaccess'),
             'node_dependency_in_prod' => false,
         ]);
+    }
+
+    public function initDatabase(Request $request): void
+    {
+        $schemaFile = HAMBAKTECH_ROOT . '/database/schema.sql';
+        $seedFile = HAMBAKTECH_ROOT . '/database/seed.sql';
+
+        $pdo = \HambakTech\Config\DatabaseConfig::getConnection();
+        $executed = [];
+        if (file_exists($schemaFile)) {
+            $pdo->exec(file_get_contents($schemaFile));
+            $executed[] = 'schema.sql';
+        }
+        if (file_exists($seedFile)) {
+            $pdo->exec(file_get_contents($seedFile));
+            $executed[] = 'seed.sql';
+        }
+        Response::success(['message' => 'Database tables and seeds successfully initialized', 'executed' => $executed]);
     }
 }

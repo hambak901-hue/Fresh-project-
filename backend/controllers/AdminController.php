@@ -265,7 +265,8 @@ class AdminController
     {
         $admin = Auth::requireRole($request, ['admin', 'superadmin']);
         $requestId = $params['id'] ?? '';
-        $action = (string)$request->input('action', 'approve'); // approve or reject
+        $action = strtolower((string)$request->input('action', 'approve')); // approve or reject
+        $reason = trim((string)$request->input('reason', 'Receipt verification could not be validated with receiving bank records'));
 
         $req = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
         if (!$req) {
@@ -273,52 +274,215 @@ class AdminController
         }
 
         if ($req['status'] !== 'pending') {
-            Response::error("Request already {$req['status']}.", 400);
+            Response::error("Request already {$req['status']}. Duplicate decision prevented.", 400);
         }
 
+        $amount = (float)$req['amount'];
+        $custRef = $req['payment_reference'] ?: ('REQ_' . substr($req['id'], 0, 8));
+
         if ($action === 'approve') {
-            $amount = (float)$req['amount'];
             $reference = 'MAN_CRED_' . strtoupper(bin2hex(random_bytes(6)));
 
-            // Execute atomic credit with row locking
-            $this->walletService->credit(
+            // Execute atomic credit with row locking and immutable ledger entry
+            $txResult = $this->walletService->credit(
                 $req['user_id'],
                 $amount,
                 'funding',
                 $reference,
-                "Approved manual transfer deposit ({$req['bank_name']})",
+                "Approved manual transfer deposit ({$req['bank_name']}) - Ref: {$custRef}",
                 'manual_transfer',
-                ['funding_request_id' => $requestId]
+                [
+                    'funding_request_id' => $requestId,
+                    'approved_by' => $admin['email'],
+                    'customer_reference' => $custRef,
+                ]
             );
 
             $this->db->execute(
                 'UPDATE manual_funding_requests 
-                 SET status = "approved", reviewed_by = :admin, reviewed_at = NOW() 
+                 SET status = "approved", reviewed_by = :admin, reviewed_at = NOW(), admin_notes = :notes 
                  WHERE id = :id',
-                ['admin' => $admin['id'], 'id' => $requestId]
+                ['admin' => $admin['id'], 'notes' => 'Approved by ' . $admin['email'], 'id' => $requestId]
             );
 
             // Send in-app notification to customer
             $this->db->execute(
                 'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                 VALUES (:id, :uid, "Manual Deposit Approved", :msg, "success", 0, NOW())',
+                 VALUES (:id, :uid, "Funding Approved", :msg, "success", 0, NOW())',
                 [
                     'id' => Security::generateUuid(),
                     'uid' => $req['user_id'],
-                    'msg' => "Your manual transfer deposit of ₦" . number_format($amount, 2) . " has been verified and credited to your wallet balance.",
+                    'msg' => "Your manual transfer deposit of ₦" . number_format($amount, 2) . " (Ref: {$custRef}) has been verified and credited to your wallet balance.",
                 ]
             );
 
-            Response::success(null, "Manual funding request approved and ₦{$amount} credited to customer.");
+            Response::success([
+                'request_id' => $requestId,
+                'status' => 'approved',
+                'amount' => $amount,
+                'balance_after' => $txResult['balance_after'],
+            ], "Manual funding request approved and ₦{$amount} credited to customer.");
         } else {
             $this->db->execute(
                 'UPDATE manual_funding_requests 
-                 SET status = "rejected", reviewed_by = :admin, reviewed_at = NOW() 
+                 SET status = "rejected", reviewed_by = :admin, reviewed_at = NOW(), admin_notes = :reason 
                  WHERE id = :id',
-                ['admin' => $admin['id'], 'id' => $requestId]
+                ['admin' => $admin['id'], 'reason' => $reason, 'id' => $requestId]
             );
 
-            Response::success(null, 'Manual funding request marked as rejected.');
+            // Send rejection notification to customer
+            $this->db->execute(
+                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                 VALUES (:id, :uid, "Funding Request Rejected", :msg, "alert", 0, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $req['user_id'],
+                    'msg' => "Your manual deposit request for ₦" . number_format($amount, 2) . " (Ref: {$custRef}) was rejected. Reason: {$reason}",
+                ]
+            );
+
+            Response::success([
+                'request_id' => $requestId,
+                'status' => 'rejected',
+                'reason' => $reason,
+            ], 'Manual funding request marked as rejected.');
         }
+    }
+
+    /**
+     * Financial Ledger Reversals
+     */
+    public function reverseTransaction(Request $request): void
+    {
+        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $txId = (string)$request->input('transaction_id', '');
+        $reason = trim((string)$request->input('reason', 'Administrative financial correction'));
+
+        if (empty($txId)) {
+            Response::error('Transaction ID required.', 422);
+        }
+
+        try {
+            $res = $this->walletService->reverseTransaction($txId, $admin['id'], $reason);
+            Response::success($res, 'Transaction reversed and ledger updated successfully.');
+        } catch (Throwable $e) {
+            Response::error($e->getMessage(), 400);
+        }
+    }
+
+    /**
+     * Financial Reports & Treasury Aggregates
+     */
+    public function financialReports(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+
+        $fundingStats = $this->db->fetchOne(
+            'SELECT 
+                SUM(CASE WHEN type = "credit" AND status = "successful" THEN amount ELSE 0 END) as total_funding,
+                SUM(CASE WHEN gateway = "paystack" AND status = "successful" THEN amount ELSE 0 END) as paystack_funding,
+                SUM(CASE WHEN gateway = "flutterwave" AND status = "successful" THEN amount ELSE 0 END) as flutterwave_funding,
+                SUM(CASE WHEN gateway = "manual_transfer" AND status = "successful" THEN amount ELSE 0 END) as manual_funding,
+                COUNT(CASE WHEN type = "credit" AND status = "successful" THEN 1 END) as count_funding
+             FROM transactions'
+        );
+
+        $salesStats = $this->db->fetchOne(
+            'SELECT 
+                SUM(CASE WHEN type = "debit" AND status = "successful" THEN amount ELSE 0 END) as total_service_sales,
+                SUM(CASE WHEN category IN ("airtime", "data_purchase", "cable_tv") AND status = "successful" THEN amount ELSE 0 END) as telecom_sales,
+                SUM(CASE WHEN category = "verification" AND status = "successful" THEN amount ELSE 0 END) as verification_sales
+             FROM transactions'
+        );
+
+        $expenditureStats = $this->db->fetchOne(
+            'SELECT 
+                SUM(cost_price) as telecom_cost,
+                SUM(profit) as telecom_profit
+             FROM telecom_orders WHERE status = "successful"'
+        );
+
+        $floatStats = $this->db->fetchOne(
+            'SELECT 
+                SUM(balance) as total_customer_float,
+                COUNT(*) as total_customers
+             FROM wallets WHERE status = "active"'
+        );
+
+        $totalSales = (float)($salesStats['total_service_sales'] ?? 0);
+        $telecomCost = (float)($expenditureStats['telecom_cost'] ?? 0);
+        $identityCost = (float)$totalSales * 0.45; // Average wholesale identity ratio
+        $totalExpenditure = $telecomCost + $identityCost;
+        $grossProfit = $totalSales - $totalExpenditure;
+        $profitMargin = $totalSales > 0 ? round(($grossProfit / $totalSales) * 100, 2) : 0;
+
+        Response::success([
+            'reports' => [
+                'funding' => [
+                    'totalFunding' => (float)($fundingStats['total_funding'] ?? 0),
+                    'paystackFunding' => (float)($fundingStats['paystack_funding'] ?? 0),
+                    'flutterwaveFunding' => (float)($fundingStats['flutterwave_funding'] ?? 0),
+                    'manualFunding' => (float)($fundingStats['manual_funding'] ?? 0),
+                    'fundingTransactionsCount' => (int)($fundingStats['count_funding'] ?? 0),
+                ],
+                'sales' => [
+                    'totalServiceSales' => $totalSales,
+                    'telecomSales' => (float)($salesStats['telecom_sales'] ?? 0),
+                    'identityVerificationSales' => (float)($salesStats['verification_sales'] ?? 0),
+                ],
+                'expenditure' => [
+                    'totalProviderExpenditure' => $totalExpenditure,
+                    'telecomProviderCost' => $telecomCost,
+                    'identityProviderCost' => $identityCost,
+                ],
+                'profit' => [
+                    'grossProfit' => $grossProfit,
+                    'profitMarginPercent' => $profitMargin,
+                ],
+                'float' => [
+                    'totalCustomerFloat' => (float)($floatStats['total_customer_float'] ?? 0),
+                    'totalCustomers' => (int)($floatStats['total_customers'] ?? 0),
+                ],
+            ]
+        ]);
+    }
+
+    /**
+     * Update Bank Transfer Payment Instructions
+     */
+    public function updateBankSettings(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+
+        $bank = trim((string)$request->input('bank', 'Moniepoint MFB'));
+        $accountNumber = trim((string)$request->input('account_number', '5210471634'));
+        $accountName = trim((string)$request->input('account_name', 'Hambaktech_Services'));
+
+        $this->db->execute(
+            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+             VALUES ("set_bank_name", "bank_transfer_bank", :v1, "payment", "Bank Name")
+             ON DUPLICATE KEY UPDATE setting_value = :v1_dup',
+            ['v1' => $bank, 'v1_dup' => $bank]
+        );
+
+        $this->db->execute(
+            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+             VALUES ("set_bank_acc", "bank_transfer_account_number", :v2, "payment", "Account Number")
+             ON DUPLICATE KEY UPDATE setting_value = :v2_dup',
+            ['v2' => $accountNumber, 'v2_dup' => $accountNumber]
+        );
+
+        $this->db->execute(
+            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+             VALUES ("set_bank_title", "bank_transfer_account_name", :v3, "payment", "Account Name")
+             ON DUPLICATE KEY UPDATE setting_value = :v3_dup',
+            ['v3' => $accountName, 'v3_dup' => $accountName]
+        );
+
+        Response::success([
+            'bank' => $bank,
+            'accountNumber' => $accountNumber,
+            'accountName' => $accountName,
+        ], 'Bank transfer instructions updated successfully.');
     }
 }

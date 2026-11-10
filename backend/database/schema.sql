@@ -218,15 +218,35 @@ CREATE TABLE manual_funding_requests (
     amount DECIMAL(15, 2) NOT NULL,
     bank_name VARCHAR(100) NOT NULL,
     account_number VARCHAR(50) NOT NULL,
+    payment_reference VARCHAR(100) NULL,
+    payment_date DATE NULL,
+    payment_method VARCHAR(50) NOT NULL DEFAULT 'Bank Transfer',
     depositor_name VARCHAR(191) NOT NULL,
+    remarks TEXT NULL,
     teller_proof_url VARCHAR(500) NULL,
+    proof_filename VARCHAR(255) NULL,
     status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
     admin_notes TEXT NULL,
     reviewed_by VARCHAR(36) NULL,
     reviewed_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_manual_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_manual_status (status)
+    INDEX idx_manual_status (status),
+    INDEX idx_manual_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE customer_virtual_accounts (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL UNIQUE,
+    provider VARCHAR(50) NOT NULL DEFAULT 'flutterwave',
+    order_ref VARCHAR(100) NOT NULL UNIQUE,
+    flw_ref VARCHAR(100) NULL,
+    account_number VARCHAR(30) NOT NULL,
+    bank_name VARCHAR(100) NOT NULL,
+    account_status ENUM('active', 'inactive', 'pending_approval') NOT NULL DEFAULT 'pending_approval',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_va_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_va_account (account_number)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
