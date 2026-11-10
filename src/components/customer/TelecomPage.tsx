@@ -65,9 +65,8 @@ export const TelecomPage: React.FC = () => {
   const { user, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState<TelecomTab>('airtime');
 
-  // Provider info & wallet
-  const [activeProvider, setActiveProvider] = useState<string>('ulamadata');
-  const [providerBalance, setProviderBalance] = useState<number>(0);
+  // Wallet & service status
+  const [engineStatus] = useState<string>('Operational');
 
   // General Loading & alerts
   const [loading, setLoading] = useState(false);
@@ -159,7 +158,6 @@ export const TelecomPage: React.FC = () => {
 
   // Load Initial Data
   useEffect(() => {
-    loadProviderStatus();
     loadDataPlans();
     loadAirtimePins();
     loadDataPins();
@@ -169,14 +167,6 @@ export const TelecomPage: React.FC = () => {
     loadExamPackages();
     loadOrders();
   }, []);
-
-  const loadProviderStatus = async () => {
-    try {
-      const res = await api.getTelecomProviders();
-      setActiveProvider(res.activeProvider || 'ulamadata');
-      setProviderBalance(res.wallet_balance || 0);
-    } catch {}
-  };
 
   const loadDataPlans = async () => {
     try {
@@ -646,10 +636,10 @@ export const TelecomPage: React.FC = () => {
         {/* Live Provider Status Badge */}
         <div className="flex items-center gap-3">
           <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-right">
-            <div className="text-[10px] uppercase font-bold text-slate-400">Carrier Gateway</div>
+            <div className="text-[10px] uppercase font-bold text-slate-400">Fulfillment Engine</div>
             <div className="text-xs font-bold text-emerald-400 flex items-center justify-end gap-1.5 mt-0.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              {activeProvider === 'ulamadata' ? 'Primary Route (Active)' : 'Redundant Route (Active)'}
+              Instant Automated Delivery
             </div>
           </div>
           <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-right">

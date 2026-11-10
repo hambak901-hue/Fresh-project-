@@ -320,6 +320,36 @@
       "id": "usr_1794240995593_alwu2",
       "created_at": "2026-11-09T16:16:35.593Z",
       "updated_at": "2026-11-09T16:16:35.593Z"
+    },
+    {
+      "id": "usr-05e373a22e3b0a5d972edd0c9b79dea0",
+      "email": "hambak901@gmail.com",
+      "password_hash": "$2b$10$TcyENUW7vAgc9jrUpdgPsudlpZO.ujYY3vbtWB/2r3ixOZW3jOXze",
+      "full_name": "Super Admin",
+      "phone_number": "+2348147837664",
+      "role": "superadmin",
+      "wallet_balance": 500000,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "HAMBAK-901",
+      "created_at": "2026-11-10T16:10:12.591Z",
+      "updated_at": "2026-11-10T16:10:12.592Z",
+      "status": "active"
+    },
+    {
+      "id": "usr-4165d21d74adc6f334addfa4787a183e",
+      "email": "hambak19@gmail.com",
+      "password_hash": "$2b$10$TcyENUW7vAgc9jrUpdgPsudlpZO.ujYY3vbtWB/2r3ixOZW3jOXze",
+      "full_name": "Bakare Aamoda",
+      "phone_number": "+2348147837664",
+      "role": "superadmin",
+      "wallet_balance": 500000,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "HAMBAK-19",
+      "created_at": "2026-11-10T16:10:12.592Z",
+      "updated_at": "2026-11-10T16:10:12.592Z",
+      "status": "active"
     }
   ],
   "transactions": [
@@ -2475,9 +2505,9 @@
     "active_verification_provider": "2sureverify",
     "active_telecom_provider": "ulamadata",
     "active_payment_gateway": "flutterwave",
-    "bank_transfer_account_name": "Hambak Technologies Enterprise",
-    "bank_transfer_bank": "Moniepoint MFB / Truehost LON110",
-    "bank_transfer_account_number": "8210492817",
+    "bank_transfer_account_name": "Hambaktech_Services",
+    "bank_transfer_bank": "Moniepoint MFB",
+    "bank_transfer_account_number": "5210471634",
     "company_name": "HambakTech Technologies",
     "support_phone": "+234 803 000 1122",
     "support_email": "support@hambaktech.com.ng"
@@ -6766,6 +6796,293 @@
       "size_bytes": 70,
       "created_at": "2026-11-09T17:21:31.142Z",
       "data_uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    }
+  ],
+  "service_security_rules": [
+    {
+      "service_key": "airtime",
+      "service_name": "Airtime Vending (VTU)",
+      "category": "telecom",
+      "requires_pin": true,
+      "min_kyc_level": 1,
+      "daily_limit": 50000,
+      "description": "Instant recharge for MTN, Airtel, Glo, and 9mobile."
+    },
+    {
+      "service_key": "data",
+      "service_name": "Data Bundles (SME, CG, Direct)",
+      "category": "telecom",
+      "requires_pin": true,
+      "min_kyc_level": 1,
+      "daily_limit": 100000,
+      "description": "High-speed data bundles across all Nigerian telecom carriers."
+    },
+    {
+      "service_key": "airtime_pin",
+      "service_name": "Airtime PIN Recharge Cards",
+      "category": "telecom",
+      "requires_pin": true,
+      "min_kyc_level": 1,
+      "daily_limit": 50000,
+      "description": "Custom branded printable airtime recharge cards."
+    },
+    {
+      "service_key": "data_pin",
+      "service_name": "Data PIN Cards",
+      "category": "telecom",
+      "requires_pin": true,
+      "min_kyc_level": 1,
+      "daily_limit": 50000,
+      "description": "Printable data recharge pins for business resale."
+    },
+    {
+      "service_key": "airtime_swap",
+      "service_name": "Airtime to Cash (Swap)",
+      "category": "telecom",
+      "requires_pin": true,
+      "min_kyc_level": 2,
+      "daily_limit": 150000,
+      "description": "Instant conversion of excess airtime to wallet balance."
+    },
+    {
+      "service_key": "cable",
+      "service_name": "Cable TV Subscription",
+      "category": "telecom",
+      "requires_pin": true,
+      "min_kyc_level": 1,
+      "daily_limit": 50000,
+      "description": "Instant bouquet renewal for DSTV, GOtv, Startimes, and Showmax."
+    },
+    {
+      "service_key": "electricity",
+      "service_name": "Electricity Bills (STS Tokens)",
+      "category": "telecom",
+      "requires_pin": true,
+      "min_kyc_level": 1,
+      "daily_limit": 100000,
+      "description": "Prepaid meter STS token generation and postpaid bill settlement."
+    },
+    {
+      "service_key": "exam",
+      "service_name": "Examination Scratch Cards",
+      "category": "telecom",
+      "requires_pin": true,
+      "min_kyc_level": 1,
+      "daily_limit": 50000,
+      "description": "WAEC, NECO, NABTEB, and JAMB registration/result checker tokens."
+    },
+    {
+      "service_key": "bulksms",
+      "service_name": "Corporate Bulk SMS",
+      "category": "telecom",
+      "requires_pin": true,
+      "min_kyc_level": 2,
+      "daily_limit": 100000,
+      "description": "High-throughput DND and corporate SMS dispatch gateway."
+    },
+    {
+      "service_key": "nin_verification",
+      "service_name": "NIN Standard Verification",
+      "category": "identity",
+      "requires_pin": false,
+      "min_kyc_level": 1,
+      "daily_limit": 20000,
+      "description": "Instant NIMC database identity query and standard slip retrieval."
+    },
+    {
+      "service_key": "bvn_verification",
+      "service_name": "BVN Verification",
+      "category": "identity",
+      "requires_pin": false,
+      "min_kyc_level": 1,
+      "daily_limit": 20000,
+      "description": "Instant Central Bank of Nigeria BVN biometric identity validation."
+    },
+    {
+      "service_key": "nin_modification",
+      "service_name": "NIN Modification & Premium Services",
+      "category": "identity",
+      "requires_pin": true,
+      "min_kyc_level": 2,
+      "daily_limit": 100000,
+      "description": "NIMC record modifications (DOB, Name, Address, Phone re-linking)."
+    },
+    {
+      "service_key": "virtual_account",
+      "service_name": "Dedicated Virtual Bank Account",
+      "category": "wallet",
+      "requires_pin": true,
+      "min_kyc_level": 2,
+      "daily_limit": 500000,
+      "description": "Individually assigned customer NUBAN for instant automated wallet funding."
+    }
+  ],
+  "kyc_submissions": [
+    {
+      "id": "kyc_sub_demo_01",
+      "user_id": "usr_customer_demo",
+      "user_email": "fatimohmusbau34@gmail.com",
+      "user_name": "Fatimoh Musbau",
+      "target_level": 2,
+      "status": "approved",
+      "verification_method": "automated",
+      "verification_reference": "2SV_NIN_VER_998124",
+      "full_legal_name": "Fatimoh Adeyemi Musbau",
+      "date_of_birth": "1996-08-14",
+      "phone_number": "+2348123456789",
+      "email": "fatimohmusbau34@gmail.com",
+      "residential_address": "14 Airport Road, Ikeja, Lagos State",
+      "state": "Lagos",
+      "lga": "Ikeja",
+      "nin": "12345678901",
+      "bvn": "22334455667",
+      "id_type": "nin_slip",
+      "id_number": "12345678901",
+      "id_document_url": "/public/assets/aistudio/IMG_0484_0fb633df.png",
+      "consent_obtained": true,
+      "consent_timestamp": "2026-02-15T10:30:00.000Z",
+      "submitted_at": "2026-02-15T10:30:00.000Z",
+      "reviewed_at": "2026-02-15T11:00:00.000Z",
+      "reviewer_name": "Bakar Hambak (Super Admin)",
+      "review_notes": "Automated 2SureVerify NIN biometric matching verified 100%. Approved to Level 2.",
+      "automated_verification_result": {
+        "verified": true,
+        "provider": "2sureverify",
+        "reference": "2SV_AUTO_998124",
+        "name_matched": true,
+        "timestamp": "2026-02-15T10:35:00.000Z"
+      },
+      "review_history": [
+        {
+          "id": "rh_001",
+          "action": "submitted",
+          "reviewer": "Customer Self-Service",
+          "notes": "Submitted Level 2 identity verification with NIN slip",
+          "timestamp": "2026-02-15T10:30:00.000Z"
+        },
+        {
+          "id": "rh_002",
+          "action": "approved",
+          "reviewer": "Bakar Hambak (Super Admin)",
+          "notes": "Verified via NIMC registry. Account upgraded to Tier 2.",
+          "timestamp": "2026-02-15T11:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "kyc_sub_chidinma_02",
+      "user_id": "usr_1794098033993_zg9o1",
+      "user_email": "chidinma.test@example.com",
+      "user_name": "Chidinma Okafor",
+      "target_level": 2,
+      "status": "pending",
+      "verification_method": "manual",
+      "full_legal_name": "Chidinma Emeka Okafor",
+      "date_of_birth": "1998-11-20",
+      "phone_number": "08149876543",
+      "email": "chidinma.test@example.com",
+      "residential_address": "28 New Market Road, Onitsha, Anambra State",
+      "state": "Anambra",
+      "lga": "Onitsha North",
+      "nin": "98765432109",
+      "bvn": "55667788990",
+      "id_type": "voters_card",
+      "id_number": "VIN-9920148102",
+      "id_document_url": "/public/assets/aistudio/IMG_0485_9e5b9616.png",
+      "consent_obtained": true,
+      "consent_timestamp": "2026-11-10T10:45:11.910Z",
+      "submitted_at": "2026-11-10T10:45:11.910Z",
+      "review_history": [
+        {
+          "id": "rh_003",
+          "action": "submitted",
+          "reviewer": "Customer Self-Service",
+          "notes": "Customer submitted INEC Voter Card for Level 2 verification.",
+          "timestamp": "2026-11-10T10:45:11.910Z"
+        }
+      ]
+    }
+  ],
+  "virtual_accounts": [
+    {
+      "id": "va_demo_001",
+      "user_id": "usr_customer_demo",
+      "account_number": "8031234567",
+      "account_name": "HAMBAK / FATIMOH MUSBAU",
+      "bank_name": "Providus Bank",
+      "bank_code": "101",
+      "provider": "providus",
+      "status": "active",
+      "assigned_at": "2026-02-16T12:00:00.000Z",
+      "total_inflow": 250000,
+      "last_funding_at": "2026-11-05T14:20:00.000Z"
+    }
+  ],
+  "slip_templates": [
+    {
+      "id": "tpl_nin_long",
+      "name": "NIMC Long Slip (Standard Official Format)",
+      "category": "NIN",
+      "demo_image_url": "/assets/aistudio/IMG_0483_23e1a1e1.png",
+      "description": "Complete Federal Republic of Nigeria official NIMC certificate format with tracking barcode, verified photo, and sovereign QR security stamp.",
+      "supported_service": "all_nin",
+      "is_active": true,
+      "display_order": 1,
+      "badge": "Recommended",
+      "watermark_text": "DEMO SPECIMEN - SAMPLE PREVIEW ONLY",
+      "created_at": "2026-11-10T15:45:11.910Z"
+    },
+    {
+      "id": "tpl_nin_plastic",
+      "name": "NIMC Premium Plastic Digital ID Card",
+      "category": "NIN",
+      "demo_image_url": "/assets/aistudio/IMG_0484_0fb633df.png",
+      "description": "Dual-sided wallet plastic biometric card format featuring high-resolution identity photo, microprint background, and national emblem.",
+      "supported_service": "all_nin",
+      "is_active": true,
+      "display_order": 2,
+      "badge": "Plastic Card",
+      "watermark_text": "DEMO SPECIMEN - SAMPLE PREVIEW ONLY",
+      "created_at": "2026-11-10T15:45:11.910Z"
+    },
+    {
+      "id": "tpl_nin_basic",
+      "name": "NIMC Basic Identity Summary Slip",
+      "category": "NIN",
+      "demo_image_url": "/assets/aistudio/IMG_0486_66e12609.jpeg",
+      "description": "Lightweight summary verification sheet providing primary biodata attributes, verification date, and sovereign reference.",
+      "supported_service": "all_nin",
+      "is_active": true,
+      "display_order": 3,
+      "badge": "Compact",
+      "watermark_text": "DEMO SPECIMEN - SAMPLE PREVIEW ONLY",
+      "created_at": "2026-11-10T15:45:11.910Z"
+    },
+    {
+      "id": "tpl_bvn_standard",
+      "name": "Central Bank of Nigeria (CBN) Official BVN Certificate",
+      "category": "BVN",
+      "demo_image_url": "/assets/aistudio/IMG_0483_23e1a1e1.png",
+      "description": "Official biometric validation certificate queried directly from NIBSS banking database with financial verification QR seal.",
+      "supported_service": "all_bvn",
+      "is_active": true,
+      "display_order": 4,
+      "badge": "CBN Official",
+      "watermark_text": "DEMO SPECIMEN - SAMPLE PREVIEW ONLY",
+      "created_at": "2026-11-10T15:45:11.910Z"
+    },
+    {
+      "id": "tpl_bvn_plastic",
+      "name": "Plastic BVN Biometric Digital Card",
+      "category": "BVN",
+      "demo_image_url": "/assets/aistudio/IMG_0484_0fb633df.png",
+      "description": "Wallet-sized banking identity card with high-resolution photograph and account bank seals.",
+      "supported_service": "all_bvn",
+      "is_active": true,
+      "display_order": 5,
+      "badge": "Banking Card",
+      "watermark_text": "DEMO SPECIMEN - SAMPLE PREVIEW ONLY",
+      "created_at": "2026-11-10T15:45:11.910Z"
     }
   ]
 }

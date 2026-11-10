@@ -210,34 +210,6 @@ export const api = {
     });
   },
 
-  async getVirtualAccount(): Promise<{
-    success: boolean;
-    has_virtual_account: boolean;
-    status: string;
-    account_number?: string;
-    bank_name?: string;
-    message?: string;
-    bankDetails?: {
-      bank: string;
-      accountNumber: string;
-      accountName: string;
-    };
-  }> {
-    return request('/api/wallet/virtual-account');
-  },
-
-  async getWalletStatement(params?: { start_date?: string; end_date?: string; category?: string }): Promise<{
-    success: boolean;
-    opening_balance: number;
-    closing_balance: number;
-    total_inflow: number;
-    total_outflow: number;
-    entries: any[];
-  }> {
-    const qs = new URLSearchParams(params as any).toString();
-    return request(`/api/wallet/statement${qs ? `?${qs}` : ''}`);
-  },
-
   async reverseTransaction(transactionId: number, reason: string): Promise<{
     success: boolean;
     message: string;
@@ -363,7 +335,7 @@ export const api = {
     });
   },
 
-  async verifyIdentity(type: string, identifier: string, provider = '2sureverify'): Promise<{ success: boolean; newBalance: number; result: any }> {
+  async verifyIdentity(type: string, identifier: string): Promise<{ success: boolean; newBalance: number; result: any }> {
     return request('/api/verification/verify', {
       method: 'POST',
       body: JSON.stringify({ serviceKey: type === 'BVN' ? 'bvn_v1' : 'nin_v1', payload: { nin: identifier, bvn: identifier, slip_type: 'ninStandard' }, consent: true }),

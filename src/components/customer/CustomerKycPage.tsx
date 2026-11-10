@@ -123,9 +123,10 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
     try {
       const uploadRes = await api.uploadDocument(file, type);
       if (uploadRes.success && uploadRes.file_url) {
-        if (type === 'id_document') setFormData(prev => ({ ...prev, id_document_url: uploadRes.file_url }));
-        if (type === 'selfie') setFormData(prev => ({ ...prev, selfie_url: uploadRes.file_url }));
-        if (type === 'proof_of_address') setFormData(prev => ({ ...prev, proof_of_address_url: uploadRes.file_url }));
+        const fileUrl: string = uploadRes.file_url;
+        if (type === 'id_document') setFormData(prev => ({ ...prev, id_document_url: fileUrl }));
+        if (type === 'selfie') setFormData(prev => ({ ...prev, selfie_url: fileUrl }));
+        if (type === 'proof_of_address') setFormData(prev => ({ ...prev, proof_of_address_url: fileUrl }));
       }
     } catch (err: any) {
       setErrorMessage(err.message || `Failed to upload ${type}.`);

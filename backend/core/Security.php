@@ -12,7 +12,7 @@ class Security
 {
     private static function getSalt(): string
     {
-        return getenv('APP_SALT') ?: '';
+        return getenv('APP_SALT') ?: 'hambaktech_salt_2026';
     }
 
     public static function hashPassword(string $password): string
@@ -26,14 +26,51 @@ class Security
             return false;
         }
 
-        // Standard bcrypt / argon2 hash
-        if (str_starts_with($hash, '$2y$') || str_starts_with($hash, '$2a$') || str_starts_with($hash, '$2b$')) {
-            return password_verify($plainText, $hash);
+        // Native PHP password verification (Bcrypt, Argon2id, Argon2i)
+        if (str_starts_with($hash, '$2y$') ||
+            str_starts_with($hash, '$2a$') ||
+            str_starts_with($hash, '$2b$') ||
+            str_starts_with($hash, '$argon2id$') ||
+            str_starts_with($hash, '$argon2i$')) {
+
+            // Normalize $2b$ to $2y$ if needed for OpenBSD bcrypt hashes
+            if (str_starts_with($hash, '$2b$')) {
+                $normalized = '$2y$' . substr($hash, 4);
+                if (@password_verify($plainText, $normalized)) {
+                    return true;
+                }
+            }
+
+            if (@password_verify($plainText, $hash)) {
+                return true;
+            }
         }
 
-        // Backward compatibility for legacy sha256 hashes
-        $legacyHash = hash('sha256', $plainText . self::getSalt());
-        return hash_equals($legacyHash, $hash);
+        // SHA-256 with configured salt
+        $salt = self::getSalt();
+        if (hash_equals(hash('sha256', $plainText . $salt), $hash)) {
+            return true;
+        }
+        if (hash_equals(hash('sha256', $plainText . 'hambaktech_salt_2026'), $hash)) {
+            return true;
+        }
+
+        // Plain SHA-256 without salt
+        if (hash_equals(hash('sha256', $plainText), $hash)) {
+            return true;
+        }
+
+        // Legacy MD5 (common in older cPanel migrations)
+        if (hash_equals(md5($plainText), $hash)) {
+            return true;
+        }
+
+        // Direct plaintext equality fallback
+        if (hash_equals($plainText, $hash)) {
+            return true;
+        }
+
+        return false;
     }
 
     public static function hashPin(string $pin): string
@@ -47,12 +84,38 @@ class Security
             return false;
         }
 
-        if (str_starts_with($hash, '$2y$') || str_starts_with($hash, '$2a$') || str_starts_with($hash, '$2b$')) {
-            return password_verify((string)$plainPin, $hash);
+        $plainPinStr = (string)$plainPin;
+
+        if (str_starts_with($hash, '$2y$') ||
+            str_starts_with($hash, '$2a$') ||
+            str_starts_with($hash, '$2b$') ||
+            str_starts_with($hash, '$argon2id$')) {
+            if (str_starts_with($hash, '$2b$')) {
+                $normalized = '$2y$' . substr($hash, 4);
+                if (@password_verify($plainPinStr, $normalized)) {
+                    return true;
+                }
+            }
+            if (@password_verify($plainPinStr, $hash)) {
+                return true;
+            }
         }
 
-        $legacyHash = hash('sha256', (string)$plainPin . self::getSalt());
-        return hash_equals($legacyHash, $hash);
+        $salt = self::getSalt();
+        if (hash_equals(hash('sha256', $plainPinStr . $salt), $hash)) {
+            return true;
+        }
+        if (hash_equals(hash('sha256', $plainPinStr . 'hambaktech_salt_2026'), $hash)) {
+            return true;
+        }
+        if (hash_equals(hash('sha256', $plainPinStr), $hash)) {
+            return true;
+        }
+        if (hash_equals($plainPinStr, $hash)) {
+            return true;
+        }
+
+        return false;
     }
 
     public static function generateUuid(): string

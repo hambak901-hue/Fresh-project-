@@ -41,20 +41,50 @@ class TelecomController
     {
         $network = strtoupper((string)$request->query('network', ''));
 
-        $sql = 'SELECT id, provider_plan_id, network, name, size, plan_type as type, validity, wholesale_cost, price, is_active as enabled, provider_id as provider 
-                FROM telecom_plans WHERE is_active = 1 ';
-        $params = [];
-        if (!empty($network)) {
-            $sql .= 'AND network = :net ';
-            $params['net'] = $network;
+        // Check if requester is authenticated admin
+        $isAdmin = false;
+        try {
+            $user = Auth::requireAuth($request);
+            if (in_array($user['role'] ?? '', ['admin', 'superadmin'], true)) {
+                $isAdmin = true;
+            }
+        } catch (\Throwable) {
+            $isAdmin = false;
         }
-        $sql .= 'ORDER BY network ASC, price ASC';
 
-        $dataPlans = $this->db->fetchAll($sql, $params);
-        foreach ($dataPlans as &$p) {
-            $p['wholesale_cost'] = (float)$p['wholesale_cost'];
-            $p['price'] = (float)$p['price'];
-            $p['enabled'] = (bool)$p['enabled'];
+        if ($isAdmin) {
+            $sql = 'SELECT id, provider_plan_id, network, name, size, plan_type as type, validity, wholesale_cost, price, is_active as enabled, provider_id as provider 
+                    FROM telecom_plans WHERE is_active = 1 ';
+            $params = [];
+            if (!empty($network)) {
+                $sql .= 'AND network = :net ';
+                $params['net'] = $network;
+            }
+            $sql .= 'ORDER BY network ASC, price ASC';
+
+            $dataPlans = $this->db->fetchAll($sql, $params);
+            foreach ($dataPlans as &$p) {
+                $p['wholesale_cost'] = (float)$p['wholesale_cost'];
+                $p['price'] = (float)$p['price'];
+                $p['margin'] = round($p['price'] - $p['wholesale_cost'], 2);
+                $p['enabled'] = (bool)$p['enabled'];
+            }
+        } else {
+            // CUSTOMER-SAFE MODEL: Omits wholesale_cost, provider_plan_id, and provider completely
+            $sql = 'SELECT id, network, name, size, plan_type as type, validity, price, is_active as enabled 
+                    FROM telecom_plans WHERE is_active = 1 ';
+            $params = [];
+            if (!empty($network)) {
+                $sql .= 'AND network = :net ';
+                $params['net'] = $network;
+            }
+            $sql .= 'ORDER BY network ASC, price ASC';
+
+            $dataPlans = $this->db->fetchAll($sql, $params);
+            foreach ($dataPlans as &$p) {
+                $p['price'] = (float)$p['price'];
+                $p['enabled'] = (bool)$p['enabled'];
+            }
         }
 
         $cablePackages = $this->db->fetchAll('SELECT * FROM cable_packages WHERE is_active = 1 ORDER BY provider ASC, price ASC');

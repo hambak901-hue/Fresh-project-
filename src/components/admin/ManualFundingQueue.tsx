@@ -662,11 +662,11 @@ export function ManualFundingQueue() {
                 <div className="py-4 space-y-2 text-xs text-slate-400">
                   {g.id === 'paystack' ? (
                     <p>
-                      Official primary checkout engine. Supports Mastercard, Visa, Verve, USSD banking, and direct bank account transfers with instant webhook callback.
+                      Official checkout engine. Supports Mastercard, Visa, Verve, USSD banking, and direct bank account transfers with instant webhook callback.
                     </p>
                   ) : (
                     <p>
-                      Prepared secondary gateway adapter. Architectural contracts, configuration parameters, and webhook models are ready and currently staged as <strong>Coming Soon</strong>.
+                      Fully activated payment gateway. Supports Nigerian debit/credit cards, bank transfers, USSD, Barter, mobile money, and instant webhook verification via secret hash.
                     </p>
                   )}
                 </div>

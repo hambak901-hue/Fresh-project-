@@ -54,7 +54,6 @@ export const NinServicesPage: React.FC = () => {
   const [slipTypes, setSlipTypes] = useState<Array<{ id: string; name: string; description: string }>>([]);
   const [slipTemplates, setSlipTemplates] = useState<SlipTemplateItem[]>([]);
   const [previewModalTemplate, setPreviewModalTemplate] = useState<SlipTemplateItem | null>(null);
-  const [activeProvider, setActiveProvider] = useState<string>('2sureverify');
   const [loadingServices, setLoadingServices] = useState<boolean>(true);
 
   // Selected Service & Form state
@@ -110,7 +109,6 @@ export const NinServicesPage: React.FC = () => {
             if (st?.templates) setSlipTemplates(st.templates);
           }).catch(() => {});
         }
-        if (res.activeProvider) setActiveProvider(res.activeProvider);
       }
     } catch (e) {
       console.warn('Unable to load identity services catalog:', e);

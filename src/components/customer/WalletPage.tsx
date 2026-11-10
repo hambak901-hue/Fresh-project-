@@ -40,9 +40,14 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
   // Manual payment proof form
   const [manualModalOpen, setManualModalOpen] = useState<boolean>(false);
   const [manualAmount, setManualAmount] = useState<string>('');
-  const [senderName, setSenderName] = useState<string>('');
-  const [bankName, setBankName] = useState<string>('Access Bank');
+  const [senderName, setSenderName] = useState<string>(user?.full_name || '');
+  const [bankName, setBankName] = useState<string>('Moniepoint MFB');
   const [transferRef, setTransferRef] = useState<string>('');
+  const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [paymentMethod, setPaymentMethod] = useState<string>('Mobile App Transfer');
+  const [remarks, setRemarks] = useState<string>('');
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptFileName, setReceiptFileName] = useState<string>('');
   const [manualSubmitting, setManualSubmitting] = useState<boolean>(false);
   const [manualSuccess, setManualSuccess] = useState<string | null>(null);
   const [manualError, setManualError] = useState<string | null>(null);
@@ -61,7 +66,10 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
 
   useEffect(() => {
     loadData();
-  }, []);
+    if (user?.full_name && !senderName) {
+      setSenderName(user.full_name);
+    }
+  }, [user]);
 
   const loadData = async () => {
     try {
@@ -76,7 +84,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
   };
 
   const handleCopyAccount = () => {
-    const acc = walletSummary?.bankDetails?.accountNumber || '8210492817';
+    const acc = walletSummary?.bankDetails?.accountNumber || '5210471634';
     navigator.clipboard.writeText(acc);
     setCopiedBank(true);
     setTimeout(() => setCopiedBank(false), 2000);
@@ -89,33 +97,44 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
 
     const amt = Number(manualAmount);
     if (!amt || amt < 500) {
-      setManualError('Minimum manual funding amount is ₦500.');
+      setManualError('Minimum manual funding amount is ₦500.00.');
       return;
     }
-    if (!senderName || !transferRef) {
-      setManualError('Please provide sender name and payment reference.');
+    if (!senderName.trim() || !transferRef.trim()) {
+      setManualError('Please provide sender account name and payment reference.');
       return;
     }
 
     try {
       setManualSubmitting(true);
-      const res = await api.submitManualFunding({
-        amount: amt,
-        sender_name: senderName,
-        bank_name: bankName,
-        reference: transferRef,
-      });
+      const formData = new FormData();
+      formData.append('amount', String(amt));
+      formData.append('depositor_name', senderName.trim());
+      formData.append('sender_name', senderName.trim());
+      formData.append('bank_name', 'Moniepoint MFB');
+      formData.append('account_number', '5210471634');
+      formData.append('reference', transferRef.trim());
+      formData.append('payment_reference', transferRef.trim());
+      formData.append('payment_date', paymentDate);
+      formData.append('payment_method', paymentMethod);
+      formData.append('remarks', remarks.trim() || 'Manual bank transfer deposit');
+      if (receiptFile) {
+        formData.append('receipt', receiptFile);
+      }
+
+      const res = await api.submitManualFunding(formData as any);
 
       if (res.success) {
-        setManualSuccess(res.message);
+        setManualSuccess(res.message || 'Payment proof submitted successfully! Review pending.');
         setManualAmount('');
-        setSenderName('');
         setTransferRef('');
+        setReceiptFile(null);
+        setReceiptFileName('');
         await loadData();
         setTimeout(() => {
           setManualModalOpen(false);
           setManualSuccess(null);
-        }, 1500);
+        }, 2000);
       }
     } catch (err: any) {
       setManualError(err.message || 'Failed to submit payment proof');
@@ -406,12 +425,42 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
 
       {/* Sub-modal: Manual Payment Proof Submission */}
       {manualModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4">
-            <h3 className="text-base font-bold text-white">Submit Proof of Bank Transfer</h3>
-            <p className="text-xs text-slate-400">
-              Transferred directly to our Moniepoint account? Enter your payment details below for immediate reconciliation.
-            </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in overflow-y-auto">
+          <div className="relative w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4 my-8 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Building className="w-4 h-4 text-emerald-400" />
+                  Submit Proof of Bank Transfer
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Transferred directly to our Moniepoint account? Enter details below and attach your receipt for immediate manual reconciliation.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setManualModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Moniepoint MFB official bank info box */}
+            <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Beneficiary Bank:</span>
+                <span className="font-bold text-emerald-300">Moniepoint MFB</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Account Number:</span>
+                <span className="font-mono font-bold text-white tracking-wider">5210471634</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Account Name:</span>
+                <span className="font-semibold text-slate-200">Hambaktech_Services</span>
+              </div>
+            </div>
 
             {manualError && (
               <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
@@ -425,70 +474,139 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
             )}
 
             <form onSubmit={handleManualProofSubmit} className="space-y-3.5 text-xs">
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Transferred Amount (₦)</label>
-                <input
-                  type="number"
-                  min="500"
-                  step="100"
-                  value={manualAmount}
-                  onChange={e => setManualAmount(e.target.value)}
-                  placeholder="e.g. 15000"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Sender Account Name</label>
-                <input
-                  type="text"
-                  value={senderName}
-                  onChange={e => setSenderName(e.target.value)}
-                  placeholder="e.g. Babatunde Adeleke"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Bank Used</label>
+                  <label className="block text-slate-300 font-medium mb-1">Transferred Amount (₦) *</label>
                   <input
-                    type="text"
-                    value={bankName}
-                    onChange={e => setBankName(e.target.value)}
-                    placeholder="e.g. Access Bank"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                    type="number"
+                    min="500"
+                    step="100"
+                    value={manualAmount}
+                    onChange={e => setManualAmount(e.target.value)}
+                    placeholder="e.g. 15000"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono focus:border-emerald-500 focus:outline-none"
+                    required
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Session / Ref ID</label>
+                  <label className="block text-slate-300 font-medium mb-1">Payment Date *</label>
                   <input
-                    type="text"
-                    value={transferRef}
-                    onChange={e => setTransferRef(e.target.value)}
-                    placeholder="e.g. 0902938172"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono uppercase"
+                    type="date"
+                    value={paymentDate}
+                    onChange={e => setPaymentDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
                     required
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Depositor / Sender Full Name *</label>
+                <input
+                  type="text"
+                  value={senderName}
+                  onChange={e => setSenderName(e.target.value)}
+                  placeholder="e.g. Babatunde Adeleke"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Payment Method</label>
+                  <select
+                    value={paymentMethod}
+                    onChange={e => setPaymentMethod(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="Mobile App Transfer">Mobile App Transfer</option>
+                    <option value="USSD Transfer">USSD Transfer</option>
+                    <option value="Internet Banking">Internet Banking</option>
+                    <option value="ATM Transfer">ATM Transfer</option>
+                    <option value="Bank Branch Deposit">Bank Branch Deposit</option>
+                    <option value="POS Transfer">POS Transfer</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Session ID / Bank Ref *</label>
+                  <input
+                    type="text"
+                    value={transferRef}
+                    onChange={e => setTransferRef(e.target.value)}
+                    placeholder="e.g. 09029381729012"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono uppercase focus:border-emerald-500 focus:outline-none"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Transaction Remarks / Narration</label>
+                <input
+                  type="text"
+                  value={remarks}
+                  onChange={e => setRemarks(e.target.value)}
+                  placeholder="e.g. Wallet funding via Moniepoint"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Receipt File Upload */}
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Payment Receipt / Screenshot (JPG, PNG, PDF ≤ 5MB)</label>
+                <div className="flex items-center gap-3">
+                  <label className="flex-1 cursor-pointer flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-slate-700 hover:border-emerald-500/50 bg-slate-950/60 hover:bg-slate-950 transition-all text-slate-400 hover:text-white">
+                    <Upload className="w-4 h-4 text-emerald-400" />
+                    <span className="truncate">{receiptFileName || 'Choose receipt file...'}</span>
+                    <input
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 5 * 1024 * 1024) {
+                            setManualError('File exceeds maximum size of 5MB');
+                            return;
+                          }
+                          setReceiptFile(file);
+                          setReceiptFileName(file.name);
+                          setManualError(null);
+                        }
+                      }}
+                    />
+                  </label>
+                  {receiptFile && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceiptFile(null);
+                        setReceiptFileName('');
+                      }}
+                      className="px-2 py-2 text-rose-400 hover:text-rose-300 rounded-lg hover:bg-rose-500/10 text-xs"
+                      title="Remove file"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setManualModalOpen(false)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300"
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={manualSubmitting}
-                  className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold"
+                  className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50"
                 >
-                  {manualSubmitting ? 'Submitting...' : 'Submit Proof'}
+                  {manualSubmitting ? 'Submitting Proof...' : 'Submit Payment Proof'}
                 </button>
               </div>
             </form>

@@ -154,9 +154,11 @@ INSERT INTO wallets (id, user_id, balance, currency, ledger_version, status) VAL
 ('wal_customer_demo', 'usr_customer_demo', 50000.00, 'NGN', 3, 'active')
 ON DUPLICATE KEY UPDATE balance=VALUES(balance);
 
-INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, bio) VALUES
-('usr_superadmin', '11122233344', '22233344455', 'Plot 14 Commercial Avenue, Ikeja', 'Lagos', 'Ikeja', 'Executive Director & Chief Systems Architect'),
-('usr_customer_demo', '12345678901', '22334455667', 'Plot 28 Victoria Island, Lagos', 'Lagos', 'Eti-Osa', 'Certified Telecom & Identity Agent')
-ON DUPLICATE KEY UPDATE nin=VALUES(nin);
+INSERT INTO system_settings (id, setting_key, setting_value, category, description) VALUES
+('set_bank_name', 'bank_transfer_bank', 'Moniepoint MFB', 'payment', 'Receiving bank name for manual customer funding'),
+('set_bank_acc_num', 'bank_transfer_account_number', '5210471634', 'payment', 'Receiving bank account number for manual customer funding'),
+('set_bank_acc_name', 'bank_transfer_account_name', 'Hambaktech_Services', 'payment', 'Receiving account name for manual customer funding'),
+('set_active_gw', 'active_payment_gateway', 'flutterwave', 'payment', 'Primary active automated payment gateway')
+ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value);
 
 SET FOREIGN_KEY_CHECKS = 1;

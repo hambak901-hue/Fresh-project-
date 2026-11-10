@@ -35,23 +35,55 @@ class VerificationController
 
     public function services(Request $request): void
     {
-        $rows = $this->db->fetchAll(
-            'SELECT s.service_key as `key`, s.name, s.description, s.wholesale_cost, s.selling_price, 
-                    s.provider_id as provider, s.endpoint, s.is_active as enabled, 
-                    s.required_fields, s.slip_type_supported, c.name as category
-             FROM service_catalogue s
-             LEFT JOIN service_categories c ON c.id = s.category_id
-             WHERE s.is_active = 1
-             ORDER BY c.display_order ASC, s.name ASC'
-        );
+        // Check if requester is authenticated admin
+        $isAdmin = false;
+        try {
+            $user = Auth::requireAuth($request);
+            if (in_array($user['role'] ?? '', ['admin', 'superadmin'], true)) {
+                $isAdmin = true;
+            }
+        } catch (\Throwable) {
+            $isAdmin = false;
+        }
 
-        foreach ($rows as &$r) {
-            $r['wholesale_cost'] = (float)$r['wholesale_cost'];
-            $r['selling_price'] = (float)$r['selling_price'];
-            $r['enabled'] = (bool)$r['enabled'];
-            $r['slip_type_supported'] = (bool)$r['slip_type_supported'];
-            if (is_string($r['required_fields'])) {
-                $r['required_fields'] = json_decode($r['required_fields'], true) ?: [];
+        if ($isAdmin) {
+            // ADMIN MODEL: Includes provider ID, wholesale cost, endpoint, and margins
+            $rows = $this->db->fetchAll(
+                'SELECT s.service_key as `key`, s.name, s.description, s.wholesale_cost, s.selling_price, 
+                        s.provider_id as provider, s.endpoint, s.is_active as enabled, 
+                        s.required_fields, s.slip_type_supported, c.name as category
+                 FROM service_catalogue s
+                 LEFT JOIN service_categories c ON c.id = s.category_id
+                 WHERE s.is_active = 1
+                 ORDER BY c.display_order ASC, s.name ASC'
+            );
+            foreach ($rows as &$r) {
+                $r['wholesale_cost'] = (float)$r['wholesale_cost'];
+                $r['selling_price'] = (float)$r['selling_price'];
+                $r['margin'] = round($r['selling_price'] - $r['wholesale_cost'], 2);
+                $r['enabled'] = (bool)$r['enabled'];
+                $r['slip_type_supported'] = (bool)$r['slip_type_supported'];
+                if (is_string($r['required_fields'])) {
+                    $r['required_fields'] = json_decode($r['required_fields'], true) ?: [];
+                }
+            }
+        } else {
+            // CUSTOMER-SAFE MODEL: Strictly hides provider names, wholesale costs, and endpoints
+            $rows = $this->db->fetchAll(
+                'SELECT s.service_key as `key`, s.name, s.description, s.selling_price, 
+                        s.is_active as enabled, s.required_fields, s.slip_type_supported, c.name as category
+                 FROM service_catalogue s
+                 LEFT JOIN service_categories c ON c.id = s.category_id
+                 WHERE s.is_active = 1
+                 ORDER BY c.display_order ASC, s.name ASC'
+            );
+            foreach ($rows as &$r) {
+                $r['selling_price'] = (float)$r['selling_price'];
+                $r['enabled'] = (bool)$r['enabled'];
+                $r['slip_type_supported'] = (bool)$r['slip_type_supported'];
+                if (is_string($r['required_fields'])) {
+                    $r['required_fields'] = json_decode($r['required_fields'], true) ?: [];
+                }
             }
         }
 
@@ -179,7 +211,7 @@ class VerificationController
                 ]
             );
 
-            Response::error('Verification failed with sovereign gateway. Your wallet has been automatically refunded: ' . $e->getMessage(), 502);
+            Response::error('Verification could not be completed at this time. Your wallet has been automatically refunded.', 502);
         }
     }
 
@@ -187,17 +219,32 @@ class VerificationController
     {
         $user = Auth::requireAuth($request);
         $limit = min(100, max(1, (int)$request->query('limit', 50)));
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
 
-        $rows = $this->db->fetchAll(
-            'SELECT id, user_id, type, service_key, search_value, provider, cost, status, reference, slip_type, has_slip, result_data as result, created_at
-             FROM verification_records
-             WHERE user_id = :uid
-             ORDER BY created_at DESC LIMIT ' . (int)$limit,
-            ['uid' => $user['id']]
-        );
+        if ($isAdmin) {
+            $rows = $this->db->fetchAll(
+                'SELECT id, user_id, type, service_key, search_value, provider, cost, provider_cost, status, reference, slip_type, has_slip, result_data as result, created_at
+                 FROM verification_records
+                 WHERE user_id = :uid
+                 ORDER BY created_at DESC LIMIT ' . (int)$limit,
+                ['uid' => $user['id']]
+            );
+        } else {
+            // Customer-safe history: Provider names and provider costs are completely omitted
+            $rows = $this->db->fetchAll(
+                'SELECT id, user_id, type, service_key, search_value, cost, status, reference, slip_type, has_slip, result_data as result, created_at
+                 FROM verification_records
+                 WHERE user_id = :uid
+                 ORDER BY created_at DESC LIMIT ' . (int)$limit,
+                ['uid' => $user['id']]
+            );
+        }
 
         foreach ($rows as &$r) {
             $r['cost'] = (float)$r['cost'];
+            if (isset($r['provider_cost'])) {
+                $r['provider_cost'] = (float)$r['provider_cost'];
+            }
             $r['has_slip'] = (bool)$r['has_slip'];
             if (!empty($r['result'])) {
                 $r['result'] = json_decode($r['result'], true);
