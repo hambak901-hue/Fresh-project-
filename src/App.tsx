@@ -20,8 +20,6 @@ import { Footer } from './components/public/Footer';
 import { AuthModal } from './components/public/AuthModal';
 import { CmsStudioModal } from './components/cms/CmsStudioModal';
 import { WalletModal } from './components/WalletModal';
-import { PhaseTracker, PHASES } from './components/PhaseTracker';
-import { Phase1FoundationView } from './components/Phase1FoundationView';
 import { api } from './lib/api';
 import { CustomerDashboard } from './components/customer/CustomerDashboard';
 import { SuperAdminDashboard } from './components/admin/SuperAdminDashboard';
@@ -34,10 +32,9 @@ function MainAppContent() {
   const { user } = useAuth();
   const { branding, cmsSections } = useCms();
 
-  // Active view: '09' (Phase 09 QA & Integration), '08' (Phase 08 Modules & Comms), '05' (Phase 05 NIN & BVN Desk), '04' (Phase 04 Super Admin Console), '03' (Phase 03 Customer Dashboard), '02' (Phase 02 Public Website), '01' (Phase 01 Foundation Console)
-  const [activePhase, setActivePhase] = useState<string>('09');
+  // Active view: '02' (Public Website - default), '03' (Customer Dashboard), '04' (Super Admin Console), '09' (QA & Diagnostics)
+  const [activePhase, setActivePhase] = useState<string>('02');
   const [activePublicPage, setActivePublicPage] = useState<string>('home');
-  const [showRoadmapBanner, setShowRoadmapBanner] = useState<boolean>(false);
 
   // Modals
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
@@ -66,143 +63,6 @@ function MainAppContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 font-sans selection:bg-emerald-500 selection:text-white">
-      {/* Top Banner: Phase Progress & Mode Bar */}
-      <div className="bg-slate-900 border-b border-slate-800/80 px-4 py-2 text-xs">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded text-[10px]">
-              {activePhase === '09'
-                ? 'PHASE 09 ACTIVE'
-                : activePhase === '08'
-                ? 'PHASE 08 ACTIVE'
-                : activePhase === '05'
-                ? 'PHASE 05 ACTIVE'
-                : activePhase === '04'
-                ? 'PHASE 04 ACTIVE'
-                : activePhase === '03'
-                ? 'PHASE 03 ACTIVE'
-                : activePhase === '02'
-                ? 'PHASE 02 ACTIVE'
-                : 'PHASE 01 ACTIVE'}
-            </span>
-            <span className="text-slate-300 font-semibold">
-              {activePhase === '09'
-                ? 'Phase 09: Complete Application Integration & Quality Assurance (34 Tests Verified, 5 Reports)'
-                : activePhase === '08'
-                ? 'Phase 08: Additional Modules & Communication System (SMTP, 12 Email Templates, SMS, PIN)'
-                : activePhase === '05'
-                ? 'Phase 05: Complete NIN & BVN Integration (2SureVerify, Veripine, Slips)'
-                : activePhase === '04'
-                ? 'Super Admin Dashboard & Global Management (8 Modules, Real-time DB & RBAC)'
-                : activePhase === '03'
-                ? 'Customer Dashboard Development (14 Pages, Live Backend & Real-time Metrics)'
-                : activePhase === '02'
-                ? 'Public Website & Dynamic Branding Management'
-                : 'Project Foundation & Credentials Vault'}
-            </span>
-            <span className="text-slate-600 hidden md:inline">&bull;</span>
-            <span className="text-slate-400 hidden md:inline text-[11px]">TrueHost LON110 Server (51.89.153.183)</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowRoadmapBanner(!showRoadmapBanner)}
-              className="text-[11px] text-slate-400 hover:text-white transition-colors underline"
-            >
-              {showRoadmapBanner ? 'Hide 10-Phase Roadmap' : 'View 10-Phase Roadmap'}
-            </button>
-            <span className="text-slate-700">|</span>
-            <button
-              onClick={() => setActivePhase('09')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all ${
-                activePhase === '09'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-1 ring-emerald-400/40'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              <FileCheck className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Phase 09: QA</span>
-            </button>
-            <button
-              onClick={() => setActivePhase('08')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all ${
-                activePhase === '08'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Phase 08</span>
-            </button>
-            <button
-              onClick={() => setActivePhase('05')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all ${
-                activePhase === '05'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              <Fingerprint className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Phase 05: NIN &amp; BVN</span>
-            </button>
-            <button
-              onClick={() => setActivePhase('04')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all ${
-                activePhase === '04'
-                  ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              <Shield className="w-3.5 h-3.5 text-amber-300" />
-              <span>Admin Console</span>
-            </button>
-            <button
-              onClick={() => setActivePhase('03')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all ${
-                activePhase === '03'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Customer Portal</span>
-            </button>
-            <button
-              onClick={() => setActivePhase('02')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all ${
-                activePhase === '02'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              <span>Public Web</span>
-            </button>
-            <button
-              onClick={() => setActivePhase('01')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all ${
-                activePhase === '01'
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Phase 01</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Expandable Phase Roadmap Tracker */}
-      {showRoadmapBanner && (
-        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-4">
-          <PhaseTracker
-            currentPhaseNumber={activePhase}
-            onSelectPhase={phaseNum => {
-              setActivePhase(phaseNum);
-            }}
-          />
-        </div>
-      )}
 
       {/* PHASE 09 COMPLETE APPLICATION INTEGRATION & QA VIEW */}
       {activePhase === '09' && (
@@ -289,40 +149,7 @@ function MainAppContent() {
         />
       )}
 
-      {/* PHASE 01 VIEW */}
-      {activePhase === '01' && (
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-          <div className="flex items-center justify-between p-4 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-purple-400"></span>
-              <span className="font-bold text-purple-200">Phase 01 Foundation &amp; Architecture Console</span>
-              <span className="text-slate-400">&bull; Database, Adapters, Auth &amp; Credentials Vault</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setActivePhase('04')}
-                className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs"
-              >
-                Go to Super Admin Console
-              </button>
-              <button
-                onClick={() => setActivePhase('03')}
-                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs"
-              >
-                Go to Customer Dashboard
-              </button>
-              <button
-                onClick={() => setActivePhase('02')}
-                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs"
-              >
-                Return to Phase 02 Public Website
-              </button>
-            </div>
-          </div>
 
-          <Phase1FoundationView onProceedToPhase2={() => setActivePhase('02')} />
-        </main>
-      )}
 
       {/* PHASE 02 PUBLIC WEBSITE VIEW */}
       {activePhase === '02' && (
@@ -388,38 +215,17 @@ function MainAppContent() {
         </>
       )}
 
-      {/* Other Queued Phases (Phase 10) */}
-      {activePhase !== '01' && activePhase !== '02' && activePhase !== '03' && activePhase !== '04' && activePhase !== '05' && activePhase !== '08' && activePhase !== '09' && (
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center space-y-4">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20 mx-auto flex items-center justify-center">
-            <Lock className="w-8 h-8" />
-          </div>
-          <div>
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
-              Phase {activePhase} Queued
-            </span>
-            <h3 className="text-xl font-bold text-white mt-2">
-              {PHASES.find(p => p.number === activePhase)?.title}
-            </h3>
-            <p className="text-xs text-slate-400 max-w-lg mx-auto mt-2 leading-relaxed">
-              {PHASES.find(p => p.number === activePhase)?.description}
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 max-w-md mx-auto text-left text-xs space-y-2">
-            <div className="font-semibold text-slate-300">Phase Rule Enforced:</div>
-            <p className="text-slate-400 text-[11px]">
-              Per project specifications, AI Studio completes and tests each phase sequentially. Phase 01 Foundation, Phase 02 Public Website, Phase 03 Customer Portal, and Phase 04 Super Admin Dashboard are completed and verified.
-            </p>
-          </div>
-
+      {/* Fallback to Public Website */}
+      {activePhase !== '02' && activePhase !== '03' && activePhase !== '04' && activePhase !== '05' && activePhase !== '08' && activePhase !== '09' && (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+          <p className="text-slate-400 text-sm">Redirecting to home...</p>
           <button
-            onClick={() => setActivePhase('04')}
-            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs"
+            onClick={() => setActivePhase('02')}
+            className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold"
           >
-            Return to Phase 04 Admin Console
+            Go to Home
           </button>
-        </main>
+        </div>
       )}
 
       {/* Auth Modal (Register & Login) */}

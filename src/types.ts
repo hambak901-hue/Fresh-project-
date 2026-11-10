@@ -183,6 +183,21 @@ export interface IdentityService {
   slip_type_supported?: boolean;
 }
 
+export interface SlipTemplateItem {
+  id: string;
+  name: string;
+  category: 'NIN' | 'BVN' | 'OTHER';
+  demo_image_url: string;
+  description: string;
+  supported_service: string;
+  is_active: boolean;
+  display_order: number;
+  badge?: string;
+  watermark_text?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
 export interface ProviderConfigItem {
   id: '2sureverify' | 'veripine';
   name: string;

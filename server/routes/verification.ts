@@ -66,6 +66,28 @@ verificationRouter.get('/services', (req, res) => {
       { id: 'bvnStandard', name: 'CBN BVN Official Certificate', description: 'Central Bank of Nigeria biometric validation certificate' },
       { id: 'plasticBvn', name: 'Plastic BVN Digital Card Layout', description: 'Wallet-sized photo card design' },
     ],
+    slipTemplates: db.getSlipTemplates(true).map(t => ({
+      ...t,
+      is_demo_preview: true,
+      watermark_notice: 'SAMPLE PREVIEW ONLY - Not actual identity record',
+    })),
+  });
+});
+
+verificationRouter.get('/slip-templates', (req, res) => {
+  const { category } = req.query;
+  let templates = db.getSlipTemplates(true);
+  if (category && category !== 'ALL') {
+    templates = templates.filter(t => t.category === category);
+  }
+  res.json({
+    success: true,
+    count: templates.length,
+    templates: templates.map(t => ({
+      ...t,
+      is_demo_preview: true,
+      watermark_notice: 'SAMPLE PREVIEW ONLY - Not actual identity record',
+    })),
   });
 });
 

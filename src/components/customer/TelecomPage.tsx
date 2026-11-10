@@ -305,7 +305,7 @@ export const TelecomPage: React.FC = () => {
     const price = currentPlan?.price || 0;
 
     setPinModalTitle('Authorize Data Bundle');
-    setPinModalDesc(`Enter your 4-digit security PIN to authorize ${currentPlan?.plan_name || 'data'} for ${cleanPhone}.`);
+    setPinModalDesc(`Enter your 4-digit security PIN to authorize ${currentPlan?.name || 'data'} for ${cleanPhone}.`);
     setPinModalAmount(price);
     setPendingPinAction(() => async () => {
       try {

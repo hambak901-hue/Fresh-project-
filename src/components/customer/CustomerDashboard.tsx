@@ -107,39 +107,39 @@ export function CustomerDashboard({
 
   const navSections: NavSection[] = [
     {
-      title: 'Main',
+      title: 'Main Services',
       items: [
-        { id: 'overview', label: '1. Dashboard Overview', icon: LayoutDashboard },
-        { id: 'nin', label: '2. NIN Services', icon: ShieldCheck, badge: 'Popular' },
-        { id: 'telecom', label: '3. Telecommunications', icon: Smartphone },
-        { id: 'wallet', label: '4. My Wallet', icon: Wallet },
+        { id: 'overview', label: 'Dashboard Overview', icon: LayoutDashboard },
+        { id: 'nin', label: 'NIN & Identity Services', icon: ShieldCheck, badge: 'Official' },
+        { id: 'telecom', label: 'Telecom & VTU Services', icon: Smartphone },
+        { id: 'wallet', label: 'My Wallet', icon: Wallet },
       ],
     },
     {
-      title: 'Digital Utilities & Commercial',
+      title: 'Digital Utilities',
       items: [
-        { id: 'store', label: '5. Store', icon: ShoppingBag, isComingSoon: true },
-        { id: 'digital', label: '6. Digital Services', icon: Zap },
-        { id: 'academy', label: '7. Academy', icon: GraduationCap, isComingSoon: true },
-        { id: 'reports', label: '8. Reports', icon: BarChart3, isComingSoon: true },
+        { id: 'store', label: 'HambakTech Store', icon: ShoppingBag, isComingSoon: true },
+        { id: 'digital', label: 'Digital Services', icon: Zap },
+        { id: 'academy', label: 'HambakTech Academy', icon: GraduationCap, isComingSoon: true },
+        { id: 'reports', label: 'Reports & Audits', icon: BarChart3, isComingSoon: true },
       ],
     },
     {
       title: 'History & Audits',
       items: [
-        { id: 'transactions', label: '9. Transactions', icon: Receipt },
-        { id: 'orders', label: '10. Orders', icon: Package },
-        { id: 'notifications', label: '11. Notifications', icon: Bell },
-        { id: 'messages', label: '12. Delivered Messages', icon: Inbox },
+        { id: 'transactions', label: 'Transactions', icon: Receipt },
+        { id: 'orders', label: 'Order History', icon: Package },
+        { id: 'notifications', label: 'Notifications', icon: Bell },
+        { id: 'messages', label: 'Delivered Messages', icon: Inbox },
       ],
     },
     {
       title: 'Account & Security',
       items: [
-        { id: 'kyc', label: '13. Identity & KYC', icon: ShieldCheck, badge: user.kyc_status === 'verified' ? 'Verified' : 'Required' },
-        { id: 'profile', label: '14. My Profile', icon: UserIcon },
-        { id: 'settings', label: '15. Settings & PIN', icon: Settings },
-        { id: 'support', label: '16. Support / Help Centre', icon: HelpCircle },
+        { id: 'kyc', label: 'Identity & KYC', icon: ShieldCheck, badge: user.kyc_status === 'verified' ? 'Verified' : 'Required' },
+        { id: 'profile', label: 'My Profile', icon: UserIcon },
+        { id: 'settings', label: 'Security & PIN', icon: Settings },
+        { id: 'support', label: 'Help & Support Desk', icon: HelpCircle },
       ],
     },
   ];
@@ -272,9 +272,10 @@ export function CustomerDashboard({
           </nav>
 
           {/* Bottom user card & view switchers */}
+          {/* Bottom navigation links */}
           <div className="p-3 border-t border-slate-800 space-y-2 bg-slate-900/60">
-            {/* Switch to Super Admin Dashboard */}
-            {onSwitchToAdmin && (
+            {/* Switch to Super Admin Dashboard - Only for admins */}
+            {onSwitchToAdmin && (user.role === 'admin' || user.role === 'superadmin') && (
               <button
                 type="button"
                 onClick={onSwitchToAdmin}
@@ -296,20 +297,7 @@ export function CustomerDashboard({
             >
               <div className="flex items-center gap-2">
                 <ExternalLink className="w-3.5 h-3.5 text-indigo-400" />
-                <span>View Public Website</span>
-              </div>
-              <ChevronRight className="w-3 h-3 text-slate-500" />
-            </button>
-
-            {/* Switch to Phase Console */}
-            <button
-              type="button"
-              onClick={onSwitchToPhaseConsole}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition"
-            >
-              <div className="flex items-center gap-2">
-                <Layers className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Phase 1 Architecture Console</span>
+                <span>Back to Main Website</span>
               </div>
               <ChevronRight className="w-3 h-3 text-slate-500" />
             </button>

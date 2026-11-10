@@ -31,10 +31,10 @@ import {
   Clock,
 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { StoreItem, AcademyCourse, IdentityService, ProviderConfigItem, ProviderLogItem } from '../../types';
+import { StoreItem, AcademyCourse, IdentityService, ProviderConfigItem, ProviderLogItem, SlipTemplateItem } from '../../types';
 
 export function ServiceManagement() {
-  const [activeTab, setActiveTab] = useState<'nin' | 'providers' | 'telecom' | 'digital' | 'store' | 'academy' | 'reports'>('nin');
+  const [activeTab, setActiveTab] = useState<'nin' | 'slip_templates' | 'providers' | 'telecom' | 'digital' | 'store' | 'academy' | 'reports'>('nin');
 
   const [settings, setSettings] = useState<any>({});
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
@@ -57,6 +57,12 @@ export function ServiceManagement() {
   const [providerLogs, setProviderLogs] = useState<ProviderLogItem[]>([]);
   const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({});
 
+  // Slip Templates State (Stage 5)
+  const [slipTemplates, setSlipTemplates] = useState<SlipTemplateItem[]>([]);
+  const [editingSlipTemplate, setEditingSlipTemplate] = useState<Partial<SlipTemplateItem> | null>(null);
+  const [slipCategoryFilter, setSlipCategoryFilter] = useState<'ALL' | 'NIN' | 'BVN'>('ALL');
+  const [savingSlipTemplate, setSavingSlipTemplate] = useState(false);
+
   // Store Item modal
   const [editingStoreItem, setEditingStoreItem] = useState<Partial<StoreItem> | null>(null);
 
@@ -66,11 +72,12 @@ export function ServiceManagement() {
   const fetchServices = async () => {
     setLoading(true);
     try {
-      const [res, pricingRes, providersRes, logsRes] = await Promise.all([
+      const [res, pricingRes, providersRes, logsRes, templatesRes] = await Promise.all([
         api.getAdminServices(),
         api.getAdminVerificationPricing().catch(() => ({ services: [] })),
         api.getAdminProviders().catch(() => ({ providers: [] })),
         api.getAdminProviderLogs().catch(() => ({ logs: [] })),
+        api.getAdminSlipTemplates().catch(() => ({ templates: [] })),
       ]);
       setSettings(res.settings || {});
       setStoreItems(res.store_items || []);
@@ -88,6 +95,9 @@ export function ServiceManagement() {
       }
       if (logsRes?.logs) {
         setProviderLogs(logsRes.logs);
+      }
+      if (templatesRes?.templates) {
+        setSlipTemplates(templatesRes.templates);
       }
     } catch (e) {
       console.error(e);
@@ -308,6 +318,52 @@ export function ServiceManagement() {
     }
   };
 
+  const handleSaveSlipTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSlipTemplate || !editingSlipTemplate.name || !editingSlipTemplate.demo_image_url) return;
+    setSavingSlipTemplate(true);
+    try {
+      if (editingSlipTemplate.id) {
+        await api.updateAdminSlipTemplate(editingSlipTemplate.id, editingSlipTemplate);
+      } else {
+        await api.createAdminSlipTemplate(editingSlipTemplate);
+      }
+      setEditingSlipTemplate(null);
+      const res = await api.getAdminSlipTemplates();
+      if (res?.templates) setSlipTemplates(res.templates);
+      setSuccessMsg('Slip template saved successfully.');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to save slip template');
+    } finally {
+      setSavingSlipTemplate(false);
+    }
+  };
+
+  const handleDeleteSlipTemplate = async (id: string) => {
+    if (!window.confirm('Delete this slip template preview?')) return;
+    try {
+      await api.deleteAdminSlipTemplate(id);
+      const res = await api.getAdminSlipTemplates();
+      if (res?.templates) setSlipTemplates(res.templates);
+      setSuccessMsg('Slip template removed.');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete template');
+    }
+  };
+
+  const handleToggleSlipActive = async (template: SlipTemplateItem) => {
+    try {
+      await api.updateAdminSlipTemplate(template.id, { is_active: !template.is_active });
+      setSlipTemplates(prev =>
+        prev.map(t => (t.id === template.id ? { ...t, is_active: !t.is_active } : t))
+      );
+    } catch (err: any) {
+      alert(err.message || 'Failed to toggle template status');
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -338,6 +394,7 @@ export function ServiceManagement() {
         <div className="flex gap-2 mt-6 pt-6 border-t border-slate-800 text-xs overflow-x-auto">
           {[
             { id: 'nin', label: 'NIN & BVN Services (42 Matrix)', icon: ShieldCheck },
+            { id: 'slip_templates', label: 'Slip Templates', icon: FileSpreadsheet },
             { id: 'providers', label: 'Providers & Gateways', icon: Server },
             { id: 'telecom', label: 'Telecommunications', icon: Smartphone },
             { id: 'digital', label: 'Digital Utilities', icon: Zap },
@@ -561,6 +618,367 @@ export function ServiceManagement() {
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 1B. SLIP TEMPLATES & DEMONSTRATION PREVIEWS (Stage 5 Admin Requirement) */}
+      {activeTab === 'slip_templates' && (
+        <div className="space-y-6 text-xs">
+          {/* Controls Bar */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-indigo-400" />
+                  <span>Identity Slip Templates &amp; Demonstration Previews</span>
+                </h2>
+                <p className="text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                  Upload and manage visual specimen previews for customer slip format selection (NIN Long Slip, Standard Slip, Plastic BVN, etc.).
+                  These templates provide layout guidance for users and are strictly separated from genuine provider documents returned from live queries.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setEditingSlipTemplate({
+                    name: '',
+                    category: 'NIN',
+                    demo_image_url: '/assets/aistudio/IMG_0483_23e1a1e1.png',
+                    description: '',
+                    supported_service: 'all_nin',
+                    is_active: true,
+                    display_order: (slipTemplates.length || 0) + 1,
+                    badge: 'Standard Slip',
+                    watermark_text: 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY',
+                  })
+                }
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold flex items-center gap-2 transition shadow-lg shadow-indigo-600/20 self-start sm:self-auto"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Demo Slip Template</span>
+              </button>
+            </div>
+
+            {/* Quick Metrics & Filter */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+              <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+                <span className="text-[10px] text-slate-500 uppercase font-mono">Total Templates</span>
+                <p className="text-lg font-bold text-white mt-0.5">{slipTemplates.length}</p>
+              </div>
+              <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+                <span className="text-[10px] text-slate-500 uppercase font-mono">Active in Customer UI</span>
+                <p className="text-lg font-bold text-emerald-400 mt-0.5">
+                  {slipTemplates.filter(t => t.is_active).length}
+                </p>
+              </div>
+              <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+                <span className="text-[10px] text-slate-500 uppercase font-mono">NIN Specimens</span>
+                <p className="text-lg font-bold text-indigo-400 mt-0.5">
+                  {slipTemplates.filter(t => t.category === 'NIN').length}
+                </p>
+              </div>
+              <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+                <span className="text-[10px] text-slate-500 uppercase font-mono">BVN Specimens</span>
+                <p className="text-lg font-bold text-cyan-400 mt-0.5">
+                  {slipTemplates.filter(t => t.category === 'BVN').length}
+                </p>
+              </div>
+            </div>
+
+            {/* Category Filter Tabs */}
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-800/80">
+              {(['ALL', 'NIN', 'BVN'] as const).map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSlipCategoryFilter(cat)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    slipCategoryFilter === cat
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                  }`}
+                >
+                  {cat === 'ALL' ? 'All Templates' : `${cat} Specimens`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Templates Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {slipTemplates
+              .filter(t => slipCategoryFilter === 'ALL' || t.category === slipCategoryFilter)
+              .sort((a, b) => a.display_order - b.display_order)
+              .map(template => (
+                <div
+                  key={template.id}
+                  className={`bg-slate-900 border rounded-2xl overflow-hidden flex flex-col transition shadow-xl ${
+                    template.is_active ? 'border-slate-800' : 'border-slate-800/40 opacity-70'
+                  }`}
+                >
+                  {/* Demo Image Specimen Banner */}
+                  <div className="relative h-48 bg-slate-950 overflow-hidden flex items-center justify-center border-b border-slate-800">
+                    <img
+                      src={template.demo_image_url}
+                      alt={template.name}
+                      className="w-full h-full object-cover opacity-90"
+                      onError={e => {
+                        (e.target as any).src = '/assets/aistudio/IMG_0483_23e1a1e1.png';
+                      }}
+                    />
+                    {/* Watermark Overlay banner */}
+                    <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[1px] flex items-center justify-center p-4">
+                      <div className="border border-dashed border-amber-400/70 bg-amber-950/80 text-amber-300 px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold tracking-wider text-center rotate-[-4deg] shadow-lg">
+                        {template.watermark_text || 'DEMO SPECIMEN - SAMPLE ONLY'}
+                      </div>
+                    </div>
+
+                    {/* Badge */}
+                    <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded bg-indigo-600/90 text-white font-mono text-[9px] font-bold uppercase shadow">
+                        {template.category}
+                      </span>
+                      {template.badge && (
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/90 text-slate-950 font-bold text-[9px] shadow">
+                          {template.badge}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Order Tag */}
+                    <div className="absolute top-3 right-3 px-2 py-0.5 rounded bg-slate-900/90 text-slate-300 font-mono text-[10px] border border-slate-700">
+                      #{template.display_order}
+                    </div>
+                  </div>
+
+                  {/* Body Content */}
+                  <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-bold text-white text-sm leading-snug">{template.name}</h3>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-semibold font-mono shrink-0 ${
+                            template.is_active
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              : 'bg-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {template.is_active ? 'ACTIVE' : 'DISABLED'}
+                        </span>
+                      </div>
+                      <p className="text-slate-400 text-[11px] leading-relaxed line-clamp-2">
+                        {template.description || 'Demonstration sample layout for customer visual selection.'}
+                      </p>
+                      <div className="pt-2 flex items-center gap-2 text-[10px] font-mono text-slate-500">
+                        <span>Applies to:</span>
+                        <span className="text-slate-300 font-semibold bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                          {template.supported_service}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Footer Actions */}
+                    <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSlipActive(template)}
+                        className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg transition ${
+                          template.is_active
+                            ? 'bg-slate-800 text-slate-300 hover:text-white'
+                            : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                        }`}
+                      >
+                        {template.is_active ? 'Disable in UI' : 'Enable in UI'}
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingSlipTemplate(template)}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
+                          title="Edit template details"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSlipTemplate(template.id)}
+                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition"
+                          title="Delete template"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          {/* Edit / Create Slip Template Modal */}
+          {editingSlipTemplate && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl my-8">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <h3 className="font-bold text-white text-sm">
+                    {editingSlipTemplate.id ? 'Edit Demo Slip Template' : 'Add New Demo Slip Template'}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setEditingSlipTemplate(null)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveSlipTemplate} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Template Display Name</label>
+                    <input
+                      type="text"
+                      value={editingSlipTemplate.name || ''}
+                      onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, name: e.target.value })}
+                      placeholder="e.g. NIMC Long Slip (Standard Official Format)"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Category</label>
+                      <select
+                        value={editingSlipTemplate.category || 'NIN'}
+                        onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, category: e.target.value as any })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="NIN">NIN (National Identity)</option>
+                        <option value="BVN">BVN (Bank Verification)</option>
+                        <option value="OTHER">Other Sovereign Slip</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Supported Service</label>
+                      <input
+                        type="text"
+                        value={editingSlipTemplate.supported_service || 'all_nin'}
+                        onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, supported_service: e.target.value })}
+                        placeholder="e.g. all_nin, nin_v1, all_bvn"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Demo Preview Image URL</label>
+                    <input
+                      type="text"
+                      value={editingSlipTemplate.demo_image_url || ''}
+                      onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, demo_image_url: e.target.value })}
+                      placeholder="/assets/aistudio/IMG_0483_23e1a1e1.png"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-indigo-500"
+                      required
+                    />
+                    {/* Quick Asset Selectors */}
+                    <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-slate-500">Quick presets:</span>
+                      {[
+                        { label: 'Long Slip (IMG_0483)', url: '/assets/aistudio/IMG_0483_23e1a1e1.png' },
+                        { label: 'Plastic Card (IMG_0484)', url: '/assets/aistudio/IMG_0484_0fb633df.png' },
+                        { label: 'Basic Slip (IMG_0486)', url: '/assets/aistudio/IMG_0486_66e12609.jpeg' },
+                      ].map(preset => (
+                        <button
+                          key={preset.url}
+                          type="button"
+                          onClick={() => setEditingSlipTemplate({ ...editingSlipTemplate, demo_image_url: preset.url })}
+                          className="px-2 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[10px] text-slate-400 hover:text-white font-mono"
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Description</label>
+                    <textarea
+                      rows={2}
+                      value={editingSlipTemplate.description || ''}
+                      onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, description: e.target.value })}
+                      placeholder="Brief guidance for customers selecting this slip format..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Badge Text (Optional)</label>
+                      <input
+                        type="text"
+                        value={editingSlipTemplate.badge || ''}
+                        onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, badge: e.target.value })}
+                        placeholder="e.g. Recommended, Plastic Card"
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Display Order</label>
+                      <input
+                        type="number"
+                        value={editingSlipTemplate.display_order ?? 1}
+                        onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, display_order: Number(e.target.value) })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Watermark Stamp Text</label>
+                    <input
+                      type="text"
+                      value={editingSlipTemplate.watermark_text || 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY'}
+                      onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, watermark_text: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="slip_is_active"
+                      checked={editingSlipTemplate.is_active ?? true}
+                      onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, is_active: e.target.checked })}
+                      className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <label htmlFor="slip_is_active" className="text-slate-300 font-medium cursor-pointer">
+                      Active (Visible to customers on verification selection)
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setEditingSlipTemplate(null)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingSlipTemplate}
+                      className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition flex items-center gap-1.5"
+                    >
+                      {savingSlipTemplate && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Save Template</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

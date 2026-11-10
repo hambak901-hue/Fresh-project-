@@ -608,6 +608,21 @@ export interface CustomerMessageItem {
   created_at: string;
 }
 
+export interface SlipTemplateItem {
+  id: string;
+  name: string;
+  category: 'NIN' | 'BVN' | 'OTHER';
+  demo_image_url: string;
+  description: string;
+  supported_service: string; // 'all_nin', 'nin_v1', 'nin_v2', 'bvn_v1', 'all_bvn'
+  is_active: boolean;
+  display_order: number;
+  badge?: string;
+  watermark_text?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
 interface DatabaseSchema {
   users: User[];
   transactions: Transaction[];
@@ -647,6 +662,7 @@ interface DatabaseSchema {
   kyc_submissions?: KycSubmission[];
   service_security_rules?: ServiceSecurityRule[];
   virtual_accounts?: VirtualAccountItem[];
+  slip_templates?: SlipTemplateItem[];
 }
 
 const DB_DIR = path.resolve(process.cwd(), 'server', 'db');
@@ -1771,6 +1787,73 @@ function getDefaultData(): DatabaseSchema {
         last_funding_at: '2026-11-05T14:20:00.000Z',
       },
     ],
+    slip_templates: [
+      {
+        id: 'tpl_nin_long',
+        name: 'NIMC Long Slip (Standard Official Format)',
+        category: 'NIN',
+        demo_image_url: '/assets/aistudio/IMG_0483_23e1a1e1.png',
+        description: 'Complete Federal Republic of Nigeria official NIMC certificate format with tracking barcode, verified photo, and sovereign QR security stamp.',
+        supported_service: 'all_nin',
+        is_active: true,
+        display_order: 1,
+        badge: 'Recommended',
+        watermark_text: 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 'tpl_nin_plastic',
+        name: 'NIMC Premium Plastic Digital ID Card',
+        category: 'NIN',
+        demo_image_url: '/assets/aistudio/IMG_0484_0fb633df.png',
+        description: 'Dual-sided wallet plastic biometric card format featuring high-resolution identity photo, microprint background, and national emblem.',
+        supported_service: 'all_nin',
+        is_active: true,
+        display_order: 2,
+        badge: 'Plastic Card',
+        watermark_text: 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 'tpl_nin_basic',
+        name: 'NIMC Basic Identity Summary Slip',
+        category: 'NIN',
+        demo_image_url: '/assets/aistudio/IMG_0486_66e12609.jpeg',
+        description: 'Lightweight summary verification sheet providing primary biodata attributes, verification date, and sovereign reference.',
+        supported_service: 'all_nin',
+        is_active: true,
+        display_order: 3,
+        badge: 'Compact',
+        watermark_text: 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 'tpl_bvn_standard',
+        name: 'Central Bank of Nigeria (CBN) Official BVN Certificate',
+        category: 'BVN',
+        demo_image_url: '/assets/aistudio/IMG_0483_23e1a1e1.png',
+        description: 'Official biometric validation certificate queried directly from NIBSS banking database with financial verification QR seal.',
+        supported_service: 'all_bvn',
+        is_active: true,
+        display_order: 4,
+        badge: 'CBN Official',
+        watermark_text: 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 'tpl_bvn_plastic',
+        name: 'Plastic BVN Biometric Digital Card',
+        category: 'BVN',
+        demo_image_url: '/assets/aistudio/IMG_0484_0fb633df.png',
+        description: 'Wallet-sized banking identity card with high-resolution photograph and account bank seals.',
+        supported_service: 'all_bvn',
+        is_active: true,
+        display_order: 5,
+        badge: 'Banking Card',
+        watermark_text: 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY',
+        created_at: new Date().toISOString(),
+      },
+    ],
   };
 }
 
@@ -1820,8 +1903,10 @@ export function initDatabase(): void {
       if (!dbData.virtual_accounts) {
         dbData.virtual_accounts = defaults.virtual_accounts || [];
       }
+      if (!dbData.slip_templates || dbData.slip_templates.length === 0) {
+        dbData.slip_templates = defaults.slip_templates || [];
+      }
 
-      // Users must configure their own individual transaction PIN; no default 1234
       saveDatabase();
     } else {
       dbData = getDefaultData();
@@ -2398,6 +2483,53 @@ export const db = {
     }
     saveDatabase();
     return acc;
+  },
+
+  getSlipTemplates(onlyActive: boolean = false): SlipTemplateItem[] {
+    const list = this.data.slip_templates || [];
+    if (onlyActive) {
+      return list.filter(t => t.is_active).sort((a, b) => a.display_order - b.display_order);
+    }
+    return [...list].sort((a, b) => a.display_order - b.display_order);
+  },
+
+  createSlipTemplate(item: Omit<SlipTemplateItem, 'id' | 'created_at'>): SlipTemplateItem {
+    if (!this.data.slip_templates) {
+      this.data.slip_templates = [];
+    }
+    const newTemplate: SlipTemplateItem = {
+      ...item,
+      id: `tpl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.data.slip_templates.push(newTemplate);
+    saveDatabase();
+    return newTemplate;
+  },
+
+  updateSlipTemplate(id: string, updates: Partial<SlipTemplateItem>): SlipTemplateItem | null {
+    if (!this.data.slip_templates) return null;
+    const index = this.data.slip_templates.findIndex(t => t.id === id);
+    if (index === -1) return null;
+    this.data.slip_templates[index] = {
+      ...this.data.slip_templates[index],
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+    saveDatabase();
+    return this.data.slip_templates[index];
+  },
+
+  deleteSlipTemplate(id: string): boolean {
+    if (!this.data.slip_templates) return false;
+    const initialLen = this.data.slip_templates.length;
+    this.data.slip_templates = this.data.slip_templates.filter(t => t.id !== id);
+    if (this.data.slip_templates.length !== initialLen) {
+      saveDatabase();
+      return true;
+    }
+    return false;
   },
 };
 

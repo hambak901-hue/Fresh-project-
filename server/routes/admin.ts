@@ -865,6 +865,79 @@ adminRouter.post('/services/verification/sync-wholesale', requireAdmin, async (r
   }
 });
 
+// -------------------------------------------------------------
+// 5D. SLIP TEMPLATE PREVIEW MANAGEMENT (Stage 5 Admin Requirement)
+// -------------------------------------------------------------
+adminRouter.get('/slip-templates', requireAdmin, (req, res) => {
+  const templates = db.getSlipTemplates(false);
+  res.json({
+    success: true,
+    count: templates.length,
+    templates,
+  });
+});
+
+adminRouter.post('/slip-templates', requireAdmin, (req: any, res) => {
+  const { name, category, demo_image_url, description, supported_service, is_active = true, display_order, badge, watermark_text } = req.body;
+  if (!name || !demo_image_url) {
+    return res.status(400).json({ error: 'Template name and demo preview image URL are required' });
+  }
+
+  const newTemplate = db.createSlipTemplate({
+    name: String(name).trim(),
+    category: (category || 'NIN') as any,
+    demo_image_url: String(demo_image_url).trim(),
+    description: description ? String(description).trim() : '',
+    supported_service: supported_service || 'all_nin',
+    is_active: Boolean(is_active),
+    display_order: Number(display_order) || 99,
+    badge: badge ? String(badge).trim() : undefined,
+    watermark_text: watermark_text || 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY',
+  });
+
+  db.logAudit('SLIP_TEMPLATE_CREATED', { templateId: newTemplate.id, name: newTemplate.name }, req.user.id, req.user.email);
+
+  res.json({
+    success: true,
+    message: `Slip template "${newTemplate.name}" created successfully`,
+    template: newTemplate,
+  });
+});
+
+adminRouter.put('/slip-templates/:id', requireAdmin, (req: any, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+  const updated = db.updateSlipTemplate(id, updates);
+
+  if (!updated) {
+    return res.status(404).json({ error: 'Slip template not found' });
+  }
+
+  db.logAudit('SLIP_TEMPLATE_UPDATED', { templateId: id, updates }, req.user.id, req.user.email);
+
+  res.json({
+    success: true,
+    message: `Slip template "${updated.name}" updated successfully`,
+    template: updated,
+  });
+});
+
+adminRouter.delete('/slip-templates/:id', requireAdmin, (req: any, res) => {
+  const { id } = req.params;
+  const deleted = db.deleteSlipTemplate(id);
+
+  if (!deleted) {
+    return res.status(404).json({ error: 'Slip template not found' });
+  }
+
+  db.logAudit('SLIP_TEMPLATE_DELETED', { templateId: id }, req.user.id, req.user.email);
+
+  res.json({
+    success: true,
+    message: 'Slip template removed',
+  });
+});
+
 // Store Items CRUD
 adminRouter.post('/services/store', requireAdmin, (req: any, res) => {
   const { name, category, price, stock, description, image_url, status = 'active' } = req.body;

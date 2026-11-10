@@ -61,15 +61,21 @@ export const CREDENTIALS = {
 
   // SMTP & Mail Settings (Truehost LON110)
   mail: {
-    host: process.env.SMTP_HOST || 'lon110.truehost.cloud',
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true' || false,
-    user: process.env.SMTP_USER || 'notifications@hambaktech.com.ng',
+    host: process.env.SMTP_HOST || 'mail.hambaktech.com.ng',
+    fallbackHost: 'lon110.truehost.cloud',
+    port: parseInt(process.env.SMTP_PORT || '465', 10),
+    fallbackPort: 587,
+    secure: process.env.SMTP_SECURE === 'true' || true,
+    user: process.env.SMTP_USER || 'support@hambaktech.com.ng',
+    infoUser: 'info@hambaktech.com.ng',
     pass: process.env.SMTP_PASS || '',
-    from: process.env.SMTP_FROM || 'HambakTech Notifications <notifications@hambaktech.com.ng>',
+    from: process.env.SMTP_FROM || 'HambakTech Support <support@hambaktech.com.ng>',
     supportEmail: process.env.SUPPORT_EMAIL || 'support@hambaktech.com.ng',
     infoEmail: process.env.INFO_EMAIL || 'info@hambaktech.com.ng',
     webmailUrl: process.env.WEBMAIL_URL || 'http://www.hambaktech.com.ng/webmail',
+    incomingServer: 'mail.hambaktech.com.ng',
+    imapPort: 993,
+    pop3Port: 995,
   },
 
   // cPanel Hosting & SFTP Deployment Configuration
@@ -78,8 +84,8 @@ export const CREDENTIALS = {
     serverIp: process.env.CPANEL_SERVER_IP || '51.89.153.183',
     ftpHost: process.env.CPANEL_SFTP_HOST || '51.89.153.183',
     ftpPort: parseInt(process.env.CPANEL_SFTP_PORT || '1624', 10),
-    ftpUser: process.env.CPANEL_SFTP_USER || '',
-    ftpPass: process.env.CPANEL_SFTP_PASS || '',
+    ftpUser: process.env.CPANEL_SFTP_USER || 'qfqzpeqx',
+    ftpPass: process.env.CPANEL_SFTP_PASS || '2h9PAQk[kE[t96',
     nameservers: [
       'ns1.cloudoon.com (57.128.250.247)',
       'ns2.cloudoon.net (49.12.105.164)',

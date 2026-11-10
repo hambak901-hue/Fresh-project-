@@ -39,8 +39,8 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         $responseBody = '';
         $reference = $payload['reference'] ?? ('2SV_' . strtoupper(bin2hex(random_bytes(6))));
 
-        // If real API key is configured, perform cURL call
-        if (!empty($this->apiKey) && $this->apiKey !== 'test_sureverify_key') {
+        // Perform real provider cURL call
+        if (!empty($this->apiKey)) {
             $ch = curl_init($url);
             $jsonPayload = json_encode(array_merge($payload, ['api_key' => $this->apiKey]));
 
@@ -50,7 +50,9 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 CURLOPT_POSTFIELDS => $jsonPayload,
                 CURLOPT_HTTPHEADER => [
                     'Content-Type: application/json',
+                    'Accept: application/json',
                     'Authorization: Bearer ' . $this->apiKey,
+                    'X-Api-Key: ' . $this->apiKey,
                 ],
                 CURLOPT_TIMEOUT => $this->timeout,
                 CURLOPT_SSL_VERIFYPEER => true,
@@ -67,45 +69,72 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
                 $decoded = json_decode($responseBody, true);
                 if (is_array($decoded)) {
+                    $decoded['reference'] = $decoded['reference'] ?? $reference;
                     return $decoded;
                 }
             }
+
+            // Upstream provider returned an error or non-200 status
+            $errorMsg = 'Provider verification request failed';
+            if ($responseBody) {
+                $decodedErr = json_decode($responseBody, true);
+                if (is_array($decodedErr) && !empty($decodedErr['message'])) {
+                    $errorMsg = $decodedErr['message'];
+                }
+            } elseif ($curlError) {
+                $errorMsg = 'Connection error: ' . $curlError;
+            }
+
+            return [
+                'status' => 'failed',
+                'success' => false,
+                'code' => $statusCode ?: 502,
+                'message' => $errorMsg,
+                'reference' => $reference,
+                'raw_error' => $responseBody ?: $curlError,
+            ];
         }
 
-        // High-fidelity fallback / certified simulation when upstream sandbox is enabled
-        $latencyMs = (int)round((microtime(true) - $startTime) * 1000) + 120;
-        $ninValue = $payload['nin'] ?? $payload['phone'] ?? $payload['bvn'] ?? '12345678901';
-        $tier = $payload['tier'] ?? 'standard';
-        $slipType = $payload['slip_type'] ?? 'ninStandard';
+        // Only when testSandbox is explicitly passed, permit sandbox testing marked clearly as sandbox
+        if (!empty($payload['testSandbox'])) {
+            $latencyMs = (int)round((microtime(true) - $startTime) * 1000) + 120;
+            $ninValue = $payload['nin'] ?? $payload['phone'] ?? $payload['bvn'] ?? '12345678901';
+            $simulatedResult = [
+                'status' => 'success',
+                'success' => true,
+                'code' => 200,
+                'message' => 'Identity verified in test sandbox mode',
+                'reference' => $reference,
+                'is_simulated' => true,
+                'data' => [
+                    'nin' => (string)$ninValue,
+                    'vnin' => 'AB' . strtoupper(substr(md5((string)$ninValue), 0, 14)),
+                    'firstname' => $payload['first_name'] ?? $payload['firstname'] ?? 'FATIMOH',
+                    'surname' => $payload['last_name'] ?? $payload['surname'] ?? 'MUSBAU',
+                    'middlename' => 'ADEYEMI',
+                    'birthdate' => $payload['dob'] ?? '1996-08-14',
+                    'gender' => strtolower($payload['gender'] ?? 'female'),
+                    'telephone' => $payload['phone'] ?? '+2348123456789',
+                    'residence_state' => $payload['state'] ?? 'Lagos',
+                    'residence_lga' => $payload['lga'] ?? 'Ikeja',
+                    'tracking_id' => 'NIMC-' . strtoupper(substr(hash('sha256', (string)$ninValue), 0, 10)),
+                    'provider' => '2sureverify',
+                    'photo' => 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
+                    'verified_at' => date('c'),
+                ],
+            ];
+            $this->logTransaction($endpoint, $payload, json_encode($simulatedResult), 200, $latencyMs, $reference);
+            return $simulatedResult;
+        }
 
-        $simulatedResult = [
-            'status' => 'success',
-            'code' => 200,
-            'message' => 'Identity verified successfully via 2SureVerify sovereign gateway',
+        // Live mode without API key configured returns genuine failure
+        return [
+            'status' => 'failed',
+            'success' => false,
+            'code' => 503,
+            'message' => '2SureVerify API key is not configured on the production host. Please set SUREVERIFY_API_KEY.',
             'reference' => $reference,
-            'data' => [
-                'nin' => strlen((string)$ninValue) === 11 ? (string)$ninValue : '98765432101',
-                'vnin' => 'AB' . strtoupper(substr(md5((string)$ninValue), 0, 14)),
-                'firstname' => $payload['first_name'] ?? $payload['firstname'] ?? 'FATIMOH',
-                'surname' => $payload['last_name'] ?? $payload['surname'] ?? 'MUSBAU',
-                'middlename' => 'ADEYEMI',
-                'birthdate' => $payload['dob'] ?? '1996-08-14',
-                'gender' => strtolower($payload['gender'] ?? 'female'),
-                'telephone' => $payload['phone'] ?? '+2348123456789',
-                'state' => $payload['state'] ?? 'Lagos',
-                'lga' => $payload['lga'] ?? 'Ikeja',
-                'residence_address' => $payload['address'] ?? 'Plot 14 Commercial Avenue, Ikeja',
-                'tracking_id' => 'NIMC-' . strtoupper(substr(hash('sha256', (string)$ninValue), 0, 10)),
-                'slip_type' => $slipType,
-                'tier' => $tier,
-                'provider' => '2sureverify',
-                'photo' => 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
-                'verified_at' => date('c'),
-            ],
         ];
-
-        $this->logTransaction($endpoint, $payload, json_encode($simulatedResult), 200, $latencyMs, $reference);
-        return $simulatedResult;
     }
 
     public function ping(): array

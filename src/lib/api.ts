@@ -22,10 +22,14 @@ export function clearStoredToken(): void {
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
     ...(options.headers as Record<string, string>),
   };
+
+  // Only set application/json if body is not FormData
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
@@ -687,6 +691,21 @@ export const api = {
     });
   },
 
+  async uploadDocument(file: File, documentType: string = 'kyc_document'): Promise<{
+    success: boolean;
+    file_url: string;
+    file_name: string;
+    message: string;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('document_type', documentType);
+    return request('/api/customer/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
 
   // ---------------------------------------------------------------------------
   // Super Admin & Global Management (Phase 4)
@@ -922,6 +941,36 @@ export const api = {
   async syncWholesalePrices(): Promise<{ success: boolean; message: string; updatedCount: number }> {
     return request('/api/admin/services/verification/sync-wholesale', {
       method: 'POST',
+    });
+  },
+
+  // Slip Templates Management (Stage 5)
+  async getSlipTemplates(category?: string): Promise<{ success: boolean; count: number; templates: import('../types').SlipTemplateItem[] }> {
+    const qs = category && category !== 'ALL' ? `?category=${encodeURIComponent(category)}` : '';
+    return request(`/api/verification/slip-templates${qs}`);
+  },
+
+  async getAdminSlipTemplates(): Promise<{ success: boolean; count: number; templates: import('../types').SlipTemplateItem[] }> {
+    return request('/api/admin/slip-templates');
+  },
+
+  async createAdminSlipTemplate(data: Partial<import('../types').SlipTemplateItem>): Promise<{ success: boolean; message: string; template: import('../types').SlipTemplateItem }> {
+    return request('/api/admin/slip-templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateAdminSlipTemplate(id: string, updates: Partial<import('../types').SlipTemplateItem>): Promise<{ success: boolean; message: string; template: import('../types').SlipTemplateItem }> {
+    return request(`/api/admin/slip-templates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async deleteAdminSlipTemplate(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/slip-templates/${id}`, {
+      method: 'DELETE',
     });
   },
 

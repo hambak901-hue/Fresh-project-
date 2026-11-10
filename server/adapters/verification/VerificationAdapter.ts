@@ -206,7 +206,7 @@ export class TwoSureVerifyAdapter implements VerificationProviderInterface {
         raw_response: json,
       };
     } catch (err: any) {
-      if (testMode || process.env.ENABLE_MOCK_SIMULATION === 'true') {
+      if (testMode) {
         const simulated = this.generateSimulatedResponse(serviceKey, payload);
         simulated.message = `${simulated.message} (Sandbox test mode)`;
         simulated.is_simulated = true;

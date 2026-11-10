@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   FileText,
   Shield,
+  ShieldCheck,
   Menu,
   X,
   ChevronRight,
@@ -356,7 +357,7 @@ export function SuperAdminDashboard({
             >
               <div className="flex items-center gap-2">
                 <Layers className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Phase 03 Customer Portal</span>
+                <span>Customer Portal View</span>
               </div>
               <ChevronRight className="w-3 h-3 text-slate-500" />
             </button>
@@ -369,20 +370,7 @@ export function SuperAdminDashboard({
             >
               <div className="flex items-center gap-2">
                 <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Phase 02 Public Web &amp; CMS</span>
-              </div>
-              <ChevronRight className="w-3 h-3 text-slate-500" />
-            </button>
-
-            {/* Switch to Phase Console */}
-            <button
-              type="button"
-              onClick={onSwitchToPhaseConsole}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition"
-            >
-              <div className="flex items-center gap-2">
-                <Shield className="w-3.5 h-3.5 text-purple-400" />
-                <span>Phase 01 Arch Console</span>
+                <span>Back to Public Website</span>
               </div>
               <ChevronRight className="w-3 h-3 text-slate-500" />
             </button>

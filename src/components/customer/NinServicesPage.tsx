@@ -10,7 +10,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
-import { VerificationRecord, IdentityService } from '../../types';
+import { VerificationRecord, IdentityService, SlipTemplateItem } from '../../types';
 import { IdentitySlipModal } from './IdentitySlipModal';
 import { TransactionPinModal } from './TransactionPinModal';
 import {
@@ -40,6 +40,8 @@ import {
   Briefcase,
   AlertTriangle,
   RotateCcw,
+  Eye,
+  Check,
 } from 'lucide-react';
 
 type HubCategory = 'nin_verify' | 'bvn_verify' | 'nin_mod' | 'enrolment' | 'additional' | 'history';
@@ -50,6 +52,8 @@ export const NinServicesPage: React.FC = () => {
   const [services, setServices] = useState<IdentityService[]>([]);
   const [categories, setCategories] = useState<Record<string, IdentityService[]>>({});
   const [slipTypes, setSlipTypes] = useState<Array<{ id: string; name: string; description: string }>>([]);
+  const [slipTemplates, setSlipTemplates] = useState<SlipTemplateItem[]>([]);
+  const [previewModalTemplate, setPreviewModalTemplate] = useState<SlipTemplateItem | null>(null);
   const [activeProvider, setActiveProvider] = useState<string>('2sureverify');
   const [loadingServices, setLoadingServices] = useState<boolean>(true);
 
@@ -99,6 +103,13 @@ export const NinServicesPage: React.FC = () => {
         setServices(res.services || []);
         setCategories(res.categories || {});
         setSlipTypes(res.slipTypes || []);
+        if ((res as any).slipTemplates) {
+          setSlipTemplates((res as any).slipTemplates);
+        } else {
+          api.getSlipTemplates().then(st => {
+            if (st?.templates) setSlipTemplates(st.templates);
+          }).catch(() => {});
+        }
         if (res.activeProvider) setActiveProvider(res.activeProvider);
       }
     } catch (e) {
@@ -459,23 +470,123 @@ export const NinServicesPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Field: slip_type */}
+              {/* Field: slip_type with Administrator-Uploaded Demonstration Previews */}
               {currentService.slip_type_supported && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Document Slip Layout Format
-                  </label>
-                  <select
-                    value={formData.slip_type || 'ninStandard'}
-                    onChange={e => handleFieldChange('slip_type', e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="ninStandard">NIMC Standard Slip (High-Res Colored with QR)</option>
-                    <option value="ninPremium">NIMC Premium Plastic Card Layout</option>
-                    <option value="ninBasic">NIMC Basic Slip</option>
-                    <option value="ninVnin">NIMC Virtual NIN Certificate</option>
-                    <option value="ninSpecial">NIMC Special Diplomatic Slip</option>
-                  </select>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      Select Certificate Format
+                    </label>
+                    <span className="text-[10px] text-amber-400 font-mono flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" />
+                      <span>Visual Previews</span>
+                    </span>
+                  </div>
+
+                  {/* Demonstration Previews Selection Cards */}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {(slipTemplates.length > 0 ? slipTemplates : [
+                      {
+                        id: 'ninStandard',
+                        name: 'NIMC Long Slip',
+                        category: 'NIN',
+                        demo_image_url: '/assets/aistudio/IMG_0483_23e1a1e1.png',
+                        description: 'Official NIMC certified slip format with barcode and QR seal.',
+                        badge: 'Recommended',
+                        watermark_text: 'SAMPLE SPECIMEN',
+                      },
+                      {
+                        id: 'ninPremium',
+                        name: 'NIMC Plastic Card',
+                        category: 'NIN',
+                        demo_image_url: '/assets/aistudio/IMG_0484_0fb633df.png',
+                        description: 'Plastic biometric card layout optimized for wallet carrying.',
+                        badge: 'Plastic Card',
+                        watermark_text: 'SAMPLE SPECIMEN',
+                      },
+                    ])
+                      .filter(t => (t as any).is_active !== false && (
+                        currentService.category.includes('BVN') ? t.category === 'BVN' : t.category === 'NIN'
+                      ))
+                      .map(tpl => {
+                        const isSelected = formData.slip_type === tpl.id || (
+                          formData.slip_type === 'ninStandard' && tpl.id === 'tpl_nin_long'
+                        ) || (
+                          formData.slip_type === 'ninPremium' && tpl.id === 'tpl_nin_plastic'
+                        );
+                        return (
+                          <div
+                            key={tpl.id}
+                            onClick={() => handleFieldChange('slip_type', tpl.id)}
+                            className={`relative rounded-xl border p-2 cursor-pointer transition flex flex-col justify-between overflow-hidden bg-slate-950 ${
+                              isSelected
+                                ? 'border-emerald-500 bg-emerald-950/20 shadow-md ring-1 ring-emerald-500/50'
+                                : 'border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            {/* Specimen Thumbnail with Watermark Badge */}
+                            <div className="relative h-20 w-full rounded-lg bg-slate-900 overflow-hidden flex items-center justify-center border border-slate-800/80 mb-2">
+                              <img
+                                src={tpl.demo_image_url}
+                                alt={tpl.name}
+                                className="w-full h-full object-cover opacity-85"
+                                onError={e => {
+                                  (e.target as any).src = '/assets/aistudio/IMG_0483_23e1a1e1.png';
+                                }}
+                              />
+                              {/* Watermark Label */}
+                              <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[1px] flex items-center justify-center p-1">
+                                <span className="bg-amber-950/90 border border-amber-400/50 text-amber-300 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded tracking-wider shadow">
+                                  SAMPLE SPECIMEN
+                                </span>
+                              </div>
+
+                              {/* Zoom button */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPreviewModalTemplate(tpl as any);
+                                }}
+                                className="absolute top-1 right-1 p-1 rounded-md bg-slate-950/80 text-slate-300 hover:text-white border border-slate-700 transition"
+                                title="Zoom Specimen Preview"
+                              >
+                                <Eye className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            {/* Info */}
+                            <div>
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="text-[11px] font-bold text-white leading-tight line-clamp-1">{tpl.name}</span>
+                                {isSelected && (
+                                  <div className="w-4 h-4 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shrink-0">
+                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  </div>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">{tpl.description}</p>
+                            </div>
+
+                            {tpl.badge && (
+                              <div className="mt-1.5">
+                                <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                  {tpl.badge}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+
+                  {/* Informational Callout */}
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-[10px] text-slate-400 leading-relaxed flex items-start gap-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" />
+                    <span>
+                      <strong className="text-slate-300">Specimen Guidance:</strong> Previews above illustrate certified layout dimensions. Real government documents with authentic sovereign tracking seals and official registry QR codes are delivered upon transaction confirmation.
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -806,9 +917,36 @@ export const NinServicesPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {(verifiedResult.pdf_base64 || verifiedResult.pdf_url || verifiedResult.has_pdf_slip) && (
+                      <button
+                        onClick={() => {
+                          if (verifiedResult.pdf_url) {
+                            window.open(verifiedResult.pdf_url, '_blank');
+                          } else {
+                            setActiveSlipRecord({
+                              ...verifiedResult,
+                              service_key: selectedServiceKey,
+                              type: currentService.category,
+                            });
+                            setSlipModalOpen(true);
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download Provider PDF</span>
+                      </button>
+                    )}
                     <button
-                      onClick={() => setSlipModalOpen(true)}
+                      onClick={() => {
+                        setActiveSlipRecord({
+                          ...verifiedResult,
+                          service_key: selectedServiceKey,
+                          type: currentService.category,
+                        });
+                        setSlipModalOpen(true);
+                      }}
                       className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition"
                     >
                       <Printer className="w-3.5 h-3.5" />
@@ -1030,8 +1168,68 @@ export const NinServicesPage: React.FC = () => {
         }}
         title="Authorize Identity Query"
         description={`Enter your 4-digit security PIN to authorize query on ${currentService?.name || 'Identity Service'}.`}
-        amount={currentService?.customer_price}
+        amount={currentService?.price}
       />
+      {/* Specimen Zoom Preview Modal */}
+      {previewModalTemplate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-8">
+            <div className="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                <span className="font-bold text-white uppercase tracking-wider">{previewModalTemplate.name}</span>
+                <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-mono text-[10px] border border-amber-500/20">
+                  DEMO SPECIMEN
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewModalTemplate(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="relative rounded-xl overflow-hidden border-2 border-dashed border-amber-500/40 bg-slate-950 flex items-center justify-center max-h-[60vh]">
+                <img
+                  src={previewModalTemplate.demo_image_url}
+                  alt={previewModalTemplate.name}
+                  className="w-full h-auto object-contain max-h-[58vh]"
+                />
+                <div className="absolute inset-0 bg-slate-950/20 flex items-center justify-center pointer-events-none select-none">
+                  <div className="border-2 border-dashed border-amber-400/80 bg-amber-950/85 text-amber-300 px-4 py-2 rounded-xl text-xs font-mono font-black tracking-widest rotate-[-8deg] shadow-2xl">
+                    {previewModalTemplate.watermark_text || 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-1 text-xs">
+                <div className="font-semibold text-white">{previewModalTemplate.name}</div>
+                <p className="text-slate-400 text-[11px] leading-relaxed">{previewModalTemplate.description}</p>
+                <div className="pt-2 text-[10px] text-amber-400/90 font-mono">
+                  * Notice: This sample preview demonstrates the certified certificate layout. Genuine documents with your actual registry biodata are issued upon live verification.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between px-6 py-3.5 bg-slate-950 border-t border-slate-800 text-xs">
+              <span className="text-slate-400 font-mono text-[11px]">Format: {previewModalTemplate.category} Specification</span>
+              <button
+                type="button"
+                onClick={() => {
+                  handleFieldChange('slip_type', previewModalTemplate.id);
+                  setPreviewModalTemplate(null);
+                }}
+                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition"
+              >
+                Select This Format
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

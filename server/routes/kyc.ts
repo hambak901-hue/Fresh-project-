@@ -175,7 +175,7 @@ kycRouter.post('/submit', requireAuth, async (req: any, res) => {
     if (nin && numLevel === 2) {
       try {
         const provider = verificationManager.getProvider('2sureverify');
-        const autoCheck = await provider.verifyNin(String(nin).trim());
+        const autoCheck = await provider.executeService('nin_v1', '/api/v1/nin_v1.php', { nin: String(nin).trim() });
         if (autoCheck.success && autoCheck.data) {
           const matchedName = String(autoCheck.data.firstname || '').toLowerCase();
           const submittedName = String(full_legal_name).toLowerCase();
@@ -512,7 +512,7 @@ kycRouter.post('/admin/submissions/:id/review', requireAdmin, (req: any, res) =>
       id: `rh_${Date.now()}`,
       action: 'approved',
       reviewer: reviewerName,
-      notes: submission.review_notes,
+      notes: submission.review_notes || 'Approved to Level ' + tier,
       timestamp: nowIso,
     });
 
@@ -629,7 +629,7 @@ kycRouter.post('/admin/submissions/:id/auto-verify', requireAdmin, async (req: a
   try {
     const provider = verificationManager.getProvider('2sureverify');
     const searchValue = submission.nin || submission.bvn || '';
-    const result = await provider.verifyNin(searchValue);
+    const result = await provider.executeService('nin_v1', '/api/v1/nin_v1.php', { nin: searchValue });
     const latency = Date.now() - startTime;
 
     const matchedName = String(result.data?.firstname || '').toLowerCase();

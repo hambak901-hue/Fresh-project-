@@ -101,50 +101,33 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
 
           {/* ZONE 3: Action Controls */}
           <div className="flex items-center gap-3 shrink-0">
-            {/* Super Admin Console Switcher */}
-            {onSwitchToAdminDashboard && (
-              <button
-                onClick={onSwitchToAdminDashboard}
-                title="Launch Phase 4 Super Admin Console"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs font-semibold text-amber-300 transition-colors"
-              >
-                <Shield className="w-3.5 h-3.5 text-amber-400" />
-                <span>Admin Console</span>
-              </button>
+            {/* Authenticated Quick Actions */}
+            {user && (
+              <>
+                {(user.role === 'admin' || user.role === 'superadmin') && onSwitchToAdminDashboard && (
+                  <button
+                    onClick={onSwitchToAdminDashboard}
+                    title="Launch Super Admin Console"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs font-semibold text-amber-300 transition-colors"
+                  >
+                    <Shield className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Admin Console</span>
+                  </button>
+                )}
+
+                {onSwitchToCustomerDashboard && (
+                  <button
+                    onClick={onSwitchToCustomerDashboard}
+                    title="Launch Customer Portal"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-md shadow-emerald-600/20 transition-colors"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-white" />
+                    <span className="hidden sm:inline">My Dashboard</span>
+                    <span className="sm:hidden">Dashboard</span>
+                  </button>
+                )}
+              </>
             )}
-
-            {/* Customer Dashboard Switcher */}
-            {onSwitchToCustomerDashboard && (
-              <button
-                onClick={onSwitchToCustomerDashboard}
-                title="Launch Phase 3 Customer Dashboard"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-xs font-semibold text-indigo-300 transition-colors"
-              >
-                <Shield className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="hidden sm:inline">Customer Portal</span>
-                <span className="sm:hidden">Portal</span>
-              </button>
-            )}
-
-            {/* CMS Studio Trigger for Admins or testing */}
-            <button
-              onClick={onOpenCmsStudio}
-              title="Open Admin CMS Studio to edit live website without code changes"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200 transition-colors"
-            >
-              <Settings className="w-3.5 h-3.5 text-emerald-400" />
-              <span>CMS</span>
-            </button>
-
-            {/* Switch to Phase Console */}
-            <button
-              onClick={onSwitchToPhaseConsole}
-              title="Inspect Phase 1 Foundation Architecture & Credentials Vault"
-              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-900/60 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-400 hover:text-slate-200 transition-colors"
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Phase 01</span>
-            </button>
 
             {/* Auth States */}
             {user ? (
@@ -277,28 +260,20 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
             })}
           </nav>
 
-          <div className="pt-3 border-t border-slate-800 space-y-2">
-            <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onOpenCmsStudio();
-              }}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-200"
-            >
-              <Settings className="w-4 h-4 text-emerald-400" />
-              <span>Admin CMS Studio</span>
-            </button>
-            <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onSwitchToPhaseConsole();
-              }}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-900/50 border border-slate-800 text-xs text-slate-400"
-            >
-              <Layers className="w-4 h-4" />
-              <span>Phase 01 System Console</span>
-            </button>
-          </div>
+          {user && (user.role === 'admin' || user.role === 'superadmin') && (
+            <div className="pt-3 border-t border-slate-800 space-y-2">
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenCmsStudio();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-200"
+              >
+                <Settings className="w-4 h-4 text-emerald-400" />
+                <span>Admin CMS Studio</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </header>
