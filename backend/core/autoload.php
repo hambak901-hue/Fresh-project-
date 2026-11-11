@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 spl_autoload_register(function (string $class) {
     $prefix = 'HambakTech\\';
-    $baseDir = dirname(__DIR__) . '/';
+    $baseDir = defined('HAMBAKTECH_ROOT') ? rtrim(HAMBAKTECH_ROOT, '/') . '/' : dirname(__DIR__) . '/';
 
     $len = strlen($prefix);
     if (strncmp($prefix, $class, $len) !== 0) {

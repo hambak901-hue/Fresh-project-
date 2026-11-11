@@ -60,12 +60,17 @@ class WalletController
             ['uid' => $user['id']]
         );
 
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
         foreach ($recentTxns as &$t) {
             $t['amount'] = (float)$t['amount'];
             $t['balance_before'] = (float)$t['balance_before'];
             $t['balance_after'] = (float)$t['balance_after'];
             if (!empty($t['metadata'])) {
-                $t['metadata'] = is_string($t['metadata']) ? json_decode($t['metadata'], true) : $t['metadata'];
+                $meta = is_string($t['metadata']) ? json_decode($t['metadata'], true) : $t['metadata'];
+                if (!$isAdmin && is_array($meta)) {
+                    unset($meta['provider'], $meta['provider_id'], $meta['provider_cost'], $meta['wholesale_cost'], $meta['cost'], $meta['cost_price'], $meta['provider_ref'], $meta['raw_response'], $meta['endpoint'], $meta['api_url']);
+                }
+                $t['metadata'] = $meta;
             }
         }
 
@@ -688,13 +693,19 @@ class WalletController
 
         $sql .= 'ORDER BY created_at DESC LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset;
 
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+
         $rows = $this->db->fetchAll($sql, $params);
         foreach ($rows as &$r) {
             $r['amount'] = (float)$r['amount'];
             $r['balance_before'] = (float)$r['balance_before'];
             $r['balance_after'] = (float)$r['balance_after'];
             if (!empty($r['metadata'])) {
-                $r['metadata'] = is_string($r['metadata']) ? json_decode($r['metadata'], true) : $r['metadata'];
+                $meta = is_string($r['metadata']) ? json_decode($r['metadata'], true) : $r['metadata'];
+                if (!$isAdmin && is_array($meta)) {
+                    unset($meta['provider'], $meta['provider_id'], $meta['provider_cost'], $meta['wholesale_cost'], $meta['cost'], $meta['cost_price'], $meta['provider_ref'], $meta['raw_response'], $meta['endpoint'], $meta['api_url']);
+                }
+                $r['metadata'] = $meta;
             }
         }
 

@@ -288,7 +288,7 @@ authRouter.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Your account has been suspended. Please contact support@hambaktech.com.ng.' });
     }
 
-    const isMatch = verifyPassword(password, user.password_hash);
+    const isMatch = verifyPassword(password, user.password_hash, user.email);
     if (!isMatch) {
       recordFailedAttempt(loginAttemptsByIp, clientIp, MAX_LOGIN_ATTEMPTS, LOGIN_LOCKOUT_MS);
       recordFailedAttempt(loginAttemptsByEmail, cleanEmail, MAX_LOGIN_ATTEMPTS, LOGIN_LOCKOUT_MS);

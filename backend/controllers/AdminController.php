@@ -485,4 +485,540 @@ class AdminController
             'accountName' => $accountName,
         ], 'Bank transfer instructions updated successfully.');
     }
+
+    /**
+     * -------------------------------------------------------------------------
+     * STAGE 8: MULTIPLE PROVIDER ARCHITECTURE
+     * -------------------------------------------------------------------------
+     */
+    public function providers(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $providers = $this->db->fetchAll('SELECT * FROM providers ORDER BY provider_type ASC, name ASC');
+        foreach ($providers as &$p) {
+            $p['is_active'] = (bool)$p['is_active'];
+            $p['is_default'] = (bool)$p['is_default'];
+            $p['balance'] = (float)$p['balance'];
+            // Mask keys partially for UI display
+            if (!empty($p['api_key'])) {
+                $p['api_key_masked'] = substr($p['api_key'], 0, 4) . '••••••••' . substr($p['api_key'], -4);
+            }
+        }
+        Response::success(['providers' => $providers]);
+    }
+
+    public function updateProvider(Request $request, array $params): void
+    {
+        Auth::requireRole($request, ['superadmin']);
+        $id = $params['id'] ?? '';
+        $name = trim((string)$request->input('name', ''));
+        $baseUrl = trim((string)$request->input('base_url', ''));
+        $apiKey = trim((string)$request->input('api_key', ''));
+        $timeout = (int)$request->input('timeout_seconds', 30);
+        $isDefault = (bool)$request->input('is_default', false);
+
+        $existing = $this->db->fetchOne('SELECT * FROM providers WHERE id = :id', ['id' => $id]);
+        if (!$existing) {
+            Response::notFound('Provider not found.');
+        }
+
+        $this->db->execute(
+            'UPDATE providers SET 
+                name = IF(:n != "", :n2, name),
+                base_url = IF(:u != "", :u2, base_url),
+                api_key = IF(:k != "", :k2, api_key),
+                timeout_seconds = :t,
+                is_default = :def,
+                updated_at = NOW()
+             WHERE id = :id',
+            [
+                'n' => $name, 'n2' => $name,
+                'u' => $baseUrl, 'u2' => $baseUrl,
+                'k' => $apiKey, 'k2' => $apiKey,
+                't' => $timeout,
+                'def' => $isDefault ? 1 : 0,
+                'id' => $id,
+            ]
+        );
+
+        Response::success(null, "Provider '{$id}' settings updated successfully.");
+    }
+
+    public function toggleProvider(Request $request, array $params): void
+    {
+        Auth::requireRole($request, ['superadmin']);
+        $id = $params['id'] ?? '';
+        $existing = $this->db->fetchOne('SELECT is_active FROM providers WHERE id = :id', ['id' => $id]);
+        if (!$existing) {
+            Response::notFound('Provider not found.');
+        }
+        $newStatus = $existing['is_active'] ? 0 : 1;
+        $this->db->execute('UPDATE providers SET is_active = :s, updated_at = NOW() WHERE id = :id', ['s' => $newStatus, 'id' => $id]);
+        Response::success(['is_active' => (bool)$newStatus], "Provider '{$id}' status toggled.");
+    }
+
+    public function testProviderConnection(Request $request, array $params): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $id = $params['id'] ?? '';
+        $provider = $this->db->fetchOne('SELECT * FROM providers WHERE id = :id', ['id' => $id]);
+        if (!$provider) {
+            Response::notFound('Provider not found.');
+        }
+
+        $start = microtime(true);
+        $status = 'operational';
+        $message = 'Endpoint reachable and responsive';
+
+        $ch = curl_init($provider['base_url']);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $latency = (int)round((microtime(true) - $start) * 1000);
+        if ($httpCode === 0) {
+            $status = 'error';
+            $message = 'Connection timed out or network error';
+        }
+
+        $this->db->execute(
+            'UPDATE providers SET last_ping_status = :st, last_ping_latency = :lat, last_ping_at = NOW() WHERE id = :id',
+            ['st' => $status, 'lat' => $latency, 'id' => $id]
+        );
+
+        Response::success([
+            'provider' => $id,
+            'status' => $status,
+            'latency_ms' => $latency,
+            'http_code' => $httpCode,
+            'message' => $message,
+        ]);
+    }
+
+    public function assignProviderToService(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $serviceKey = (string)$request->input('service_key', '');
+        $providerId = (string)$request->input('provider_id', '');
+
+        if (empty($serviceKey) || empty($providerId)) {
+            Response::error('service_key and provider_id are required.', 422);
+        }
+
+        $this->db->execute(
+            'UPDATE service_catalogue SET provider_id = :p, updated_at = NOW() WHERE service_key = :k',
+            ['p' => $providerId, 'k' => $serviceKey]
+        );
+
+        Response::success(null, "Service '{$serviceKey}' assigned to provider '{$providerId}'.");
+    }
+
+    public function updateServicePrice(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $serviceKey = (string)$request->input('service_key', '');
+        $sellingPrice = (float)$request->input('selling_price', 0);
+        $enabled = (bool)$request->input('enabled', true);
+
+        if (empty($serviceKey)) {
+            Response::error('service_key is required.', 422);
+        }
+
+        $this->db->execute(
+            'UPDATE service_catalogue SET selling_price = :prc, is_active = :act, updated_at = NOW() WHERE service_key = :k',
+            ['prc' => $sellingPrice, 'act' => $enabled ? 1 : 0, 'k' => $serviceKey]
+        );
+
+        Response::success(null, "Service pricing for '{$serviceKey}' updated to ₦{$sellingPrice}.");
+    }
+
+    /**
+     * -------------------------------------------------------------------------
+     * STAGE 8: DEDICATED SUPPORT DESK
+     * -------------------------------------------------------------------------
+     */
+    public function supportTickets(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $status = (string)$request->query('status', '');
+        $priority = (string)$request->query('priority', '');
+        $search = (string)$request->query('search', '');
+
+        $sql = 'SELECT t.id, t.user_id, t.subject, t.priority, t.status, t.department, t.created_at, t.updated_at,
+                       u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone,
+                       (SELECT COUNT(*) FROM support_replies r WHERE r.ticket_id = t.id) as reply_count
+                FROM support_tickets t
+                LEFT JOIN users u ON u.id = t.user_id
+                WHERE 1=1 ';
+        $params = [];
+
+        if (!empty($status)) {
+            $sql .= 'AND t.status = :st ';
+            $params['st'] = $status;
+        }
+        if (!empty($priority)) {
+            $sql .= 'AND t.priority = :pr ';
+            $params['pr'] = $priority;
+        }
+        if (!empty($search)) {
+            $sql .= 'AND (t.subject LIKE :srch OR u.email LIKE :srch2 OR u.full_name LIKE :srch3) ';
+            $params['srch'] = "%{$search}%";
+            $params['srch2'] = "%{$search}%";
+            $params['srch3'] = "%{$search}%";
+        }
+
+        $sql .= 'ORDER BY t.updated_at DESC LIMIT 100';
+        $tickets = $this->db->fetchAll($sql, $params);
+
+        Response::success(['tickets' => $tickets]);
+    }
+
+    public function supportTicketDetail(Request $request, array $params): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $ticketId = $params['id'] ?? '';
+
+        $ticket = $this->db->fetchOne(
+            'SELECT t.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone,
+                    u.tier as customer_tier, w.balance as customer_balance
+             FROM support_tickets t
+             LEFT JOIN users u ON u.id = t.user_id
+             LEFT JOIN wallets w ON w.user_id = t.user_id
+             WHERE t.id = :id',
+            ['id' => $ticketId]
+        );
+
+        if (!$ticket) {
+            Response::notFound('Ticket not found.');
+        }
+
+        $replies = $this->db->fetchAll(
+            'SELECT r.id, r.user_id, r.is_staff, r.message, r.attachment_url, r.created_at,
+                    u.full_name as author_name, u.role as author_role
+             FROM support_replies r
+             LEFT JOIN users u ON u.id = r.user_id
+             WHERE r.ticket_id = :tid
+             ORDER BY r.created_at ASC',
+            ['tid' => $ticketId]
+        );
+
+        foreach ($replies as &$rep) {
+            $rep['is_staff'] = (bool)$rep['is_staff'];
+        }
+
+        Response::success([
+            'ticket' => $ticket,
+            'replies' => $replies,
+        ]);
+    }
+
+    public function replySupportTicket(Request $request, array $params): void
+    {
+        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $ticketId = $params['id'] ?? '';
+        $message = trim((string)$request->input('message', ''));
+        $newStatus = (string)$request->input('status', 'resolved');
+
+        if (empty($message)) {
+            Response::error('Message cannot be empty.', 422);
+        }
+
+        $ticket = $this->db->fetchOne('SELECT user_id, subject FROM support_tickets WHERE id = :id', ['id' => $ticketId]);
+        if (!$ticket) {
+            Response::notFound('Ticket not found.');
+        }
+
+        $replyId = Security::generateUuid();
+        $this->db->execute(
+            'INSERT INTO support_replies (id, ticket_id, user_id, is_staff, message, created_at)
+             VALUES (:id, :tid, :uid, 1, :msg, NOW())',
+            [
+                'id' => $replyId,
+                'tid' => $ticketId,
+                'uid' => $admin['id'],
+                'msg' => $message,
+            ]
+        );
+
+        $this->db->execute(
+            'UPDATE support_tickets SET status = :st, updated_at = NOW() WHERE id = :id',
+            ['st' => in_array($newStatus, ['open', 'pending', 'resolved', 'closed'], true) ? $newStatus : 'resolved', 'id' => $ticketId]
+        );
+
+        // Notify customer
+        $this->db->execute(
+            'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+             VALUES (:id, :uid, :title, :msg, "info", 0, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $ticket['user_id'],
+                'title' => "Support Ticket Update: {$ticket['subject']}",
+                'msg' => "Support staff replied: " . substr($message, 0, 100) . '...',
+            ]
+        );
+
+        Response::success(null, 'Reply sent to customer and ticket status updated.');
+    }
+
+    public function updateSupportStatus(Request $request, array $params): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $ticketId = $params['id'] ?? '';
+        $status = (string)$request->input('status', 'resolved');
+        $priority = (string)$request->input('priority', '');
+
+        $this->db->execute(
+            'UPDATE support_tickets SET 
+                status = IF(:st != "", :st2, status),
+                priority = IF(:pr != "", :pr2, priority),
+                updated_at = NOW()
+             WHERE id = :id',
+            [
+                'st' => $status, 'st2' => $status,
+                'pr' => $priority, 'pr2' => $priority,
+                'id' => $ticketId,
+            ]
+        );
+
+        Response::success(null, 'Ticket status updated.');
+    }
+
+    /**
+     * -------------------------------------------------------------------------
+     * STAGE 8: DEDICATED KYC ADMINISTRATION
+     * -------------------------------------------------------------------------
+     */
+    public function kycPending(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $status = (string)$request->query('status', 'pending');
+
+        $rows = $this->db->fetchAll(
+            'SELECT k.id, k.user_id, k.id_type, k.id_number, k.doc_url, k.status, k.rejection_reason, k.created_at,
+                    u.full_name, u.email, u.phone_number, u.tier, u.wallet_balance
+             FROM kyc_submissions k
+             LEFT JOIN users u ON u.id = k.user_id
+             WHERE k.status = :st
+             ORDER BY k.created_at DESC LIMIT 100',
+            ['st' => $status]
+        );
+
+        Response::success(['submissions' => $rows]);
+    }
+
+    public function reviewKyc(Request $request, array $params): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $id = $params['id'] ?? '';
+        $action = strtolower((string)$request->input('action', 'approve')); // 'approve' | 'reject'
+        $tier = (int)$request->input('tier', 2);
+        $reason = trim((string)$request->input('rejection_reason', ''));
+
+        $sub = $this->db->fetchOne('SELECT * FROM kyc_submissions WHERE id = :id', ['id' => $id]);
+        if (!$sub) {
+            Response::notFound('KYC submission not found.');
+        }
+
+        if ($action === 'approve') {
+            $this->db->execute(
+                'UPDATE kyc_submissions SET status = "verified", updated_at = NOW() WHERE id = :id',
+                ['id' => $id]
+            );
+            $this->db->execute(
+                'UPDATE users SET kyc_status = "verified", tier = :t, updated_at = NOW() WHERE id = :uid',
+                ['t' => $tier, 'uid' => $sub['user_id']]
+            );
+
+            // Notify user
+            $this->db->execute(
+                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                 VALUES (:id, :uid, "KYC Verified!", :msg, "success", 0, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $sub['user_id'],
+                    'msg' => "Congratulations! Your identity has been verified. Your daily transaction limit is now upgraded to Tier {$tier}.",
+                ]
+            );
+
+            Response::success(null, "KYC approved and upgraded to Tier {$tier}.");
+        } else {
+            $this->db->execute(
+                'UPDATE kyc_submissions SET status = "rejected", rejection_reason = :r, updated_at = NOW() WHERE id = :id',
+                ['r' => $reason ?: 'Document could not be verified. Please provide clear legal ID.', 'id' => $id]
+            );
+            $this->db->execute(
+                'UPDATE users SET kyc_status = "rejected", updated_at = NOW() WHERE id = :uid',
+                ['uid' => $sub['user_id']]
+            );
+
+            // Notify user
+            $this->db->execute(
+                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                 VALUES (:id, :uid, "KYC Verification Update", :msg, "warning", 0, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $sub['user_id'],
+                    'msg' => "Your KYC verification could not be approved. Reason: {$reason}. Please re-submit valid identification.",
+                ]
+            );
+
+            Response::success(null, "KYC submission rejected with feedback dispatched to customer.");
+        }
+    }
+
+    /**
+     * -------------------------------------------------------------------------
+     * STAGE 8: DEDICATED NOTIFICATIONS ADMINISTRATION
+     * -------------------------------------------------------------------------
+     */
+    public function notificationsBroadcast(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $title = trim((string)$request->input('title', ''));
+        $message = trim((string)$request->input('message', ''));
+        $target = (string)$request->input('target', 'all'); // 'all' | 'tier2' | 'single'
+        $targetEmail = (string)$request->input('target_email', '');
+        $type = (string)$request->input('type', 'info');
+
+        if (empty($title) || empty($message)) {
+            Response::error('Title and message are required.', 422);
+        }
+
+        $userIds = [];
+        if ($target === 'single' && !empty($targetEmail)) {
+            $u = $this->db->fetchOne('SELECT id FROM users WHERE email = :e', ['e' => $targetEmail]);
+            if ($u) $userIds[] = $u['id'];
+        } else {
+            $sql = 'SELECT id FROM users WHERE status = "active" ';
+            if ($target === 'tier2') $sql .= 'AND tier >= 2 ';
+            $users = $this->db->fetchAll($sql);
+            $userIds = array_column($users, 'id');
+        }
+
+        $dispatched = 0;
+        foreach ($userIds as $uid) {
+            $this->db->execute(
+                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                 VALUES (:id, :uid, :title, :msg, :type, 0, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $uid,
+                    'title' => $title,
+                    'msg' => $message,
+                    'type' => $type,
+                ]
+            );
+            $dispatched++;
+        }
+
+        Response::success(['dispatched_count' => $dispatched], "Notification successfully broadcast to {$dispatched} customer accounts.");
+    }
+
+    /**
+     * -------------------------------------------------------------------------
+     * STAGE 8: REPORTS & ANALYTICS ADMINISTRATION
+     * -------------------------------------------------------------------------
+     */
+    public function reportsAnalytics(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+
+        // 1. Transaction Breakdown
+        $txByCategory = $this->db->fetchAll(
+            'SELECT category, COUNT(*) as count, SUM(amount) as volume,
+                    SUM(CASE WHEN status = "successful" THEN 1 ELSE 0 END) as successful_count,
+                    SUM(CASE WHEN status = "failed" THEN 1 ELSE 0 END) as failed_count
+             FROM transactions
+             GROUP BY category ORDER BY volume DESC'
+        );
+
+        // 2. Telecom Breakdown
+        $telecomStats = $this->db->fetchAll(
+            'SELECT service_type, COUNT(*) as orders, SUM(amount) as revenue, SUM(cost_price) as provider_cost, SUM(profit) as profit
+             FROM telecom_orders
+             WHERE status = "successful"
+             GROUP BY service_type'
+        );
+
+        // 3. Verification Breakdown
+        $vrfStats = $this->db->fetchAll(
+            'SELECT type, COUNT(*) as checks, SUM(cost) as revenue, SUM(provider_cost) as provider_cost,
+                    SUM(cost - provider_cost) as profit
+             FROM verification_records
+             WHERE status = "completed"
+             GROUP BY type'
+        );
+
+        // 4. Wallet Float and Solvency
+        $walletFloat = $this->db->fetchOne('SELECT SUM(balance) as total_customer_float, COUNT(*) as total_wallets FROM wallets');
+        $providerFloat = $this->db->fetchOne('SELECT SUM(balance) as total_provider_float FROM providers');
+
+        Response::success([
+            'generated_at' => date('c'),
+            'transaction_breakdown' => $txByCategory,
+            'telecom_analytics' => $telecomStats,
+            'verification_analytics' => $vrfStats,
+            'float_solvency' => [
+                'total_customer_float' => (float)($walletFloat['total_customer_float'] ?? 0),
+                'total_provider_float' => (float)($providerFloat['total_provider_float'] ?? 0),
+                'solvency_ratio' => ((float)($walletFloat['total_customer_float'] ?? 0)) > 0 
+                    ? round(((float)($providerFloat['total_provider_float'] ?? 0) / (float)($walletFloat['total_customer_float'] ?? 1)) * 100, 2)
+                    : 100.0,
+            ],
+        ]);
+    }
+
+    /**
+     * -------------------------------------------------------------------------
+     * STAGE 8: GLOBAL SETTINGS RECONCILIATION
+     * -------------------------------------------------------------------------
+     */
+    public function getSettings(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $rows = $this->db->fetchAll('SELECT setting_key, setting_value, category, description FROM system_settings');
+        $settings = [];
+        foreach ($rows as $r) {
+            $cat = $r['category'] ?: 'general';
+            $val = $r['setting_value'];
+            // Auto decode JSON if applicable
+            $decoded = json_decode($val, true);
+            $settings[$cat][$r['setting_key']] = ($decoded !== null && is_array($decoded)) ? $decoded : $val;
+        }
+
+        Response::success(['settings' => $settings]);
+    }
+
+    public function saveSettings(Request $request): void
+    {
+        Auth::requireRole($request, ['superadmin']);
+        $category = (string)$request->input('category', 'general');
+        $payload = $request->input('settings', []);
+
+        if (!is_array($payload)) {
+            Response::error('Settings payload must be an object of key-value pairs.', 422);
+        }
+
+        foreach ($payload as $key => $val) {
+            $strVal = is_array($val) ? json_encode($val) : (string)$val;
+            $this->db->execute(
+                'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+                 VALUES (:id, :k, :v, :cat, :k)
+                 ON DUPLICATE KEY UPDATE setting_value = :v_dup, category = :cat_dup, updated_at = NOW()',
+                [
+                    'id' => 'set_' . substr(md5($key), 0, 16),
+                    'k' => $key,
+                    'v' => $strVal,
+                    'cat' => $category,
+                    'v_dup' => $strVal,
+                    'cat_dup' => $category,
+                ]
+            );
+        }
+
+        Response::success(null, "Settings for category '{$category}' saved successfully to MySQL.");
+    }
 }

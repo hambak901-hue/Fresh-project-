@@ -52,25 +52,35 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 export const api = {
   // Auth
   async login(email: string, password: string): Promise<{ success: boolean; token: string; user: User }> {
-    const res = await request<{ success: boolean; token: string; user: User }>('/api/auth/login', {
+    const res = await request<any>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    setStoredToken(res.token);
-    return res;
+    const token = res.token || res.data?.token || '';
+    const user = res.user || res.data?.user || null;
+    if (token) {
+      setStoredToken(token);
+    }
+    return { success: true, token, user };
   },
 
   async register(data: { email: string; password: string; full_name: string; phone_number: string }): Promise<{ success: boolean; token: string; user: User }> {
-    const res = await request<{ success: boolean; token: string; user: User }>('/api/auth/register', {
+    const res = await request<any>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    setStoredToken(res.token);
-    return res;
+    const token = res.token || res.data?.token || '';
+    const user = res.user || res.data?.user || null;
+    if (token) {
+      setStoredToken(token);
+    }
+    return { success: true, token, user };
   },
 
   async getMe(): Promise<{ success: boolean; user: User }> {
-    return request<{ success: boolean; user: User }>('/api/auth/me');
+    const res = await request<any>('/api/auth/me');
+    const user = res.user || res.data?.user || null;
+    return { success: !!user, user };
   },
 
   logout(): void {

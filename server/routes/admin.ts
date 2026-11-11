@@ -1668,3 +1668,84 @@ adminRouter.post('/notifications/broadcast', requireAdmin, (req: any, res) => {
     announcement,
   });
 });
+
+// GET /api/admin/kyc/pending
+adminRouter.get('/kyc/pending', requireAdmin, (req, res) => {
+  const pendingUsers = db.data.users.filter(u => u.kyc_status === 'pending');
+  const submissions = pendingUsers.map(u => ({
+    id: `kyc_${u.id}`,
+    user_id: u.id,
+    id_type: 'NIN / Government ID',
+    id_number: u.nin || u.bvn || 'Pending Review',
+    doc_url: u.kyc_documents?.[0]?.doc_url || '',
+    status: u.kyc_status,
+    rejection_reason: '',
+    created_at: u.updated_at || u.created_at,
+    full_name: u.full_name,
+    email: u.email,
+    phone_number: u.phone_number,
+    tier: u.tier,
+    wallet_balance: u.wallet_balance,
+  }));
+  res.json({ success: true, submissions });
+});
+
+// POST /api/admin/kyc/:id/action
+adminRouter.post('/kyc/:id/action', requireAdmin, (req: any, res) => {
+  const { id } = req.params;
+  const { action, tier = 2, rejection_reason = '' } = req.body;
+  const userId = id.startsWith('kyc_') ? id.replace('kyc_', '') : id;
+  const user = db.findUserById(userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (action === 'approve') {
+    const validTier = (Number(tier) === 3 ? 3 : 2) as 1 | 2 | 3;
+    db.updateUser(user.id, { kyc_status: 'verified', tier: validTier });
+    db.addNotification(user.id, 'KYC Verified!', `Your identity documents have been approved. Daily limit upgraded to Tier ${validTier}.`, 'success');
+  } else {
+    db.updateUser(user.id, { kyc_status: 'rejected' });
+    db.addNotification(user.id, 'KYC Update', `Your KYC was rejected. Reason: ${rejection_reason}. Please re-submit valid ID.`, 'warning');
+  }
+  res.json({ success: true, message: `KYC ${action}d successfully` });
+});
+
+// GET /api/admin/support/tickets
+adminRouter.get('/support/tickets', requireAdmin, (req, res) => {
+  res.json({ success: true, tickets: [] });
+});
+
+// GET /api/admin/reports/analytics
+adminRouter.get('/reports/analytics', requireAdmin, (req, res) => {
+  const users = db.data.users || [];
+  const transactions = db.data.transactions || [];
+  const totalCustomerFloat = users.reduce((acc, u) => acc + (u.wallet_balance || 0), 0);
+  res.json({
+    success: true,
+    generated_at: new Date().toISOString(),
+    transaction_breakdown: [],
+    telecom_analytics: [],
+    verification_analytics: [],
+    float_solvency: {
+      total_customer_float: totalCustomerFloat,
+      total_provider_float: 100000,
+      solvency_ratio: 100.0,
+    },
+  });
+});
+
+// GET /api/admin/settings
+adminRouter.get('/settings', requireAdmin, (req, res) => {
+  res.json({
+    success: true,
+    settings: {
+      general: { company_name: 'HambakTech Enterprise', support_email: 'support@hambaktech.com.ng' },
+      payment: { active_gateway: 'paystack' },
+    },
+  });
+});
+
+// POST /api/admin/settings
+adminRouter.post('/settings', requireAdmin, (req, res) => {
+  res.json({ success: true, message: 'Settings saved successfully' });
+});
+

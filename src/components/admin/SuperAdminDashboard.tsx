@@ -38,6 +38,8 @@ import {
   AlertCircle,
   Loader2,
   ArrowRight,
+  Headphones,
+  Settings,
 } from 'lucide-react';
 
 // Admin child views
@@ -59,6 +61,8 @@ import { SmtpSettings } from './SmtpSettings';
 import { EmailTemplatesManagement } from './EmailTemplatesManagement';
 import { SmsSettingsManagement } from './SmsSettingsManagement';
 import { AdminKycManagement } from './AdminKycManagement';
+import { AdminSupportManagement } from './AdminSupportManagement';
+import { AdminGlobalSettings } from './AdminGlobalSettings';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
@@ -77,6 +81,8 @@ export type AdminTabKey =
   | 'store_admin'
   | 'academy_admin'
   | 'reports_admin'
+  | 'support_admin'
+  | 'global_settings'
   | 'smtp'
   | 'email_templates'
   | 'sms'
@@ -230,6 +236,7 @@ export function SuperAdminDashboard({
     {
       title: 'Communication & Delivery',
       items: [
+        { id: 'support_admin', label: 'Support Desk & Tickets', icon: Headphones, badge: 'Stage 8' },
         { id: 'smtp', label: 'SMTP Server Settings', icon: Server, badge: 'Phase 8' },
         { id: 'email_templates', label: 'Email Templates (12)', icon: Mail },
         { id: 'sms', label: 'SMS Gateway & Templates', icon: MessageSquare },
@@ -245,6 +252,7 @@ export function SuperAdminDashboard({
     {
       title: 'Governance & Security',
       items: [
+        { id: 'global_settings', label: 'Global Settings (22 Cats)', icon: Settings, badge: 'Stage 8' },
         { id: 'kyc_admin', label: 'KYC & PIN Policies', icon: ShieldCheck, badge: 'Stage 4' },
         { id: 'staff', label: 'Staff & Permissions', icon: ShieldAlert },
         { id: 'audit', label: 'Audit Logs', icon: FileText },
@@ -449,6 +457,10 @@ export function SuperAdminDashboard({
           {activeTab === 'academy_admin' && <AcademyManagement />}
 
           {activeTab === 'reports_admin' && <ReportsManagement />}
+
+          {activeTab === 'support_admin' && <AdminSupportManagement />}
+
+          {activeTab === 'global_settings' && <AdminGlobalSettings />}
 
           {activeTab === 'smtp' && <SmtpSettings />}
 

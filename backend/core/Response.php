@@ -28,13 +28,24 @@ class Response
 
     public static function success(mixed $data = null, string $message = 'Operation successful', int $status = 200): void
     {
-        self::json([
+        $payload = [
             'success' => true,
             'status' => 'success',
             'message' => $message,
             'data' => $data,
             'timestamp' => date('c'),
-        ], $status);
+        ];
+
+        // If data is an associative array, also expose its keys at the root for seamless frontend access
+        if (is_array($data) && !array_is_list($data)) {
+            foreach ($data as $key => $val) {
+                if (!isset($payload[$key])) {
+                    $payload[$key] = $val;
+                }
+            }
+        }
+
+        self::json($payload, $status);
     }
 
     public static function error(string $message, int $status = 400, mixed $errors = null, ?string $code = null): void

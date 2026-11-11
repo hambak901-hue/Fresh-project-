@@ -12,26 +12,38 @@ if (!defined('HAMBAKTECH_ROOT')) {
     define('HAMBAKTECH_ROOT', dirname(__DIR__));
 }
 
-// Environment Detection
-$envFile = dirname(HAMBAKTECH_ROOT) . '/.env';
-if (file_exists($envFile)) {
-    $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    foreach ($lines as $line) {
-        $line = trim($line);
-        if ($line === '' || str_starts_with($line, '#')) {
-            continue;
-        }
-        $parts = explode('=', $line, 2);
-        if (count($parts) === 2) {
-            $key = trim($parts[0]);
-            $val = trim($parts[1]);
-            // Strip quotes
-            $val = trim($val, '"\'');
-            if (!getenv($key)) {
-                putenv("{$key}={$val}");
-                $_ENV[$key] = $val;
+// Environment Detection - Check multiple standard paths (including cPanel home directory)
+$possibleEnvFiles = [
+    '/home/qfqzpeqx/.env',
+    dirname(HAMBAKTECH_ROOT, 2) . '/.env',
+    dirname(HAMBAKTECH_ROOT) . '/.env',
+    HAMBAKTECH_ROOT . '/.env',
+    (isset($_SERVER['DOCUMENT_ROOT']) && $_SERVER['DOCUMENT_ROOT'] !== '') ? dirname($_SERVER['DOCUMENT_ROOT']) . '/.env' : '',
+    (isset($_SERVER['DOCUMENT_ROOT']) && $_SERVER['DOCUMENT_ROOT'] !== '') ? $_SERVER['DOCUMENT_ROOT'] . '/.env' : '',
+    dirname(__DIR__, 2) . '/.env',
+    dirname(__DIR__) . '/.env',
+];
+
+foreach ($possibleEnvFiles as $envFile) {
+    if (!empty($envFile) && file_exists($envFile)) {
+        $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#')) {
+                continue;
+            }
+            $parts = explode('=', $line, 2);
+            if (count($parts) === 2) {
+                $key = trim($parts[0]);
+                $val = trim($parts[1]);
+                $val = trim($val, '"\'');
+                if (!getenv($key)) {
+                    putenv("{$key}={$val}");
+                    $_ENV[$key] = $val;
+                }
             }
         }
+        break;
     }
 }
 
@@ -42,13 +54,13 @@ return [
         'debug' => getenv('APP_DEBUG') === 'true',
         'url' => getenv('APP_URL') ?: 'https://hambaktech.com.ng',
         'timezone' => 'Africa/Lagos',
-        'version' => '2.5.0-STAGE2',
+        'version' => '2.8.0-STAGE8',
     ],
     'security' => [
-        'jwt_secret' => getenv('JWT_SECRET') ?: '',
+        'jwt_secret' => getenv('JWT_SECRET') ?: 'hambaktech_enterprise_prod_jwt_secret_lon110_2026_secured_key',
         'jwt_expiry' => 86400 * 7, // 7 days
         'hash_cost' => 12,
-        'salt' => getenv('APP_SALT') ?: '',
+        'salt' => getenv('APP_SALT') ?: 'hambaktech_salt_2026',
     ],
     'database' => [
         'driver' => 'mysql',

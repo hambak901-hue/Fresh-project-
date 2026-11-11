@@ -128,6 +128,10 @@ $router->get('/api/customer/dashboard', [CustomerController::class, 'dashboard']
 $router->post('/api/customer/kyc', [CustomerController::class, 'submitKyc']);
 $router->get('/api/customer/notifications', [CustomerController::class, 'notifications']);
 $router->post('/api/customer/notifications/:id/read', [CustomerController::class, 'markNotificationRead']);
+$router->get('/api/customer/support/tickets', [CustomerController::class, 'tickets']);
+$router->post('/api/customer/support/tickets', [CustomerController::class, 'createTicket']);
+$router->get('/api/customer/support/tickets/:id', [CustomerController::class, 'ticketDetail']);
+$router->post('/api/customer/support/tickets/:id/reply', [CustomerController::class, 'replyTicket']);
 
 // -----------------------------------------------------------------------------
 // 8. SUPER ADMIN CONSOLE
@@ -141,6 +145,34 @@ $router->post('/api/admin/funding-requests/:id/action', [AdminController::class,
 $router->get('/api/admin/financial-reports', [AdminController::class, 'financialReports']);
 $router->post('/api/admin/transactions/reverse', [AdminController::class, 'reverseTransaction']);
 $router->post('/api/admin/bank-settings', [AdminController::class, 'updateBankSettings']);
+
+// STAGE 8: Multiple Providers
+$router->get('/api/admin/providers', [AdminController::class, 'providers']);
+$router->put('/api/admin/providers/:id', [AdminController::class, 'updateProvider']);
+$router->post('/api/admin/providers/:id/toggle', [AdminController::class, 'toggleProvider']);
+$router->post('/api/admin/providers/:id/test-connection', [AdminController::class, 'testProviderConnection']);
+$router->post('/api/admin/services/assign-provider', [AdminController::class, 'assignProviderToService']);
+$router->post('/api/admin/services/update-price', [AdminController::class, 'updateServicePrice']);
+
+// STAGE 8: Dedicated Admin Support Desk
+$router->get('/api/admin/support/tickets', [AdminController::class, 'supportTickets']);
+$router->get('/api/admin/support/tickets/:id', [AdminController::class, 'supportTicketDetail']);
+$router->post('/api/admin/support/tickets/:id/reply', [AdminController::class, 'replySupportTicket']);
+$router->post('/api/admin/support/tickets/:id/status', [AdminController::class, 'updateSupportStatus']);
+
+// STAGE 8: Dedicated KYC Administration
+$router->get('/api/admin/kyc/pending', [AdminController::class, 'kycPending']);
+$router->post('/api/admin/kyc/:id/action', [AdminController::class, 'reviewKyc']);
+
+// STAGE 8: Dedicated Notification Administration
+$router->post('/api/admin/notifications/broadcast', [AdminController::class, 'notificationsBroadcast']);
+
+// STAGE 8: Reports & Analytics Administration
+$router->get('/api/admin/reports/analytics', [AdminController::class, 'reportsAnalytics']);
+
+// STAGE 8: Global Settings Reconciliation
+$router->get('/api/admin/settings', [AdminController::class, 'getSettings']);
+$router->post('/api/admin/settings', [AdminController::class, 'saveSettings']);
 
 // Dispatch Request
 $router->dispatch($request);
