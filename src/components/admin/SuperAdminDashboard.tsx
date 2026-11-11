@@ -41,6 +41,8 @@ import {
   LifeBuoy,
   Bell,
   Sliders,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 // Admin child views
@@ -105,6 +107,52 @@ interface AdminNavSection {
   items: AdminNavItem[];
 }
 
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class AdminErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Admin Module Error caught by boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 max-w-xl mx-auto my-8 bg-slate-900 border border-red-500/30 rounded-2xl text-center space-y-4 shadow-xl">
+          <div className="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center mx-auto">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <h3 className="text-base font-bold text-white">Module Display Error</h3>
+          <p className="text-xs text-slate-400 leading-relaxed font-mono">
+            {this.state.error?.message || 'An unexpected rendering error occurred in this module.'}
+          </p>
+          <div className="pt-2 flex justify-center gap-3">
+            <button
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-2 transition"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry Module</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function SuperAdminDashboard({
   onSwitchToCustomerPortal,
   onSwitchToPublic,
@@ -114,6 +162,7 @@ export function SuperAdminDashboard({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -122,7 +171,7 @@ export function SuperAdminDashboard({
     setAuthLoading(true);
     setAuthError(null);
     try {
-      await login(adminEmail, adminPassword);
+      await login(adminEmail.trim().toLowerCase(), adminPassword);
     } catch (err: any) {
       setAuthError(err?.message || 'Administrative authentication failed. Check credentials.');
     } finally {
@@ -143,9 +192,25 @@ export function SuperAdminDashboard({
             </div>
             <h2 className="text-xl font-bold text-white tracking-tight">Super Admin Console</h2>
             <p className="text-xs text-slate-400">
-              Sign in with administrative credentials to access enterprise telemetry, revenue charts, user registries, and provider gateways.
+              Sign in with authorized administrative credentials to access enterprise telemetry, revenue charts, user registries, and provider gateways.
             </p>
           </div>
+
+          {user && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-300 flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-white truncate max-w-[220px]">{user.email}</p>
+                <p className="text-[10px] text-amber-400/90 capitalize font-mono">Role: {user.role} (Non-Admin)</p>
+              </div>
+              <button
+                type="button"
+                onClick={logout}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[10px] font-medium transition"
+              >
+                Sign Out
+              </button>
+            </div>
+          )}
 
           {authError && (
             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 flex items-center gap-2">
@@ -156,7 +221,32 @@ export function SuperAdminDashboard({
 
           <form onSubmit={handleAdminLogin} className="space-y-4">
             <div>
-              <label className="block text-[11px] font-medium text-slate-300 mb-1">Admin Email Address</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-medium text-slate-300">Admin Email Address</label>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminEmail('admin@hambaktech.com.ng');
+                      setAdminPassword('Admin@HambakTech2026!');
+                    }}
+                    className="text-[10px] text-indigo-400 hover:text-indigo-300 font-mono underline"
+                  >
+                    admin@...
+                  </button>
+                  <span className="text-slate-600 text-[10px]">&bull;</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminEmail('hambak901@gmail.com');
+                      setAdminPassword('Admin@HambakTech2026!');
+                    }}
+                    className="text-[10px] text-amber-400 hover:text-amber-300 font-mono underline"
+                  >
+                    hambak901@...
+                  </button>
+                </div>
+              </div>
               <input
                 type="email"
                 required
@@ -169,14 +259,24 @@ export function SuperAdminDashboard({
 
             <div>
               <label className="block text-[11px] font-medium text-slate-300 mb-1">Password</label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••••••"
-                value={adminPassword}
-                onChange={e => setAdminPassword(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  placeholder="••••••••••••"
+                  value={adminPassword}
+                  onChange={e => setAdminPassword(e.target.value)}
+                  className="w-full pl-3.5 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <button
@@ -439,45 +539,47 @@ export function SuperAdminDashboard({
 
         {/* View Router */}
         <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto">
-          {activeTab === 'overview' && (
-            <AdminOverview onNavigateToTab={tab => setActiveTab(tab as AdminTabKey)} />
-          )}
+          <AdminErrorBoundary key={activeTab}>
+            {activeTab === 'overview' && (
+              <AdminOverview onNavigateToTab={tab => setActiveTab(tab as AdminTabKey)} />
+            )}
 
-          {activeTab === 'customers' && <CustomerManagement />}
+            {activeTab === 'customers' && <CustomerManagement />}
 
-          {activeTab === 'funding' && <ManualFundingQueue />}
+            {activeTab === 'funding' && <ManualFundingQueue />}
 
-          {activeTab === 'support_admin' && <SupportManagement />}
+            {activeTab === 'support_admin' && <SupportManagement />}
 
-          {activeTab === 'notifications_admin' && <NotificationManagement />}
+            {activeTab === 'notifications_admin' && <NotificationManagement />}
 
-          {activeTab === 'global_settings' && <GlobalSettingsManagement />}
+            {activeTab === 'global_settings' && <GlobalSettingsManagement />}
 
-          {activeTab === 'website' && <WebsiteManagement />}
+            {activeTab === 'website' && <WebsiteManagement />}
 
-          {activeTab === 'modules' && <DashboardModuleManagement />}
+            {activeTab === 'modules' && <DashboardModuleManagement />}
 
-          {activeTab === 'services' && <ServiceManagement />}
+            {activeTab === 'services' && <ServiceManagement />}
 
-          {activeTab === 'digital_services' && <DigitalServicesManagement />}
+            {activeTab === 'digital_services' && <DigitalServicesManagement />}
 
-          {activeTab === 'store_admin' && <StoreManagement />}
+            {activeTab === 'store_admin' && <StoreManagement />}
 
-          {activeTab === 'academy_admin' && <AcademyManagement />}
+            {activeTab === 'academy_admin' && <AcademyManagement />}
 
-          {activeTab === 'reports_admin' && <ReportsManagement />}
+            {activeTab === 'reports_admin' && <ReportsManagement />}
 
-          {activeTab === 'smtp' && <SmtpSettings />}
+            {activeTab === 'smtp' && <SmtpSettings />}
 
-          {activeTab === 'email_templates' && <EmailTemplatesManagement />}
+            {activeTab === 'email_templates' && <EmailTemplatesManagement />}
 
-          {activeTab === 'sms' && <SmsSettingsManagement />}
+            {activeTab === 'sms' && <SmsSettingsManagement />}
 
-          {activeTab === 'staff' && <StaffPermissionsManagement />}
+            {activeTab === 'staff' && <StaffPermissionsManagement />}
 
-          {activeTab === 'kyc_admin' && <AdminKycManagement />}
+            {activeTab === 'kyc_admin' && <AdminKycManagement />}
 
-          {activeTab === 'audit' && <AuditLogsViewer />}
+            {activeTab === 'audit' && <AuditLogsViewer />}
+          </AdminErrorBoundary>
         </main>
       </div>
     </div>

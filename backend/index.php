@@ -43,6 +43,7 @@ $router->get('/api/system/init-database', [SystemController::class, 'initDatabas
 // 2. CMS & BRANDING
 // -----------------------------------------------------------------------------
 $router->get('/api/cms/public-data', [CmsController::class, 'publicData']);
+$router->get('/api/cms/public', [CmsController::class, 'publicData']);
 $router->post('/api/cms/branding', [CmsController::class, 'updateBranding']);
 $router->post('/api/cms/sections', [CmsController::class, 'updateSections']);
 $router->post('/api/cms/announcements', [CmsController::class, 'saveAnnouncement']);

@@ -131,22 +131,26 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
     );
   }
 
-  const metrics = data?.metrics || {
-    totalCustomers: 0,
-    activeCustomers: 0,
-    suspendedCustomers: 0,
-    totalStaff: 0,
-    totalWalletBalances: 0,
-    totalWalletFunding: 0,
-    totalServiceSales: 0,
-    providerExpenditure: 0,
-    grossProfit: 0,
-    successfulTransactions: 0,
-    pendingTransactions: 0,
-    failedTransactions: 0,
-    pendingFundingApprovals: 0,
-    pendingKycCount: 0,
+  const rawMetrics = data?.metrics || {};
+  const metrics = {
+    totalCustomers: Number(rawMetrics.totalCustomers ?? rawMetrics.total_customers ?? 0),
+    activeCustomers: Number(rawMetrics.activeCustomers ?? rawMetrics.active_customers ?? 0),
+    suspendedCustomers: Number(rawMetrics.suspendedCustomers ?? rawMetrics.suspended_customers ?? 0),
+    totalStaff: Number(rawMetrics.totalStaff ?? rawMetrics.total_staff ?? 0),
+    totalWalletBalances: Number(rawMetrics.totalWalletBalances ?? rawMetrics.total_wallet_balances ?? 0),
+    totalWalletFunding: Number(rawMetrics.totalWalletFunding ?? rawMetrics.total_wallet_funding ?? 0),
+    totalServiceSales: Number(rawMetrics.totalServiceSales ?? rawMetrics.total_service_sales ?? 0),
+    providerExpenditure: Number(rawMetrics.providerExpenditure ?? rawMetrics.provider_expenditure ?? 0),
+    grossProfit: Number(rawMetrics.grossProfit ?? rawMetrics.gross_profit ?? 0),
+    successfulTransactions: Number(rawMetrics.successfulTransactions ?? rawMetrics.successful_transactions ?? 0),
+    pendingTransactions: Number(rawMetrics.pendingTransactions ?? rawMetrics.pending_transactions ?? 0),
+    failedTransactions: Number(rawMetrics.failedTransactions ?? rawMetrics.failed_transactions ?? 0),
+    pendingFundingApprovals: Number(rawMetrics.pendingFundingApprovals ?? rawMetrics.pending_funding_approvals ?? 0),
+    pendingKycCount: Number(rawMetrics.pendingKycCount ?? rawMetrics.pending_kyc_count ?? 0),
   };
+
+  const recentRegistrations = data?.recentRegistrations || data?.recent_registrations || [];
+  const pendingFundings = data?.pendingFundings || data?.pending_funding || [];
 
   return (
     <div className="space-y-6">
@@ -180,28 +184,28 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
           <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
             <p className="text-xs text-slate-400">Total Customer Wallets Float</p>
             <p className="text-xl sm:text-2xl font-bold font-mono text-emerald-400 mt-1 tabular-nums">
-              ₦{metrics.totalWalletBalances.toLocaleString()}
+              ₦{(metrics.totalWalletBalances || 0).toLocaleString()}
             </p>
             <p className="text-[11px] text-slate-500 mt-0.5 font-mono">Liability to customers</p>
           </div>
           <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
             <p className="text-xs text-slate-400">Gross Service Sales (Debits)</p>
             <p className="text-xl sm:text-2xl font-bold font-mono text-white mt-1 tabular-nums">
-              ₦{metrics.totalServiceSales.toLocaleString()}
+              ₦{(metrics.totalServiceSales || 0).toLocaleString()}
             </p>
             <p className="text-[11px] text-slate-500 mt-0.5 font-mono">Total vending volume</p>
           </div>
           <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
             <p className="text-xs text-slate-400">Provider Cost (Wholesale COGS)</p>
             <p className="text-xl sm:text-2xl font-bold font-mono text-red-400 mt-1 tabular-nums">
-              ₦{metrics.providerExpenditure.toLocaleString()}
+              ₦{(metrics.providerExpenditure || 0).toLocaleString()}
             </p>
             <p className="text-[11px] text-slate-500 mt-0.5 font-mono">UlamaData &amp; VTpass cost</p>
           </div>
           <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
             <p className="text-xs text-indigo-400 font-semibold">Net Platform Margin</p>
             <p className="text-xl sm:text-2xl font-bold font-mono text-indigo-400 mt-1 tabular-nums">
-              +₦{metrics.grossProfit.toLocaleString()}
+              +₦{(metrics.grossProfit || 0).toLocaleString()}
             </p>
             <p className="text-[11px] text-indigo-400/80 mt-0.5 font-mono">Retained gross profit</p>
           </div>
@@ -368,7 +372,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-400" />
-              <span>Pending Bank Transfer Proofs ({data?.pendingFundings?.length || 0})</span>
+              <span>Pending Bank Transfer Proofs ({pendingFundings.length})</span>
             </h2>
             <button
               onClick={() => onNavigateToTab('funding')}
@@ -379,7 +383,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
             </button>
           </div>
 
-          {(!data?.pendingFundings || data.pendingFundings.length === 0) ? (
+          {pendingFundings.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs bg-slate-950/40 rounded-xl border border-slate-800/60">
               <CheckCircle2 className="w-6 h-6 text-emerald-400 mx-auto mb-2" />
               <p className="font-semibold text-slate-300">All payment proofs processed</p>
@@ -387,7 +391,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              {data.pendingFundings.map(item => (
+              {pendingFundings.map(item => (
                 <div
                   key={item.id}
                   className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
@@ -395,7 +399,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-white font-mono text-sm">
-                        ₦{item.amount.toLocaleString()}
+                        ₦{(Number(item.amount) || 0).toLocaleString()}
                       </span>
                       <span className="font-mono text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded">
                         {item.reference}
@@ -454,7 +458,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
           </div>
 
           <div className="space-y-2.5">
-            {data?.recentRegistrations?.map(user => (
+            {recentRegistrations.map(user => (
               <div
                 key={user.id}
                 className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 flex items-center justify-between text-xs hover:border-slate-700 transition"
@@ -471,7 +475,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
 
                 <div className="text-right">
                   <span className="font-mono text-emerald-400 font-bold">
-                    ₦{user.wallet_balance?.toLocaleString() || 0}
+                    ₦{(Number(user.wallet_balance) || 0).toLocaleString()}
                   </span>
                   <p className="text-[10px] text-slate-500 font-mono capitalize">
                     {user.status} &bull; Tier {user.tier}

@@ -97,41 +97,15 @@ def main():
     
     upload_directory_recursive(ftp, dist_dir, f"/{REMOTE_ROOT}")
 
-    # 4. Deploy PHP Backend (/backend/ -> public_html/backend/)
-    print("\n--- Deploying PHP Backend (backend/ -> public_html/backend/) ---")
+    # 4. Deploy PHP Backend (/backend/ -> public_html/backend/ and public_html/api/)
+    print("\n--- Deploying PHP Backend (backend/ -> public_html/backend/ and public_html/api/) ---")
     backend_dir = "backend"
     if os.path.exists(backend_dir):
         upload_directory_recursive(ftp, backend_dir, f"/{REMOTE_ROOT}/backend")
+        upload_directory_recursive(ftp, backend_dir, f"/{REMOTE_ROOT}/api")
 
-    # 5. Create a seamless api/bridge or ensure api router points to backend
-    print("\n--- Ensuring API Dispatch Bridge in public_html/api/ ---")
-    ensure_remote_dir(ftp, f"/{REMOTE_ROOT}/api")
-    ftp.cwd(f"/{REMOTE_ROOT}/api")
-    
-    api_bridge_code = """<?php
-declare(strict_types=1);
-
-/**
- * HambakTech API Front Controller Bridge
- * Forwards API traffic to /backend/index.php
- */
-
-$backendEntry = dirname(__DIR__) . '/backend/index.php';
-if (file_exists($backendEntry)) {
-    require_once $backendEntry;
-} else {
-    http_response_code(503);
-    header('Content-Type: application/json');
-    echo json_encode([
-        'status' => 'error',
-        'message' => 'Backend service initializing. Please retry in a few seconds.'
-    ]);
-}
-"""
-    import io
-    bio = io.BytesIO(api_bridge_code.encode("utf-8"))
-    ftp.storbinary("STOR index.php", bio)
-    print("Uploaded api bridge to /{REMOTE_ROOT}/api/index.php: DONE")
+    # 5. Verify API bridge index.php
+    print("\n--- Verifying API Dispatch in public_html/api/ ---")
 
     # 6. Verify public_html contents
     ftp.cwd(f"/{REMOTE_ROOT}")

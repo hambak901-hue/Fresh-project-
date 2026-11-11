@@ -342,7 +342,7 @@
       "password_hash": "$2b$10$TcyENUW7vAgc9jrUpdgPsudlpZO.ujYY3vbtWB/2r3ixOZW3jOXze",
       "full_name": "Bakare Aamoda",
       "phone_number": "+2348147837664",
-      "role": "superadmin",
+      "role": "customer",
       "wallet_balance": 500000,
       "kyc_status": "verified",
       "tier": 3,

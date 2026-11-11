@@ -32,22 +32,86 @@ function MainAppContent() {
   const { user } = useAuth();
   const { branding, cmsSections } = useCms();
 
-  // Active view: '02' (Public Website - default), '03' (Customer Dashboard), '04' (Super Admin Console), '09' (QA & Diagnostics)
-  const [activePhase, setActivePhase] = useState<string>('02');
-  const [activePublicPage, setActivePublicPage] = useState<string>('home');
-  const hasAutoRouted = React.useRef<boolean>(false);
+  // URL path / hash detection for direct deep-linking
+  const getInitialPhase = (): string => {
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname.toLowerCase();
+      const h = window.location.hash.toLowerCase();
+      if (p.includes('/admin') || h.includes('admin')) return '04';
+      if (p.includes('/portal') || p.includes('/customer') || h.includes('portal')) return '03';
+    }
+    return '02';
+  };
 
-  // Auto-route authenticated users to their respective portal on initial session restoration
+  // Active view: '02' (Public Website - default), '03' (Customer Dashboard), '04' (Super Admin Console), '09' (QA & Diagnostics)
+  const [activePhase, setActivePhase] = useState<string>(getInitialPhase);
+  const [activePublicPage, setActivePublicPage] = useState<string>('home');
+
+  // Auto-route authenticated users to their respective portal on login or initial session restoration
   useEffect(() => {
-    if (user && !hasAutoRouted.current) {
-      hasAutoRouted.current = true;
+    if (user) {
       if (user.role === 'admin' || user.role === 'superadmin') {
-        setActivePhase('04');
+        // If user is admin and currently on public page, route to admin console
+        if (activePhase === '02') {
+          setActivePhase('04');
+        }
       } else {
-        setActivePhase('03');
+        // If customer is on public page, route to customer portal
+        if (activePhase === '02') {
+          setActivePhase('03');
+        }
       }
     }
   }, [user]);
+
+  // Listen dynamically to window hash changes and history popstate
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const h = (window.location.hash || '').toLowerCase();
+      const p = (window.location.pathname || '').toLowerCase();
+      const s = (window.location.search || '').toLowerCase();
+
+      if (h.includes('admin') || p.includes('/admin') || s.includes('admin')) {
+        setActivePhase('04');
+      } else if (h.includes('portal') || h.includes('customer') || p.includes('/portal') || p.includes('/customer') || s.includes('portal')) {
+        setActivePhase('03');
+      } else if (h === '#home' || h === '#public' || (h === '' && p === '/' && !s.includes('admin') && !s.includes('portal'))) {
+        // Only return to public page if user is not an admin
+        if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
+          setActivePhase('02');
+        }
+      }
+    };
+
+    window.addEventListener('hashchange', handleUrlChange);
+    window.addEventListener('popstate', handleUrlChange);
+    // Execute immediately on mount to ensure deep-linked hash is honored
+    handleUrlChange();
+
+    return () => {
+      window.removeEventListener('hashchange', handleUrlChange);
+      window.removeEventListener('popstate', handleUrlChange);
+    };
+  }, [user]);
+
+  // Keep URL in sync with active phase
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (activePhase === '04') {
+        if (!window.location.hash.includes('admin') && !window.location.pathname.includes('/admin')) {
+          window.history.replaceState(null, '', '#admin');
+        }
+      } else if (activePhase === '03') {
+        if (!window.location.hash.includes('portal') && !window.location.pathname.includes('/portal')) {
+          window.history.replaceState(null, '', '#portal');
+        }
+      } else if (activePhase === '02') {
+        if (window.location.hash === '#admin' || window.location.hash === '#portal') {
+          window.history.replaceState(null, '', window.location.pathname || '/');
+        }
+      }
+    }
+  }, [activePhase]);
 
   // Modals
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);

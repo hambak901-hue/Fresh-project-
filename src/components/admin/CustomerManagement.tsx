@@ -335,7 +335,7 @@ export function CustomerManagement() {
                         <p className="text-[10px] text-slate-500 font-mono">Ref: {user.referral_code}</p>
                       </td>
                       <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400 tabular-nums">
-                        ₦{user.wallet_balance.toLocaleString()}
+                        ₦{(Number(user.wallet_balance) || 0).toLocaleString()}
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
@@ -533,7 +533,7 @@ export function CustomerManagement() {
                     <div>
                       <p className="text-slate-400">Current Ledger Balance</p>
                       <p className="text-2xl font-bold font-mono text-emerald-400 tabular-nums">
-                        ₦{selectedUser.wallet_balance.toLocaleString()}
+                        ₦{(Number(selectedUser.wallet_balance) || 0).toLocaleString()}
                       </p>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-1 rounded bg-slate-800 text-slate-300">
@@ -592,7 +592,7 @@ export function CustomerManagement() {
                       }`}
                     >
                       {adjustLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
-                      <span>Execute {adjustType.toUpperCase()} (₦{adjustAmount.toLocaleString()})</span>
+                      <span>Execute {adjustType.toUpperCase()} (₦{(Number(adjustAmount) || 0).toLocaleString()})</span>
                     </button>
                   </form>
                 </div>
@@ -703,7 +703,7 @@ export function CustomerManagement() {
                           </div>
                           <div className="text-right">
                             <span className={`font-mono font-bold ${t.type === 'credit' ? 'text-emerald-400' : 'text-slate-200'}`}>
-                              {t.type === 'credit' ? '+' : '-'}₦{t.amount.toLocaleString()}
+                              {t.type === 'credit' ? '+' : '-'}₦{(Number(t.amount) || 0).toLocaleString()}
                             </span>
                             <p className="text-[10px] text-slate-500 font-mono">{t.status}</p>
                           </div>
@@ -729,7 +729,7 @@ export function CustomerManagement() {
                             <p className="text-[10px] text-slate-500 font-mono">{o.provider_ref} &bull; {o.network}</p>
                           </div>
                           <div className="text-right">
-                            <span className="font-mono font-bold text-white">₦{o.amount.toLocaleString()}</span>
+                            <span className="font-mono font-bold text-white">₦{(Number(o.amount) || 0).toLocaleString()}</span>
                             <p className="text-[10px] text-emerald-400 font-mono">{o.status}</p>
                           </div>
                         </div>
