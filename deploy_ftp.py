@@ -12,7 +12,7 @@ import time
 FTP_HOST = "51.89.153.183"
 FTP_PORT = 21
 FTP_USER = "qfqzpeqx"
-FTP_PASS = "2h9PAQk[kE[t96"
+FTP_PASS = os.environ.get("CPANEL_SFTP_PASS", "2h9PAQk[kE[t96")
 REMOTE_ROOT = "public_html"
 
 def connect_ftp():
@@ -20,6 +20,7 @@ def connect_ftp():
     ftp = ftplib.FTP()
     ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
     ftp.login(FTP_USER, FTP_PASS)
+    ftp.set_pasv(True)
     print(f"Logged in as {FTP_USER}. Welcome banner:\n{ftp.getwelcome()}\n")
     return ftp
 

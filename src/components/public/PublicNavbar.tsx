@@ -16,7 +16,6 @@ interface PublicNavbarProps {
   onNavigate: (page: string) => void;
   onOpenAuth: (mode: 'login' | 'register') => void;
   onOpenCmsStudio: () => void;
-  onSwitchToPhaseConsole: () => void;
   onSwitchToCustomerDashboard?: () => void;
   onSwitchToAdminDashboard?: () => void;
   onOpenWalletModal?: () => void;
@@ -27,7 +26,6 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
   onNavigate,
   onOpenAuth,
   onOpenCmsStudio,
-  onSwitchToPhaseConsole,
   onSwitchToCustomerDashboard,
   onSwitchToAdminDashboard,
   onOpenWalletModal,

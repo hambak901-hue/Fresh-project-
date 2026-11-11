@@ -50,6 +50,7 @@ class SystemController
 
     public function settings(Request $request): void
     {
+        // Base customer-safe settings (no provider names, endpoints, or credentials)
         $settings = [
             'nin_fee' => 200,
             'bvn_fee' => 250,
@@ -59,9 +60,6 @@ class SystemController
             'nine_mobile_1gb' => 250,
             'airtime_discount_percent' => 2.5,
             'maintenance_mode' => false,
-            'active_verification_provider' => '2sureverify',
-            'active_telecom_provider' => 'ulamadata',
-            'active_payment_gateway' => 'paystack',
             'bank_transfer_account_name' => 'Hambak Technologies Enterprise',
             'bank_transfer_bank' => 'Moniepoint MFB / TrueHost LON110',
             'bank_transfer_account_number' => '8210492817',
@@ -69,6 +67,18 @@ class SystemController
             'support_phone' => '+234 803 000 1122',
             'support_email' => 'support@hambaktech.com.ng',
         ];
+
+        // Only include backend provider routing details if requester is authenticated admin
+        try {
+            $user = \HambakTech\Core\Auth::requireAuth($request);
+            if (in_array($user['role'] ?? '', ['admin', 'superadmin'], true)) {
+                $settings['active_verification_provider'] = '2sureverify';
+                $settings['active_telecom_provider'] = 'ulamadata';
+                $settings['active_payment_gateway'] = 'paystack';
+            }
+        } catch (\Throwable) {
+            // Keep customer-safe model for guests and customers
+        }
 
         Response::success(['settings' => $settings]);
     }

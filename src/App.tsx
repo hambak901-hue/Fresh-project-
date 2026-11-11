@@ -35,6 +35,19 @@ function MainAppContent() {
   // Active view: '02' (Public Website - default), '03' (Customer Dashboard), '04' (Super Admin Console), '09' (QA & Diagnostics)
   const [activePhase, setActivePhase] = useState<string>('02');
   const [activePublicPage, setActivePublicPage] = useState<string>('home');
+  const hasAutoRouted = React.useRef<boolean>(false);
+
+  // Auto-route authenticated users to their respective portal on initial session restoration
+  useEffect(() => {
+    if (user && !hasAutoRouted.current) {
+      hasAutoRouted.current = true;
+      if (user.role === 'admin' || user.role === 'superadmin') {
+        setActivePhase('04');
+      } else {
+        setActivePhase('03');
+      }
+    }
+  }, [user]);
 
   // Modals
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
@@ -135,7 +148,6 @@ function MainAppContent() {
         <SuperAdminDashboard
           onSwitchToCustomerPortal={() => setActivePhase('03')}
           onSwitchToPublic={() => setActivePhase('02')}
-          onSwitchToPhaseConsole={() => setActivePhase('01')}
         />
       )}
 
@@ -144,12 +156,9 @@ function MainAppContent() {
         <CustomerDashboard
           onOpenFundModal={() => setWalletModalOpen(true)}
           onSwitchToPublic={() => setActivePhase('02')}
-          onSwitchToPhaseConsole={() => setActivePhase('01')}
           onSwitchToAdmin={() => setActivePhase('04')}
         />
       )}
-
-
 
       {/* PHASE 02 PUBLIC WEBSITE VIEW */}
       {activePhase === '02' && (
@@ -160,7 +169,6 @@ function MainAppContent() {
             onNavigate={handleNavigate}
             onOpenAuth={handleOpenAuth}
             onOpenCmsStudio={() => setCmsStudioOpen(true)}
-            onSwitchToPhaseConsole={() => setActivePhase('01')}
             onSwitchToCustomerDashboard={() => setActivePhase('03')}
             onSwitchToAdminDashboard={() => setActivePhase('04')}
             onOpenWalletModal={() => setWalletModalOpen(true)}
@@ -233,6 +241,15 @@ function MainAppContent() {
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         initialMode={authMode}
+        onSuccess={(loggedInUser) => {
+          const role = loggedInUser?.role || user?.role;
+          if (role === 'admin' || role === 'superadmin') {
+            setActivePhase('04');
+          } else {
+            setActivePhase('03');
+          }
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
       />
 
       {/* CMS Studio Modal (Admin Content & Branding Management) */}

@@ -31,7 +31,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Content-Type'] = 'application/json';
   }
 
-  if (token) {
+  if (token && token !== 'undefined' && token !== 'null') {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
@@ -46,6 +46,17 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     throw new Error(data.error || data.message || `Request failed with status ${response.status}`);
   }
 
+  // Handle both flat responses ({ token, user }) and wrapped responses ({ success: true, data: { token, user } })
+  if (data && typeof data === 'object') {
+    if (data.data && typeof data.data === 'object' && !Array.isArray(data.data)) {
+      return {
+        ...data.data,
+        ...data,
+        data: data.data,
+      } as T;
+    }
+  }
+
   return data as T;
 }
 
@@ -57,8 +68,8 @@ export const api = {
       body: JSON.stringify({ email, password }),
     });
     const token = res.token || res.data?.token || '';
-    const user = res.user || res.data?.user || null;
-    if (token) {
+    const user = res.user || res.data?.user;
+    if (token && token !== 'undefined') {
       setStoredToken(token);
     }
     return { success: true, token, user };
@@ -70,8 +81,8 @@ export const api = {
       body: JSON.stringify(data),
     });
     const token = res.token || res.data?.token || '';
-    const user = res.user || res.data?.user || null;
-    if (token) {
+    const user = res.user || res.data?.user;
+    if (token && token !== 'undefined') {
       setStoredToken(token);
     }
     return { success: true, token, user };
@@ -79,12 +90,62 @@ export const api = {
 
   async getMe(): Promise<{ success: boolean; user: User }> {
     const res = await request<any>('/api/auth/me');
-    const user = res.user || res.data?.user || null;
-    return { success: !!user, user };
+    const user = res.user || res.data?.user;
+    return { success: true, user };
   },
 
   logout(): void {
     clearStoredToken();
+  },
+
+  async forgotPassword(email: string): Promise<{
+    success: boolean;
+    message: string;
+    email?: string;
+    token?: string;
+    otp_preview?: string;
+    expires_in_minutes?: number;
+    delivery?: any;
+  }> {
+    return request('/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async verifyOtp(email: string, otp_code: string): Promise<{
+    success: boolean;
+    message: string;
+    valid?: boolean;
+    email?: string;
+    token?: string;
+  }> {
+    return request('/api/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp_code }),
+    });
+  },
+
+  async resetPassword(data: {
+    email: string;
+    otp_code?: string;
+    token?: string;
+    new_password: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    token?: string;
+    user?: User;
+  }> {
+    const res = await request<any>('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    const token = res.token || res.data?.token || '';
+    if (token && token !== 'undefined') {
+      setStoredToken(token);
+    }
+    return res;
   },
 
   // System & Credentials Status
@@ -1502,5 +1563,213 @@ export const api = {
       body: JSON.stringify(data),
     });
   },
+
+  // ─── Stage 8 Support & Help Centre ─────────────────────────────────────────
+  async getSupportTickets(status?: string, category?: string): Promise<{
+    success: boolean;
+    tickets: any[];
+  }> {
+    const q = new URLSearchParams();
+    if (status) q.append('status', status);
+    if (category) q.append('category', category);
+    const queryString = q.toString() ? `?${q.toString()}` : '';
+    return request(`/api/support/tickets${queryString}`);
+  },
+
+  async createSupportTicket(data: {
+    subject: string;
+    category: string;
+    priority?: string;
+    message: string;
+    attachments?: any[];
+  }): Promise<{
+    success: boolean;
+    message: string;
+    ticket?: any;
+    ticket_id?: number;
+    ticket_reference?: string;
+  }> {
+    return request('/api/support/tickets', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getSupportTicketDetails(id: string | number): Promise<{
+    success: boolean;
+    ticket: any;
+    replies: any[];
+  }> {
+    return request(`/api/support/tickets/${id}`);
+  },
+
+  async replySupportTicket(id: string | number, message: string, isInternalNote?: boolean): Promise<{
+    success: boolean;
+    message: string;
+    reply: any;
+  }> {
+    return request(`/api/support/tickets/${id}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ message, is_internal_note: !!isInternalNote }),
+    });
+  },
+
+  async getAdminSupportTickets(params?: {
+    status?: string;
+    priority?: string;
+    category?: string;
+    search?: string;
+  }): Promise<{
+    success: boolean;
+    tickets: any[];
+    metrics: {
+      total: number;
+      open: number;
+      in_progress: number;
+      waiting_customer: number;
+      resolved: number;
+      closed: number;
+    };
+  }> {
+    const q = new URLSearchParams();
+    if (params?.status) q.append('status', params.status);
+    if (params?.priority) q.append('priority', params.priority);
+    if (params?.category) q.append('category', params.category);
+    if (params?.search) q.append('search', params.search);
+    const queryString = q.toString() ? `?${q.toString()}` : '';
+    return request(`/api/admin/support/tickets${queryString}`);
+  },
+
+  async updateSupportTicketStatus(id: string | number, data: {
+    status?: string;
+    priority?: string;
+    assigned_to?: number | string | null;
+  }): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    return request(`/api/admin/support/tickets/${id}/status`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // ─── Stage 8 Global Settings Reconciliation (22 Categories) ───────────────
+  async getAdminAllSettings(): Promise<{
+    success: boolean;
+    settings: Record<string, Record<string, any>>;
+    categories: string[];
+  }> {
+    return request('/api/admin/settings/all');
+  },
+
+  async updateAdminSettingsCategory(category: string, values: Record<string, any>): Promise<{
+    success: boolean;
+    message: string;
+    updated: number;
+  }> {
+    return request('/api/admin/settings/update', {
+      method: 'POST',
+      body: JSON.stringify({ category, values }),
+    });
+  },
+
+  // ─── Stage 8 Notification Administration ──────────────────────────────────
+  async getAdminNotificationOverview(): Promise<{
+    success: boolean;
+    metrics: {
+      total_in_app: number;
+      unread_in_app: number;
+      total_broadcasts: number;
+      active_announcements: number;
+      email_logs_count: number;
+      sms_logs_count: number;
+    };
+    recent_broadcasts: any[];
+    recent_logs: any[];
+  }> {
+    return request('/api/admin/notifications/overview');
+  },
+
+  async getAdminBroadcasts(): Promise<{
+    success: boolean;
+    broadcasts: any[];
+  }> {
+    return request('/api/admin/notifications/broadcasts');
+  },
+
+  async sendAdminBroadcast(data: {
+    title: string;
+    message: string;
+    channel: string;
+    target_role?: string;
+    user_id?: number | null;
+    type?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    recipient_count?: number;
+  }> {
+    return request('/api/admin/notifications/broadcast', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getAdminAnnouncements(): Promise<{
+    success: boolean;
+    announcements: any[];
+  }> {
+    return request('/api/admin/announcements');
+  },
+
+  async saveAdminAnnouncement(data: {
+    id?: number | string;
+    title: string;
+    message: string;
+    type?: string;
+    is_active?: boolean | number;
+    start_date?: string;
+    end_date?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    return request('/api/admin/announcements', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminAnnouncement(id: string | number): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    return request(`/api/admin/announcements/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // ─── Stage 8 Detailed 11 Reports ──────────────────────────────────────────
+  async getDetailedReportsAdmin(): Promise<{
+    success: boolean;
+    reports: {
+      generated_at: string;
+      customer_report: any;
+      transaction_report: any;
+      wallet_report: any;
+      payment_report: any[];
+      nin_service_report: any;
+      telecom_report: any;
+      provider_expenditure_report: any;
+      profit_report: any;
+      manual_funding_report: any;
+      kyc_report: any;
+      staff_activity_report: any;
+    };
+  }> {
+    return request('/api/admin/reports/detailed');
+  },
 };
+
 

@@ -126,6 +126,20 @@ CREATE TABLE user_profiles (
     INDEX idx_user_bvn (bvn)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS password_resets (
+    id VARCHAR(36) PRIMARY KEY,
+    email VARCHAR(191) NOT NULL,
+    otp_code VARCHAR(10) NOT NULL,
+    token VARCHAR(100) NOT NULL,
+    attempts INT DEFAULT 0,
+    is_used TINYINT(1) DEFAULT 0,
+    expires_at DATETIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_pr_email (email),
+    INDEX idx_pr_token (token),
+    INDEX idx_pr_otp (email, otp_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE staff_accounts (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL UNIQUE,

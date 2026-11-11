@@ -84,8 +84,8 @@ export const CREDENTIALS = {
     serverIp: process.env.CPANEL_SERVER_IP || '51.89.153.183',
     ftpHost: process.env.CPANEL_SFTP_HOST || '51.89.153.183',
     ftpPort: parseInt(process.env.CPANEL_SFTP_PORT || '1624', 10),
-    ftpUser: process.env.CPANEL_SFTP_USER || 'qfqzpeqx',
-    ftpPass: process.env.CPANEL_SFTP_PASS || '2h9PAQk[kE[t96',
+    ftpUser: process.env.CPANEL_SFTP_USER || '',
+    ftpPass: process.env.CPANEL_SFTP_PASS || '',
     nameservers: [
       'ns1.cloudoon.com (57.128.250.247)',
       'ns2.cloudoon.net (49.12.105.164)',

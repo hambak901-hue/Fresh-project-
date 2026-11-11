@@ -125,9 +125,8 @@ return [
         'server_name' => 'LON110',
         'server_ip' => '51.89.153.183',
         'sftp_host' => '51.89.153.183',
-        'sftp_port' => 1624,
-        'sftp_user' => getenv('CPANEL_SFTP_USER') ?: 'qfqzpeqx',
-        'sftp_pass' => getenv('CPANEL_SFTP_PASS') ?: '2h9PAQk[kE[t96',
+        'sftp_user' => getenv('CPANEL_SFTP_USER') ?: '',
+        'sftp_pass' => getenv('CPANEL_SFTP_PASS') ?: '',
         'nameservers' => [
             'ns1.cloudoon.com (57.128.250.247)',
             'ns2.cloudoon.net (49.12.105.164)',

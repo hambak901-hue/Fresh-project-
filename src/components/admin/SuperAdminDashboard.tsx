@@ -38,8 +38,9 @@ import {
   AlertCircle,
   Loader2,
   ArrowRight,
-  Headphones,
-  Settings,
+  LifeBuoy,
+  Bell,
+  Sliders,
 } from 'lucide-react';
 
 // Admin child views
@@ -61,19 +62,23 @@ import { SmtpSettings } from './SmtpSettings';
 import { EmailTemplatesManagement } from './EmailTemplatesManagement';
 import { SmsSettingsManagement } from './SmsSettingsManagement';
 import { AdminKycManagement } from './AdminKycManagement';
-import { AdminSupportManagement } from './AdminSupportManagement';
-import { AdminGlobalSettings } from './AdminGlobalSettings';
+import { SupportManagement } from './SupportManagement';
+import { NotificationManagement } from './NotificationManagement';
+import { GlobalSettingsManagement } from './GlobalSettingsManagement';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
   onSwitchToPublic: () => void;
-  onSwitchToPhaseConsole: () => void;
+  onSwitchToPhaseConsole?: () => void;
 }
 
 export type AdminTabKey =
   | 'overview'
   | 'customers'
   | 'funding'
+  | 'support_admin'
+  | 'notifications_admin'
+  | 'global_settings'
   | 'website'
   | 'modules'
   | 'services'
@@ -81,8 +86,6 @@ export type AdminTabKey =
   | 'store_admin'
   | 'academy_admin'
   | 'reports_admin'
-  | 'support_admin'
-  | 'global_settings'
   | 'smtp'
   | 'email_templates'
   | 'sms'
@@ -105,7 +108,6 @@ interface AdminNavSection {
 export function SuperAdminDashboard({
   onSwitchToCustomerPortal,
   onSwitchToPublic,
-  onSwitchToPhaseConsole,
 }: SuperAdminDashboardProps) {
   const { user, login, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTabKey>('overview');
@@ -221,7 +223,8 @@ export function SuperAdminDashboard({
         { id: 'overview', label: '1. Admin Overview', icon: LayoutDashboard },
         { id: 'customers', label: '2. Customer Management', icon: Users },
         { id: 'funding', label: '3. Funding Approvals', icon: Clock, badge: 'Manual' },
-        { id: 'reports_admin', label: 'Reports & Analytics', icon: BarChart3, badge: 'Phase 8' },
+        { id: 'support_admin', label: 'Support Centre', icon: LifeBuoy, badge: 'Stage 8' },
+        { id: 'reports_admin', label: 'Reports & Analytics (11)', icon: BarChart3, badge: 'Stage 8' },
       ],
     },
     {
@@ -236,7 +239,7 @@ export function SuperAdminDashboard({
     {
       title: 'Communication & Delivery',
       items: [
-        { id: 'support_admin', label: 'Support Desk & Tickets', icon: Headphones, badge: 'Stage 8' },
+        { id: 'notifications_admin', label: 'Broadcasts & Announcements', icon: Bell, badge: 'Stage 8' },
         { id: 'smtp', label: 'SMTP Server Settings', icon: Server, badge: 'Phase 8' },
         { id: 'email_templates', label: 'Email Templates (12)', icon: Mail },
         { id: 'sms', label: 'SMS Gateway & Templates', icon: MessageSquare },
@@ -245,6 +248,7 @@ export function SuperAdminDashboard({
     {
       title: 'Content & User Experience',
       items: [
+        { id: 'global_settings', label: 'Global Settings (22 Sections)', icon: Sliders, badge: 'Stage 8' },
         { id: 'website', label: 'Website Management (CMS)', icon: Globe },
         { id: 'modules', label: 'Dashboard Management', icon: Layers },
       ],
@@ -252,7 +256,6 @@ export function SuperAdminDashboard({
     {
       title: 'Governance & Security',
       items: [
-        { id: 'global_settings', label: 'Global Settings (22 Cats)', icon: Settings, badge: 'Stage 8' },
         { id: 'kyc_admin', label: 'KYC & PIN Policies', icon: ShieldCheck, badge: 'Stage 4' },
         { id: 'staff', label: 'Staff & Permissions', icon: ShieldAlert },
         { id: 'audit', label: 'Audit Logs', icon: FileText },
@@ -444,6 +447,12 @@ export function SuperAdminDashboard({
 
           {activeTab === 'funding' && <ManualFundingQueue />}
 
+          {activeTab === 'support_admin' && <SupportManagement />}
+
+          {activeTab === 'notifications_admin' && <NotificationManagement />}
+
+          {activeTab === 'global_settings' && <GlobalSettingsManagement />}
+
           {activeTab === 'website' && <WebsiteManagement />}
 
           {activeTab === 'modules' && <DashboardModuleManagement />}
@@ -457,10 +466,6 @@ export function SuperAdminDashboard({
           {activeTab === 'academy_admin' && <AcademyManagement />}
 
           {activeTab === 'reports_admin' && <ReportsManagement />}
-
-          {activeTab === 'support_admin' && <AdminSupportManagement />}
-
-          {activeTab === 'global_settings' && <AdminGlobalSettings />}
 
           {activeTab === 'smtp' && <SmtpSettings />}
 

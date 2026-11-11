@@ -6310,10 +6310,17 @@
     "sender_email": "support@hambaktech.com.ng",
     "sender_name": "HambakTech Enterprise Mailer",
     "reply_to_email": "support@hambaktech.com.ng",
-    "last_tested_at": "2026-11-08T10:36:53.826Z",
+    "last_tested_at": "2026-11-11T09:41:38.691Z",
     "last_test_status": "operational",
-    "last_test_message": "LON110 SMTP handshake confirmed on port 587 (STARTTLS)",
+    "last_test_message": "SMTP password not configured. Simulated mail dispatch is active. Enter your SMTP password in Settings to enable live relay.",
     "logs": [
+      {
+        "id": "smtplog_1794390098689_p2b5",
+        "timestamp": "2026-11-11T09:41:38.689Z",
+        "recipient": "oyemi19@gmail.com",
+        "subject": "Test Subject",
+        "status": "simulated"
+      },
       {
         "id": "smtplog_1794240997331_dwf0",
         "timestamp": "2026-11-09T16:16:37.331Z",

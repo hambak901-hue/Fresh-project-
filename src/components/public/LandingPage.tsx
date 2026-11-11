@@ -42,14 +42,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
     primaryCtaLink: 'register',
     secondaryCtaText: 'Explore Solutions',
     secondaryCtaLink: 'services',
-    bannerImage: '/src/assets/images/hero_fintech_portal_1794097383199.jpg',
+    bannerImage: '/assets/images/hero_fintech_portal_1794097383199.jpg',
   };
 
   const intro = cmsSections?.companyIntro || {
     badge: 'Engineering Excellence & Trust',
     title: 'Engineered for Nigerian Businesses, Developers & Resellers',
     description:
-      'Founded with a mission to eliminate manual identity validation and telecom friction, HambakTech operates high-throughput integration adapters with 2SureVerify, Veripine, UlamaData, and VTpass directly connected to sovereign telecommunication nodes.',
+      'Founded with a mission to eliminate manual identity validation and telecom friction, HambakTech operates high-throughput integration gateways directly connected to sovereign telecommunication nodes and accredited identity repositories.',
     founded: '2024',
     headquarters: 'Lagos, Nigeria',
     infrastructure: 'TrueHost LON110 Tier-3 Cloud Server (51.89.153.183:1624)',
@@ -70,7 +70,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
     {
       step: '02',
       title: 'Fund Your Balance',
-      description: 'Top up seamlessly via instant Flutterwave checkout or dedicated virtual bank accounts.',
+      description: 'Top up seamlessly via instant card checkout, dedicated virtual bank accounts, or automated bank transfer.',
     },
     {
       step: '03',
@@ -95,7 +95,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
     {
       id: 'b3',
       title: 'Automated Failover',
-      description: 'Multi-provider routing between 2SureVerify & Veripine guarantees zero downtime.',
+      description: 'Multi-tier routing and sovereign failover infrastructure guarantees zero downtime.',
       icon: 'Cpu',
     },
     {
@@ -175,13 +175,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
           <div className="lg:col-span-5 relative">
             <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl group">
               <img
-                src={hero.bannerImage || '/src/assets/images/hero_fintech_portal_1794097383199.jpg'}
+                src={hero.bannerImage || '/assets/images/hero_fintech_portal_1794097383199.jpg'}
                 alt="HambakTech Enterprise Operations Center"
                 className="w-full h-72 sm:h-96 object-cover object-center group-hover:scale-105 transition-transform duration-700"
                 loading="eager"
                 onError={e => {
                   (e.target as HTMLImageElement).src =
-                    '/public/assets/aistudio/IMG_0483_23e1a1e1.png';
+                    '/assets/aistudio/IMG_0483_23e1a1e1.png';
                 }}
               />
               {/* Gradient scrim for legibility */}
@@ -300,7 +300,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
             <div className="space-y-2">
               <h3 className="text-lg font-bold text-white">NIN &amp; BVN Sovereign Verification</h3>
               <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
-                Instant identity validation via 2SureVerify and Veripine adapters. Generates certified NIMC slips, premium plastic identity formats, phone-to-NIN lookups, and Central Bank BVN biometrics.
+                Instant identity validation via HambakTech sovereign gateway. Generates certified NIMC slips, premium plastic identity formats, phone-to-NIN lookups, and Central Bank BVN biometrics.
               </p>
             </div>
             <div className="flex flex-wrap gap-2 pt-2 text-[11px] text-slate-400">
@@ -319,7 +319,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
             <div className="space-y-2">
               <h3 className="text-lg font-bold text-white">Wholesale SME Telecoms</h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Automated vending for MTN SME (₦270/GB), Airtel Corporate Gifting, Glo, and 9mobile with sub-3s delivery via UlamaData and VTpass.
+                Automated vending for MTN SME (₦270/GB), Airtel Corporate Gifting, Glo, and 9mobile with sub-3s delivery via direct carrier infrastructure.
               </p>
             </div>
             <div className="pt-2 text-[11px] text-sky-400 font-mono font-semibold">

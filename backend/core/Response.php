@@ -36,11 +36,11 @@ class Response
             'timestamp' => date('c'),
         ];
 
-        // If data is an associative array, also expose its keys at the root for seamless frontend access
+        // Hoist associative array keys to top-level for backwards compatibility
         if (is_array($data) && !array_is_list($data)) {
-            foreach ($data as $key => $val) {
-                if (!isset($payload[$key])) {
-                    $payload[$key] = $val;
+            foreach ($data as $k => $v) {
+                if (!isset($payload[$k])) {
+                    $payload[$k] = $v;
                 }
             }
         }

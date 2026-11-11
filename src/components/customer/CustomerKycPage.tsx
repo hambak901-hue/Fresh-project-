@@ -544,7 +544,7 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
 
           <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
             <span>Current Daily Limit: <strong className="text-white">₦{(levelInfo?.daily_limit || 20000).toLocaleString()}</strong></span>
-            <span>Security Engine: <strong className="text-emerald-400">2SureVerify Automated</strong></span>
+            <span>Security Engine: <strong className="text-emerald-400">Automated Sovereign Verification</strong></span>
           </div>
         </div>
       </div>
@@ -845,7 +845,7 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
               />
               <label htmlFor="auto_verify" className="text-xs text-slate-300 leading-relaxed cursor-pointer">
                 <strong className="text-emerald-400 block mb-0.5">Automated Real-Time Verification Engine (Recommended)</strong>
-                Perform real-time name matching check against official government repositories (NIMC/NIBSS via 2SureVerify) for instant approval. If disabled, submission will require standard manual compliance review.
+                Perform real-time name matching check against official government repositories (NIMC/NIBSS) for instant approval. If disabled, submission will require standard manual compliance review.
               </label>
             </div>
           </div>
@@ -990,7 +990,7 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
                 <strong>3. Storage & Encryption:</strong> All sensitive identity records (NIN, BVN, uploaded government documents) are encrypted at rest with AES-256 and transmitted exclusively over TLS 1.3 encrypted sessions. Documents are stored in access-restricted buckets and accessible only by authorized compliance personnel.
               </p>
               <p>
-                <strong>4. Automated Verification:</strong> Verification against NIMC and NIBSS repositories is performed through licensed aggregator interfaces (2SureVerify / Veripine) utilizing zero-knowledge validation where names and birth dates are verified without persistent storage of third-party datasets.
+                <strong>4. Automated Verification:</strong> Verification against NIMC and NIBSS repositories is performed through accredited sovereign identity interfaces utilizing zero-knowledge validation where names and birth dates are verified without persistent storage of third-party datasets.
               </p>
               <p>
                 <strong>5. Rights of the Data Subject:</strong> You have the right to request access to, rectification of, or erasure of your personal data subject to statutory financial transaction record retention mandates.

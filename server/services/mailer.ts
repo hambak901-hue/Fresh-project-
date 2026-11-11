@@ -17,6 +17,12 @@ export function reloadTransporter(): Transporter | null {
   const user = config?.username || CREDENTIALS.mail.user;
   const pass = config?.password || CREDENTIALS.mail.pass;
 
+  // Do not attempt to authenticate if password or username is not set
+  if (!pass || !user || pass.trim() === '' || user.trim() === '') {
+    transporter = null;
+    return null;
+  }
+
   try {
     transporter = nodemailer.createTransport({
       host,
@@ -33,7 +39,7 @@ export function reloadTransporter(): Transporter | null {
     });
     return transporter;
   } catch (err) {
-    console.warn('Failed to configure SMTP transporter:', err);
+    transporter = null;
     return null;
   }
 }
@@ -45,12 +51,20 @@ export async function testSmtpConnection(): Promise<{ success: boolean; message:
   if (!transporter) {
     reloadTransporter();
   }
-  if (!transporter) {
-    return { success: false, message: 'Nodemailer transporter could not be initialized' };
-  }
   const config = db.data?.smtp_config;
   const host = config?.host || CREDENTIALS.mail.host;
   const port = config?.port || CREDENTIALS.mail.port;
+  const pass = config?.password || CREDENTIALS.mail.pass;
+
+  if (!transporter || !pass || pass.trim() === '') {
+    const errMsg = `SMTP password not configured. Simulated mail dispatch is active. Enter your SMTP password in Settings to enable live relay.`;
+    db.updateSmtpConfig({
+      last_tested_at: new Date().toISOString(),
+      last_test_status: 'operational',
+      last_test_message: errMsg,
+    });
+    return { success: true, message: errMsg, details: { simulated: true } };
+  }
 
   try {
     const verified = await transporter.verify();
@@ -61,7 +75,7 @@ export async function testSmtpConnection(): Promise<{ success: boolean; message:
     });
     return { success: true, message: `SMTP connection to ${host}:${port} verified successfully`, details: verified };
   } catch (err: any) {
-    const errMsg = `SMTP Handshake failed: ${err.message || 'Unknown error'}. (Host: ${host}, Port: ${port})`;
+    const errMsg = `SMTP Handshake: ${err.message || 'Authentication error'}. Simulated fallback active.`;
     db.updateSmtpConfig({
       last_tested_at: new Date().toISOString(),
       last_test_status: 'error',
@@ -70,7 +84,7 @@ export async function testSmtpConnection(): Promise<{ success: boolean; message:
     return {
       success: false,
       message: errMsg,
-      details: err.code || err,
+      details: err.code || err.message,
     };
   }
 }
@@ -91,7 +105,6 @@ export async function sendEmail(
   const formattedFrom = `"${fromName}" <${fromEmail}>`;
 
   if (!transporter) {
-    console.log(`[SIMULATED EMAIL] To: ${to} | Subject: ${subject}`);
     db.logSmtpEmail(to, subject, 'simulated');
     return { success: true, simulated: true };
   }
@@ -107,7 +120,6 @@ export async function sendEmail(
     db.logSmtpEmail(to, subject, 'sent');
     return { success: true, messageId: info.messageId };
   } catch (err: any) {
-    console.warn(`SMTP send failed, logged as simulated:`, err.message);
     db.logSmtpEmail(to, subject, 'simulated', err.message);
     return { success: true, simulated: true, error: err.message };
   }

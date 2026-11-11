@@ -226,7 +226,7 @@ export const RatesCalculator: React.FC<RatesCalculatorProps> = ({ onActionClick 
               ₦{getVerificationCost().toLocaleString('en-NG')}
             </div>
             <div className="text-xs text-slate-400">
-              Provider: <span className="text-emerald-400 font-semibold">2SureVerify &amp; Veripine Sovereign Pipeline</span>
+              Infrastructure: <span className="text-emerald-400 font-semibold">HambakTech Sovereign Pipeline</span>
             </div>
             <button
               onClick={() => onActionClick && onActionClick('verification')}

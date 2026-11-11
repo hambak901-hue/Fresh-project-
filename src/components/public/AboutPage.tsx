@@ -37,11 +37,11 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate, onOpenAuth }) 
       {/* Hero Visual Section */}
       <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
         <img
-          src="/src/assets/images/about_team_office_1794097382819.jpg"
+          src="/assets/images/about_team_office_1794097382819.jpg"
           alt="HambakTech Enterprise Engineering Hub in Lagos"
           className="w-full h-80 sm:h-96 object-cover object-center"
           onError={e => {
-            (e.target as HTMLImageElement).src = '/public/assets/aistudio/IMG_0485_9e5b9616.png';
+            (e.target as HTMLImageElement).src = '/assets/aistudio/IMG_0485_9e5b9616.png';
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent"></div>

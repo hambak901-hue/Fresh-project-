@@ -142,17 +142,24 @@ INSERT INTO airtime_swap_configs (id, network, conversion_rate_percent, merchant
 ON DUPLICATE KEY UPDATE conversion_rate_percent=VALUES(conversion_rate_percent);
 
 -- -----------------------------------------------------------------------------
+-- -----------------------------------------------------------------------------
 -- 7. DEFAULT SUPERADMIN ACCOUNT SEED
 -- -----------------------------------------------------------------------------
 INSERT INTO users (id, email, password_hash, full_name, phone_number, role, wallet_balance, kyc_status, tier, referral_code, status) VALUES
-('usr_superadmin', 'admin@hambaktech.com.ng', '$2y$10$wT0Xh9F2hXfR9l0Y2n5nPe5W6A4i7yQjBvQ2w0zT6v6tq4YkF7l2e', 'Bakar Hambak (Super Admin)', '+2348030001122', 'superadmin', 500000.00, 'verified', 3, 'HAMBAK-SUPER', 'active'),
-('usr_customer_demo', 'customer@hambaktech.com.ng', '$2y$10$wT0Xh9F2hXfR9l0Y2n5nPe5W6A4i7yQjBvQ2w0zT6v6tq4YkF7l2e', 'Fatimoh Musbau', '+2348123456789', 'customer', 50000.00, 'verified', 2, 'FATIMOH99', 'active')
-ON DUPLICATE KEY UPDATE full_name=VALUES(full_name);
+('usr_superadmin', 'admin@hambaktech.com.ng', '$2b$10$TcyENUW7vAgc9jrUpdgPsudlpZO.ujYY3vbtWB/2r3ixOZW3jOXze', 'Bakar Hambak (Super Admin)', '+2348030001122', 'superadmin', 500000.00, 'verified', 3, 'HAMBAK-SUPER', 'active'),
+('usr_hambak901', 'hambak901@gmail.com', '$2b$10$TcyENUW7vAgc9jrUpdgPsudlpZO.ujYY3vbtWB/2r3ixOZW3jOXze', 'Super Admin (Hambak)', '+2348147837664', 'superadmin', 500000.00, 'verified', 3, 'HAMBAK-901', 'active'),
+('usr_hambak19', 'hambak19@gmail.com', '$2b$10$TcyENUW7vAgc9jrUpdgPsudlpZO.ujYY3vbtWB/2r3ixOZW3jOXze', 'Bakare Aamoda', '+2348147837664', 'superadmin', 500000.00, 'verified', 3, 'HAMBAK-19', 'active'),
+('usr_fatimoh', 'fatimohmusbau34@gmail.com', 'ece765cc8fe255d56b84d3cbf302e7cd76fd63d11bc1ff070da23dc2d79e727e', 'Fatimoh Musbau', '+2348147837664', 'customer', 50000.00, 'verified', 2, 'FATIMOH34', 'active'),
+('usr_customer_demo', 'customer@hambaktech.com.ng', 'ece765cc8fe255d56b84d3cbf302e7cd76fd63d11bc1ff070da23dc2d79e727e', 'Demo Customer', '+2348123456789', 'customer', 50000.00, 'verified', 2, 'FATIMOH99', 'active')
+ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), full_name=VALUES(full_name), status=VALUES(status);
 
 INSERT INTO wallets (id, user_id, balance, currency, ledger_version, status) VALUES
 ('wal_superadmin', 'usr_superadmin', 500000.00, 'NGN', 1, 'active'),
+('wal_hambak901', 'usr_hambak901', 500000.00, 'NGN', 1, 'active'),
+('wal_hambak19', 'usr_hambak19', 500000.00, 'NGN', 1, 'active'),
+('wal_fatimoh', 'usr_fatimoh', 50000.00, 'NGN', 2, 'active'),
 ('wal_customer_demo', 'usr_customer_demo', 50000.00, 'NGN', 3, 'active')
-ON DUPLICATE KEY UPDATE balance=VALUES(balance);
+ON DUPLICATE KEY UPDATE balance=GREATEST(wallets.balance, VALUES(balance));
 
 INSERT INTO system_settings (id, setting_key, setting_value, category, description) VALUES
 ('set_bank_name', 'bank_transfer_bank', 'Moniepoint MFB', 'payment', 'Receiving bank name for manual customer funding'),

@@ -88,36 +88,14 @@ class TelecomController
         }
 
         if ($isAdmin) {
-            $cablePackages = $this->db->fetchAll('SELECT id, provider, name, code, channels, wholesale_cost, price, is_active as enabled FROM cable_packages WHERE is_active = 1 ORDER BY provider ASC, price ASC');
-            foreach ($cablePackages as &$cp) {
-                $cp['wholesale_cost'] = (float)$cp['wholesale_cost'];
-                $cp['price'] = (float)$cp['price'];
-                $cp['margin'] = round($cp['price'] - $cp['wholesale_cost'], 2);
-                $cp['enabled'] = (bool)$cp['enabled'];
-            }
-            $examPackages = $this->db->fetchAll('SELECT id, exam_name, name, description, wholesale_cost, price, is_active as enabled FROM exam_packages WHERE is_active = 1 ORDER BY price ASC');
-            foreach ($examPackages as &$ep) {
-                $ep['wholesale_cost'] = (float)$ep['wholesale_cost'];
-                $ep['price'] = (float)$ep['price'];
-                $ep['margin'] = round($ep['price'] - $ep['wholesale_cost'], 2);
-                $ep['enabled'] = (bool)$ep['enabled'];
-            }
+            $cablePackages = $this->db->fetchAll('SELECT * FROM cable_packages WHERE is_active = 1 ORDER BY provider ASC, price ASC');
+            $electricityDiscos = $this->db->fetchAll('SELECT * FROM electricity_discos WHERE is_active = 1 ORDER BY name ASC');
         } else {
-            // Customer-safe models: Never expose wholesale costs or provider keys
-            $cablePackages = $this->db->fetchAll('SELECT id, provider as brand, name, code, channels, price, is_active as enabled FROM cable_packages WHERE is_active = 1 ORDER BY provider ASC, price ASC');
-            foreach ($cablePackages as &$cp) {
-                $cp['price'] = (float)$cp['price'];
-                $cp['enabled'] = (bool)$cp['enabled'];
-            }
-            $examPackages = $this->db->fetchAll('SELECT id, exam_name, name, description, price, is_active as enabled FROM exam_packages WHERE is_active = 1 ORDER BY price ASC');
-            foreach ($examPackages as &$ep) {
-                $ep['price'] = (float)$ep['price'];
-                $ep['enabled'] = (bool)$ep['enabled'];
-            }
+            $cablePackages = $this->db->fetchAll('SELECT id, provider as provider_type, name, price, is_active FROM cable_packages WHERE is_active = 1 ORDER BY provider ASC, price ASC');
+            $electricityDiscos = $this->db->fetchAll('SELECT id, name, code, is_active FROM electricity_discos WHERE is_active = 1 ORDER BY name ASC');
         }
-
-        $electricityDiscos = $this->db->fetchAll('SELECT id, name, code, minimum_amount, is_active as enabled FROM electricity_discos WHERE is_active = 1 ORDER BY name ASC');
-        $airtimeSwap = $this->db->fetchAll('SELECT id, network, conversion_rate_percent, merchant_phone, ussd_code, is_active as enabled FROM airtime_swap_configs WHERE is_active = 1');
+        $examPackages = $this->db->fetchAll('SELECT id, name, price, is_active FROM exam_packages WHERE is_active = 1 ORDER BY price ASC');
+        $airtimeSwap = $this->db->fetchAll('SELECT network, swap_rate_percent, is_active FROM airtime_swap_configs WHERE is_active = 1');
 
         Response::success([
             'plans' => $dataPlans,
@@ -1033,18 +1011,10 @@ class TelecomController
         $limit = min(100, max(1, (int)$request->query('limit', 50)));
         $service = (string)$request->query('service', '');
         $search = (string)$request->query('search', '');
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
 
-        if ($isAdmin) {
-            $sql = 'SELECT id, service_type, service_type as service, network, phone, phone as recipient, plan, amount, cost_price, profit, provider_id as provider, provider_ref, status, metadata, created_at
-                 FROM telecom_orders
-                 WHERE user_id = :uid ';
-        } else {
-            // Customer model: completely omits provider_id, provider_ref, cost_price, and profit
-            $sql = 'SELECT id, service_type, service_type as service, network, phone, phone as recipient, plan, amount, status, metadata, created_at
-                 FROM telecom_orders
-                 WHERE user_id = :uid ';
-        }
+        $sql = 'SELECT id, service_type, service_type as service, network, phone, phone as recipient, plan, amount, provider_id as provider, provider_ref, status, metadata, created_at
+             FROM telecom_orders
+             WHERE user_id = :uid ';
         $params = ['uid' => $user['id']];
 
         if (!empty($service)) {
@@ -1052,9 +1022,10 @@ class TelecomController
             $params['srv'] = $service;
         }
         if (!empty($search)) {
-            $sql .= 'AND (phone LIKE :srch OR plan LIKE :srch2) ';
+            $sql .= 'AND (phone LIKE :srch OR plan LIKE :srch2 OR provider_ref LIKE :srch3) ';
             $params['srch'] = "%{$search}%";
             $params['srch2'] = "%{$search}%";
+            $params['srch3'] = "%{$search}%";
         }
 
         $sql .= 'ORDER BY created_at DESC LIMIT ' . (int)$limit;
@@ -1062,15 +1033,8 @@ class TelecomController
         $rows = $this->db->fetchAll($sql, $params);
         foreach ($rows as &$r) {
             $r['amount'] = (float)$r['amount'];
-            if (isset($r['cost_price'])) $r['cost_price'] = (float)$r['cost_price'];
-            if (isset($r['profit'])) $r['profit'] = (float)$r['profit'];
             if (!empty($r['metadata'])) {
-                $meta = is_string($r['metadata']) ? json_decode($r['metadata'], true) : $r['metadata'];
-                if (!$isAdmin && is_array($meta)) {
-                    // Strip provider secrets, endpoints, order IDs, and raw diagnostics from customer metadata
-                    unset($meta['provider'], $meta['provider_id'], $meta['provider_ref'], $meta['provider_response'], $meta['raw_response'], $meta['cost'], $meta['cost_price'], $meta['wholesale_cost'], $meta['endpoint'], $meta['api_url']);
-                }
-                $r['metadata'] = $meta;
+                $r['metadata'] = is_string($r['metadata']) ? json_decode($r['metadata'], true) : $r['metadata'];
             }
         }
 

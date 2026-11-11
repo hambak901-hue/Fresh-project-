@@ -627,7 +627,7 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
                           ...sectionForm,
                           hero: {
                             ...(sectionForm.hero as any),
-                            bannerImage: '/src/assets/images/hero_fintech_portal_1794097383199.jpg',
+                            bannerImage: '/assets/images/hero_fintech_portal_1794097383199.jpg',
                           },
                         })
                       }
@@ -642,7 +642,7 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
                           ...sectionForm,
                           hero: {
                             ...(sectionForm.hero as any),
-                            bannerImage: '/src/assets/images/services_identity_telecom_1794097383404.jpg',
+                            bannerImage: '/assets/images/services_identity_telecom_1794097383404.jpg',
                           },
                         })
                       }

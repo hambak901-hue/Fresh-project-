@@ -56,7 +56,7 @@ import { CustomerKycPage } from './CustomerKycPage';
 interface CustomerDashboardProps {
   onOpenFundModal: () => void;
   onSwitchToPublic: () => void;
-  onSwitchToPhaseConsole: () => void;
+  onSwitchToPhaseConsole?: () => void;
   onSwitchToAdmin?: () => void;
 }
 
@@ -94,7 +94,6 @@ interface NavSection {
 export function CustomerDashboard({
   onOpenFundModal,
   onSwitchToPublic,
-  onSwitchToPhaseConsole,
   onSwitchToAdmin,
 }: CustomerDashboardProps) {
   const { user, logout, refreshUser } = useAuth();

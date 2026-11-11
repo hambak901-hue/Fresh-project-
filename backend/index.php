@@ -24,6 +24,9 @@ use HambakTech\Controllers\AdminController;
 use HambakTech\Controllers\CmsController;
 use HambakTech\Controllers\CustomerController;
 use HambakTech\Controllers\SystemController;
+use HambakTech\Controllers\SupportController;
+use HambakTech\Controllers\SettingsController;
+use HambakTech\Controllers\NotificationController;
 
 $request = new Request();
 $router = new Router();
@@ -49,6 +52,9 @@ $router->post('/api/cms/announcements', [CmsController::class, 'saveAnnouncement
 // -----------------------------------------------------------------------------
 $router->post('/api/auth/login', [AuthController::class, 'login']);
 $router->post('/api/auth/register', [AuthController::class, 'register']);
+$router->post('/api/auth/forgot-password', [AuthController::class, 'forgotPassword']);
+$router->post('/api/auth/verify-otp', [AuthController::class, 'verifyOtp']);
+$router->post('/api/auth/reset-password', [AuthController::class, 'resetPassword']);
 $router->get('/api/auth/me', [AuthController::class, 'me']);
 $router->put('/api/auth/profile', [AuthController::class, 'updateProfile']);
 $router->post('/api/auth/change-password', [AuthController::class, 'changePassword']);
@@ -128,13 +134,9 @@ $router->get('/api/customer/dashboard', [CustomerController::class, 'dashboard']
 $router->post('/api/customer/kyc', [CustomerController::class, 'submitKyc']);
 $router->get('/api/customer/notifications', [CustomerController::class, 'notifications']);
 $router->post('/api/customer/notifications/:id/read', [CustomerController::class, 'markNotificationRead']);
-$router->get('/api/customer/support/tickets', [CustomerController::class, 'tickets']);
-$router->post('/api/customer/support/tickets', [CustomerController::class, 'createTicket']);
-$router->get('/api/customer/support/tickets/:id', [CustomerController::class, 'ticketDetail']);
-$router->post('/api/customer/support/tickets/:id/reply', [CustomerController::class, 'replyTicket']);
 
 // -----------------------------------------------------------------------------
-// 8. SUPER ADMIN CONSOLE
+// 8. SUPER ADMIN CONSOLE & OPERATIONS
 // -----------------------------------------------------------------------------
 $router->get('/api/admin/overview', [AdminController::class, 'overview']);
 $router->get('/api/admin/customers', [AdminController::class, 'customers']);
@@ -143,36 +145,30 @@ $router->post('/api/admin/customers/adjust-balance', [AdminController::class, 'c
 $router->get('/api/admin/funding-requests', [AdminController::class, 'manualFundingRequests']);
 $router->post('/api/admin/funding-requests/:id/action', [AdminController::class, 'approveFunding']);
 $router->get('/api/admin/financial-reports', [AdminController::class, 'financialReports']);
+$router->get('/api/admin/reports/detailed', [AdminController::class, 'detailedReports']);
 $router->post('/api/admin/transactions/reverse', [AdminController::class, 'reverseTransaction']);
 $router->post('/api/admin/bank-settings', [AdminController::class, 'updateBankSettings']);
 
-// STAGE 8: Multiple Providers
-$router->get('/api/admin/providers', [AdminController::class, 'providers']);
-$router->put('/api/admin/providers/:id', [AdminController::class, 'updateProvider']);
-$router->post('/api/admin/providers/:id/toggle', [AdminController::class, 'toggleProvider']);
-$router->post('/api/admin/providers/:id/test-connection', [AdminController::class, 'testProviderConnection']);
-$router->post('/api/admin/services/assign-provider', [AdminController::class, 'assignProviderToService']);
-$router->post('/api/admin/services/update-price', [AdminController::class, 'updateServicePrice']);
+// Support & Help Centre Routes
+$router->get('/api/support/tickets', [SupportController::class, 'customerTickets']);
+$router->post('/api/support/tickets', [SupportController::class, 'createTicket']);
+$router->post('/api/customer/support-ticket', [SupportController::class, 'createTicket']);
+$router->get('/api/support/tickets/:id', [SupportController::class, 'getTicketDetails']);
+$router->post('/api/support/tickets/:id/reply', [SupportController::class, 'replyTicket']);
+$router->get('/api/admin/support/tickets', [SupportController::class, 'adminTickets']);
+$router->put('/api/admin/support/tickets/:id/status', [SupportController::class, 'updateStatus']);
 
-// STAGE 8: Dedicated Admin Support Desk
-$router->get('/api/admin/support/tickets', [AdminController::class, 'supportTickets']);
-$router->get('/api/admin/support/tickets/:id', [AdminController::class, 'supportTicketDetail']);
-$router->post('/api/admin/support/tickets/:id/reply', [AdminController::class, 'replySupportTicket']);
-$router->post('/api/admin/support/tickets/:id/status', [AdminController::class, 'updateSupportStatus']);
+// Global 22-Category Settings Routes
+$router->get('/api/admin/settings/all', [SettingsController::class, 'getAllSettings']);
+$router->post('/api/admin/settings/update', [SettingsController::class, 'updateSettings']);
 
-// STAGE 8: Dedicated KYC Administration
-$router->get('/api/admin/kyc/pending', [AdminController::class, 'kycPending']);
-$router->post('/api/admin/kyc/:id/action', [AdminController::class, 'reviewKyc']);
-
-// STAGE 8: Dedicated Notification Administration
-$router->post('/api/admin/notifications/broadcast', [AdminController::class, 'notificationsBroadcast']);
-
-// STAGE 8: Reports & Analytics Administration
-$router->get('/api/admin/reports/analytics', [AdminController::class, 'reportsAnalytics']);
-
-// STAGE 8: Global Settings Reconciliation
-$router->get('/api/admin/settings', [AdminController::class, 'getSettings']);
-$router->post('/api/admin/settings', [AdminController::class, 'saveSettings']);
+// Notification Administration Routes
+$router->get('/api/admin/notifications/overview', [NotificationController::class, 'overview']);
+$router->get('/api/admin/notifications/broadcasts', [NotificationController::class, 'listBroadcasts']);
+$router->post('/api/admin/notifications/broadcast', [NotificationController::class, 'sendBroadcast']);
+$router->get('/api/admin/announcements', [NotificationController::class, 'listAnnouncements']);
+$router->post('/api/admin/announcements', [NotificationController::class, 'saveAnnouncement']);
+$router->delete('/api/admin/announcements/:id', [NotificationController::class, 'deleteAnnouncement']);
 
 // Dispatch Request
 $router->dispatch($request);

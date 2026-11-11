@@ -33,7 +33,7 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ onNavigate, onOpenAu
       category: 'Identity Verification',
       title: 'NIN & BVN Biometric Verification',
       description:
-        'Sovereign identity verification via 2SureVerify and Veripine. Query official NIMC biodata, generate verifiable NIN standard slips, premium PVC plastic formats, and validate Central Bank BVN biometrics.',
+        'Sovereign identity verification via HambakTech accredited gateway. Query official NIMC biodata, generate verifiable NIN standard slips, premium PVC plastic formats, and validate Central Bank BVN biometrics.',
       features: [
         'Instant NIMC certified slip with dynamic QR code',
         'High-resolution sovereign biodata & photograph',
@@ -49,7 +49,7 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ onNavigate, onOpenAu
       category: 'Telecommunications',
       title: 'Wholesale SME & Corporate Data Bundles',
       description:
-        'Direct automated vending for Nigerian mobile networks. Dispatched via high-speed UlamaData and VTpass carrier bridges with 99.98% delivery success rate.',
+        'Direct automated vending for Nigerian mobile networks. Dispatched via high-speed telecommunication bridges with 99.98% delivery success rate.',
       features: [
         `MTN SME 1GB starting from ₦${rates?.mtn_sme_1gb || 270}`,
         `Airtel Corporate Gifting from ₦${rates?.airtel_1gb || 290}/GB`,
@@ -170,11 +170,11 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ onNavigate, onOpenAu
         </div>
         <div className="md:col-span-5 h-64 md:h-full min-h-[260px] relative">
           <img
-            src="/src/assets/images/services_identity_telecom_1794097383404.jpg"
+            src="/assets/images/services_identity_telecom_1794097383404.jpg"
             alt="Cryptographic identity and mobile telecom concept"
             className="w-full h-full object-cover object-center"
             onError={e => {
-              (e.target as HTMLImageElement).src = '/public/assets/aistudio/IMG_0484_0fb633df.png';
+              (e.target as HTMLImageElement).src = '/assets/aistudio/IMG_0484_0fb633df.png';
             }}
           />
         </div>

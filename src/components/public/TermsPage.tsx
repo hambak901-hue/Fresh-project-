@@ -42,7 +42,7 @@ export const TermsPage: React.FC = () => {
         <section className="rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-3">
           <h2 className="text-base font-bold text-white">2. Sovereign Identity Verification (NIN &amp; BVN) Covenants</h2>
           <p>
-            {companyName} provides identity lookup services through licensed integration adapters (including 2SureVerify and Veripine). When conducting National Identification Number (NIN) or Bank Verification Number (BVN) queries:
+            {companyName} provides identity lookup services through accredited sovereign integration gateways. When conducting National Identification Number (NIN) or Bank Verification Number (BVN) queries:
           </p>
           <ul className="list-disc pl-5 space-y-2 text-slate-400 text-xs">
             <li>You must have obtained prior, verifiable, written or electronic consent from the data subject in compliance with the Nigeria Data Protection Act (NDPA).</li>
@@ -55,7 +55,7 @@ export const TermsPage: React.FC = () => {
         <section className="rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-3">
           <h2 className="text-base font-bold text-white">3. Telecommunication Services (Data &amp; Airtime) SLA</h2>
           <p>
-            Telecom products (MTN SME, Airtel Corporate Gifting, Glo, 9mobile data, and VTU airtime) are dispatched electronically through carrier bridges (UlamaData, VTpass). While 99.8% of vending orders complete within 3 to 10 seconds, network delays caused by carrier upstream maintenance or unannounced carrier downtime are beyond our direct control. In the event of a carrier-confirmed delivery failure, your wallet will be refunded automatically.
+            Telecom products (MTN SME, Airtel Corporate Gifting, Glo, 9mobile data, and VTU airtime) are dispatched electronically through carrier interfaces. While 99.8% of vending orders complete within 3 to 10 seconds, network delays caused by carrier upstream maintenance or unannounced carrier downtime are beyond our direct control. In the event of a carrier-confirmed delivery failure, your wallet will be refunded automatically.
           </p>
         </section>
 

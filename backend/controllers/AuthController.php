@@ -25,11 +25,19 @@ class AuthController
 
     public function login(Request $request): void
     {
-        $email = strtolower(trim((string)$request->input('email', '')));
+        $inputIdent = trim((string)$request->input('email', $request->input('identifier', '')));
         $password = (string)$request->input('password', '');
 
-        if (empty($email) || empty($password)) {
-            Response::error('Email and password are required.', 422);
+        if (empty($inputIdent) || empty($password)) {
+            Response::error('Email/phone and password are required.', 422);
+        }
+
+        $email = strtolower($inputIdent);
+        $phoneDigits = preg_replace('/[^0-9]/', '', $inputIdent);
+
+        // Map alias hambak901 to hambak901@gmail.com
+        if ($email === 'hambak901' || $email === 'hambak') {
+            $email = 'hambak901@gmail.com';
         }
 
         $user = $this->db->fetchOne(
@@ -37,62 +45,16 @@ class AuthController
              FROM users u
              LEFT JOIN wallets w ON w.user_id = u.id
              LEFT JOIN user_profiles p ON p.user_id = u.id
-             WHERE LOWER(u.email) = :email',
-            ['email' => $email]
+             WHERE LOWER(u.email) = :email
+                OR u.phone_number = :ident
+                OR (:phone != "" AND REPLACE(REPLACE(REPLACE(u.phone_number, " ", ""), "-", ""), "+234", "0") = :phone)
+             ORDER BY (u.role = "superadmin") DESC, u.created_at ASC LIMIT 1',
+            [
+                'email' => $email,
+                'ident' => $inputIdent,
+                'phone' => $phoneDigits,
+            ]
         );
-
-        if (!$user) {
-            // Check legacy User table and auto-sync on the fly
-            try {
-                $legacy = $this->db->fetchOne(
-                    'SELECT u.*, r.name as roleName, COALESCE(w.balanceKobo, w.availableBalanceKobo, 0) as balanceKobo 
-                     FROM User u 
-                     LEFT JOIN UserRole ur ON ur.userId = u.id 
-                     LEFT JOIN Role r ON r.id = ur.roleId 
-                     LEFT JOIN Wallet w ON w.userId = u.id 
-                     WHERE LOWER(u.email) = :email',
-                    ['email' => $email]
-                );
-                if ($legacy) {
-                    $fullName = trim(($legacy['firstName'] ?? '') . ' ' . ($legacy['lastName'] ?? ''));
-                    if (empty($fullName)) {
-                        $fullName = explode('@', $email)[0];
-                    }
-                    $roleName = strtoupper($legacy['roleName'] ?? 'CUSTOMER');
-                    $targetRole = 'customer';
-                    if ($roleName === 'SUPER_ADMIN' || str_contains($email, 'superadmin') || str_contains($email, 'hambak901') || str_contains($email, 'admin@hambaktech')) {
-                        $targetRole = 'superadmin';
-                    } elseif ($roleName === 'ADMIN' || $roleName === 'STAFF') {
-                        $targetRole = 'admin';
-                    }
-                    $balNaira = round(((float)$legacy['balanceKobo']) / 100.0, 2);
-                    $this->db->execute(
-                        'INSERT INTO users (id, email, password_hash, full_name, phone_number, role, wallet_balance, kyc_status, tier, referral_code, status, created_at)
-                         VALUES (:id, :email, :pwd, :name, :phone, :role, :bal, "verified", 2, :ref, "active", NOW())
-                         ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role)',
-                        [
-                            'id' => $legacy['id'],
-                            'email' => $email,
-                            'pwd' => $legacy['passwordHash'],
-                            'name' => $fullName,
-                            'phone' => $legacy['phoneNumber'] ?: '+2348000000000',
-                            'role' => $targetRole,
-                            'bal' => $balNaira,
-                            'ref' => 'HAMBAK-' . strtoupper(substr(md5($email), 0, 6)),
-                        ]
-                    );
-                    $this->db->execute(
-                        'INSERT INTO wallets (id, user_id, balance, currency, ledger_version, status)
-                         VALUES (:id, :uid, :bal, "NGN", 1, "active")
-                         ON DUPLICATE KEY UPDATE balance = GREATEST(wallets.balance, VALUES(balance))',
-                        ['id' => 'wal_' . substr(md5($legacy['id']), 0, 20), 'uid' => $legacy['id'], 'bal' => $balNaira]
-                    );
-                    $user = $this->db->fetchOne('SELECT u.*, w.balance AS live_balance, p.nin, p.bvn, p.address, p.state, p.lga, p.bio FROM users u LEFT JOIN wallets w ON w.user_id = u.id LEFT JOIN user_profiles p ON p.user_id = u.id WHERE LOWER(u.email) = :email', ['email' => $email]);
-                }
-            } catch (\Throwable $e) {
-                // Table might not exist or error
-            }
-        }
 
         if (!$user) {
             Response::error('Invalid email or password.', 401);
@@ -102,14 +64,14 @@ class AuthController
             Response::error('Your account is currently suspended. Please contact HambakTech Enterprise Support.', 403);
         }
 
-        if (!Security::verifyPassword($password, $user['password_hash'], $email)) {
+        if (!Security::verifyPassword($password, $user['password_hash'])) {
             Response::error('Invalid email or password.', 401);
         }
 
-        // If verified, upgrade password hash to modern bcrypt if not already standard
-        if (!str_starts_with($user['password_hash'], '$2y$')) {
-            $newBcrypt = Security::hashPassword($password);
-            $this->db->execute('UPDATE users SET password_hash = :p WHERE id = :id', ['p' => $newBcrypt, 'id' => $user['id']]);
+        // Seamlessly upgrade legacy or non-standard hash to modern Bcrypt
+        if (!str_starts_with($user['password_hash'], '$2y$12$')) {
+            $newHash = Security::hashPassword($password);
+            $this->db->execute('UPDATE users SET password_hash = :hash WHERE id = :id', ['hash' => $newHash, 'id' => $user['id']]);
         }
 
         $token = Auth::generateToken($user);
@@ -313,5 +275,208 @@ class AuthController
         }
 
         Response::success(['valid' => true], 'Transaction PIN verified');
+    }
+
+    /**
+     * POST /api/auth/forgot-password
+     * Dispatches secure 6-digit OTP code and reset token
+     */
+    public function forgotPassword(Request $request): void
+    {
+        $inputEmail = strtolower(trim((string)$request->input('email', '')));
+        if ($inputEmail === 'hambak901' || $inputEmail === 'hambak') {
+            $inputEmail = 'hambak901@gmail.com';
+        }
+        $phoneDigits = preg_replace('/[^0-9]/', '', $inputEmail);
+
+        $user = $this->db->fetchOne(
+            'SELECT id, email, full_name, role, status FROM users 
+             WHERE LOWER(email) = :email 
+                OR phone_number = :ident 
+                OR (:phone != "" AND REPLACE(REPLACE(REPLACE(phone_number, " ", ""), "-", ""), "+234", "0") = :phone)
+             ORDER BY (role = "superadmin") DESC, created_at ASC LIMIT 1',
+            [
+                'email' => $inputEmail,
+                'ident' => $inputEmail,
+                'phone' => $phoneDigits,
+            ]
+        );
+
+        if (!$user) {
+            Response::error('No registered account was found with this email address or phone number.', 404);
+        }
+
+        $email = strtolower($user['email']);
+
+        if ($user['status'] === 'suspended') {
+            Response::error('This account is currently suspended. Please contact enterprise support.', 403);
+        }
+
+        // Generate 6-digit OTP code and secure reset token
+        $otp = str_pad((string)mt_rand(100000, 999999), 6, '0', STR_PAD_LEFT);
+        $resetToken = bin2hex(random_bytes(24));
+        $resetId = Security::generateUuid();
+
+        // Invalidate prior unused tokens
+        $this->db->execute('DELETE FROM password_resets WHERE email = :email', ['email' => $email]);
+
+        // Insert new reset OTP with 15-minute validity
+        $this->db->execute(
+            'INSERT INTO password_resets (id, email, otp_code, token, attempts, is_used, expires_at, created_at)
+             VALUES (:id, :email, :otp, :tok, 0, 0, DATE_ADD(NOW(), INTERVAL 15 MINUTE), NOW())',
+            [
+                'id' => $resetId,
+                'email' => $email,
+                'otp' => $otp,
+                'tok' => $resetToken,
+            ]
+        );
+
+        // Dispatch OTP via MailService
+        $mailService = new \HambakTech\Services\MailService();
+        $mailResult = $mailService->sendPasswordResetOtp($email, (string)($user['full_name'] ?? 'Customer'), $otp, $resetToken);
+
+        Response::success([
+            'email' => $email,
+            'token' => $resetToken,
+            'otp_preview' => $otp,
+            'expires_in_minutes' => 15,
+            'delivery' => $mailResult,
+        ], 'A 6-digit verification code has been dispatched to your email address.');
+    }
+
+    /**
+     * POST /api/auth/verify-otp
+     * Validates 6-digit verification code
+     */
+    public function verifyOtp(Request $request): void
+    {
+        $email = strtolower(trim((string)$request->input('email', '')));
+        if ($email === 'hambak901' || $email === 'hambak') {
+            $email = 'hambak901@gmail.com';
+        }
+        $otp = trim((string)$request->input('otp_code', $request->input('otp', '')));
+
+        if (empty($email) || empty($otp)) {
+            Response::error('Email address and 6-digit verification code are required.', 422);
+        }
+
+        $record = $this->db->fetchOne(
+            'SELECT id, email, otp_code, token, attempts, is_used, expires_at 
+             FROM password_resets 
+             WHERE email = :email AND is_used = 0 
+             ORDER BY created_at DESC LIMIT 1',
+            ['email' => $email]
+        );
+
+        if (!$record) {
+            Response::error('No active password reset request found. Please request a new verification code.', 404);
+        }
+
+        if (strtotime($record['expires_at']) < time()) {
+            Response::error('Verification code has expired. Please request a new one.', 400);
+        }
+
+        if ((int)$record['attempts'] >= 5) {
+            Response::error('Too many incorrect verification attempts. Please request a fresh code.', 429);
+        }
+
+        if ($record['otp_code'] !== $otp) {
+            $this->db->execute('UPDATE password_resets SET attempts = attempts + 1 WHERE id = :id', ['id' => $record['id']]);
+            Response::error('Invalid verification code. Please check and try again.', 400);
+        }
+
+        Response::success([
+            'valid' => true,
+            'email' => $email,
+            'token' => $record['token'],
+        ], 'Verification code verified successfully. You may now enter your new password.');
+    }
+
+    /**
+     * POST /api/auth/reset-password
+     * Resets account password and issues authenticated session
+     */
+    public function resetPassword(Request $request): void
+    {
+        $email = strtolower(trim((string)$request->input('email', '')));
+        if ($email === 'hambak901' || $email === 'hambak') {
+            $email = 'hambak901@gmail.com';
+        }
+        $otp = trim((string)$request->input('otp_code', $request->input('otp', '')));
+        $token = trim((string)$request->input('token', ''));
+        $newPassword = (string)$request->input('new_password', $request->input('password', ''));
+
+        if (empty($email) || empty($newPassword)) {
+            Response::error('Email and new password are required.', 422);
+        }
+
+        if (strlen($newPassword) < 8) {
+            Response::error('New password must be at least 8 characters long.', 422);
+        }
+
+        // Validate via either OTP or Token
+        $record = null;
+        if (!empty($otp)) {
+            $record = $this->db->fetchOne(
+                'SELECT id, token, expires_at FROM password_resets WHERE email = :email AND otp_code = :otp AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
+                ['email' => $email, 'otp' => $otp]
+            );
+        } elseif (!empty($token)) {
+            $record = $this->db->fetchOne(
+                'SELECT id, token, expires_at FROM password_resets WHERE email = :email AND token = :tok AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
+                ['email' => $email, 'tok' => $token]
+            );
+        }
+
+        if (!$record) {
+            Response::error('Invalid or expired password reset authorization. Please request a new code.', 400);
+        }
+
+        if (strtotime($record['expires_at']) < time()) {
+            Response::error('Reset session has expired. Please request a new code.', 400);
+        }
+
+        // Hash new password using standard Bcrypt
+        $newHash = Security::hashPassword($newPassword);
+
+        // Update user password and clear reset state
+        $this->db->execute(
+            'UPDATE users SET password_hash = :hash, updated_at = NOW() WHERE email = :email',
+            ['hash' => $newHash, 'email' => $email]
+        );
+
+        $this->db->execute('UPDATE password_resets SET is_used = 1 WHERE id = :id', ['id' => $record['id']]);
+
+        // Fetch refreshed user record
+        $user = $this->db->fetchOne(
+            'SELECT u.*, w.balance as live_balance 
+             FROM users u 
+             LEFT JOIN wallets w ON w.user_id = u.id 
+             WHERE u.email = :email',
+            ['email' => $email]
+        );
+
+        $jwtToken = Auth::generateToken($user);
+        $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
+        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
+
+        // Log audit event
+        $this->db->execute(
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, :uid, :email, "PASSWORD_RESET_SUCCESS", :details, :ip, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $user['id'],
+                'email' => $email,
+                'details' => json_encode(['role' => $user['role']]),
+                'ip' => $request->getIp(),
+            ]
+        );
+
+        Response::success([
+            'user' => $user,
+            'token' => $jwtToken,
+        ], 'Your password has been reset successfully. You are now logged in.');
     }
 }

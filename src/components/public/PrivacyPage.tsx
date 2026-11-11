@@ -56,7 +56,7 @@ export const PrivacyPage: React.FC = () => {
           </div>
           <h2 className="text-base font-bold text-white">2. NIMC &amp; Central Bank BVN Processing Standards</h2>
           <p>
-            Biometric images, fingerprints, and sensitive sovereign identity records retrieved via authorized adapters (2SureVerify and Veripine) are encrypted in transit using TLS 1.3 encryption. We do not store raw unencrypted biometric templates. Verification records generated for slip printing are retained strictly for the user's documented audit trail and downloadable slip reproduction.
+            Biometric images, fingerprints, and sensitive sovereign identity records retrieved via authorized sovereign identity interfaces are encrypted in transit using TLS 1.3 encryption. We do not store raw unencrypted biometric templates. Verification records generated for slip printing are retained strictly for the user's documented audit trail and downloadable slip reproduction.
           </p>
         </section>
 
@@ -71,9 +71,9 @@ export const PrivacyPage: React.FC = () => {
             We only transmit data to licensed downstream infrastructure providers necessary to fulfill your requested transactions:
           </p>
           <ul className="list-disc pl-5 space-y-2 text-slate-400 text-xs">
-            <li><strong>Verification Adapters:</strong> 2SureVerify and Veripine for sovereign identity resolution.</li>
-            <li><strong>Telecom Operators:</strong> UlamaData and VTpass for carrier airtime and data allocation.</li>
-            <li><strong>Payment Gateways:</strong> Flutterwave and Moniepoint MFB for card clearing and virtual account settlements.</li>
+            <li><strong>Verification Gateways:</strong> Authorized identity resolution pipes for sovereign compliance.</li>
+            <li><strong>Telecom Operators:</strong> Licensed telecommunication carriers for automated airtime and data allocation.</li>
+            <li><strong>Payment Gateways:</strong> Licensed payment processors and central settlement banks for account clearing.</li>
           </ul>
           <p className="pt-1">
             We never sell, rent, or monetize your contact information or query logs to marketing third parties.

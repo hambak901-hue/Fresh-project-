@@ -12,8 +12,8 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   token: string | null;
-  login: (email: string, pass: string) => Promise<void>;
-  register: (data: { email: string; password: string; full_name: string; phone_number: string }) => Promise<void>;
+  login: (email: string, pass: string) => Promise<User | null>;
+  register: (data: { email: string; password: string; full_name: string; phone_number: string }) => Promise<User | null>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   updateBalance: (balance: number) => void;
@@ -54,23 +54,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const login = async (email: string, pass: string) => {
+  const login = async (email: string, pass: string): Promise<User | null> => {
     setLoading(true);
     try {
       const res = await api.login(email, pass);
-      setUser(res.user);
-      setToken(res.token);
+      if (res.user) {
+        setUser(res.user);
+        setToken(res.token);
+        return res.user;
+      }
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
-  const register = async (data: { email: string; password: string; full_name: string; phone_number: string }) => {
+  const register = async (data: { email: string; password: string; full_name: string; phone_number: string }): Promise<User | null> => {
     setLoading(true);
     try {
       const res = await api.register(data);
-      setUser(res.user);
-      setToken(res.token);
+      if (res.user) {
+        setUser(res.user);
+        setToken(res.token);
+        return res.user;
+      }
+      return null;
     } finally {
       setLoading(false);
     }

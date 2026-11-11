@@ -72,6 +72,9 @@ class WalletController
                 }
                 $t['metadata'] = $meta;
             }
+            if (!$isAdmin && is_array($t['metadata'])) {
+                unset($t['metadata']['provider_response'], $t['metadata']['raw_response'], $t['metadata']['provider_cost'], $t['metadata']['wholesale_cost']);
+            }
         }
 
         $availableGateways = [

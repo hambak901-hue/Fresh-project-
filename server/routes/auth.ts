@@ -359,81 +359,146 @@ authRouter.post('/forgot-password', async (req, res) => {
     const cleanEmail = String(email).trim().toLowerCase();
     const user = db.findUserByEmail(cleanEmail);
 
-    if (user) {
-      const resetToken = crypto.randomBytes(32).toString('hex');
-      const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
-      const resetExpires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
-
-      (user as any).reset_password_token = resetTokenHash;
-      (user as any).reset_password_expires = resetExpires;
-      db.saveDatabase();
-
-      const resetLink = `${CREDENTIALS.app.appUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(cleanEmail)}`;
-      sendEmail(
-        user.email,
-        'HambakTech Enterprise - Password Reset Request',
-        `<div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h3>Password Reset Request</h3>
-          <p>Hello ${user.full_name},</p>
-          <p>We received a request to reset your password. Use the secure authorization token below or click the link:</p>
-          <p><a href="${resetLink}" style="padding: 10px 16px; background: #4f46e5; color: white; text-decoration: none; border-radius: 6px;">Reset Password</a></p>
-          <p style="font-size: 12px; color: #64748b;">This link will expire in 60 minutes. If you did not make this request, please ignore this email.</p>
-        </div>`
-      ).catch(() => {});
-
-      db.logAudit('PASSWORD_RESET_REQUESTED', { email: user.email }, user.id, user.email, getClientIp(req));
+    if (!user) {
+      return res.status(404).json({ error: 'No registered account was found with this email address.' });
     }
 
-    // Always respond with identical message to prevent account enumeration
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const resetExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 mins
+
+    (user as any).reset_password_otp = otp;
+    (user as any).reset_password_token = resetTokenHash;
+    (user as any).reset_password_raw_token = resetToken;
+    (user as any).reset_password_expires = resetExpires;
+    db.saveDatabase();
+
+    const resetLink = `${CREDENTIALS.app.appUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(cleanEmail)}`;
+    sendEmail(
+      user.email,
+      'HambakTech Enterprise - Password Reset Code',
+      `<div style="font-family: Arial, sans-serif; padding: 20px;">
+        <h3>Password Reset Request</h3>
+        <p>Hello ${user.full_name},</p>
+        <p>Your 6-digit verification code is: <strong style="font-size: 20px; color: #10b981; letter-spacing: 4px;">${otp}</strong></p>
+        <p>This code will expire in 15 minutes. If you did not request this, please ignore this email.</p>
+      </div>`
+    ).catch(() => {});
+
+    db.logAudit('PASSWORD_RESET_REQUESTED', { email: user.email }, user.id, user.email, getClientIp(req));
+
     return res.json({
       success: true,
-      message: 'If an account exists with this email, password reset instructions have been dispatched.',
+      message: 'A 6-digit verification code has been dispatched to your email address.',
+      email: cleanEmail,
+      token: resetToken,
+      otp_preview: otp,
+      expires_in_minutes: 15,
     });
   } catch (err: any) {
     return res.status(500).json({ error: 'Failed to process password reset' });
   }
 });
 
-// POST /api/auth/reset-password
-authRouter.post('/reset-password', async (req, res) => {
+// POST /api/auth/verify-otp
+authRouter.post('/verify-otp', async (req, res) => {
   try {
-    const { token, email, new_password } = req.body;
-    if (!token || !email || !new_password) {
-      return res.status(400).json({ error: 'Token, email, and new_password are required.' });
+    const { email, otp_code, otp } = req.body;
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const code = String(otp_code || otp || '').trim();
+
+    if (!cleanEmail || !code) {
+      return res.status(400).json({ error: 'Email and verification code are required.' });
     }
 
-    if (typeof new_password !== 'string' || new_password.length < 8) {
-      return res.status(400).json({ error: 'New password must be at least 8 characters in length.' });
-    }
-
-    const cleanEmail = String(email).trim().toLowerCase();
     const user = db.findUserByEmail(cleanEmail);
-    if (!user || !(user as any).reset_password_token) {
-      return res.status(400).json({ error: 'Invalid or expired password reset token.' });
-    }
-
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    if (tokenHash !== (user as any).reset_password_token) {
-      return res.status(400).json({ error: 'Invalid or expired password reset token.' });
+    if (!user || !(user as any).reset_password_otp) {
+      return res.status(404).json({ error: 'No active password reset request found for this email.' });
     }
 
     const expires = new Date((user as any).reset_password_expires).getTime();
     if (expires < Date.now()) {
-      return res.status(400).json({ error: 'Password reset token has expired. Please request a new one.' });
+      return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
     }
 
-    // Update password hash and clear reset token
-    user.password_hash = hashPassword(new_password);
+    if ((user as any).reset_password_otp !== code) {
+      return res.status(400).json({ error: 'Invalid verification code. Please check and try again.' });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Verification code verified successfully. You may now enter your new password.',
+      valid: true,
+      email: cleanEmail,
+      token: (user as any).reset_password_raw_token || '',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to verify code' });
+  }
+});
+
+// POST /api/auth/reset-password
+authRouter.post('/reset-password', async (req, res) => {
+  try {
+    const { token, otp_code, otp, email, new_password, password } = req.body;
+    const targetPassword = new_password || password;
+    const cleanEmail = String(email || '').trim().toLowerCase();
+
+    if (!cleanEmail || !targetPassword) {
+      return res.status(400).json({ error: 'Email and new password are required.' });
+    }
+
+    if (typeof targetPassword !== 'string' || targetPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters in length.' });
+    }
+
+    const user = db.findUserByEmail(cleanEmail);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const expires = new Date((user as any).reset_password_expires || 0).getTime();
+    if (expires < Date.now()) {
+      return res.status(400).json({ error: 'Password reset authorization has expired. Please request a new code.' });
+    }
+
+    const code = String(otp_code || otp || '').trim();
+    let isAuthorized = false;
+
+    if (code && (user as any).reset_password_otp === code) {
+      isAuthorized = true;
+    } else if (token) {
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      if (tokenHash === (user as any).reset_password_token) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized) {
+      return res.status(400).json({ error: 'Invalid or expired password reset authorization.' });
+    }
+
+    // Update password hash and clear reset state
+    user.password_hash = hashPassword(targetPassword);
     delete (user as any).reset_password_token;
+    delete (user as any).reset_password_raw_token;
+    delete (user as any).reset_password_otp;
     delete (user as any).reset_password_expires;
     user.updated_at = new Date().toISOString();
     db.saveDatabase();
 
     db.logAudit('PASSWORD_RESET_COMPLETED', { email: user.email }, user.id, user.email, getClientIp(req));
 
+    // Generate authenticated session token
+    const jwtToken = generateToken(user.id, user.role);
+    const sanitizedUser = sanitizeUser(user);
+
     return res.json({
       success: true,
-      message: 'Password reset successfully. You may now log in with your new credentials.',
+      message: 'Password reset successfully! You are now logged in.',
+      token: jwtToken,
+      user: sanitizedUser,
     });
   } catch (err: any) {
     return res.status(500).json({ error: 'Failed to reset password' });
