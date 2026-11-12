@@ -35,6 +35,7 @@ $router = new Router();
 // 1. SYSTEM & HEALTH
 // -----------------------------------------------------------------------------
 $router->get('/api/health', [SystemController::class, 'health']);
+$router->get('/api/system/status', [SystemController::class, 'status']);
 $router->get('/api/system/settings', [SystemController::class, 'settings']);
 $router->get('/api/cpanel/diagnostics', [SystemController::class, 'cpanelDiagnostics']);
 $router->get('/api/system/init-database', [SystemController::class, 'initDatabase']);
@@ -292,6 +293,9 @@ $router->get('/api/admin/support/tickets', [SupportController::class, 'adminTick
 $router->put('/api/admin/support/tickets/:id/status', [SupportController::class, 'updateStatus']);
 
 // Global 22-Category Settings Routes
+$router->get('/api/admin/settings', [SettingsController::class, 'getAllSettings']);
+$router->post('/api/admin/settings', [SettingsController::class, 'updateSettings']);
+$router->put('/api/admin/settings', [SettingsController::class, 'updateSettings']);
 $router->get('/api/admin/settings/all', [SettingsController::class, 'getAllSettings']);
 $router->post('/api/admin/settings/update', [SettingsController::class, 'updateSettings']);
 $router->post('/api/admin/settings/upload-logo', [AdminController::class, 'uploadLogo']);

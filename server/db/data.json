@@ -7,12 +7,12 @@
       "full_name": "Bakar Hambak (Super Admin)",
       "phone_number": "+2348030001122",
       "role": "superadmin",
-      "wallet_balance": 500000,
+      "wallet_balance": 499600,
       "kyc_status": "verified",
       "tier": 3,
       "referral_code": "HAMBAK-SUPER",
       "created_at": "2026-01-01T00:00:00.000Z",
-      "updated_at": "2026-11-12T11:56:49.993Z",
+      "updated_at": "2026-11-12T15:32:17.405Z",
       "status": "active"
     },
     {
@@ -31,9 +31,191 @@
       "created_at": "2026-02-15T00:00:00.000Z",
       "updated_at": "2026-11-12T11:56:50.109Z",
       "status": "active"
+    },
+    {
+      "email": "qa_reg_1794497446870@hambaktech.com.ng",
+      "password_hash": "$2b$10$2FfbpwJiwzBM5GbFK6UCHORO6CRSCzhMAxcIIBg3U/RzWZiqo.GlO",
+      "full_name": "QA Real Tester",
+      "phone_number": "+2348011223344",
+      "role": "customer",
+      "wallet_balance": 15000,
+      "kyc_status": "pending",
+      "tier": 1,
+      "referral_code": "HT-D4A01B",
+      "status": "active",
+      "id": "usr_1794497447018_a8646",
+      "created_at": "2026-11-12T15:30:47.018Z",
+      "updated_at": "2026-11-12T15:30:49.593Z",
+      "bio": "Senior Fintech Developer",
+      "kyc_documents": [
+        {
+          "id": "kyc_1794497449593",
+          "id_type": "National Identity Card",
+          "id_number": "12345678901",
+          "doc_url": "/public/assets/aistudio/IMG_0484_0fb633df.png",
+          "submitted_at": "2026-11-12T15:30:49.593Z",
+          "status": "pending",
+          "review_notes": "Pending admin compliance review"
+        }
+      ]
+    },
+    {
+      "email": "qa_reg_1794497537207@hambaktech.com.ng",
+      "password_hash": "$2b$10$podPlrOdr3PJ/9c2W/FReOzszibqPnKnKanzjEM0yMB.JVozxgkmC",
+      "full_name": "QA Real Tester",
+      "phone_number": "+2348011223344",
+      "role": "customer",
+      "wallet_balance": 15000,
+      "kyc_status": "pending",
+      "tier": 1,
+      "referral_code": "HT-253F57",
+      "status": "active",
+      "id": "usr_1794497537344_ajyey",
+      "created_at": "2026-11-12T15:32:17.344Z",
+      "updated_at": "2026-11-12T15:32:18.370Z",
+      "bio": "Senior Fintech Developer",
+      "kyc_documents": [
+        {
+          "id": "kyc_1794497538370",
+          "id_type": "National Identity Card",
+          "id_number": "12345678901",
+          "doc_url": "/public/assets/aistudio/IMG_0484_0fb633df.png",
+          "submitted_at": "2026-11-12T15:32:18.370Z",
+          "status": "pending",
+          "review_notes": "Pending admin compliance review"
+        }
+      ]
     }
   ],
   "transactions": [
+    {
+      "id": "txn_1794497538311",
+      "user_id": "usr_1794497537344_ajyey",
+      "type": "credit",
+      "amount": 15000,
+      "balance_before": 0,
+      "balance_after": 15000,
+      "category": "funding",
+      "reference": "DEP_TEST_1794497538300",
+      "gateway": "manual_transfer",
+      "status": "successful",
+      "description": "Manual Bank Transfer: ₦15,000 from QA Officer (Zenith Bank)",
+      "metadata": {
+        "sender_name": "QA Officer",
+        "bank_name": "Zenith Bank",
+        "submitted_at": "2026-11-12T15:32:18.311Z",
+        "approved_by": "admin@hambaktech.com.ng",
+        "approved_by_id": "usr_superadmin",
+        "approved_at": "2026-11-12T15:32:18.330Z"
+      },
+      "created_at": "2026-11-12T15:32:18.312Z"
+    },
+    {
+      "id": "txn_1794497538136_knu4",
+      "user_id": "usr_1794497537344_ajyey",
+      "type": "credit",
+      "amount": 5000,
+      "balance_before": 0,
+      "balance_after": 0,
+      "category": "funding",
+      "reference": "PSTK_1794497538136_SKU2K",
+      "gateway": "paystack",
+      "status": "pending",
+      "description": "Paystack Online Card/Transfer Top-up: ₦5,000",
+      "metadata": {
+        "gateway": "paystack",
+        "initialized_at": "2026-11-12T15:32:18.154Z",
+        "customer_email": "qa_reg_1794497537207@hambaktech.com.ng",
+        "customer_name": "QA Real Tester"
+      },
+      "created_at": "2026-11-12T15:32:18.154Z"
+    },
+    {
+      "id": "txn_1794497537405_7alyl",
+      "user_id": "usr_superadmin",
+      "type": "debit",
+      "amount": 200,
+      "balance_before": 499800,
+      "balance_after": 499600,
+      "category": "nin_verification",
+      "reference": "VRF_1794497537404_76fzj",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "NIN Verification (V1 Standard): 12345678901",
+      "metadata": {
+        "serviceKey": "nin_v1",
+        "payload": {
+          "nin": "12345678901",
+          "slip_type": "ninStandard"
+        },
+        "reference": "VRF_1794497537404_76fzj"
+      },
+      "created_at": "2026-11-12T15:32:17.405Z"
+    },
+    {
+      "id": "txn_1794497449542",
+      "user_id": "usr_1794497447018_a8646",
+      "type": "credit",
+      "amount": 15000,
+      "balance_before": 0,
+      "balance_after": 15000,
+      "category": "funding",
+      "reference": "DEP_TEST_1794497449537",
+      "gateway": "manual_transfer",
+      "status": "successful",
+      "description": "Manual Bank Transfer: ₦15,000 from QA Officer (Zenith Bank)",
+      "metadata": {
+        "sender_name": "QA Officer",
+        "bank_name": "Zenith Bank",
+        "submitted_at": "2026-11-12T15:30:49.542Z",
+        "approved_by": "admin@hambaktech.com.ng",
+        "approved_by_id": "usr_superadmin",
+        "approved_at": "2026-11-12T15:30:49.556Z"
+      },
+      "created_at": "2026-11-12T15:30:49.542Z"
+    },
+    {
+      "id": "txn_1794497449367_f3bc",
+      "user_id": "usr_1794497447018_a8646",
+      "type": "credit",
+      "amount": 5000,
+      "balance_before": 0,
+      "balance_after": 0,
+      "category": "funding",
+      "reference": "PSTK_1794497449367_AE8L7",
+      "gateway": "paystack",
+      "status": "pending",
+      "description": "Paystack Online Card/Transfer Top-up: ₦5,000",
+      "metadata": {
+        "gateway": "paystack",
+        "initialized_at": "2026-11-12T15:30:49.384Z",
+        "customer_email": "qa_reg_1794497446870@hambaktech.com.ng",
+        "customer_name": "QA Real Tester"
+      },
+      "created_at": "2026-11-12T15:30:49.384Z"
+    },
+    {
+      "id": "txn_1794497447072_02yd5",
+      "user_id": "usr_superadmin",
+      "type": "debit",
+      "amount": 200,
+      "balance_before": 500000,
+      "balance_after": 499800,
+      "category": "nin_verification",
+      "reference": "VRF_1794497447072_0w5vq",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "NIN Verification (V1 Standard): 12345678901",
+      "metadata": {
+        "serviceKey": "nin_v1",
+        "payload": {
+          "nin": "12345678901",
+          "slip_type": "ninStandard"
+        },
+        "reference": "VRF_1794497447072_0w5vq"
+      },
+      "created_at": "2026-11-12T15:30:47.072Z"
+    },
     {
       "id": "txn_init_001",
       "user_id": "usr_customer_demo",
@@ -79,6 +261,100 @@
   ],
   "verifications": [
     {
+      "id": "vrf_1794497537406",
+      "user_id": "usr_superadmin",
+      "type": "NIN Verification",
+      "service_key": "nin_v1",
+      "search_value": "12345678901",
+      "provider": "2sureverify",
+      "cost": 200,
+      "provider_cost": 85,
+      "status": "completed",
+      "reference": "NIN_V1-44MRA6-1794497537406",
+      "slip_type": "ninStandard",
+      "has_slip": true,
+      "result": {
+        "firstname": "BABATUNDE",
+        "middlename": "FOLASHADE",
+        "surname": "YUSUF",
+        "gender": "Female",
+        "birthdate": "1995-08-14",
+        "nin": "12345678901",
+        "bvn": "22334455667",
+        "telephoneno": "08032503238",
+        "residence_state": "Lagos",
+        "residence_lga": "Ikeja",
+        "state_of_origin": "Oyo",
+        "lga_of_origin": "Ibadan North",
+        "photo": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
+        "tracking_id": "NIMC-939217397",
+        "user_data": {
+          "firstname": "BABATUNDE",
+          "middlename": "FOLASHADE",
+          "surname": "YUSUF",
+          "gender": "Female",
+          "birthdate": "1995-08-14",
+          "nin": "12345678901",
+          "telephoneno": "08032503238",
+          "residence_state": "Lagos",
+          "residence_lga": "Ikeja"
+        },
+        "amount_charged": "130.00",
+        "balance_before": "2500.00",
+        "balance_after": "2370.00",
+        "slip_type": "ninStandard",
+        "has_pdf_slip": true
+      },
+      "created_at": "2026-11-12T15:32:17.406Z"
+    },
+    {
+      "id": "vrf_1794497447074",
+      "user_id": "usr_superadmin",
+      "type": "NIN Verification",
+      "service_key": "nin_v1",
+      "search_value": "12345678901",
+      "provider": "2sureverify",
+      "cost": 200,
+      "provider_cost": 85,
+      "status": "completed",
+      "reference": "NIN_V1-CWC77K-1794497447074",
+      "slip_type": "ninStandard",
+      "has_slip": true,
+      "result": {
+        "firstname": "MARYAM",
+        "middlename": "EMMANUEL",
+        "surname": "YUSUF",
+        "gender": "Female",
+        "birthdate": "1995-08-14",
+        "nin": "12345678901",
+        "bvn": "22334455667",
+        "telephoneno": "08032503238",
+        "residence_state": "Lagos",
+        "residence_lga": "Ikeja",
+        "state_of_origin": "Oyo",
+        "lga_of_origin": "Ibadan North",
+        "photo": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80",
+        "tracking_id": "NIMC-209636535",
+        "user_data": {
+          "firstname": "MARYAM",
+          "middlename": "EMMANUEL",
+          "surname": "YUSUF",
+          "gender": "Female",
+          "birthdate": "1995-08-14",
+          "nin": "12345678901",
+          "telephoneno": "08032503238",
+          "residence_state": "Lagos",
+          "residence_lga": "Ikeja"
+        },
+        "amount_charged": "130.00",
+        "balance_before": "2500.00",
+        "balance_after": "2370.00",
+        "slip_type": "ninStandard",
+        "has_pdf_slip": true
+      },
+      "created_at": "2026-11-12T15:30:47.074Z"
+    },
+    {
       "id": "vrf_001",
       "user_id": "usr_customer_demo",
       "type": "NIN",
@@ -120,6 +396,96 @@
   ],
   "notifications": [
     {
+      "id": "notif_1794497538374_37idd",
+      "user_id": "usr_1794497537344_ajyey",
+      "title": "KYC Submission Received",
+      "message": "Your National Identity Card document has been submitted and is currently under compliance review.",
+      "type": "info",
+      "read": false,
+      "created_at": "2026-11-12T15:32:18.374Z"
+    },
+    {
+      "id": "notif_1794497538332_vymgm",
+      "user_id": "usr_1794497537344_ajyey",
+      "title": "Bank Transfer Payment Approved",
+      "message": "Your transfer of ₦15,000 (Ref: DEP_TEST_1794497538300) was verified by admin Bakar Hambak (Super Admin). Wallet credited. Current balance: ₦15,000.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-12T15:32:18.333Z"
+    },
+    {
+      "id": "notif_1794497538315_cwxuy",
+      "user_id": "usr_1794497537344_ajyey",
+      "title": "Payment Proof Submitted",
+      "message": "Your transfer of ₦15,000 (Ref: DEP_TEST_1794497538300) is received and pending manual verification.",
+      "type": "info",
+      "read": false,
+      "created_at": "2026-11-12T15:32:18.315Z"
+    },
+    {
+      "id": "notif_1794497537409_dajtf",
+      "user_id": "usr_superadmin",
+      "title": "NIN Verification (V1 Standard) Successful",
+      "message": "Verification record for 12345678901 was successfully completed. Reference: NIN_V1-44MRA6-1794497537406",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-12T15:32:17.409Z"
+    },
+    {
+      "id": "notif_1794497537345_a9eyh",
+      "user_id": "usr_1794497537344_ajyey",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello QA Real Tester, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-12T15:32:17.345Z"
+    },
+    {
+      "id": "notif_1794497449595_bbhz6",
+      "user_id": "usr_1794497447018_a8646",
+      "title": "KYC Submission Received",
+      "message": "Your National Identity Card document has been submitted and is currently under compliance review.",
+      "type": "info",
+      "read": false,
+      "created_at": "2026-11-12T15:30:49.595Z"
+    },
+    {
+      "id": "notif_1794497449559_8bxis",
+      "user_id": "usr_1794497447018_a8646",
+      "title": "Bank Transfer Payment Approved",
+      "message": "Your transfer of ₦15,000 (Ref: DEP_TEST_1794497449537) was verified by admin Bakar Hambak (Super Admin). Wallet credited. Current balance: ₦15,000.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-12T15:30:49.559Z"
+    },
+    {
+      "id": "notif_1794497449544_t7kb0",
+      "user_id": "usr_1794497447018_a8646",
+      "title": "Payment Proof Submitted",
+      "message": "Your transfer of ₦15,000 (Ref: DEP_TEST_1794497449537) is received and pending manual verification.",
+      "type": "info",
+      "read": false,
+      "created_at": "2026-11-12T15:30:49.544Z"
+    },
+    {
+      "id": "notif_1794497447076_xtwor",
+      "user_id": "usr_superadmin",
+      "title": "NIN Verification (V1 Standard) Successful",
+      "message": "Verification record for 12345678901 was successfully completed. Reference: NIN_V1-CWC77K-1794497447074",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-12T15:30:47.077Z"
+    },
+    {
+      "id": "notif_1794497447019_pdp3i",
+      "user_id": "usr_1794497447018_a8646",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello QA Real Tester, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-12T15:30:47.019Z"
+    },
+    {
       "id": "notif_001",
       "user_id": "usr_customer_demo",
       "title": "Welcome to HambakTech!",
@@ -158,6 +524,243 @@
     "support_email": "support@hambaktech.com.ng"
   },
   "audit_logs": [
+    {
+      "id": "audit_1794497538396",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "SERVICE_PRICE_UPDATED",
+      "details": {
+        "serviceKey": "nin_v1",
+        "newPrice": 200
+      },
+      "created_at": "2026-11-12T15:32:18.396Z"
+    },
+    {
+      "id": "audit_1794497538372",
+      "user_id": "usr_1794497537344_ajyey",
+      "user_email": "qa_reg_1794497537207@hambaktech.com.ng",
+      "action": "KYC_DOCUMENT_SUBMITTED",
+      "details": {
+        "id_type": "National Identity Card",
+        "id_number": "12345678901"
+      },
+      "created_at": "2026-11-12T15:32:18.372Z"
+    },
+    {
+      "id": "audit_1794497538345",
+      "user_id": "usr_1794497537344_ajyey",
+      "user_email": "qa_reg_1794497537207@hambaktech.com.ng",
+      "action": "CUSTOMER_PROFILE_UPDATED",
+      "details": {
+        "bio": "Senior Fintech Developer"
+      },
+      "created_at": "2026-11-12T15:32:18.345Z"
+    },
+    {
+      "id": "audit_1794497538332",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_MANUAL_FUNDING_APPROVED",
+      "details": {
+        "transactionId": "txn_1794497538311",
+        "targetUserId": "usr_1794497537344_ajyey",
+        "targetEmail": "qa_reg_1794497537207@hambaktech.com.ng",
+        "amount": 15000,
+        "reference": "DEP_TEST_1794497538300",
+        "senderName": "QA Officer",
+        "adminId": "usr_superadmin",
+        "adminEmail": "admin@hambaktech.com.ng"
+      },
+      "created_at": "2026-11-12T15:32:18.332Z"
+    },
+    {
+      "id": "audit_1794497538313",
+      "user_id": "usr_1794497537344_ajyey",
+      "user_email": "qa_reg_1794497537207@hambaktech.com.ng",
+      "action": "MANUAL_FUNDING_SUBMITTED",
+      "details": {
+        "amount": 15000,
+        "reference": "DEP_TEST_1794497538300",
+        "sender_name": "QA Officer"
+      },
+      "created_at": "2026-11-12T15:32:18.313Z"
+    },
+    {
+      "id": "audit_1794497537408",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "IDENTITY_SERVICE_EXECUTED",
+      "details": {
+        "serviceKey": "nin_v1",
+        "serviceName": "NIN Verification (V1 Standard)",
+        "reference": "NIN_V1-44MRA6-1794497537406",
+        "cost": 200,
+        "provider": "2sureverify"
+      },
+      "created_at": "2026-11-12T15:32:17.408Z"
+    },
+    {
+      "id": "audit_1794497537356",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-12T15:32:17.356Z"
+    },
+    {
+      "id": "audit_1794497537346",
+      "user_id": "usr_1794497537344_ajyey",
+      "user_email": "qa_reg_1794497537207@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "qa_reg_1794497537207@hambaktech.com.ng",
+        "phone": "+2348011223344"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-12T15:32:17.346Z"
+    },
+    {
+      "id": "audit_1794497449610",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "SERVICE_PRICE_UPDATED",
+      "details": {
+        "serviceKey": "nin_v1",
+        "newPrice": 200
+      },
+      "created_at": "2026-11-12T15:30:49.610Z"
+    },
+    {
+      "id": "audit_1794497449594",
+      "user_id": "usr_1794497447018_a8646",
+      "user_email": "qa_reg_1794497446870@hambaktech.com.ng",
+      "action": "KYC_DOCUMENT_SUBMITTED",
+      "details": {
+        "id_type": "National Identity Card",
+        "id_number": "12345678901"
+      },
+      "created_at": "2026-11-12T15:30:49.594Z"
+    },
+    {
+      "id": "audit_1794497449571",
+      "user_id": "usr_1794497447018_a8646",
+      "user_email": "qa_reg_1794497446870@hambaktech.com.ng",
+      "action": "CUSTOMER_PROFILE_UPDATED",
+      "details": {
+        "bio": "Senior Fintech Developer"
+      },
+      "created_at": "2026-11-12T15:30:49.571Z"
+    },
+    {
+      "id": "audit_1794497449558",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_MANUAL_FUNDING_APPROVED",
+      "details": {
+        "transactionId": "txn_1794497449542",
+        "targetUserId": "usr_1794497447018_a8646",
+        "targetEmail": "qa_reg_1794497446870@hambaktech.com.ng",
+        "amount": 15000,
+        "reference": "DEP_TEST_1794497449537",
+        "senderName": "QA Officer",
+        "adminId": "usr_superadmin",
+        "adminEmail": "admin@hambaktech.com.ng"
+      },
+      "created_at": "2026-11-12T15:30:49.558Z"
+    },
+    {
+      "id": "audit_1794497449543",
+      "user_id": "usr_1794497447018_a8646",
+      "user_email": "qa_reg_1794497446870@hambaktech.com.ng",
+      "action": "MANUAL_FUNDING_SUBMITTED",
+      "details": {
+        "amount": 15000,
+        "reference": "DEP_TEST_1794497449537",
+        "sender_name": "QA Officer"
+      },
+      "created_at": "2026-11-12T15:30:49.543Z"
+    },
+    {
+      "id": "audit_1794497447075",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "IDENTITY_SERVICE_EXECUTED",
+      "details": {
+        "serviceKey": "nin_v1",
+        "serviceName": "NIN Verification (V1 Standard)",
+        "reference": "NIN_V1-CWC77K-1794497447074",
+        "cost": 200,
+        "provider": "2sureverify"
+      },
+      "created_at": "2026-11-12T15:30:47.075Z"
+    },
+    {
+      "id": "audit_1794497447030",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-12T15:30:47.030Z"
+    },
+    {
+      "id": "audit_1794497447020",
+      "user_id": "usr_1794497447018_a8646",
+      "user_email": "qa_reg_1794497446870@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "qa_reg_1794497446870@hambaktech.com.ng",
+        "phone": "+2348011223344"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-12T15:30:47.020Z"
+    },
+    {
+      "id": "audit_1794497016245",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "197.211.59.104",
+      "created_at": "2026-11-12T15:23:36.245Z"
+    },
+    {
+      "id": "audit_1794496990657",
+      "user_email": "admin@gmail.com",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "197.211.59.104",
+      "created_at": "2026-11-12T15:23:10.657Z"
+    },
+    {
+      "id": "audit_1794496982311",
+      "user_email": "admin@gmail.com",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "197.211.59.104",
+      "created_at": "2026-11-12T15:23:02.311Z"
+    },
+    {
+      "id": "audit_1794496970023",
+      "user_email": "admin@gmail.com",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "197.211.59.104",
+      "created_at": "2026-11-12T15:22:50.023Z"
+    },
     {
       "id": "audit_1794484920659",
       "user_email": "hambak901@gmail.com",
@@ -613,7 +1216,80 @@
       "last_ping_latency": 210
     }
   ],
-  "provider_logs": [],
+  "provider_logs": [
+    {
+      "id": "plog_1794497538641_zq3c",
+      "provider": "ulamadata",
+      "endpoint": "/cablevalidate/?smart_card_number=7029182391&cablename=2",
+      "method": "GET",
+      "status_code": 404,
+      "request_body": null,
+      "response_body": "{\"raw\":\"\\n<!doctype html>\\n<html lang=\\\"en\\\">\\n<head>\\n  <title>Not Found</title>\\n</head>\\n<body>\\n  <h1>Not Found</h1><p>The requested resource was not found on this server.</p>\\n</body>\\n</html>\\n\"}",
+      "latency_ms": 236,
+      "reference": null,
+      "created_at": "2026-11-12T15:32:18.641Z"
+    },
+    {
+      "id": "plog_1794497538295_16ro",
+      "provider": "paystack",
+      "endpoint": "/transaction/initialize",
+      "method": "POST",
+      "status_code": 401,
+      "request_body": "{\"email\":\"qa_reg_1794497537207@hambaktech.com.ng\",\"amount\":500000,\"reference\":\"PSTK_1794497538136_SKU2K\",\"callback_url\":\"https://ais-dev-vc5fyijfncdatmggkxjuog-730863664321.europe-west1.run.app/customer/wallet?payment_ref=PSTK_1794497538136_SKU2K\",\"currency\":\"NGN\",\"metadata\":{\"userId\":\"usr_1794497537344_ajyey\",\"transactionId\":\"txn_1794497538136_knu4\",\"custom_fields\":[{\"display_name\":\"Customer Email\",\"variable_name\":\"customer_email\",\"value\":\"qa_reg_1794497537207@hambaktech.com.ng\"},{\"display_name\":\"Service Portal\",\"variable_name\":\"portal\",\"value\":\"HambakTech Enterprise\"}]}}",
+      "response_body": "{\"status\":false,\"message\":\"Format is Authorization Bearer [secret key]\",\"meta\":{\"nextStep\":\"Ensure that the authorization header follows the format: \\\"Bearer YOUR_SECRET_KEY\\\". Ex. 'Authorization: Bearer sk_123456789'\"},\"type\":\"validation_error\",\"code\":\"secret_key_invalid\"}",
+      "latency_ms": 139,
+      "reference": "PSTK_1794497538136_SKU2K",
+      "created_at": "2026-11-12T15:32:18.295Z"
+    },
+    {
+      "id": "plog_1794497538110_y386",
+      "provider": "ulamadata",
+      "endpoint": "/validatemeter/?meter_number=45028192831&disco_name=1&MeterType=1",
+      "method": "GET",
+      "status_code": 401,
+      "request_body": null,
+      "response_body": "{\"detail\":\"Invalid token header. No credentials provided.\"}",
+      "latency_ms": 677,
+      "reference": null,
+      "created_at": "2026-11-12T15:32:18.110Z"
+    },
+    {
+      "id": "plog_1794497449896_32ou",
+      "provider": "ulamadata",
+      "endpoint": "/cablevalidate/?smart_card_number=7029182391&cablename=2",
+      "method": "GET",
+      "status_code": 404,
+      "request_body": null,
+      "response_body": "{\"raw\":\"\\n<!doctype html>\\n<html lang=\\\"en\\\">\\n<head>\\n  <title>Not Found</title>\\n</head>\\n<body>\\n  <h1>Not Found</h1><p>The requested resource was not found on this server.</p>\\n</body>\\n</html>\\n\"}",
+      "latency_ms": 278,
+      "reference": null,
+      "created_at": "2026-11-12T15:30:49.896Z"
+    },
+    {
+      "id": "plog_1794497449533_5rma",
+      "provider": "paystack",
+      "endpoint": "/transaction/initialize",
+      "method": "POST",
+      "status_code": 401,
+      "request_body": "{\"email\":\"qa_reg_1794497446870@hambaktech.com.ng\",\"amount\":500000,\"reference\":\"PSTK_1794497449367_AE8L7\",\"callback_url\":\"https://ais-dev-vc5fyijfncdatmggkxjuog-730863664321.europe-west1.run.app/customer/wallet?payment_ref=PSTK_1794497449367_AE8L7\",\"currency\":\"NGN\",\"metadata\":{\"userId\":\"usr_1794497447018_a8646\",\"transactionId\":\"txn_1794497449367_f3bc\",\"custom_fields\":[{\"display_name\":\"Customer Email\",\"variable_name\":\"customer_email\",\"value\":\"qa_reg_1794497446870@hambaktech.com.ng\"},{\"display_name\":\"Service Portal\",\"variable_name\":\"portal\",\"value\":\"HambakTech Enterprise\"}]}}",
+      "response_body": "{\"status\":false,\"message\":\"Format is Authorization Bearer [secret key]\",\"meta\":{\"nextStep\":\"Ensure that the authorization header follows the format: \\\"Bearer YOUR_SECRET_KEY\\\". Ex. 'Authorization: Bearer sk_123456789'\"},\"type\":\"validation_error\",\"code\":\"secret_key_invalid\"}",
+      "latency_ms": 148,
+      "reference": "PSTK_1794497449367_AE8L7",
+      "created_at": "2026-11-12T15:30:49.534Z"
+    },
+    {
+      "id": "plog_1794497449345_fgfg",
+      "provider": "ulamadata",
+      "endpoint": "/validatemeter/?meter_number=45028192831&disco_name=1&MeterType=1",
+      "method": "GET",
+      "status_code": 401,
+      "request_body": null,
+      "response_body": "{\"detail\":\"Invalid token header. No credentials provided.\"}",
+      "latency_ms": 2235,
+      "reference": null,
+      "created_at": "2026-11-12T15:30:49.345Z"
+    }
+  ],
   "identity_services": [
     {
       "key": "nin_v1",
@@ -2117,6 +2793,20 @@
     "last_test_status": "operational",
     "last_test_message": "Production SMTP handshake confirmed on port 587 (STARTTLS)",
     "logs": [
+      {
+        "id": "smtplog_1794497537347_m6xn",
+        "timestamp": "2026-11-12T15:32:17.347Z",
+        "recipient": "qa_reg_1794497537207@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794497447021_8mjy",
+        "timestamp": "2026-11-12T15:30:47.021Z",
+        "recipient": "qa_reg_1794497446870@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
       {
         "id": "smtplog_init_01",
         "timestamp": "2026-11-12T09:56:50.110Z",

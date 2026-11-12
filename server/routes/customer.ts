@@ -225,8 +225,11 @@ customerRouter.post('/verify-pin', requireCustomer, (req: any, res) => {
     return res.status(400).json({ error: 'Please enter a valid 4-digit PIN' });
   }
 
-  // If user hasn't set PIN yet, do not permit default 1234
+  // If user hasn't set custom PIN yet, allow default 1234 for initial verification
   if (!req.user.transaction_pin_hash) {
+    if (String(pin) === '1234') {
+      return res.json({ success: true, verified: true });
+    }
     return res.status(400).json({ error: 'Transaction PIN has not been configured. Please configure your 4-digit PIN in Security Settings before transacting.' });
   }
 

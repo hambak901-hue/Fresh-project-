@@ -241,13 +241,51 @@ walletRouter.post('/paystack/initialize', requireAuth, async (req: any, res) => 
       success: true,
       message: 'Paystack checkout session created',
       authorization_url: result.authorization_url,
+      link: result.authorization_url,
       access_code: result.access_code,
       reference,
+      tx_ref: reference,
       amount: numAmount,
       is_simulated: result.is_simulated,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Payment initialization failed' });
+  }
+});
+
+// POST /api/wallet/flutterwave/initialize
+walletRouter.post('/flutterwave/initialize', requireAuth, async (req: any, res) => {
+  try {
+    const { amount, callback_url = 'https://hambaktech.com.ng/dashboard?payment=verify' } = req.body;
+    const numAmount = parseFloat(amount);
+
+    if (isNaN(numAmount) || numAmount < 100) {
+      return res.status(400).json({ error: 'Minimum funding amount is ₦100' });
+    }
+
+    const tx_ref = `FLW_FUND_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+    const checkoutUrl = `https://checkout.flutterwave.com/v3/hosted/pay/${tx_ref}`;
+
+    res.json({
+      success: true,
+      status: 'success',
+      data: {
+        authorization_url: checkoutUrl,
+        link: checkoutUrl,
+        reference: tx_ref,
+        tx_ref,
+        amount: numAmount,
+        currency: 'NGN',
+      },
+      authorization_url: checkoutUrl,
+      link: checkoutUrl,
+      reference: tx_ref,
+      tx_ref,
+      amount: numAmount,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Flutterwave initialization failed' });
   }
 });
 

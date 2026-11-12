@@ -144,24 +144,44 @@ adminRouter.get('/overview', requireAdmin, (req, res) => {
     },
   };
 
+  const stats = {
+    total_users: users.length,
+    total_customers: customers.length,
+    totalCustomers: customers.length,
+    active_customers: activeCustomers.length,
+    activeCustomers: activeCustomers.length,
+    suspended_customers: suspendedCustomers.length,
+    suspendedCustomers: suspendedCustomers.length,
+    totalStaff: staff.length,
+    total_wallet_balances: totalWalletBalances,
+    totalWalletBalances,
+    total_wallet_funding: totalWalletFunding,
+    totalWalletFunding,
+    total_service_sales: totalServiceSales,
+    totalServiceSales,
+    provider_expenditure: providerExpenditure,
+    providerExpenditure,
+    gross_profit: grossProfit,
+    grossProfit,
+    successful_transactions: successfulTransactions,
+    successfulTransactions,
+    pending_transactions: pendingTransactions,
+    pendingTransactions,
+    failed_transactions: failedTransactions,
+    failedTransactions,
+    pending_funding_approvals: pendingFundings.length,
+    pendingFundingApprovals: pendingFundings.length,
+    pendingKycCount: pendingKycUsers.length,
+  };
+
   res.json({
     success: true,
-    metrics: {
-      totalCustomers: customers.length,
-      activeCustomers: activeCustomers.length,
-      suspendedCustomers: suspendedCustomers.length,
-      totalStaff: staff.length,
-      totalWalletBalances,
-      totalWalletFunding,
-      totalServiceSales,
-      providerExpenditure,
-      grossProfit,
-      successfulTransactions,
-      pendingTransactions,
-      failedTransactions,
-      pendingFundingApprovals: pendingFundings.length,
-      pendingKycCount: pendingKycUsers.length,
+    data: {
+      stats,
+      metrics: stats,
     },
+    metrics: stats,
+    stats,
     recentRegistrations: users.slice(-8).reverse().map(sanitizeUser),
     recentOrders: orders.slice(0, 8),
     pendingFundings: pendingFundings.slice(0, 10),
@@ -1735,12 +1755,21 @@ adminRouter.get('/reports/analytics', requireAdmin, (req, res) => {
 
 // GET /api/admin/settings
 adminRouter.get('/settings', requireAdmin, (req, res) => {
+  const categories = [
+    'general', 'company', 'branding', 'website', 'landing_page',
+    'customer_dashboard', 'admin_dashboard', 'auth', 'security', 'kyc',
+    'wallet', 'payment_gateways', 'provider_integration', 'service_pricing', 'transactions',
+    'smtp', 'email_templates', 'sms', 'notifications', 'upload',
+    'api', 'system_config'
+  ];
   res.json({
     success: true,
-    settings: {
-      general: { company_name: 'HambakTech Enterprise', support_email: 'support@hambaktech.com.ng' },
-      payment: { active_gateway: 'paystack' },
+    data: {
+      categories,
+      settings: db.data.settings,
     },
+    categories,
+    settings: db.data.settings,
   });
 });
 

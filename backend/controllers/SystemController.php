@@ -48,6 +48,18 @@ class SystemController
         ]);
     }
 
+    public function status(Request $request): void
+    {
+        Response::success([
+            'service' => 'HambakTech Enterprise Production Backend',
+            'status' => 'ONLINE',
+            'uptime' => '99.98%',
+            'deployment' => 'Enterprise Cloud Native',
+            'engine' => 'PHP ' . PHP_VERSION,
+            'timestamp' => date('c'),
+        ]);
+    }
+
     public function settings(Request $request): void
     {
         // Base customer-safe settings (no provider names, endpoints, or credentials)

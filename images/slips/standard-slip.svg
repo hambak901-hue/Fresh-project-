@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="100%" height="100%">
+  <defs>
+    <linearGradient id="stdGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#f1f5f9"/>
+    </linearGradient>
+    <pattern id="stdGrid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#e2e8f0" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+
+  <!-- Background Base Card -->
+  <rect x="10" y="10" width="780" height="480" rx="16" fill="url(#stdGrad)" stroke="#15803d" stroke-width="2.5" filter="drop-shadow(0 10px 15px rgba(0,0,0,0.08))"/>
+  <rect x="15" y="15" width="770" height="470" rx="12" fill="url(#stdGrid)" opacity="0.4"/>
+
+  <!-- Foldable Cut Lines Indicator -->
+  <line x1="400" y1="20" x2="400" y2="480" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6 6"/>
+  <g transform="translate(388, 25)">
+    <circle cx="12" cy="12" r="10" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1"/>
+    <text x="12" y="16" font-family="Arial, sans-serif" font-size="10" fill="#64748b" text-anchor="middle">✂</text>
+  </g>
+
+  <!-- Watermark Coat of Arms -->
+  <g transform="translate(200, 260)" opacity="0.06">
+    <circle r="110" fill="#15803d"/>
+  </g>
+  <g transform="translate(600, 260)" opacity="0.06">
+    <circle r="110" fill="#15803d"/>
+  </g>
+
+  <!-- LEFT PANEL: Front View -->
+  <g transform="translate(30, 30)">
+    <!-- Header Flag & Title -->
+    <rect x="0" y="0" width="350" height="64" rx="8" fill="#14532d"/>
+    <g transform="translate(15, 18)">
+      <rect width="8" height="28" fill="#22c55e"/>
+      <rect x="8" width="8" height="28" fill="#ffffff"/>
+      <rect x="16" width="8" height="28" fill="#22c55e"/>
+    </g>
+    <text x="50" y="24" font-family="Arial, sans-serif" font-weight="900" font-size="11" fill="#ffffff" letter-spacing="1">FEDERAL REPUBLIC OF NIGERIA</text>
+    <text x="50" y="38" font-family="Arial, sans-serif" font-weight="700" font-size="9" fill="#86efac" letter-spacing="0.5">NATIONAL IDENTITY MANAGEMENT COMMISSION</text>
+    <text x="50" y="52" font-family="Arial, sans-serif" font-weight="800" font-size="9" fill="#ffffff" letter-spacing="1.5">NATIONAL IDENTIFICATION NUMBER SLIP (NINS)</text>
+
+    <!-- Photo Container -->
+    <rect x="15" y="80" width="100" height="120" rx="8" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="2"/>
+    <g transform="translate(15, 80)">
+      <circle cx="50" cy="45" r="24" fill="#94a3b8"/>
+      <path d="M 20 110 Q 50 75 80 110" fill="#64748b"/>
+      <rect x="0" y="100" width="100" height="20" fill="#0f172a" opacity="0.8" rx="0 0 8 8"/>
+      <text x="50" y="114" font-family="Arial, sans-serif" font-weight="700" font-size="8" fill="#ffffff" text-anchor="middle">VERIFIED CITIZEN</text>
+    </g>
+
+    <!-- Demographic Details -->
+    <g transform="translate(130, 80)">
+      <text x="0" y="14" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="#64748b">SURNAME / NOM</text>
+      <text x="0" y="28" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#0f172a">ABUBAKAR</text>
+
+      <text x="0" y="46" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="#64748b">GIVEN NAMES / PRENOMS</text>
+      <text x="0" y="60" font-family="Arial, sans-serif" font-size="11" font-weight="800" fill="#0f172a">IBRAHIM MUSA</text>
+
+      <g transform="translate(0, 72)">
+        <text x="0" y="12" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="#64748b">GENDER</text>
+        <text x="0" y="24" font-family="Arial, sans-serif" font-size="10" font-weight="800" fill="#0f172a">MALE (M)</text>
+
+        <text x="80" y="12" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="#64748b">DOB</text>
+        <text x="80" y="24" font-family="Arial, sans-serif" font-size="10" font-weight="800" fill="#0f172a">14 MAY 1991</text>
+      </g>
+
+      <g transform="translate(0, 106)">
+        <text x="0" y="12" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="#64748b">STATE OF ORIGIN / LGA</text>
+        <text x="0" y="24" font-family="Arial, sans-serif" font-size="9" font-weight="800" fill="#0f172a">KANO / DALA</text>
+      </g>
+    </g>
+
+    <!-- NIN Banner Block -->
+    <rect x="15" y="220" width="320" height="52" rx="10" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+    <text x="175" y="238" font-family="Arial, sans-serif" font-weight="800" font-size="9" fill="#15803d" text-anchor="middle" letter-spacing="1">NATIONAL IDENTIFICATION NUMBER (NIN)</text>
+    <text x="175" y="260" font-family="monospace" font-weight="900" font-size="18" fill="#0f172a" text-anchor="middle" letter-spacing="4">5821 9904 128</text>
+
+    <!-- Mini Tracking & Security note -->
+    <g transform="translate(15, 290)">
+      <text x="0" y="14" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="#64748b">TRACKING ID:</text>
+      <text x="75" y="14" font-family="monospace" font-size="9" font-weight="700" fill="#334155">TK-882941-NMC</text>
+
+      <text x="0" y="30" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="#64748b">ISSUE DATE:</text>
+      <text x="75" y="30" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#334155">12 OCT 2024</text>
+    </g>
+  </g>
+
+  <!-- RIGHT PANEL: Foldable Back / Instructions -->
+  <g transform="translate(425, 30)">
+    <rect x="0" y="0" width="345" height="420" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+
+    <!-- Header bar -->
+    <rect x="0" y="0" width="345" height="40" rx="12 12 0 0" fill="#1e293b"/>
+    <text x="172" y="25" font-family="Arial, sans-serif" font-weight="800" font-size="11" fill="#ffffff" text-anchor="middle" letter-spacing="1">STANDARD DIGITAL SLIP SPECIFICATION</text>
+
+    <!-- QR Code Mock -->
+    <g transform="translate(25, 60)">
+      <rect width="90" height="90" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <!-- QR Blocks -->
+      <rect x="8" y="8" width="24" height="24" fill="#0f172a"/>
+      <rect x="12" y="12" width="16" height="16" fill="#ffffff"/>
+      <rect x="15" y="15" width="10" height="10" fill="#0f172a"/>
+
+      <rect x="58" y="8" width="24" height="24" fill="#0f172a"/>
+      <rect x="62" y="12" width="16" height="16" fill="#ffffff"/>
+      <rect x="65" y="15" width="10" height="10" fill="#0f172a"/>
+
+      <rect x="8" y="58" width="24" height="24" fill="#0f172a"/>
+      <rect x="12" y="62" width="16" height="16" fill="#ffffff"/>
+      <rect x="15" y="65" width="10" height="10" fill="#0f172a"/>
+
+      <circle cx="50" cy="50" r="6" fill="#16a34a"/>
+    </g>
+
+    <g transform="translate(130, 75)">
+      <text x="0" y="14" font-family="Arial, sans-serif" font-weight="900" font-size="11" fill="#0f172a">SCANNABLE QR VERIFICATION</text>
+      <text x="0" y="30" font-family="Arial, sans-serif" font-size="8.5" fill="#64748b" width="180">Cryptographically signed digital token verifying authentic identity record on the NIMC database.</text>
+      <text x="0" y="55" font-family="monospace" font-size="8" font-weight="700" fill="#16a34a">STATUS: VALID &amp; ACTIVE</text>
+    </g>
+
+    <!-- Conditions of use -->
+    <g transform="translate(25, 175)">
+      <rect width="295" height="130" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+      <text x="15" y="22" font-family="Arial, sans-serif" font-weight="800" font-size="9" fill="#0f172a">CONDITIONS OF USE &amp; LEGAL NOTICE</text>
+      <text x="15" y="40" font-family="Arial, sans-serif" font-size="8" fill="#475569">1. This slip is official proof of registration with the NIMC.</text>
+      <text x="15" y="55" font-family="Arial, sans-serif" font-size="8" fill="#475569">2. Valid for banking, passport processing &amp; telecommunications.</text>
+      <text x="15" y="70" font-family="Arial, sans-serif" font-size="8" fill="#475569">3. The 11-digit NIN is your unique lifetime identity number.</text>
+      <text x="15" y="85" font-family="Arial, sans-serif" font-size="8" fill="#475569">4. Protect your NIN slip against unauthorized disclosure.</text>
+      <text x="15" y="105" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="#166534">NIMC Help Desk: 0700-CALL-NIMC | www.nimc.gov.ng</text>
+    </g>
+
+    <!-- Barcode at bottom -->
+    <g transform="translate(70, 335)">
+      <rect x="0" y="0" width="3" height="35" fill="#0f172a"/>
+      <rect x="5" y="0" width="2" height="35" fill="#0f172a"/>
+      <rect x="10" y="0" width="4" height="35" fill="#0f172a"/>
+      <rect x="17" y="0" width="2" height="35" fill="#0f172a"/>
+      <rect x="22" y="0" width="5" height="35" fill="#0f172a"/>
+      <rect x="30" y="0" width="2" height="35" fill="#0f172a"/>
+      <rect x="35" y="0" width="6" height="35" fill="#0f172a"/>
+      <rect x="44" y="0" width="3" height="35" fill="#0f172a"/>
+      <rect x="50" y="0" width="2" height="35" fill="#0f172a"/>
+      <rect x="55" y="0" width="5" height="35" fill="#0f172a"/>
+      <rect x="63" y="0" width="3" height="35" fill="#0f172a"/>
+      <rect x="69" y="0" width="4" height="35" fill="#0f172a"/>
+      <rect x="76" y="0" width="2" height="35" fill="#0f172a"/>
+      <rect x="81" y="0" width="6" height="35" fill="#0f172a"/>
+      <rect x="90" y="0" width="3" height="35" fill="#0f172a"/>
+      <rect x="96" y="0" width="2" height="35" fill="#0f172a"/>
+      <rect x="101" y="0" width="5" height="35" fill="#0f172a"/>
+      <rect x="109" y="0" width="4" height="35" fill="#0f172a"/>
+      <rect x="116" y="0" width="3" height="35" fill="#0f172a"/>
+      <rect x="122" y="0" width="5" height="35" fill="#0f172a"/>
+      <rect x="130" y="0" width="2" height="35" fill="#0f172a"/>
+      <rect x="135" y="0" width="4" height="35" fill="#0f172a"/>
+      <rect x="142" y="0" width="3" height="35" fill="#0f172a"/>
+      <rect x="148" y="0" width="5" height="35" fill="#0f172a"/>
+      <rect x="156" y="0" width="2" height="35" fill="#0f172a"/>
+      <rect x="161" y="0" width="4" height="35" fill="#0f172a"/>
+      <rect x="168" y="0" width="3" height="35" fill="#0f172a"/>
+      <rect x="174" y="0" width="5" height="35" fill="#0f172a"/>
+      <rect x="182" y="0" width="2" height="35" fill="#0f172a"/>
+      <rect x="187" y="0" width="6" height="35" fill="#0f172a"/>
+      <text x="95" y="47" font-family="monospace" font-size="9" font-weight="700" fill="#0f172a" text-anchor="middle">* N I N - S T A N D A R D - 2 0 2 6 *</text>
+    </g>
+  </g>
+
+  <!-- Bottom Badge -->
+  <g transform="translate(30, 440)">
+    <rect width="740" height="30" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+    <text x="370" y="20" font-family="Arial, sans-serif" font-weight="700" font-size="10" fill="#64748b" text-anchor="middle">HAMBAK TECH SMART DIGITAL PLATFORM • OFFICIAL STANDARD SLIP TEMPLATE PREVIEW</text>
+  </g>
+</svg>

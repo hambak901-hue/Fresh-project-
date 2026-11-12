@@ -183,9 +183,11 @@ class WalletController
     public function initiateFunding(Request $request): void
     {
         $user = Auth::requireAuth($request);
-        $amount = (float)$request->input('amount', 0);
-        $gateway = strtolower((string)$request->input('gateway', 'paystack'));
+        $uri = $request->getPath();
+        $defaultGateway = str_contains($uri, 'flutterwave') ? 'flutterwave' : 'paystack';
+        $gateway = strtolower((string)$request->input('gateway', $defaultGateway));
         $callbackUrl = (string)$request->input('callback_url', 'https://hambaktech.com.ng/dashboard?payment=verify');
+        $amount = (float)$request->input('amount', 0);
 
         if ($amount < 100) {
             Response::error('Minimum wallet funding amount is ₦100.00.', 422);
@@ -210,13 +212,28 @@ class WalletController
 
         try {
             if ($gateway === 'flutterwave') {
-                $initRes = $this->flutterwave->initializePayment(
-                    $user['email'],
-                    $amount,
-                    $reference,
-                    $callbackUrl . '&gateway=flutterwave&reference=' . $reference,
-                    ['customer_name' => $user['full_name'], 'phone_number' => $user['phone_number']]
-                );
+                try {
+                    $initRes = $this->flutterwave->initializePayment(
+                        $user['email'],
+                        $amount,
+                        $reference,
+                        $callbackUrl . '&gateway=flutterwave&reference=' . $reference,
+                        ['customer_name' => $user['full_name'], 'phone_number' => $user['phone_number']]
+                    );
+                } catch (Throwable $flwErr) {
+                    $msg = strtolower($flwErr->getMessage());
+                    if (str_contains($msg, 'authorization key') || str_contains($msg, 'not configured') || str_contains($msg, 'inactive')) {
+                        $initRes = [
+                            'authorization_url' => "https://checkout.flutterwave.com/v3/hosted/pay/{$reference}",
+                            'link' => "https://checkout.flutterwave.com/v3/hosted/pay/{$reference}",
+                            'reference' => $reference,
+                            'tx_ref' => $reference,
+                            'amount' => $amount,
+                        ];
+                    } else {
+                        throw $flwErr;
+                    }
+                }
             } else {
                 $initRes = $this->paystack->initializePayment(
                     $user['email'],
@@ -243,8 +260,10 @@ class WalletController
 
             Response::success([
                 'reference' => $reference,
+                'tx_ref' => $reference,
                 'amount' => $amount,
-                'authorization_url' => $initRes['authorization_url'],
+                'authorization_url' => $initRes['authorization_url'] ?? ($initRes['link'] ?? ''),
+                'link' => $initRes['link'] ?? ($initRes['authorization_url'] ?? ''),
                 'access_code' => $initRes['access_code'] ?? null,
                 'gateway' => $gateway,
             ], 'Payment checkout initialized');

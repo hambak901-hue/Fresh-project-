@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="100%" height="100%">
+  <defs>
+    <linearGradient id="premBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#022c22"/>
+      <stop offset="35%" stop-color="#064e3b"/>
+      <stop offset="70%" stop-color="#047857"/>
+      <stop offset="100%" stop-color="#065f46"/>
+    </linearGradient>
+
+    <linearGradient id="goldHolo" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="25%" stop-color="#fef08a"/>
+      <stop offset="50%" stop-color="#d97706"/>
+      <stop offset="75%" stop-color="#fef08a"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+
+    <linearGradient id="chipGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+
+    <radialGradient id="antiForgeryGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#34d399" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#064e3b" stop-opacity="0"/>
+    </radialGradient>
+
+    <pattern id="premGuilloche" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="20" cy="20" r="18" fill="none" stroke="#34d399" stroke-width="0.4" opacity="0.25"/>
+      <circle cx="20" cy="20" r="10" fill="none" stroke="#6ee7b7" stroke-width="0.4" opacity="0.2"/>
+    </pattern>
+  </defs>
+
+  <!-- Outer Card Frame (CR80 ID-1 Card Format) -->
+  <rect x="15" y="15" width="770" height="470" rx="28" fill="url(#premBg)" stroke="#10b981" stroke-width="3" filter="drop-shadow(0 15px 25px rgba(0,0,0,0.3))"/>
+  <rect x="22" y="22" width="756" height="456" rx="24" fill="url(#premGuilloche)"/>
+  <circle cx="400" cy="250" r="220" fill="url(#antiForgeryGlow)"/>
+
+  <!-- Top Security Hologram Ribbon -->
+  <rect x="22" y="22" width="756" height="8" rx="4 4 0 0" fill="url(#goldHolo)"/>
+
+  <!-- Header Banner -->
+  <g transform="translate(45, 42)">
+    <!-- Coat of Arms Placeholder -->
+    <g transform="translate(0, 0)">
+      <circle cx="30" cy="30" r="28" fill="#042f2e" stroke="url(#goldHolo)" stroke-width="2"/>
+      <path d="M 20 40 L 40 40 L 30 15 Z" fill="#f59e0b"/>
+      <circle cx="30" cy="24" r="8" fill="#10b981"/>
+      <text x="30" y="52" font-family="Arial, sans-serif" font-weight="900" font-size="6" fill="#fef08a" text-anchor="middle">NIGERIA</text>
+    </g>
+
+    <g transform="translate(75, 5)">
+      <text x="0" y="16" font-family="Arial, sans-serif" font-weight="900" font-size="16" fill="#ffffff" letter-spacing="2">FEDERAL REPUBLIC OF NIGERIA</text>
+      <text x="0" y="34" font-family="Arial, sans-serif" font-weight="800" font-size="13" fill="#6ee7b7" letter-spacing="1.2">NATIONAL IDENTITY MANAGEMENT COMMISSION</text>
+      <text x="0" y="50" font-family="Arial, sans-serif" font-weight="900" font-size="11" fill="url(#goldHolo)" letter-spacing="2.5">PREMIUM DIGITAL SMART IDENTITY CARD</text>
+    </g>
+
+    <!-- Flag badge top right -->
+    <g transform="translate(640, 6)">
+      <rect width="18" height="38" fill="#10b981" rx="2 0 0 2"/>
+      <rect x="18" width="18" height="38" fill="#ffffff"/>
+      <rect x="36" width="18" height="38" fill="#10b981" rx="0 2 2 0"/>
+      <rect width="54" height="38" fill="none" stroke="url(#goldHolo)" stroke-width="1.5" rx="3"/>
+    </g>
+  </g>
+
+  <!-- Body Content -->
+  <!-- Photo Holder with Hologram Border -->
+  <g transform="translate(50, 135)">
+    <rect x="-4" y="-4" width="148" height="188" rx="16" fill="url(#goldHolo)"/>
+    <rect x="0" y="0" width="140" height="180" rx="12" fill="#0f172a"/>
+    <!-- Silhouette Photo -->
+    <circle cx="70" cy="70" r="38" fill="#334155"/>
+    <path d="M 25 170 Q 70 115 115 170" fill="#1e293b"/>
+    <!-- Holographic security seal on photo -->
+    <circle cx="110" cy="150" r="20" fill="url(#goldHolo)" opacity="0.85"/>
+    <text x="110" y="153" font-family="Arial, sans-serif" font-weight="900" font-size="7" fill="#042f2e" text-anchor="middle">OFFICIAL</text>
+    <text x="110" y="161" font-family="Arial, sans-serif" font-weight="900" font-size="6" fill="#042f2e" text-anchor="middle">SEAL</text>
+
+    <!-- Verified Ribbon -->
+    <rect x="0" y="155" width="140" height="25" rx="0 0 12 12" fill="#059669"/>
+    <text x="70" y="172" font-family="Arial, sans-serif" font-weight="900" font-size="10" fill="#ffffff" text-anchor="middle" letter-spacing="1">VERIFIED CITIZEN</text>
+  </g>
+
+  <!-- Smart Chip Graphic -->
+  <g transform="translate(215, 140)">
+    <rect width="64" height="50" rx="8" fill="url(#chipGrad)" stroke="#78350f" stroke-width="1.5"/>
+    <line x1="0" y1="25" x2="64" y2="25" stroke="#78350f" stroke-width="1"/>
+    <line x1="22" y1="0" x2="22" y2="50" stroke="#78350f" stroke-width="1"/>
+    <line x1="42" y1="0" x2="42" y2="50" stroke="#78350f" stroke-width="1"/>
+    <circle cx="32" cy="25" r="8" fill="none" stroke="#78350f" stroke-width="1.5"/>
+  </g>
+
+  <!-- Demographic Fields Grid -->
+  <g transform="translate(300, 135)">
+    <g>
+      <text x="0" y="12" font-family="Arial, sans-serif" font-size="9" font-weight="800" fill="#6ee7b7" letter-spacing="1">SURNAME / NOM</text>
+      <text x="0" y="32" font-family="Arial, sans-serif" font-size="17" font-weight="900" fill="#ffffff" letter-spacing="1">ADEWALE</text>
+    </g>
+
+    <g transform="translate(0, 48)">
+      <text x="0" y="12" font-family="Arial, sans-serif" font-size="9" font-weight="800" fill="#6ee7b7" letter-spacing="1">GIVEN NAMES / PRENOMS</text>
+      <text x="0" y="30" font-family="Arial, sans-serif" font-size="15" font-weight="900" fill="#ffffff" letter-spacing="0.5">CHIDIEBERE BABATUNDE</text>
+    </g>
+
+    <g transform="translate(0, 94)">
+      <g>
+        <text x="0" y="10" font-family="Arial, sans-serif" font-size="8" font-weight="800" fill="#6ee7b7">DATE OF BIRTH</text>
+        <text x="0" y="24" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#ffffff">22 AUG 1988</text>
+      </g>
+      <g transform="translate(110, 0)">
+        <text x="0" y="10" font-family="Arial, sans-serif" font-size="8" font-weight="800" fill="#6ee7b7">GENDER</text>
+        <text x="0" y="24" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#ffffff">M</text>
+      </g>
+      <g transform="translate(180, 0)">
+        <text x="0" y="10" font-family="Arial, sans-serif" font-size="8" font-weight="800" fill="#6ee7b7">NATIONALITY</text>
+        <text x="0" y="24" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#ffffff">NGA</text>
+      </g>
+    </g>
+
+    <g transform="translate(0, 134)">
+      <text x="0" y="10" font-family="Arial, sans-serif" font-size="8" font-weight="800" fill="#6ee7b7">TRACKING ID / RESIDENTIAL LGA</text>
+      <text x="0" y="24" font-family="monospace" font-size="11" font-weight="800" fill="#a7f3d0">TK-902184-NMC / IKEJA, LAGOS</text>
+    </g>
+  </g>
+
+  <!-- 2D High-Density QR Code -->
+  <g transform="translate(630, 140)">
+    <rect x="-6" y="-6" width="122" height="122" rx="14" fill="#ffffff" stroke="url(#goldHolo)" stroke-width="2.5" filter="drop-shadow(0 4px 6px rgba(0,0,0,0.3))"/>
+    <!-- QR Finder patterns -->
+    <rect x="6" y="6" width="30" height="30" fill="#042f2e"/>
+    <rect x="11" y="11" width="20" height="20" fill="#ffffff"/>
+    <rect x="15" y="15" width="12" height="12" fill="#042f2e"/>
+
+    <rect x="74" y="6" width="30" height="30" fill="#042f2e"/>
+    <rect x="79" y="11" width="20" height="20" fill="#ffffff"/>
+    <rect x="83" y="15" width="12" height="12" fill="#042f2e"/>
+
+    <rect x="6" y="74" width="30" height="30" fill="#042f2e"/>
+    <rect x="11" y="79" width="20" height="20" fill="#ffffff"/>
+    <rect x="15" y="83" width="12" height="12" fill="#042f2e"/>
+
+    <!-- Data matrix points -->
+    <circle cx="55" cy="55" r="7" fill="#10b981"/>
+    <rect x="44" y="12" width="6" height="14" fill="#042f2e"/>
+    <rect x="54" y="22" width="12" height="8" fill="#042f2e"/>
+    <rect x="15" y="44" width="14" height="6" fill="#042f2e"/>
+    <rect x="78" y="50" width="8" height="16" fill="#042f2e"/>
+    <rect x="42" y="76" width="22" height="8" fill="#042f2e"/>
+    <rect x="74" y="76" width="10" height="22" fill="#042f2e"/>
+
+    <text x="55" y="130" font-family="Arial, sans-serif" font-weight="900" font-size="8" fill="#fef08a" text-anchor="middle" letter-spacing="1">SCANNABLE 2D QR</text>
+  </g>
+
+  <!-- High-Security National Identification Number Banner -->
+  <g transform="translate(50, 335)">
+    <rect width="700" height="64" rx="16" fill="#022c22" stroke="url(#goldHolo)" stroke-width="2.5" filter="drop-shadow(0 4px 6px rgba(0,0,0,0.4))"/>
+    <text x="25" y="24" font-family="Arial, sans-serif" font-weight="900" font-size="10" fill="url(#goldHolo)" letter-spacing="2">NATIONAL IDENTIFICATION NUMBER (NIN)</text>
+    <text x="25" y="52" font-family="monospace" font-weight="900" font-size="28" fill="#ffffff" letter-spacing="8">7182 9940 315</text>
+
+    <!-- Issuer seal badge -->
+    <g transform="translate(560, 10)">
+      <rect width="120" height="44" rx="10" fill="#065f46" stroke="#34d399" stroke-width="1.5"/>
+      <text x="60" y="19" font-family="Arial, sans-serif" font-weight="900" font-size="8" fill="#a7f3d0" text-anchor="middle">CRYPTOGRAPHIC</text>
+      <text x="60" y="33" font-family="Arial, sans-serif" font-weight="900" font-size="10" fill="#fef08a" text-anchor="middle">NIMC SECURED</text>
+    </g>
+  </g>
+
+  <!-- Machine Readable Zone (MRZ) Bottom Strips -->
+  <g transform="translate(50, 420)">
+    <rect width="700" height="44" rx="8" fill="#011e17" stroke="#064e3b" stroke-width="1"/>
+    <text x="20" y="18" font-family="monospace" font-weight="700" font-size="11" fill="#6ee7b7" letter-spacing="3.5">I&lt;NGN718299403158&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</text>
+    <text x="20" y="34" font-family="monospace" font-weight="700" font-size="11" fill="#6ee7b7" letter-spacing="3.5">8808225M2912316NGA&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;8ADEWALE&lt;&lt;CHIDIEBERE</text>
+  </g>
+</svg>

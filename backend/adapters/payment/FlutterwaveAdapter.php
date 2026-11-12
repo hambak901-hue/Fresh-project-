@@ -143,7 +143,9 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
 
         return [
             'authorization_url' => $parsed['data']['link'],
+            'link' => $parsed['data']['link'],
             'reference' => $reference,
+            'tx_ref' => $reference,
             'amount' => $amount,
         ];
     }

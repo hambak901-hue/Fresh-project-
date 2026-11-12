@@ -1,0 +1,57 @@
+# HambakTech Clean Single Page Application (SPA) & API Configuration
+DirectoryIndex index.html index.php
+Options -Indexes +FollowSymLinks
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Security Headers
+    <IfModule mod_headers.c>
+        Header always set X-Content-Type-Options "nosniff"
+        Header always set X-Frame-Options "SAMEORIGIN"
+        Header always set X-XSS-Protection "1; mode=block"
+        Header always set Referrer-Policy "strict-origin-when-cross-origin"
+        <FilesMatch "\.(html|htm)$">
+            Header set Cache-Control "no-cache, no-store, must-revalidate"
+            Header set Pragma "no-cache"
+            Header set Expires 0
+        </FilesMatch>
+    </IfModule>
+
+    # Forward Authorization header for Bearer / Basic tokens
+    SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+    RewriteCond %{HTTP:Authorization} ^(.*)
+    RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
+
+    # Block direct access to protected server assets and sensitive files
+    RewriteRule ^\.(.*)$ - [F,L]
+    RewriteRule ^(database|backend|logs|\.env) - [F,L]
+    RewriteRule \.(sql|lock|md|log|sh)$ - [F,L]
+
+    # 1. API Route Handling (PHP Backend)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^api/(.*)$ api/index.php [QSA,L]
+    RewriteRule ^api$ api/index.php [QSA,L]
+
+    # 2. Existing physical files (assets, images, etc.)
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # 3. Direct route mapping for /admin to /#admin
+    RewriteRule ^admin/?$ /#admin [NE,R=302,L]
+    RewriteRule ^portal/?$ /#portal [NE,R=302,L]
+    RewriteRule ^customer/?$ /#portal [NE,R=302,L]
+
+    # 4. SPA Client Fallback: Any non-existing file or folder routes to index.html
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# php -- BEGIN cPanel-generated handler, do not edit
+# Set the “ea-php83” package as the default “PHP” programming language.
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php83 .php .php8 .phtml
+</IfModule>
+# php -- END cPanel-generated handler, do not edit

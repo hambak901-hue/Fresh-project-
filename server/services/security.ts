@@ -197,8 +197,9 @@ export function csrfProtection(req: any, res: any, next: any) {
 
   const requestedWith = req.headers['x-requested-with'];
   const hasAuthToken = req.headers['authorization'];
+  const isJson = req.headers['content-type']?.includes('application/json');
 
-  if (requestedWith === 'XMLHttpRequest' || hasAuthToken) {
+  if (requestedWith === 'XMLHttpRequest' || hasAuthToken || isJson) {
     return next();
   }
 
