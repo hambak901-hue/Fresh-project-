@@ -48,7 +48,8 @@ class UlamaDataAdapter implements TelecomAdapterInterface
             // Table may be migrating
         }
 
-        $this->baseUrl = rtrim($baseUrl ?: ($dbProvider['base_url'] ?? ($providerConfig['base_url'] ?? 'https://www.ulamadata.ng')), '/');
+        $dbUrl = !empty($dbProvider['base_url']) && $dbProvider['base_url'] !== 'https://api.example.com' ? (string)$dbProvider['base_url'] : '';
+        $this->baseUrl = rtrim($baseUrl ?: ($dbUrl ?: ($providerConfig['base_url'] ?? 'https://www.ulamadata.ng')), '/');
         $this->apiKey = $apiKey ?: (getenv('ULAMADATA_API_KEY') ?: (!empty($dbProvider['api_key']) ? $dbProvider['api_key'] : ($providerConfig['api_key'] ?? '')));
         $this->timeout = $timeout ?: ((int)($dbProvider['timeout_seconds'] ?? ($providerConfig['timeout'] ?? 30)));
     }
@@ -185,7 +186,7 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     {
         try {
             $this->db->execute(
-                'INSERT INTO provider_logs (id, provider_id, endpoint, method, status_code, request_payload, response_payload, latency_ms, reference, created_at)
+                'INSERT INTO provider_logs (id, provider_id, endpoint, method, status_code, request_body, response_body, latency_ms, reference, created_at)
                  VALUES (:id, "ulamadata", :ep, :m, :code, :req, :res, :lat, :ref, NOW())',
                 [
                     'id' => Security::generateUuid(),

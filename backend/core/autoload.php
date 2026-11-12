@@ -7,15 +7,22 @@
 declare(strict_types=1);
 
 spl_autoload_register(function (string $class) {
-    $prefix = 'HambakTech\\';
+    $prefixes = ['HambakTech\\', 'Hambak\\'];
     $baseDir = defined('HAMBAKTECH_ROOT') ? rtrim(HAMBAKTECH_ROOT, '/') . '/' : dirname(__DIR__) . '/';
 
-    $len = strlen($prefix);
-    if (strncmp($prefix, $class, $len) !== 0) {
+    $relativeClass = null;
+    foreach ($prefixes as $prefix) {
+        $len = strlen($prefix);
+        if (strncmp($prefix, $class, $len) === 0) {
+            $relativeClass = substr($class, $len);
+            break;
+        }
+    }
+
+    if ($relativeClass === null) {
         return;
     }
 
-    $relativeClass = substr($class, $len);
     $parts = explode('\\', $relativeClass);
 
     // Possible file paths to check

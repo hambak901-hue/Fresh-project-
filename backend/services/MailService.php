@@ -27,13 +27,41 @@ class MailService
         if (file_exists($cfgFile)) {
             $baseCfg = require $cfgFile;
         }
-        $this->config = $baseCfg['mail'] ?? [
-            'host' => 'lon110.truehost.cloud',
-            'port' => 587,
+        $mailDefaults = $baseCfg['mail'] ?? [
+            'host' => 'mail.hambaktech.com.ng',
+            'port' => 465,
+            'encryption' => 'ssl',
             'user' => 'support@hambaktech.com.ng',
-            'from_name' => 'HambakTech Enterprise Support',
+            'password' => '',
+            'from_name' => 'HambakTech Support',
             'from_email' => 'support@hambaktech.com.ng',
         ];
+
+        $this->config = $mailDefaults;
+
+        try {
+            $row = $this->db->fetchOne('SELECT * FROM smtp_configs WHERE is_active = 1 LIMIT 1');
+            if ($row && !empty($row['host'])) {
+                $this->config['host'] = $row['host'];
+                $this->config['port'] = (int)$row['port'];
+                $this->config['encryption'] = $row['encryption'] ?: (((int)$row['port'] === 465) ? 'ssl' : 'tls');
+                $this->config['user'] = $row['username'] ?: $mailDefaults['user'];
+                if (!empty($row['password'])) {
+                    $this->config['password'] = $row['password'];
+                }
+                if (!empty($row['sender_email'])) {
+                    $this->config['from_email'] = $row['sender_email'];
+                }
+                if (!empty($row['sender_name'])) {
+                    $this->config['from_name'] = $row['sender_name'];
+                }
+                if (!empty($row['reply_to'])) {
+                    $this->config['reply_to'] = $row['reply_to'];
+                }
+            }
+        } catch (Throwable) {
+            // Table may not exist yet before SchemaSync
+        }
     }
 
     /**
@@ -47,113 +75,103 @@ class MailService
     }
 
     /**
-     * Direct Socket SMTP Mail Sender
+     * Direct RFC-5321 Authenticated SMTP Mail Sender via SmtpTransport
      */
     public function send(string $toEmail, string $toName, string $subject, string $htmlBody, ?string $otp = null): array
     {
         $cleanEmail = strtolower(trim($toEmail));
-        $host = $this->config['host'] ?? 'lon110.truehost.cloud';
-        $port = (int)($this->config['port'] ?? 587);
-        $fromEmail = $this->config['from_email'] ?? 'support@hambaktech.com.ng';
-        $fromName = $this->config['from_name'] ?? 'HambakTech Support';
+        $host = (string)($this->config['host'] ?? 'mail.hambaktech.com.ng');
+        $port = (int)($this->config['port'] ?? 465);
+        $encryption = (string)($this->config['encryption'] ?? ($port === 465 ? 'ssl' : 'tls'));
+        $username = (string)($this->config['user'] ?? '');
+        $password = (string)($this->config['password'] ?? '');
+        $fromEmail = (string)($this->config['from_email'] ?? 'support@hambaktech.com.ng');
+        $fromName = (string)($this->config['from_name'] ?? 'HambakTech Support');
+        $replyTo = (string)($this->config['reply_to'] ?? $fromEmail);
 
         $deliverySuccess = false;
         $deliveryMessage = '';
+        $messageId = '';
 
-        // 1. Log in internal notifications table if user exists
-        try {
-            $user = $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $cleanEmail]);
-            if ($user) {
-                $this->db->execute(
-                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                     VALUES (:id, :uid, :title, :msg, "security", 0, NOW())',
-                    [
-                        'id' => Security::generateUuid(),
-                        'uid' => $user['id'],
-                        'title' => $subject,
-                        'msg' => $otp ? "Your password reset verification code is: {$otp}. Valid for 15 minutes." : $subject,
-                    ]
-                );
-            }
-        } catch (Throwable $e) {
-            // Ignore notification table errors
-        }
-
-        // 2. Attempt SMTP Socket Dispatch with strict timeout
-        try {
-            $socket = @fsockopen($host, $port, $errno, $errstr, 3);
-            if ($socket) {
-                stream_set_timeout($socket, 3);
-                $banner = fgets($socket, 512);
-
-                if (str_starts_with((string)$banner, '220')) {
-                    fputs($socket, "EHLO hambaktech.com.ng\r\n");
-                    $ehloResp = '';
-                    while ($line = fgets($socket, 512)) {
-                        $ehloResp .= $line;
-                        if (substr($line, 3, 1) === ' ') break;
-                    }
-
-                    fputs($socket, "MAIL FROM: <{$fromEmail}>\r\n");
-                    $mailFromResp = fgets($socket, 512);
-
-                    fputs($socket, "RCPT TO: <{$cleanEmail}>\r\n");
-                    $rcptResp = fgets($socket, 512);
-
-                    if (str_starts_with((string)$rcptResp, '250')) {
-                        fputs($socket, "DATA\r\n");
-                        fgets($socket, 512);
-
-                        $boundary = 'b1_' . md5((string)microtime());
-                        $headers = "From: =?UTF-8?B?" . base64_encode($fromName) . "?= <{$fromEmail}>\r\n";
-                        $headers .= "To: <{$cleanEmail}>\r\n";
-                        $headers .= "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\n";
-                        $headers .= "MIME-Version: 1.0\r\n";
-                        $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-                        $headers .= "Content-Transfer-Encoding: 8bit\r\n";
-                        $headers .= "Date: " . date('r') . "\r\n";
-
-                        $emailData = $headers . "\r\n" . $htmlBody . "\r\n.\r\n";
-                        fputs($socket, $emailData);
-                        $dataResp = fgets($socket, 512);
-
-                        if (str_starts_with((string)$dataResp, '250')) {
-                            $deliverySuccess = true;
-                            $deliveryMessage = 'Dispatched via SMTP socket successfully.';
-                        }
-                    }
-
-                    fputs($socket, "QUIT\r\n");
-                    fclose($socket);
+        // 1. Log in internal notifications table if user exists and OTP is set
+        if ($otp) {
+            try {
+                $user = $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $cleanEmail]);
+                if ($user) {
+                    $this->db->execute(
+                        'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                         VALUES (:id, :uid, :title, :msg, "security", 0, NOW())',
+                        [
+                            'id' => Security::generateUuid(),
+                            'uid' => $user['id'],
+                            'title' => $subject,
+                            'msg' => "Your verification code is: {$otp}. Valid for 15 minutes.",
+                        ]
+                    );
                 }
+            } catch (Throwable) {
             }
-        } catch (Throwable $e) {
-            $deliveryMessage = 'SMTP connection: ' . $e->getMessage();
         }
 
-        // 3. Log audit event
+        // 2. Attempt authenticated SMTP dispatch via SmtpTransport
+        try {
+            if (!class_exists(\Hambak\Services\SmtpTransport::class)) {
+                require_once __DIR__ . '/SmtpTransport.php';
+            }
+            $transport = new \Hambak\Services\SmtpTransport($host, $port, $encryption, $username, $password, 15);
+            $res = $transport->send($fromEmail, $fromName, $cleanEmail, $subject, $htmlBody, '', $replyTo);
+            $deliverySuccess = !empty($res['success']);
+            $messageId = (string)($res['messageId'] ?? '');
+            $deliveryMessage = $deliverySuccess
+                ? "Email delivered via {$host}:{$port} ({$encryption})"
+                : (string)($res['error'] ?? 'SMTP delivery failed');
+        } catch (Throwable $e) {
+            $deliveryMessage = 'SMTP error: ' . $e->getMessage();
+        }
+
+        // 3. Log into email_logs table
+        try {
+            $this->db->execute(
+                'INSERT INTO email_logs (id, recipient, subject, status, error, host, created_at)
+                 VALUES (:id, :rec, :sub, :st, :err, :host, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'rec' => $cleanEmail,
+                    'sub' => $subject,
+                    'st' => $deliverySuccess ? 'sent' : 'failed',
+                    'err' => $deliverySuccess ? null : $deliveryMessage,
+                    'host' => $host,
+                ]
+            );
+        } catch (Throwable) {
+        }
+
+        // 4. Log audit event
         try {
             $this->db->execute(
                 'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
-                 VALUES (:id, NULL, :email, "OTP_DISPATCHED", :details, "127.0.0.1", NOW())',
+                 VALUES (:id, NULL, :email, :act, :details, "127.0.0.1", NOW())',
                 [
                     'id' => Security::generateUuid(),
                     'email' => $cleanEmail,
+                    'act' => $otp ? 'OTP_DISPATCHED' : 'EMAIL_DISPATCHED',
                     'details' => json_encode([
                         'subject' => $subject,
                         'otp_dispatched' => !empty($otp),
                         'smtp_delivery' => $deliverySuccess,
+                        'message' => $deliveryMessage,
                     ]),
                 ]
             );
-        } catch (Throwable $e) {
-            // Ignore audit log error
+        } catch (Throwable) {
         }
 
         return [
-            'sent' => true,
+            'sent' => $deliverySuccess,
             'smtp_delivered' => $deliverySuccess,
-            'message' => $deliverySuccess ? 'Verification OTP dispatched to your email address.' : 'Verification OTP generated and queued for delivery.',
+            'message_id' => $messageId,
+            'message' => $deliverySuccess ? 'Email dispatched via authenticated SMTP relay.' : $deliveryMessage,
+            'error' => $deliverySuccess ? null : $deliveryMessage,
             'channel' => 'email',
             'recipient' => $cleanEmail,
         ];

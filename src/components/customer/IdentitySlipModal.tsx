@@ -42,15 +42,15 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
   const data = record.data || record.result || record;
   const isBvn = record.service_key?.startsWith('bvn') || record.type?.includes('BVN');
 
-  const fullName = `${data.firstname || data.firstName || 'FATIMOH'} ${data.middlename || data.middleName || ''} ${data.surname || 'MUSBAU'}`.trim();
-  const idNumber = data.nin || data.bvn || data.idNumber || record.search_value || '35359517922';
-  const trackingId = data.tracking_id || data.trackingId || `NIMC-${Math.floor(100000000 + Math.random() * 900000000)}`;
-  const photo = data.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80';
-  const dob = data.birthdate || data.dateOfBirth || data.dob || '1995-08-14';
-  const gender = data.gender || 'Female';
-  const phone = data.telephoneno || data.phone || '08032503238';
-  const state = data.residence_state || data.stateOfOrigin || 'Lagos';
-  const lga = data.residence_lga || data.lgaOfOrigin || 'Ikeja';
+  const fullName = `${data.firstname || data.firstName || ''} ${data.middlename || data.middleName || ''} ${data.surname || data.lastName || ''}`.trim() || record.full_name || 'N/A';
+  const idNumber = data.nin || data.bvn || data.idNumber || record.search_value || '—';
+  const trackingId = data.tracking_id || data.trackingId || record.reference || '—';
+  const photo = data.photo || '';
+  const dob = data.birthdate || data.dateOfBirth || data.dob || '—';
+  const gender = data.gender || '—';
+  const phone = data.telephoneno || data.phone || '—';
+  const state = data.residence_state || data.stateOfOrigin || '—';
+  const lga = data.residence_lga || data.lgaOfOrigin || '—';
   const verifiedAt = record.created_at ? new Date(record.created_at).toLocaleString('en-NG') : new Date().toLocaleString('en-NG');
 
   const handlePrint = () => {
@@ -174,8 +174,12 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 mt-6 items-center">
               {/* Photo & QR Code */}
               <div className="sm:col-span-4 flex flex-col items-center gap-4 text-center">
-                <div className="relative w-32 h-36 rounded-xl overflow-hidden border-2 border-emerald-500/50 bg-slate-950 shadow-lg">
-                  <img src={photo} alt={fullName} className="w-full h-full object-cover" />
+                <div className="relative w-32 h-36 rounded-xl overflow-hidden border-2 border-emerald-500/50 bg-slate-950 shadow-lg flex items-center justify-center">
+                  {photo ? (
+                    <img src={photo} alt={fullName} className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-12 h-12 text-slate-600" />
+                  )}
                   <div className="absolute bottom-0 inset-x-0 bg-emerald-950/80 backdrop-blur-xs text-[9px] text-emerald-300 font-bold py-0.5 font-mono">
                     VERIFIED CITIZEN
                   </div>

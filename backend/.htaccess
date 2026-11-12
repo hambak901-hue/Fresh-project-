@@ -5,15 +5,15 @@
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteBase /backend/
 
     # Security: Disable direct viewing of config, sql, and core system files
     RewriteRule ^(config|core|database|logs|storage)/.*$ - [F,L]
     RewriteRule \.(sql|json|env|log|md|sh)$ - [F,L]
 
-    # Handle Authorization Header for Bearer Tokens on cPanel FastCGI
-    RewriteCond %{HTTP:Authorization} .
-    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+    # Handle Authorization Header for Bearer Tokens on cPanel FastCGI / LiteSpeed
+    SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+    RewriteCond %{HTTP:Authorization} ^(.*)
+    RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
 
     # Allow direct access to existing files/folders
     RewriteCond %{REQUEST_FILENAME} -f [OR]

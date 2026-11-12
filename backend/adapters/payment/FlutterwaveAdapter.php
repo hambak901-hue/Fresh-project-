@@ -50,7 +50,7 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
         $this->secretKey = $secretKey ?: (getenv('FLUTTERWAVE_SECRET_KEY') ?: (!empty($dbProvider['secret_key']) ? $dbProvider['secret_key'] : (!empty($dbProvider['api_key']) ? $dbProvider['api_key'] : ($providerConfig['secret_key'] ?? ''))));
         $this->publicKey = $publicKey ?: (getenv('FLUTTERWAVE_PUBLIC_KEY') ?: (!empty($dbProvider['public_key']) ? $dbProvider['public_key'] : ($providerConfig['public_key'] ?? '')));
         $this->encryptionKey = $encryptionKey ?: (getenv('FLUTTERWAVE_ENCRYPTION_KEY') ?: ($providerConfig['encryption_key'] ?? ''));
-        $this->secretHash = getenv('FLW_SECRET_HASH') ?: ($providerConfig['secret_hash'] ?? 'HambakTech_FLW_Webhook_Secure_Key');
+        $this->secretHash = getenv('FLUTTERWAVE_SECRET_HASH') ?: (getenv('FLW_SECRET_HASH') ?: ($providerConfig['secret_hash'] ?? ''));
         $this->timeout = $timeout ?: ((int)($dbProvider['timeout_seconds'] ?? 30));
     }
 
@@ -294,7 +294,7 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
     {
         try {
             $this->db->execute(
-                'INSERT INTO provider_logs (id, provider_id, endpoint, method, status_code, request_payload, response_payload, latency_ms, reference, created_at)
+                'INSERT INTO provider_logs (id, provider_id, endpoint, method, status_code, request_body, response_body, latency_ms, reference, created_at)
                  VALUES (:id, "flutterwave", :ep, :m, :code, :req, :res, :lat, :ref, NOW())',
                 [
                     'id' => Security::generateUuid(),

@@ -16,6 +16,7 @@ class Request
     private array $queryParams;
     private array $body;
     private array $headers;
+    private array $routeParams = [];
 
     public function __construct()
     {
@@ -26,6 +27,16 @@ class Request
         $this->queryParams = $_GET;
         $this->headers = $this->collectHeaders();
         $this->body = $this->parseBody();
+    }
+
+    public function setRouteParams(array $params): void
+    {
+        $this->routeParams = $params;
+    }
+
+    public function param(string $key, mixed $default = null): mixed
+    {
+        return $this->routeParams[$key] ?? $default;
     }
 
     public function getMethod(): string
@@ -58,6 +69,11 @@ class Request
         return $this->body[$key] ?? $default;
     }
 
+    public function header(string $name, ?string $default = null): ?string
+    {
+        return $this->getHeader($name, $default);
+    }
+
     public function getHeader(string $name, ?string $default = null): ?string
     {
         $normalized = strtolower($name);
@@ -83,9 +99,12 @@ class Request
 
     private function parseBody(): array
     {
-        $contentType = $this->getHeader('content-type', '');
-        if (str_contains($contentType, 'application/json')) {
-            $raw = file_get_contents('php://input');
+        $contentType = strtolower((string)$this->getHeader('content-type', ''));
+        $raw = file_get_contents('php://input');
+        if (
+            str_contains($contentType, 'application/json') ||
+            ($this->method !== 'GET' && empty($_POST) && is_string($raw) && $raw !== '' && (str_starts_with(ltrim($raw), '{') || str_starts_with(ltrim($raw), '[')))
+        ) {
             if (!empty($raw)) {
                 $decoded = json_decode($raw, true);
                 if (is_array($decoded)) {
@@ -99,13 +118,25 @@ class Request
     private function collectHeaders(): array
     {
         $headers = [];
+        if (function_exists('apache_request_headers')) {
+            $apacheHeaders = apache_request_headers();
+            if (is_array($apacheHeaders)) {
+                foreach ($apacheHeaders as $k => $v) {
+                    $headers[strtolower((string)$k)] = (string)$v;
+                }
+            }
+        }
         foreach ($_SERVER as $key => $val) {
             if (str_starts_with($key, 'HTTP_')) {
                 $headerName = strtolower(str_replace('_', '-', substr($key, 5)));
-                $headers[$headerName] = $val;
-            } elseif (in_array($key, ['CONTENT_TYPE', 'CONTENT_LENGTH', 'AUTHORIZATION'])) {
-                $headerName = strtolower(str_replace('_', '-', $key));
-                $headers[$headerName] = $val;
+                $headers[$headerName] = (string)$val;
+            } elseif (in_array($key, ['CONTENT_TYPE', 'CONTENT_LENGTH', 'AUTHORIZATION', 'REDIRECT_HTTP_AUTHORIZATION'], true)) {
+                $headerName = $key === 'REDIRECT_HTTP_AUTHORIZATION'
+                    ? 'authorization'
+                    : strtolower(str_replace('_', '-', $key));
+                if (!isset($headers[$headerName]) || $headers[$headerName] === '') {
+                    $headers[$headerName] = (string)$val;
+                }
             }
         }
         return $headers;

@@ -22,6 +22,7 @@ export interface User {
   has_transaction_pin?: boolean;
   email_verified?: boolean;
   address?: string;
+  residential_address?: string;
   state?: string;
   lga?: string;
   bio?: string;
@@ -199,15 +200,24 @@ export interface SlipTemplateItem {
 }
 
 export interface ProviderConfigItem {
-  id: '2sureverify' | 'veripine';
+  id: string;
   name: string;
+  provider_type?: string;
   base_url: string;
   api_key: string;
   api_key_masked?: string;
+  secret_key?: string;
+  secret_key_masked?: string;
+  public_key?: string;
+  public_key_masked?: string;
+  has_api_key?: boolean;
+  has_secret_key?: boolean;
+  has_public_key?: boolean;
+  balance?: number;
   is_active: boolean;
   is_default: boolean;
   timeout_seconds: number;
-  last_ping_status?: 'operational' | 'error' | 'untested';
+  last_ping_status?: 'operational' | 'error' | 'untested' | 'unconfigured';
   last_ping_time?: string;
   last_ping_latency?: number;
 }

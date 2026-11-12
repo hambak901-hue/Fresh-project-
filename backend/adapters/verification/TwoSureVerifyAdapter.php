@@ -19,11 +19,27 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
     private string $apiKey;
     private int $timeout;
 
-    public function __construct(string $baseUrl = 'https://2sureverify.com', string $apiKey = '', int $timeout = 30)
+    public function __construct(?string $baseUrl = null, ?string $apiKey = null, int $timeout = 30)
     {
-        $this->baseUrl = rtrim($baseUrl, '/');
-        $this->apiKey = $apiKey;
-        $this->timeout = $timeout;
+        $configFile = __DIR__ . '/../../config/config.php';
+        $config = file_exists($configFile) ? require $configFile : [];
+        $cfg = $config['providers']['2sureverify'] ?? [];
+
+        $dbRow = null;
+        try {
+            $dbRow = Database::getInstance()->fetchOne('SELECT base_url, api_key, timeout_seconds FROM providers WHERE id = "2sureverify"');
+        } catch (\Throwable) {
+        }
+
+        $envUrl = getenv('TWOSUREVERIFY_BASE_URL') ?: '';
+        $envKey = getenv('TWOSUREVERIFY_API_KEY') ?: (getenv('SUREVERIFY_API_KEY') ?: '');
+        $dbUrl = !empty($dbRow['base_url']) && $dbRow['base_url'] !== 'https://api.example.com' ? (string)$dbRow['base_url'] : '';
+        $dbKey = !empty($dbRow['api_key']) ? (string)$dbRow['api_key'] : '';
+
+        $resolvedUrl = $baseUrl ?: ($dbUrl ?: ($envUrl ?: ($cfg['base_url'] ?? 'https://2sureverify.com')));
+        $this->baseUrl = rtrim($resolvedUrl, '/');
+        $this->apiKey = $apiKey ?: ($dbKey ?: ($envKey ?: (string)($cfg['api_key'] ?? '')));
+        $this->timeout = $timeout ?: (int)($dbRow['timeout_seconds'] ?? ($cfg['timeout'] ?? 30));
     }
 
     public function getName(): string
@@ -64,7 +80,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             curl_close($ch);
 
             $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
-            $this->logTransaction($endpoint, $payload, $responseBody, $statusCode, $latencyMs, $reference);
+            $this->logTransaction($endpoint, $payload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $reference);
 
             if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
                 $decoded = json_decode($responseBody, true);
@@ -95,58 +111,50 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             ];
         }
 
-        // Only when testSandbox is explicitly passed, permit sandbox testing marked clearly as sandbox
-        if (!empty($payload['testSandbox'])) {
-            $latencyMs = (int)round((microtime(true) - $startTime) * 1000) + 120;
-            $ninValue = $payload['nin'] ?? $payload['phone'] ?? $payload['bvn'] ?? '12345678901';
-            $simulatedResult = [
-                'status' => 'success',
-                'success' => true,
-                'code' => 200,
-                'message' => 'Identity verified in test sandbox mode',
-                'reference' => $reference,
-                'is_simulated' => true,
-                'data' => [
-                    'nin' => (string)$ninValue,
-                    'vnin' => 'AB' . strtoupper(substr(md5((string)$ninValue), 0, 14)),
-                    'firstname' => $payload['first_name'] ?? $payload['firstname'] ?? 'FATIMOH',
-                    'surname' => $payload['last_name'] ?? $payload['surname'] ?? 'MUSBAU',
-                    'middlename' => 'ADEYEMI',
-                    'birthdate' => $payload['dob'] ?? '1996-08-14',
-                    'gender' => strtolower($payload['gender'] ?? 'female'),
-                    'telephone' => $payload['phone'] ?? '+2348123456789',
-                    'residence_state' => $payload['state'] ?? 'Lagos',
-                    'residence_lga' => $payload['lga'] ?? 'Ikeja',
-                    'tracking_id' => 'NIMC-' . strtoupper(substr(hash('sha256', (string)$ninValue), 0, 10)),
-                    'provider' => '2sureverify',
-                    'photo' => 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300&auto=format&fit=crop&q=80',
-                    'verified_at' => date('c'),
-                ],
-            ];
-            $this->logTransaction($endpoint, $payload, json_encode($simulatedResult), 200, $latencyMs, $reference);
-            return $simulatedResult;
-        }
-
         // Live mode without API key configured returns genuine failure
         return [
             'status' => 'failed',
             'success' => false,
             'code' => 503,
-            'message' => '2SureVerify API key is not configured on the production host. Please set SUREVERIFY_API_KEY.',
+            'message' => '2SureVerify API key is not configured on the production host. Please set TWOSUREVERIFY_API_KEY.',
             'reference' => $reference,
         ];
     }
 
     public function ping(): array
     {
+        if (empty($this->apiKey)) {
+            return [
+                'provider' => '2sureverify',
+                'status' => 'unconfigured',
+                'latency_ms' => 0,
+                'message' => '2SureVerify API key is not configured.',
+                'timestamp' => date('c'),
+            ];
+        }
+
         $start = microtime(true);
-        $status = 'operational';
-        $latency = 145;
+        $ch = curl_init($this->baseUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_NOBODY => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        $ok = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        $latency = (int)round((microtime(true) - $start) * 1000);
 
         return [
             'provider' => '2sureverify',
-            'status' => $status,
+            'status' => ($ok !== false && $code > 0 && $code < 500) ? 'operational' : 'error',
+            'http_code' => $code,
             'latency_ms' => $latency,
+            'message' => ($ok !== false && $code > 0 && $code < 500)
+                ? "2SureVerify reachable (HTTP {$code}, {$latency}ms)"
+                : ("2SureVerify check failed: " . ($err ?: "HTTP {$code}")),
             'timestamp' => date('c'),
         ];
     }

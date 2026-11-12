@@ -74,6 +74,7 @@ class Router
 
             if (preg_match($route['regex'], $requestPath, $matches)) {
                 $params = array_filter($matches, '\is_string', ARRAY_FILTER_USE_KEY);
+                $request->setRouteParams($params);
                 try {
                     $handler = $route['handler'];
                     if (is_array($handler) && count($handler) === 2) {

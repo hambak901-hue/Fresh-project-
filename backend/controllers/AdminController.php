@@ -18,6 +18,12 @@ use HambakTech\Core\Auth;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\MailService;
+use HambakTech\Adapters\Verification\VeripineAdapter;
+use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
+use HambakTech\Adapters\Telecom\UlamaDataAdapter;
+use HambakTech\Adapters\Telecom\VtpassAdapter;
+use HambakTech\Adapters\Payment\PaystackAdapter;
+use HambakTech\Adapters\Payment\FlutterwaveAdapter;
 use Throwable;
 
 class AdminController
@@ -267,17 +273,24 @@ class AdminController
         Auth::requireRole($request, ['admin', 'superadmin']);
 
         $rows = $this->db->fetchAll(
-            'SELECT m.*, u.full_name, u.email, u.phone_number
+            'SELECT m.*, u.full_name, u.email, u.phone_number,
+                    m.payment_reference as reference,
+                    "credit" as type,
+                    "manual_transfer" as gateway
              FROM manual_funding_requests m
              LEFT JOIN users u ON u.id = m.user_id
-             ORDER BY m.created_at DESC LIMIT 50'
+             ORDER BY FIELD(m.status, "pending", "approved", "rejected"), m.created_at DESC LIMIT 50'
         );
 
         foreach ($rows as &$r) {
             $r['amount'] = (float)$r['amount'];
         }
 
-        Response::success(['requests' => $rows]);
+        Response::success([
+            'requests' => $rows,
+            'pending' => $rows,
+            'count' => count($rows),
+        ]);
     }
 
     public function approveFunding(Request $request, array $params): void
@@ -290,10 +303,12 @@ class AdminController
         $req = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
         if (!$req) {
             Response::error('Funding request not found.', 404);
+            return;
         }
 
         if ($req['status'] !== 'pending') {
             Response::error("Request already {$req['status']}. Duplicate decision prevented.", 400);
+            return;
         }
 
         $amount = (float)$req['amount'];
@@ -335,11 +350,24 @@ class AdminController
                 ]
             );
 
+            $updatedReq = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
+            $txObj = [
+                'id' => $txResult['transaction_id'] ?? $reference,
+                'reference' => $reference,
+                'amount' => $amount,
+                'type' => 'credit',
+                'status' => 'successful',
+                'balance_after' => (float)$txResult['balance_after'],
+            ];
+
             Response::success([
                 'request_id' => $requestId,
+                'request' => $updatedReq,
                 'status' => 'approved',
                 'amount' => $amount,
-                'balance_after' => $txResult['balance_after'],
+                'balance_after' => (float)$txResult['balance_after'],
+                'userBalance' => (float)$txResult['balance_after'],
+                'transaction' => $txObj,
             ], "Manual funding request approved and ₦{$amount} credited to customer.");
         } else {
             $this->db->execute(
@@ -360,12 +388,75 @@ class AdminController
                 ]
             );
 
+            $updatedReq = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
+
             Response::success([
                 'request_id' => $requestId,
+                'request' => $updatedReq,
                 'status' => 'rejected',
                 'reason' => $reason,
+                'transaction' => [
+                    'id' => $requestId,
+                    'reference' => $custRef,
+                    'amount' => $amount,
+                    'type' => 'credit',
+                    'status' => 'rejected',
+                ],
             ], 'Manual funding request marked as rejected.');
         }
+    }
+
+    public function rejectFunding(Request $request, array $params): void
+    {
+        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $requestId = $params['id'] ?? '';
+        $reason = trim((string)$request->input('reason', 'Receipt verification could not be validated with receiving bank records'));
+
+        $req = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
+        if (!$req) {
+            Response::error('Funding request not found.', 404);
+            return;
+        }
+        if ($req['status'] !== 'pending') {
+            Response::error("Request already {$req['status']}. Duplicate decision prevented.", 400);
+            return;
+        }
+
+        $amount = (float)$req['amount'];
+        $custRef = $req['payment_reference'] ?: ('REQ_' . substr($req['id'], 0, 8));
+
+        $this->db->execute(
+            'UPDATE manual_funding_requests 
+             SET status = "rejected", reviewed_by = :admin, reviewed_at = NOW(), admin_notes = :reason 
+             WHERE id = :id',
+            ['admin' => $admin['id'], 'reason' => $reason, 'id' => $requestId]
+        );
+
+        $this->db->execute(
+            'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+             VALUES (:id, :uid, "Funding Request Rejected", :msg, "alert", 0, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $req['user_id'],
+                'msg' => "Your manual deposit request for ₦" . number_format($amount, 2) . " (Ref: {$custRef}) was rejected. Reason: {$reason}",
+            ]
+        );
+
+        $updatedReq = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
+
+        Response::success([
+            'request_id' => $requestId,
+            'request' => $updatedReq,
+            'status' => 'rejected',
+            'reason' => $reason,
+            'transaction' => [
+                'id' => $requestId,
+                'reference' => $custRef,
+                'amount' => $amount,
+                'type' => 'credit',
+                'status' => 'rejected',
+            ],
+        ], 'Manual funding request marked as rejected.');
     }
 
     /**
@@ -1037,7 +1128,8 @@ class AdminController
 
         $rows = $this->db->fetchAll(
             'SELECT s.service_key as `key`, s.name, s.selling_price as price, s.wholesale_cost, 
-                    s.provider_id as provider, s.is_active, c.name as category_name
+                    s.provider_id as provider, s.endpoint as endpoint, s.is_active,
+                    COALESCE(c.slug, c.name, "nin_verification") as category, c.name as category_name
              FROM service_catalogue s
              LEFT JOIN service_categories c ON c.id = s.category_id
              ORDER BY s.selling_price ASC'
@@ -1047,9 +1139,13 @@ class AdminController
             $r['price'] = (float)$r['price'];
             $r['wholesale_cost'] = (float)$r['wholesale_cost'];
             $r['is_active'] = (bool)$r['is_active'];
+            $r['enabled'] = (bool)$r['is_active'];
+            $profit = $r['price'] - $r['wholesale_cost'];
+            $r['profit_per_transaction'] = $profit;
+            $r['margin_percent'] = $r['price'] > 0 ? round(($profit / $r['price']) * 100) : 0;
         }
 
-        Response::success(['services' => $rows]);
+        Response::success(['services' => $rows, 'count' => count($rows)]);
     }
 
     public function updateVerificationService(Request $request, array $params): void
@@ -1077,9 +1173,10 @@ class AdminController
             $updates[] = 'provider_id = :prov';
             $paramsDb['prov'] = (string)$body['provider'];
         }
-        if (isset($body['is_active'])) {
+        if (isset($body['is_active']) || isset($body['enabled'])) {
+            $activeVal = isset($body['is_active']) ? (bool)$body['is_active'] : (bool)$body['enabled'];
             $updates[] = 'is_active = :act';
-            $paramsDb['act'] = $body['is_active'] ? 1 : 0;
+            $paramsDb['act'] = $activeVal ? 1 : 0;
         }
 
         if (!empty($updates)) {
@@ -1087,26 +1184,86 @@ class AdminController
             $this->db->execute('UPDATE service_catalogue SET ' . implode(', ', $updates) . ' WHERE service_key = :k', $paramsDb);
         }
 
-        $srv = $this->db->fetchOne('SELECT * FROM service_catalogue WHERE service_key = :k', ['k' => $key]);
+        $srv = $this->db->fetchOne(
+            'SELECT s.service_key as `key`, s.name, s.selling_price as price, s.wholesale_cost,
+                    s.provider_id as provider, s.endpoint as endpoint, s.is_active
+             FROM service_catalogue s WHERE s.service_key = :k',
+            ['k' => $key]
+        );
+        if ($srv) {
+            $srv['price'] = (float)$srv['price'];
+            $srv['wholesale_cost'] = (float)$srv['wholesale_cost'];
+            $srv['is_active'] = (bool)$srv['is_active'];
+            $srv['enabled'] = (bool)$srv['is_active'];
+        }
         Response::success(['service' => $srv], 'Verification service configuration updated');
     }
 
     public function syncWholesalePrices(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        Response::success(null, 'Wholesale prices successfully synchronized with 2SureVerify and UlamaData.');
+        Response::success(['updatedCount' => 0], 'Wholesale tariffs checked against local service catalogue.');
+    }
+
+    private function maskSecret(string $val): string
+    {
+        if ($val === '') {
+            return '';
+        }
+        $len = strlen($val);
+        if ($len <= 8) {
+            return str_repeat('•', $len);
+        }
+        return substr($val, 0, 5) . '••••••••' . substr($val, -4);
+    }
+
+    private function sanitizeProviderRow(array $p): array
+    {
+        $cfgFile = __DIR__ . '/../config/config.php';
+        $baseCfg = file_exists($cfgFile) ? require $cfgFile : [];
+        $id = strtolower((string)($p['id'] ?? ''));
+        $envCfg = $baseCfg['providers'][$id] ?? [];
+
+        $apiKey = (string)($p['api_key'] ?? '') ?: (string)($envCfg['api_key'] ?? '');
+        $secKey = (string)($p['secret_key'] ?? '') ?: (string)($envCfg['secret_key'] ?? '');
+        $pubKey = (string)($p['public_key'] ?? '') ?: (string)($envCfg['public_key'] ?? '');
+
+        $p['is_active'] = (bool)$p['is_active'];
+        $p['is_default'] = (bool)$p['is_default'];
+        $p['balance'] = (float)$p['balance'];
+        $p['timeout_seconds'] = (int)($p['timeout_seconds'] ?? 30);
+
+        $p['has_api_key'] = !empty($apiKey);
+        $p['has_secret_key'] = !empty($secKey);
+        $p['has_public_key'] = !empty($pubKey);
+        $p['is_configured'] = $p['has_api_key'] || $p['has_secret_key'];
+
+        $p['api_key_masked'] = $this->maskSecret($apiKey ?: $secKey);
+        $p['secret_key_masked'] = $this->maskSecret($secKey);
+        $p['public_key_masked'] = $this->maskSecret($pubKey);
+
+        // Do not leak raw secret values in GET listings
+        $p['api_key'] = '';
+        $p['secret_key'] = '';
+        $p['public_key'] = $pubKey !== '' ? $this->maskSecret($pubKey) : '';
+        return $p;
     }
 
     public function providers(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
         $providers = $this->db->fetchAll('SELECT * FROM providers ORDER BY provider_type ASC, name ASC');
+        $primaryId = 'veripine';
         foreach ($providers as &$p) {
-            $p['is_active'] = (bool)$p['is_active'];
-            $p['is_default'] = (bool)$p['is_default'];
-            $p['balance'] = (float)$p['balance'];
+            if (!empty($p['is_default']) && ($p['provider_type'] ?? '') === 'identity') {
+                $primaryId = $p['id'];
+            }
+            $p = $this->sanitizeProviderRow($p);
         }
-        Response::success(['providers' => $providers]);
+        Response::success([
+            'primaryProviderId' => $primaryId,
+            'providers' => $providers,
+        ]);
     }
 
     public function saveProvider(Request $request, array $params = []): void
@@ -1120,48 +1277,110 @@ class AdminController
             return;
         }
 
+        $existing = $this->db->fetchOne('SELECT * FROM providers WHERE id = :id', ['id' => $id]);
+
+        $cleanSecret = static function ($submitted, ?string $fallback) {
+            if ($submitted === null) {
+                return $fallback ?? '';
+            }
+            $val = trim((string)$submitted);
+            if ($val === '' || str_contains($val, '••••')) {
+                return $fallback ?? '';
+            }
+            return $val;
+        };
+
+        $name = isset($body['name']) && trim((string)$body['name']) !== ''
+            ? trim((string)$body['name'])
+            : ($existing['name'] ?? ucfirst($id));
+        $type = isset($body['provider_type']) && trim((string)$body['provider_type']) !== ''
+            ? trim((string)$body['provider_type'])
+            : ($existing['provider_type'] ?? 'telecom');
+        $url = isset($body['base_url']) && trim((string)$body['base_url']) !== ''
+            ? trim((string)$body['base_url'])
+            : ($existing['base_url'] ?? 'https://api.example.com');
+        $apiKey = $cleanSecret($body['api_key'] ?? null, $existing['api_key'] ?? '');
+        $secretKey = $cleanSecret($body['secret_key'] ?? null, $existing['secret_key'] ?? '');
+        $publicKey = $cleanSecret($body['public_key'] ?? null, $existing['public_key'] ?? '');
+        $isActive = isset($body['is_active']) ? ($body['is_active'] ? 1 : 0) : (int)($existing['is_active'] ?? 1);
+        $isDefault = isset($body['is_default']) ? ($body['is_default'] ? 1 : 0) : (int)($existing['is_default'] ?? 0);
+        $timeout = isset($body['timeout_seconds']) ? max(5, (int)$body['timeout_seconds']) : (int)($existing['timeout_seconds'] ?? 30);
+
+        if ($isDefault === 1) {
+            $this->db->execute(
+                'UPDATE providers SET is_default = 0 WHERE provider_type = :pt AND id != :id',
+                ['pt' => $type, 'id' => $id]
+            );
+            if ($type === 'telecom') {
+                $this->db->execute(
+                    'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+                     VALUES ("set_act_tel", "active_telecom_provider", :v1, "providers", "Active Telecom Provider")
+                     ON DUPLICATE KEY UPDATE setting_value = :v2',
+                    ['v1' => $id, 'v2' => $id]
+                );
+            } elseif ($type === 'identity' || $type === 'verification') {
+                $this->db->execute(
+                    'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+                     VALUES ("set_act_verif", "active_verification_provider", :v1, "providers", "Active Verification Provider")
+                     ON DUPLICATE KEY UPDATE setting_value = :v2',
+                    ['v1' => $id, 'v2' => $id]
+                );
+            } elseif ($type === 'payment') {
+                $this->db->execute(
+                    'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+                     VALUES ("set_act_pay", "active_payment_gateway", :v1, "payment", "Active Payment Gateway")
+                     ON DUPLICATE KEY UPDATE setting_value = :v2',
+                    ['v1' => $id, 'v2' => $id]
+                );
+            }
+        }
+
         $this->db->execute(
             'INSERT INTO providers (id, name, provider_type, base_url, api_key, secret_key, public_key, is_active, is_default, timeout_seconds, balance, last_ping_status)
-             VALUES (:id, :name, :type, :url, :key, :skey, :pkey, :act, :def, :to, :bal, "operational")
+             VALUES (:id, :name, :type, :url, :key, :skey, :pkey, :act, :def, :to, :bal, "untested")
              ON DUPLICATE KEY UPDATE
-                name = COALESCE(:name2, name),
-                base_url = COALESCE(:url2, base_url),
-                api_key = COALESCE(:key2, api_key),
-                secret_key = COALESCE(:skey2, secret_key),
-                public_key = COALESCE(:pkey2, public_key),
-                is_active = COALESCE(:act2, is_active),
-                timeout_seconds = COALESCE(:to2, timeout_seconds),
+                name = :name2,
+                provider_type = :type2,
+                base_url = :url2,
+                api_key = :key2,
+                secret_key = :skey2,
+                public_key = :pkey2,
+                is_active = :act2,
+                is_default = :def2,
+                timeout_seconds = :to2,
                 updated_at = NOW()',
             [
                 'id' => $id,
-                'name' => $body['name'] ?? ucfirst($id),
-                'type' => $body['provider_type'] ?? 'telecom',
-                'url' => $body['base_url'] ?? 'https://api.example.com',
-                'key' => $body['api_key'] ?? '',
-                'skey' => $body['secret_key'] ?? '',
-                'pkey' => $body['public_key'] ?? '',
-                'act' => isset($body['is_active']) ? ($body['is_active'] ? 1 : 0) : 1,
-                'def' => isset($body['is_default']) ? ($body['is_default'] ? 1 : 0) : 0,
-                'to' => (int)($body['timeout_seconds'] ?? 30),
-                'bal' => (float)($body['balance'] ?? 0.00),
-                'name2' => $body['name'] ?? null,
-                'url2' => $body['base_url'] ?? null,
-                'key2' => $body['api_key'] ?? null,
-                'skey2' => $body['secret_key'] ?? null,
-                'pkey2' => $body['public_key'] ?? null,
-                'act2' => isset($body['is_active']) ? ($body['is_active'] ? 1 : 0) : null,
-                'to2' => isset($body['timeout_seconds']) ? (int)$body['timeout_seconds'] : null,
+                'name' => $name,
+                'type' => $type,
+                'url' => $url,
+                'key' => $apiKey,
+                'skey' => $secretKey,
+                'pkey' => $publicKey,
+                'act' => $isActive,
+                'def' => $isDefault,
+                'to' => $timeout,
+                'bal' => (float)($existing['balance'] ?? 0.00),
+                'name2' => $name,
+                'type2' => $type,
+                'url2' => $url,
+                'key2' => $apiKey,
+                'skey2' => $secretKey,
+                'pkey2' => $publicKey,
+                'act2' => $isActive,
+                'def2' => $isDefault,
+                'to2' => $timeout,
             ]
         );
 
         $row = $this->db->fetchOne('SELECT * FROM providers WHERE id = :id', ['id' => $id]);
-        Response::success(['provider' => $row], "Provider {$id} configuration saved");
+        Response::success(['provider' => $row ? $this->sanitizeProviderRow($row) : null], "Provider {$name} configuration saved");
     }
 
     public function testProvider(Request $request, array $params): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        $id = $params['id'] ?? '';
+        $id = strtolower(trim((string)($params['id'] ?? '')));
         $prov = $this->db->fetchOne('SELECT * FROM providers WHERE id = :id', ['id' => $id]);
 
         if (!$prov) {
@@ -1169,16 +1388,136 @@ class AdminController
             return;
         }
 
-        $latency = rand(85, 240);
+        $operational = false;
+        $latency = 0;
+        $balance = null;
+        $message = '';
+
+        try {
+            if ($id === 'veripine') {
+                $adapter = new VeripineAdapter();
+                $ping = $adapter->ping();
+                $operational = ($ping['status'] ?? '') === 'operational';
+                $latency = (int)($ping['latency_ms'] ?? 0);
+                $balance = isset($ping['balance']) ? (float)$ping['balance'] : null;
+                $message = (string)($ping['message'] ?? 'Veripine connectivity test completed.');
+            } elseif ($id === '2sureverify') {
+                $adapter = new TwoSureVerifyAdapter();
+                $ping = $adapter->ping();
+                $operational = ($ping['status'] ?? '') === 'operational';
+                $latency = (int)($ping['latency_ms'] ?? 0);
+                $message = (string)($ping['message'] ?? '2SureVerify connectivity test completed.');
+            } elseif ($id === 'ulamadata') {
+                $adapter = new UlamaDataAdapter();
+                $balRes = $adapter->checkBalance();
+                $operational = !empty($balRes['success']);
+                $latency = (int)($balRes['latency_ms'] ?? 0);
+                $balance = isset($balRes['balance']) ? (float)$balRes['balance'] : null;
+                $message = "UlamaData gateway connected (Balance: ₦" . number_format((float)$balance, 2) . ")";
+            } elseif ($id === 'vtpass') {
+                $adapter = new VtpassAdapter();
+                $balRes = $adapter->checkBalance();
+                $operational = !empty($balRes['success']);
+                $latency = (int)($balRes['latency_ms'] ?? 0);
+                $balance = isset($balRes['balance']) ? (float)$balRes['balance'] : null;
+                $message = "VTpass gateway connected (Balance: ₦" . number_format((float)$balance, 2) . ")";
+            } elseif ($id === 'paystack') {
+                $cfg = file_exists(__DIR__ . '/../config/config.php') ? require __DIR__ . '/../config/config.php' : [];
+                $secret = getenv('PAYSTACK_SECRET_KEY') ?: (!empty($prov['secret_key']) ? (string)$prov['secret_key'] : (!empty($prov['api_key']) ? (string)$prov['api_key'] : (string)($cfg['providers']['paystack']['secret_key'] ?? '')));
+                if ($secret === '') {
+                    throw new Exception('Paystack Secret Key is not configured.');
+                }
+                $start = microtime(true);
+                $ch = curl_init(rtrim((string)($prov['base_url'] ?: 'https://api.paystack.co'), '/') . '/balance');
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $secret, 'Accept: application/json'],
+                    CURLOPT_TIMEOUT => 12,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                $raw = curl_exec($ch);
+                $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $err = curl_error($ch);
+                curl_close($ch);
+                $latency = (int)round((microtime(true) - $start) * 1000);
+                $decoded = is_string($raw) ? json_decode($raw, true) : null;
+                if ($raw === false || $code >= 400 || empty($decoded['status'])) {
+                    $errMsg = is_array($decoded) ? ($decoded['message'] ?? "HTTP {$code}") : ($err ?: "HTTP {$code}");
+                    throw new Exception("Paystack error: {$errMsg}");
+                }
+                $operational = true;
+                if (isset($decoded['data'][0]['balance'])) {
+                    $balance = ((float)$decoded['data'][0]['balance']) / 100.0;
+                }
+                $message = "Paystack API authenticated successfully ({$latency}ms).";
+            } elseif ($id === 'flutterwave') {
+                $cfg = file_exists(__DIR__ . '/../config/config.php') ? require __DIR__ . '/../config/config.php' : [];
+                $secret = getenv('FLUTTERWAVE_SECRET_KEY') ?: (!empty($prov['secret_key']) ? (string)$prov['secret_key'] : (!empty($prov['api_key']) ? (string)$prov['api_key'] : (string)($cfg['providers']['flutterwave']['secret_key'] ?? '')));
+                if ($secret === '') {
+                    throw new Exception('Flutterwave Secret Key is not configured.');
+                }
+                $start = microtime(true);
+                $ch = curl_init(rtrim((string)($prov['base_url'] ?: 'https://api.flutterwave.com/v3'), '/') . '/balances/NGN');
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $secret, 'Accept: application/json'],
+                    CURLOPT_TIMEOUT => 12,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                $raw = curl_exec($ch);
+                $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $err = curl_error($ch);
+                curl_close($ch);
+                $latency = (int)round((microtime(true) - $start) * 1000);
+                $decoded = is_string($raw) ? json_decode($raw, true) : null;
+                if ($raw === false || $code >= 400 || ($decoded['status'] ?? '') !== 'success') {
+                    $errMsg = is_array($decoded) ? ($decoded['message'] ?? "HTTP {$code}") : ($err ?: "HTTP {$code}");
+                    throw new Exception("Flutterwave error: {$errMsg}");
+                }
+                $operational = true;
+                $balance = isset($decoded['data']['available_balance']) ? (float)$decoded['data']['available_balance'] : null;
+                $message = "Flutterwave API authenticated successfully ({$latency}ms).";
+            } else {
+                $message = "Unknown provider '{$id}'";
+            }
+        } catch (Throwable $e) {
+            $operational = false;
+            $message = $e->getMessage();
+        }
+
+        $pingStatus = $operational ? 'operational' : (str_contains(strtolower($message), 'not configured') ? 'unconfigured' : 'error');
         $this->db->execute(
-            'UPDATE providers SET last_ping_status = "operational", last_ping_latency = :lat, last_ping_at = NOW() WHERE id = :id',
-            ['lat' => $latency, 'id' => $id]
+            'UPDATE providers
+             SET last_ping_status = :st,
+                 last_ping_latency = :lat,
+                 balance = COALESCE(:bal, balance),
+                 last_ping_at = NOW()
+             WHERE id = :id',
+            [
+                'st' => $pingStatus,
+                'lat' => $latency,
+                'bal' => $balance,
+                'id' => $id,
+            ]
         );
+
+        if (!$operational) {
+            $httpStatus = ($pingStatus === 'unconfigured') ? 400 : 502;
+            Response::error($message ?: "Provider {$prov['name']} test failed.", $httpStatus, [
+                'operational' => false,
+                'provider' => $id,
+                'latency_ms' => $latency,
+                'status' => $pingStatus,
+            ]);
+            return;
+        }
 
         Response::success([
             'success' => true,
             'operational' => true,
-            'message' => "Provider {$prov['name']} connection tested successfully",
+            'provider' => $id,
+            'balance' => $balance,
+            'message' => $message,
             'latency_ms' => $latency,
         ]);
     }
@@ -1685,44 +2024,68 @@ class AdminController
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
         $row = $this->db->fetchOne('SELECT * FROM smtp_configs LIMIT 1');
+        $cfgFile = __DIR__ . '/../config/config.php';
+        $baseCfg = file_exists($cfgFile) ? require $cfgFile : [];
+        $mailDefaults = $baseCfg['mail'] ?? [];
+
+        $logs = [];
+        try {
+            $logs = $this->db->fetchAll('SELECT * FROM email_logs ORDER BY created_at DESC LIMIT 30');
+        } catch (Throwable) {
+            $logs = [];
+        }
 
         if (!$row) {
+            $defaultHost = (string)($mailDefaults['host'] ?? 'mail.hambaktech.com.ng');
+            $defaultPort = (int)($mailDefaults['port'] ?? 465);
+            $defaultEnc = (string)($mailDefaults['encryption'] ?? ($defaultPort === 465 ? 'ssl' : 'tls'));
+            $defaultUser = (string)($mailDefaults['user'] ?? 'support@hambaktech.com.ng');
+            $defaultPass = (string)($mailDefaults['password'] ?? '');
+            $defaultFrom = (string)($mailDefaults['from_email'] ?? 'support@hambaktech.com.ng');
+            $defaultName = (string)($mailDefaults['from_name'] ?? 'HambakTech Enterprise Mailer');
+
             $config = [
-                'host' => 'lon110.truehost.cloud',
-                'port' => 587,
-                'username' => 'support@hambaktech.com.ng',
-                'password' => '',
-                'encryption' => 'tls',
-                'sender_email' => 'support@hambaktech.com.ng',
-                'sender_name' => 'HambakTech Enterprise Mailer',
-                'reply_to_email' => 'support@hambaktech.com.ng',
-                'reply_to' => 'support@hambaktech.com.ng',
+                'host' => $defaultHost,
+                'port' => $defaultPort,
+                'username' => $defaultUser,
+                'password' => $defaultPass !== '' ? '••••••••' : '',
+                'has_password' => $defaultPass !== '',
+                'encryption' => $defaultEnc,
+                'sender_email' => $defaultFrom,
+                'sender_name' => $defaultName,
+                'reply_to_email' => $defaultFrom,
+                'reply_to' => $defaultFrom,
                 'is_active' => true,
-                'is_configured' => true,
-                'last_tested_at' => date('c'),
-                'last_test_status' => 'operational',
-                'logs' => [],
+                'is_configured' => $defaultHost !== '' && $defaultPass !== '',
+                'last_tested_at' => null,
+                'last_test_status' => 'untested',
+                'logs' => $logs,
             ];
         } else {
+            $hasPw = !empty($row['password']) || !empty($mailDefaults['password']);
             $config = [
                 'host' => $row['host'],
                 'port' => (int)$row['port'],
                 'username' => $row['username'],
-                'password' => $row['password'] ? '••••••••' : '',
+                'password' => $hasPw ? '••••••••' : '',
+                'has_password' => $hasPw,
                 'encryption' => $row['encryption'],
                 'sender_email' => $row['sender_email'],
                 'sender_name' => $row['sender_name'],
                 'reply_to' => $row['reply_to'],
                 'reply_to_email' => $row['reply_to'],
                 'is_active' => (bool)$row['is_active'],
-                'is_configured' => !empty($row['host']),
+                'is_configured' => !empty($row['host']) && $hasPw,
                 'last_tested_at' => $row['last_tested_at'],
                 'last_test_status' => $row['last_test_status'],
-                'logs' => $row['logs'] ? json_decode($row['logs'], true) : [],
+                'logs' => $logs,
             ];
         }
 
-        Response::success(['config' => $config]);
+        Response::success([
+            'config' => $config,
+            'logs' => $logs,
+        ]);
     }
 
     public function updateSmtpConfig(Request $request): void
@@ -1730,31 +2093,46 @@ class AdminController
         Auth::requireRole($request, ['superadmin']);
         $b = $request->getBody();
 
+        $host = trim((string)($b['host'] ?? 'mail.hambaktech.com.ng'));
+        $port = (int)($b['port'] ?? 465);
+        $user = trim((string)($b['username'] ?? 'support@hambaktech.com.ng'));
+        $pw = (string)($b['password'] ?? '');
+        $enc = strtolower(trim((string)($b['encryption'] ?? ($port === 465 ? 'ssl' : 'tls'))));
+        if (!in_array($enc, ['ssl', 'tls', 'none'], true)) {
+            $enc = 'ssl';
+        }
+        $from = trim((string)($b['sender_email'] ?? 'support@hambaktech.com.ng'));
+        $name = trim((string)($b['sender_name'] ?? 'HambakTech Enterprise'));
+        $reply = trim((string)($b['reply_to'] ?? ($b['reply_to_email'] ?? $from)));
+        $isActive = isset($b['is_active']) ? ($b['is_active'] ? 1 : 0) : 1;
+
         $this->db->execute(
             'INSERT INTO smtp_configs (id, host, port, username, password, encryption, sender_email, sender_name, reply_to, is_active, updated_at)
-             VALUES ("cfg_smtp_main", :host, :port, :user, :pw, :enc, :from, :name, :reply, 1, NOW())
+             VALUES ("cfg_smtp_main", :host, :port, :user, :pw, :enc, :from, :name, :reply, :act, NOW())
              ON DUPLICATE KEY UPDATE
                 host = :host2, port = :port2, username = :user2,
                 password = CASE WHEN :pw2 != "" AND :pw2 != "••••••••" THEN :pw3 ELSE password END,
-                encryption = :enc2, sender_email = :from2, sender_name = :name2, reply_to = :reply2, updated_at = NOW()',
+                encryption = :enc2, sender_email = :from2, sender_name = :name2, reply_to = :reply2, is_active = :act2, updated_at = NOW()',
             [
-                'host' => $b['host'] ?? 'lon110.truehost.cloud',
-                'port' => (int)($b['port'] ?? 587),
-                'user' => $b['username'] ?? 'support@hambaktech.com.ng',
-                'pw' => $b['password'] ?? '',
-                'enc' => $b['encryption'] ?? 'tls',
-                'from' => $b['sender_email'] ?? 'support@hambaktech.com.ng',
-                'name' => $b['sender_name'] ?? 'HambakTech Enterprise',
-                'reply' => $b['reply_to'] ?? ($b['reply_to_email'] ?? 'support@hambaktech.com.ng'),
-                'host2' => $b['host'] ?? 'lon110.truehost.cloud',
-                'port2' => (int)($b['port'] ?? 587),
-                'user2' => $b['username'] ?? 'support@hambaktech.com.ng',
-                'pw2' => $b['password'] ?? '',
-                'pw3' => $b['password'] ?? '',
-                'enc2' => $b['encryption'] ?? 'tls',
-                'from2' => $b['sender_email'] ?? 'support@hambaktech.com.ng',
-                'name2' => $b['sender_name'] ?? 'HambakTech Enterprise',
-                'reply2' => $b['reply_to'] ?? ($b['reply_to_email'] ?? 'support@hambaktech.com.ng'),
+                'host' => $host,
+                'port' => $port,
+                'user' => $user,
+                'pw' => ($pw === '••••••••') ? '' : $pw,
+                'enc' => $enc,
+                'from' => $from,
+                'name' => $name,
+                'reply' => $reply,
+                'act' => $isActive,
+                'host2' => $host,
+                'port2' => $port,
+                'user2' => $user,
+                'pw2' => $pw,
+                'pw3' => $pw,
+                'enc2' => $enc,
+                'from2' => $from,
+                'name2' => $name,
+                'reply2' => $reply,
+                'act2' => $isActive,
             ]
         );
 
@@ -1764,9 +2142,100 @@ class AdminController
     public function testSmtpConnection(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
+        $cfgFile = __DIR__ . '/../config/config.php';
+        $baseCfg = file_exists($cfgFile) ? require $cfgFile : [];
+        $mailDefaults = $baseCfg['mail'] ?? [];
+        $row = $this->db->fetchOne('SELECT * FROM smtp_configs WHERE is_active = 1 LIMIT 1');
+
+        $host = trim((string)($row['host'] ?? $mailDefaults['host'] ?? 'mail.hambaktech.com.ng'));
+        $port = (int)($row['port'] ?? $mailDefaults['port'] ?? 465);
+        $enc = strtolower(trim((string)($row['encryption'] ?? $mailDefaults['encryption'] ?? ($port === 465 ? 'ssl' : 'tls'))));
+        $user = trim((string)($row['username'] ?? $mailDefaults['user'] ?? ''));
+        $pass = (string)(!empty($row['password']) ? $row['password'] : ($mailDefaults['password'] ?? ''));
+
+        if ($host === '') {
+            Response::error('SMTP host is not configured.', 400);
+            return;
+        }
+
+        $target = ($enc === 'ssl') ? ('ssl://' . $host) : ('tcp://' . $host);
+        $context = stream_context_create([
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true,
+            ],
+        ]);
+        $errno = 0;
+        $errstr = '';
+        $start = microtime(true);
+        $socket = @stream_socket_client("{$target}:{$port}", $errno, $errstr, 12.0, STREAM_CLIENT_CONNECT, $context);
+        $latencyMs = (int)round((microtime(true) - $start) * 1000);
+
+        if (!$socket) {
+            if ($row) {
+                $this->db->execute('UPDATE smtp_configs SET last_tested_at = NOW(), last_test_status = "error" WHERE id = :id', ['id' => $row['id']]);
+            }
+            Response::error("SMTP connection failed to {$host}:{$port} ({$errstr})", 502, [
+                'operational' => false,
+                'host' => $host,
+                'port' => $port,
+                'latency_ms' => $latencyMs,
+            ]);
+            return;
+        }
+
+        stream_set_timeout($socket, 10);
+        $readSmtp = static function ($sock): array {
+            $lines = [];
+            $code = 0;
+            while (($line = @fgets($sock, 1024)) !== false) {
+                $lines[] = trim($line);
+                if (strlen($line) >= 3 && is_numeric(substr($line, 0, 3))) {
+                    $code = (int)substr($line, 0, 3);
+                }
+                if (strlen($line) >= 4 && $line[3] === ' ') {
+                    break;
+                }
+                if (strlen($line) < 4) {
+                    break;
+                }
+            }
+            return ['code' => $code, 'text' => implode(' | ', $lines)];
+        };
+
+        $banner = $readSmtp($socket);
+        $ehloOk = false;
+        $lastStep = '';
+        if ($banner['code'] === 220) {
+            @fwrite($socket, "EHLO hambaktech.com.ng\r\n");
+            $ehlo = $readSmtp($socket);
+            $ehloOk = ($ehlo['code'] === 250);
+            $lastStep = $ehlo['text'];
+            @fwrite($socket, "QUIT\r\n");
+        } else {
+            $lastStep = $banner['text'] ?: 'No 220 banner received';
+        }
+        @fclose($socket);
+
+        $status = $ehloOk ? 'operational' : 'error';
+        if ($row) {
+            $this->db->execute('UPDATE smtp_configs SET last_tested_at = NOW(), last_test_status = :st WHERE id = :id', ['st' => $status, 'id' => $row['id']]);
+        }
+
+        if (!$ehloOk) {
+            Response::error("SMTP connected to {$host}:{$port} ({$enc}) but handshake failed: {$lastStep}", 502);
+            return;
+        }
+
         Response::success([
             'operational' => true,
-            'message' => 'TCP Handshake to lon110.truehost.cloud:587 successful. TLS cipher active.',
+            'host' => $host,
+            'port' => $port,
+            'encryption' => $enc,
+            'auth_configured' => $user !== '' && $pass !== '',
+            'latency_ms' => $latencyMs,
+            'message' => "SMTP handshake to {$host}:{$port} ({$enc}) succeeded in {$latencyMs}ms.",
             'timestamp' => date('c'),
         ]);
     }
@@ -1774,12 +2243,33 @@ class AdminController
     public function sendTestSmtpEmail(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        $recipient = (string)$request->input('recipient', 'admin@hambaktech.com.ng');
+        $recipient = trim((string)$request->input('toEmail', $request->input('recipient', '')));
+        if ($recipient === '' || !filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+            Response::error('Valid recipient email address is required.', 422);
+            return;
+        }
+
+        $subject = trim((string)$request->input('subject', 'HambakTech Enterprise SMTP Verification Test'));
+        $bodyText = trim((string)$request->input('body', 'This is an authenticated SMTP verification message dispatched from the HambakTech Super Admin console.'));
+
+        $mailer = new MailService();
+        $res = $mailer->send(
+            $recipient,
+            'HambakTech Administrator',
+            $subject,
+            '<div style="font-family:sans-serif;padding:20px;background:#0f172a;color:#f8fafc;border-radius:8px;"><h2>HambakTech SMTP Test</h2><p>' . htmlspecialchars($bodyText) . '</p><p style="color:#94a3b8;font-size:12px;">Dispatched at ' . date('c') . '</p></div>'
+        );
+
+        if (empty($res['sent'])) {
+            Response::error((string)($res['error'] ?? $res['message'] ?? 'SMTP email delivery failed.'), 502, $res);
+            return;
+        }
 
         Response::success([
             'sent' => true,
             'recipient' => $recipient,
-            'message' => "Test verification email dispatched to {$recipient} via secure mail relay.",
+            'details' => $res,
+            'message' => "Test email delivered to {$recipient} via authenticated SMTP relay.",
         ]);
     }
 
@@ -1851,31 +2341,75 @@ class AdminController
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
         $id = $params['id'] ?? '';
-        $recipient = (string)$request->input('recipient', 'admin@hambaktech.com.ng');
+        $recipient = trim((string)$request->input('toEmail', $request->input('recipient', '')));
+
+        if ($recipient === '' || !filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+            Response::error('Valid recipient email address is required.', 422);
+            return;
+        }
+
+        $tpl = $this->db->fetchOne('SELECT * FROM email_templates WHERE id = :id OR template_key = :k LIMIT 1', ['id' => $id, 'k' => $id]);
+        if (!$tpl) {
+            Response::error('Email template not found.', 404);
+            return;
+        }
+
+        $sampleReplacements = [
+            '{{name}}' => 'HambakTech Administrator',
+            '{{email}}' => $recipient,
+            '{{login_url}}' => 'https://www.hambaktech.com.ng/',
+            '{{code}}' => '482910',
+            '{{expiry}}' => '15 minutes',
+            '{{reset_url}}' => 'https://www.hambaktech.com.ng/',
+            '{{amount}}' => '5,000.00',
+            '{{balance}}' => '12,500.00',
+            '{{reference}}' => 'TEST_TPL_' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8)),
+            '{{date}}' => date('Y-m-d H:i'),
+            '{{reason}}' => 'Test compliance notice',
+            '{{service_name}}' => 'MTN 2GB SME Data',
+            '{{token_pin}}' => 'TEST-TOKEN-0000',
+            '{{nin}}' => '00000000000',
+            '{{slip_url}}' => 'https://www.hambaktech.com.ng/',
+            '{{event_type}}' => 'Template Dispatch Test',
+            '{{ip_address}}' => $request->getIp(),
+            '{{timestamp}}' => date('c'),
+            '{{alert_title}}' => 'System Template Preview',
+            '{{alert_message}}' => 'Testing live SMTP dispatch for template ' . $tpl['name'],
+            '{{severity}}' => 'INFO',
+        ];
+
+        $subject = strtr((string)$tpl['subject'], $sampleReplacements);
+        $html = strtr((string)$tpl['html_body'], $sampleReplacements);
+
+        $mailer = new MailService();
+        $res = $mailer->send($recipient, 'HambakTech Administrator', '[TEST] ' . $subject, $html);
+
+        if (empty($res['sent'])) {
+            Response::error((string)($res['error'] ?? $res['message'] ?? 'Failed to dispatch template test email.'), 502, $res);
+            return;
+        }
 
         Response::success([
             'sent' => true,
             'recipient' => $recipient,
-            'message' => "Rendered test of email template #{$id} dispatched to {$recipient}",
+            'details' => $res,
+            'message' => "Rendered test of email template #{$tpl['name']} delivered to {$recipient}.",
         ]);
     }
 
     // =========================================================================
     // 18. SMS GATEWAY & TEMPLATES
     // =========================================================================
-    public function smsConfig(Request $request): void
+    private function defaultSmsConfig(): array
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
-        $configSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "sms_config"');
-
-        $config = $configSetting ? json_decode($configSetting['setting_value'], true) : [
+        return [
             'provider' => 'termii',
-            'api_key' => 'termii_sec_7a09f872b26c449018e69',
+            'api_key' => '',
             'sender_id' => 'HAMBAKTECH',
             'route' => 'generic',
-            'webhook_url' => 'https://hambaktech.com.ng/api/telecom/bulksms/webhook',
-            'enabled' => true,
-            'balance_units' => 4849,
+            'webhook_url' => 'https://www.hambaktech.com.ng/api/telecom/bulksms/webhook',
+            'enabled' => false,
+            'balance_units' => 0,
             'templates' => [
                 ['id' => 'sms_tpl_1', 'key' => 'registration', 'title' => 'Welcome SMS', 'content' => 'Welcome to HambakTech Enterprise, {{user_name}}! Your wallet is active. Top up and verify NIN/data instantly at hambaktech.com.ng', 'variables' => ['user_name'], 'is_active' => true],
                 ['id' => 'sms_tpl_2', 'key' => 'otp', 'title' => 'OTP Authorization Code', 'content' => 'Your HambakTech security code is {{otp_code}}. Valid for 10 minutes. NEVER disclose this code to anyone.', 'variables' => ['otp_code'], 'is_active' => true],
@@ -1884,11 +2418,60 @@ class AdminController
                 ['id' => 'sms_tpl_5', 'key' => 'security_alert', 'title' => 'Security Alert SMS', 'content' => 'HambakTech Security: {{security_event}} updated on your account. If unauthorized, call support immediately.', 'variables' => ['security_event'], 'is_active' => true],
             ],
         ];
+    }
 
-        $logs = [
-            ['id' => 'smslog_01', 'timestamp' => date('c'), 'recipient' => '+2348030001122', 'message' => 'Wallet Credit Alert delivered', 'units' => 1, 'status' => 'delivered'],
-            ['id' => 'smslog_02', 'timestamp' => date('c', time() - 3600), 'recipient' => '+2348147837664', 'message' => 'OTP Authorization code delivered', 'units' => 1, 'status' => 'delivered'],
-        ];
+    public function smsConfig(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $configSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "sms_config"');
+        $defaults = $this->defaultSmsConfig();
+        $decoded = $configSetting ? json_decode((string)$configSetting['setting_value'], true) : [];
+        if (!is_array($decoded)) {
+            $decoded = [];
+        }
+        $config = array_merge($defaults, $decoded);
+        if (empty($config['templates']) || !is_array($config['templates'])) {
+            $config['templates'] = $defaults['templates'];
+        }
+
+        // Fetch real Termii wallet balance if an API key is configured
+        $rawApiKey = trim((string)($config['api_key'] ?? (getenv('TERMII_API_KEY') ?: '')));
+        if ($rawApiKey !== '' && ($config['provider'] ?? 'termii') === 'termii') {
+            try {
+                $ch = curl_init('https://api.ng.termii.com/api/get-balance?api_key=' . urlencode($rawApiKey));
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT => 8,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                $balRaw = curl_exec($ch);
+                $balCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+                if ($balRaw !== false && $balCode >= 200 && $balCode < 300) {
+                    $balData = json_decode((string)$balRaw, true);
+                    if (is_array($balData) && isset($balData['balance'])) {
+                        $config['balance_units'] = (float)$balData['balance'];
+                    }
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        $logs = [];
+        try {
+            $logRows = $this->db->fetchAll('SELECT id, created_at as timestamp, recipient, message, units, status, provider, provider_reference FROM sms_logs ORDER BY created_at DESC LIMIT 50');
+            foreach ($logRows as $lr) {
+                $lr['units'] = (int)$lr['units'];
+                $logs[] = $lr;
+            }
+        } catch (Throwable) {
+            $logs = [];
+        }
+
+        $config['has_api_key'] = $rawApiKey !== '';
+        $config['api_key_masked'] = $this->maskSecret($rawApiKey);
+        $config['api_key'] = $rawApiKey !== '' ? '••••••••' : '';
+        $config['logs'] = $logs;
 
         Response::success([
             'config' => $config,
@@ -1901,31 +2484,192 @@ class AdminController
         Auth::requireRole($request, ['superadmin']);
         $body = $request->getBody();
 
+        $existingRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "sms_config"');
+        $existing = $existingRow ? json_decode((string)$existingRow['setting_value'], true) : [];
+        if (!is_array($existing)) {
+            $existing = [];
+        }
+        $merged = array_merge($this->defaultSmsConfig(), $existing);
+
+        foreach (['provider', 'sender_id', 'route', 'webhook_url', 'enabled', 'balance_units', 'templates'] as $field) {
+            if (array_key_exists($field, $body)) {
+                $merged[$field] = $body[$field];
+            }
+        }
+
+        if (isset($body['api_key'])) {
+            $submittedKey = trim((string)$body['api_key']);
+            if ($submittedKey !== '' && !str_contains($submittedKey, '••••')) {
+                $merged['api_key'] = $submittedKey;
+            }
+        }
+
+        $json = json_encode($merged);
         $this->db->execute(
             'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
              VALUES ("set_sms_config", "sms_config", :val, "sms", "SMS gateway config")
              ON DUPLICATE KEY UPDATE setting_value = :val2',
-            ['val' => json_encode($body), 'val2' => json_encode($body)]
+            ['val' => $json, 'val2' => $json]
         );
 
-        Response::success(['config' => $body], 'SMS gateway configurations updated');
+        $safe = $merged;
+        $safe['has_api_key'] = !empty($merged['api_key']);
+        $safe['api_key'] = !empty($merged['api_key']) ? '••••••••' : '';
+
+        Response::success(['config' => $safe], 'SMS gateway configurations updated');
     }
 
     public function updateSmsTemplate(Request $request, array $params): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        Response::success(null, 'SMS template text updated');
+        $id = $params['id'] ?? '';
+        $body = $request->getBody();
+
+        $existingRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "sms_config"');
+        $existing = $existingRow ? json_decode((string)$existingRow['setting_value'], true) : [];
+        if (!is_array($existing)) {
+            $existing = [];
+        }
+        $merged = array_merge($this->defaultSmsConfig(), $existing);
+        $templates = $merged['templates'] ?? [];
+
+        $updatedTemplate = null;
+        foreach ($templates as &$tpl) {
+            if (($tpl['id'] ?? '') === $id || ($tpl['key'] ?? '') === $id) {
+                if (isset($body['title'])) {
+                    $tpl['title'] = (string)$body['title'];
+                }
+                if (isset($body['content'])) {
+                    $tpl['content'] = (string)$body['content'];
+                }
+                if (isset($body['is_active'])) {
+                    $tpl['is_active'] = (bool)$body['is_active'];
+                }
+                $updatedTemplate = $tpl;
+                break;
+            }
+        }
+
+        if (!$updatedTemplate) {
+            Response::error('SMS template not found.', 404);
+            return;
+        }
+
+        $merged['templates'] = $templates;
+        $json = json_encode($merged);
+        $this->db->execute(
+            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+             VALUES ("set_sms_config", "sms_config", :val, "sms", "SMS gateway config")
+             ON DUPLICATE KEY UPDATE setting_value = :val2',
+            ['val' => $json, 'val2' => $json]
+        );
+
+        Response::success(['template' => $updatedTemplate], 'SMS template text updated');
     }
 
     public function testSms(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        $recipient = (string)$request->input('recipient', '+2348030001122');
+        $recipient = trim((string)$request->input('phone', $request->input('recipient', '')));
+        $message = trim((string)$request->input('message', ''));
+
+        if ($recipient === '' || $message === '') {
+            Response::error('Recipient phone number and message are required.', 422);
+            return;
+        }
+
+        $existingRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "sms_config"');
+        $existing = $existingRow ? json_decode((string)$existingRow['setting_value'], true) : [];
+        if (!is_array($existing)) {
+            $existing = [];
+        }
+        $config = array_merge($this->defaultSmsConfig(), $existing);
+        $apiKey = trim((string)($config['api_key'] ?? (getenv('TERMII_API_KEY') ?: '')));
+
+        if ($apiKey === '') {
+            Response::error('SMS Gateway API key is not configured. Save a valid Termii API key first.', 400);
+            return;
+        }
+
+        $senderId = trim((string)($config['sender_id'] ?? 'HAMBAKTECH'));
+        $route = trim((string)($config['route'] ?? 'generic'));
+        $units = max(1, (int)ceil(strlen($message) / 160));
+        $normalizedPhone = ltrim($recipient, '+');
+        if (str_starts_with($normalizedPhone, '0')) {
+            $normalizedPhone = '234' . substr($normalizedPhone, 1);
+        }
+
+        $ch = curl_init('https://api.ng.termii.com/api/sms/send');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode([
+                'to' => $normalizedPhone,
+                'from' => $senderId,
+                'sms' => $message,
+                'type' => 'plain',
+                'channel' => $route === 'dnd' ? 'dnd' : 'generic',
+                'api_key' => $apiKey,
+            ]),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        $raw = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        $ok = ($raw !== false && $code >= 200 && $code < 300 && (isset($decoded['message_id']) || ($decoded['code'] ?? '') === 'ok'));
+        $providerRef = (string)($decoded['message_id'] ?? $decoded['message_id_str'] ?? '');
+        $errMsg = $ok ? null : (string)($decoded['message'] ?? $curlErr ?: "Termii HTTP {$code}");
+        $logId = Security::generateUuid();
+
+        try {
+            $this->db->execute(
+                'INSERT INTO sms_logs (id, recipient, message, units, status, provider, provider_reference, error, created_at)
+                 VALUES (:id, :rec, :msg, :units, :st, :prov, :ref, :err, NOW())',
+                [
+                    'id' => $logId,
+                    'rec' => $recipient,
+                    'msg' => $message,
+                    'units' => $units,
+                    'st' => $ok ? 'delivered' : 'failed',
+                    'prov' => (string)($config['provider'] ?? 'termii'),
+                    'ref' => $providerRef ?: null,
+                    'err' => $errMsg,
+                ]
+            );
+        } catch (Throwable) {
+        }
+
+        $logEntry = [
+            'id' => $logId,
+            'timestamp' => date('c'),
+            'recipient' => $recipient,
+            'message' => $message,
+            'units' => $units,
+            'status' => $ok ? 'delivered' : 'failed',
+            'provider_reference' => $providerRef,
+        ];
+
+        if (!$ok) {
+            Response::error("SMS gateway error: {$errMsg}", 502, [
+                'delivered' => false,
+                'log' => $logEntry,
+            ]);
+            return;
+        }
+
+        $newBalance = max(0, (float)($config['balance_units'] ?? 0) - $units);
         Response::success([
             'delivered' => true,
             'recipient' => $recipient,
-            'units' => 1,
-            'message' => "Test SMS successfully submitted to Termii gateway for {$recipient}",
+            'units' => $units,
+            'log' => $logEntry,
+            'balance_units' => $newBalance,
+            'message' => "Test SMS submitted to Termii for {$recipient} (Ref: {$providerRef}).",
         ]);
     }
 
@@ -2146,38 +2890,74 @@ class AdminController
     public function kycSubmissions(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        $status = (string)$request->query('status', '');
+        $status = trim((string)$request->query('status', ''));
+        $level = trim((string)$request->query('level', ''));
+        $search = trim((string)$request->query('search', ''));
 
-        $sql = 'SELECT k.*, u.full_name as user_name, u.email as user_email, u.phone_number, u.tier as current_tier 
+        $sql = 'SELECT k.*, u.full_name as user_name, u.email as user_email, u.phone_number,
+                       COALESCE(u.kyc_level, u.tier, 1) as current_tier
                 FROM kyc_submissions k
                 LEFT JOIN users u ON u.id = k.user_id ';
+        $conds = [];
         $params = [];
 
-        if (!empty($status) && $status !== 'all') {
-            $sql .= 'WHERE k.status = :st ';
-            $params['st'] = $status;
+        if ($status !== '' && $status !== 'all') {
+            if ($status === 'approved' || $status === 'verified') {
+                $conds[] = 'k.status IN ("verified", "approved")';
+            } else {
+                $conds[] = 'k.status = :st';
+                $params['st'] = $status;
+            }
+        }
+        if ($level !== '' && $level !== 'all') {
+            $conds[] = 'k.target_level = :lvl';
+            $params['lvl'] = (int)$level;
+        }
+        if ($search !== '') {
+            $conds[] = '(u.full_name LIKE :q1 OR u.email LIKE :q2 OR k.full_legal_name LIKE :q3 OR k.nin LIKE :q4 OR k.bvn LIKE :q5)';
+            $params['q1'] = "%{$search}%";
+            $params['q2'] = "%{$search}%";
+            $params['q3'] = "%{$search}%";
+            $params['q4'] = "%{$search}%";
+            $params['q5'] = "%{$search}%";
+        }
+        if (!empty($conds)) {
+            $sql .= 'WHERE ' . implode(' AND ', $conds) . ' ';
         }
 
         $sql .= 'ORDER BY k.created_at DESC LIMIT 100';
         $rows = $this->db->fetchAll($sql, $params);
+        foreach ($rows as &$row) {
+            if (is_string($row['automated_verification_result'] ?? null)) {
+                $row['automated_verification_result'] = json_decode($row['automated_verification_result'], true);
+            }
+            if (is_string($row['review_history'] ?? null)) {
+                $row['review_history'] = json_decode($row['review_history'], true);
+            }
+        }
 
         $statsRow = $this->db->fetchOne(
             'SELECT 
                 COUNT(*) as total,
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending,
-                SUM(CASE WHEN status = "verified" THEN 1 ELSE 0 END) as approved,
-                SUM(CASE WHEN status = "rejected" THEN 1 ELSE 0 END) as rejected
+                SUM(CASE WHEN status IN ("verified", "approved") THEN 1 ELSE 0 END) as approved,
+                SUM(CASE WHEN status = "rejected" THEN 1 ELSE 0 END) as rejected,
+                SUM(CASE WHEN status = "info_requested" THEN 1 ELSE 0 END) as info_requested
              FROM kyc_submissions'
         );
 
+        $metrics = [
+            'total' => (int)($statsRow['total'] ?? count($rows)),
+            'pending' => (int)($statsRow['pending'] ?? 0),
+            'approved' => (int)($statsRow['approved'] ?? 0),
+            'rejected' => (int)($statsRow['rejected'] ?? 0),
+            'info_requested' => (int)($statsRow['info_requested'] ?? 0),
+        ];
+
         Response::success([
             'submissions' => $rows,
-            'stats' => [
-                'total' => (int)($statsRow['total'] ?? count($rows)),
-                'pending' => (int)($statsRow['pending'] ?? 0),
-                'approved' => (int)($statsRow['approved'] ?? 0),
-                'rejected' => (int)($statsRow['rejected'] ?? 0),
-            ],
+            'metrics' => $metrics,
+            'stats' => $metrics,
         ]);
     }
 
@@ -2187,7 +2967,8 @@ class AdminController
         $id = $params['id'] ?? '';
 
         $row = $this->db->fetchOne(
-            'SELECT k.*, u.full_name as user_name, u.email as user_email, u.phone_number, u.tier as current_tier
+            'SELECT k.*, u.full_name as user_name, u.email as user_email, u.phone_number,
+                    COALESCE(u.kyc_level, u.tier, 1) as current_tier
              FROM kyc_submissions k
              LEFT JOIN users u ON u.id = k.user_id
              WHERE k.id = :id',
@@ -2199,15 +2980,37 @@ class AdminController
             return;
         }
 
-        Response::success(['submission' => $row]);
+        if (is_string($row['automated_verification_result'] ?? null)) {
+            $row['automated_verification_result'] = json_decode($row['automated_verification_result'], true);
+        }
+        if (is_string($row['review_history'] ?? null)) {
+            $row['review_history'] = json_decode($row['review_history'], true);
+        }
+
+        $user = $this->db->fetchOne(
+            'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.kyc_status,
+                    COALESCE(u.kyc_level, u.tier, 1) as kyc_level, u.tier, u.status, u.created_at,
+                    p.address as residential_address, p.state, p.lga, p.nin, p.bvn, p.date_of_birth
+             FROM users u
+             LEFT JOIN user_profiles p ON p.user_id = u.id
+             WHERE u.id = :uid',
+            ['uid' => $row['user_id']]
+        );
+
+        Response::success([
+            'submission' => $row,
+            'user' => $user,
+        ]);
     }
 
     public function reviewKycSubmission(Request $request, array $params): void
     {
         $admin = Auth::requireRole($request, ['admin', 'superadmin']);
         $id = $params['id'] ?? '';
-        $action = strtolower((string)$request->input('action', 'approve')); // approve or reject
-        $reason = trim((string)$request->input('rejection_reason', $request->input('reason', 'Compliance review completed')));
+        $action = strtolower(trim((string)$request->input('action', 'approve')));
+        $notes = trim((string)$request->input('notes', $request->input('review_notes', 'Compliance review completed')));
+        $rejectionReason = trim((string)$request->input('rejection_reason', $request->input('reason', $notes)));
+        $additionalInfo = trim((string)$request->input('additional_info_requested', $notes));
 
         $sub = $this->db->fetchOne('SELECT * FROM kyc_submissions WHERE id = :id', ['id' => $id]);
         if (!$sub) {
@@ -2215,38 +3018,100 @@ class AdminController
             return;
         }
 
-        $newStatus = ($action === 'approve') ? 'verified' : 'rejected';
-        $targetTier = ($action === 'approve') ? 2 : 1;
+        if (!in_array($action, ['approve', 'reject', 'request_info'], true)) {
+            Response::error('Invalid review action. Use approve, reject, or request_info.', 422);
+            return;
+        }
+
+        $newStatus = match ($action) {
+            'approve' => 'verified',
+            'request_info' => 'info_requested',
+            default => 'rejected',
+        };
+        $targetLevel = max(2, (int)($sub['target_level'] ?? 2));
+        $history = is_string($sub['review_history'] ?? null) ? json_decode($sub['review_history'], true) : [];
+        if (!is_array($history)) {
+            $history = [];
+        }
+        $history[] = [
+            'action' => $action,
+            'status' => $newStatus,
+            'notes' => $notes,
+            'reviewer' => $admin['email'],
+            'timestamp' => date('c'),
+        ];
 
         $this->db->execute(
-            'UPDATE kyc_submissions SET status = :st, review_notes = :notes, reviewed_by = :adm, reviewed_at = NOW() WHERE id = :id',
-            ['st' => $newStatus, 'notes' => $reason, 'adm' => $admin['email'], 'id' => $id]
+            'UPDATE kyc_submissions
+             SET status = :st,
+                 review_notes = :notes,
+                 rejection_reason = :rej,
+                 additional_info_requested = :info,
+                 reviewed_by = :adm,
+                 reviewer_name = :rname,
+                 review_history = :hist,
+                 reviewed_at = NOW()
+             WHERE id = :id',
+            [
+                'st' => $newStatus,
+                'notes' => $notes,
+                'rej' => $action === 'reject' ? $rejectionReason : null,
+                'info' => $action === 'request_info' ? $additionalInfo : null,
+                'adm' => $admin['email'],
+                'rname' => $admin['full_name'] ?? $admin['email'],
+                'hist' => json_encode($history),
+                'id' => $id,
+            ]
         );
 
-        $this->db->execute(
-            'UPDATE users SET kyc_status = :ks, tier = :tier, updated_at = NOW() WHERE id = :uid',
-            ['ks' => $newStatus, 'tier' => $targetTier, 'uid' => $sub['user_id']]
-        );
+        if ($action === 'approve') {
+            $this->db->execute(
+                'UPDATE users SET kyc_status = "verified", tier = GREATEST(tier, :t), kyc_level = GREATEST(kyc_level, :kl), updated_at = NOW() WHERE id = :uid',
+                ['t' => $targetLevel, 'kl' => $targetLevel, 'uid' => $sub['user_id']]
+            );
+        } elseif ($action === 'reject') {
+            $this->db->execute(
+                'UPDATE users SET kyc_status = "rejected", updated_at = NOW() WHERE id = :uid',
+                ['uid' => $sub['user_id']]
+            );
+        } else {
+            $this->db->execute(
+                'UPDATE users SET kyc_status = "pending", updated_at = NOW() WHERE id = :uid',
+                ['uid' => $sub['user_id']]
+            );
+        }
 
-        // Notify user
+        $notifTitle = match ($action) {
+            'approve' => 'KYC Verification Approved',
+            'request_info' => 'Additional KYC Information Required',
+            default => 'KYC Verification Declined',
+        };
+        $notifMsg = match ($action) {
+            'approve' => "Your KYC verification has been approved. Account upgraded to Level {$targetLevel}.",
+            'request_info' => "Compliance requested additional details: {$additionalInfo}",
+            default => "Your KYC submission was declined: {$rejectionReason}",
+        };
+        $notifType = ($action === 'approve') ? 'success' : (($action === 'request_info') ? 'warning' : 'alert');
+
         $this->db->execute(
             'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
              VALUES (:id, :uid, :title, :msg, :type, 0, NOW())',
             [
                 'id' => Security::generateUuid(),
                 'uid' => $sub['user_id'],
-                'title' => ($action === 'approve') ? 'KYC Verification Approved' : 'KYC Verification Declined',
-                'msg' => ($action === 'approve') ? 'Your identity verification documents have been verified. Your account is upgraded to Tier 2.' : "Your KYC submission was declined: {$reason}",
-                'type' => ($action === 'approve') ? 'success' : 'alert',
+                'title' => $notifTitle,
+                'msg' => $notifMsg,
+                'type' => $notifType,
             ]
         );
 
-        Response::success(null, "KYC submission marked as {$newStatus}");
+        $updated = $this->db->fetchOne('SELECT * FROM kyc_submissions WHERE id = :id', ['id' => $id]);
+        Response::success(['submission' => $updated], "KYC submission marked as {$newStatus}");
     }
 
     public function autoVerifyKycSubmission(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireRole($request, ['admin', 'superadmin']);
         $id = $params['id'] ?? '';
 
         $sub = $this->db->fetchOne('SELECT * FROM kyc_submissions WHERE id = :id', ['id' => $id]);
@@ -2255,19 +3120,99 @@ class AdminController
             return;
         }
 
-        $this->db->execute(
-            'UPDATE kyc_submissions SET status = "verified", review_notes = "Automated verification passed via 2SureVerify NIMC lookup", reviewed_by = "Automated Engine", reviewed_at = NOW() WHERE id = :id',
-            ['id' => $id]
-        );
+        $nin = trim((string)($sub['nin'] ?? ''));
+        $bvn = trim((string)($sub['bvn'] ?? ''));
+        if ($nin === '' && $bvn === '') {
+            Response::error('No NIN or BVN present on this submission for automated lookup.', 422);
+            return;
+        }
+
+        $activeSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_verification_provider"');
+        $providerName = strtolower(trim((string)($activeSetting['setting_value'] ?? 'veripine')));
+        $veripine = new VeripineAdapter();
+        $twosure = new TwoSureVerifyAdapter();
+
+        if ($providerName === 'veripine' && !$veripine->hasCredentials() && !empty(getenv('TWOSUREVERIFY_API_KEY'))) {
+            $providerName = '2sureverify';
+        }
+
+        $endpoint = $nin !== '' ? '/nin-verification' : '/bvn-verification';
+        $payload = $nin !== '' ? ['nin' => $nin] : ['bvn' => $bvn];
+
+        $providerRes = ($providerName === '2sureverify')
+            ? $twosure->verify($nin !== '' ? 'api/v1/nin' : 'api/v1/bvn', $payload)
+            : $veripine->verify($endpoint, $payload);
+
+        $isOk = !empty($providerRes['success']) || (($providerRes['status'] ?? '') === 'success');
+        if (!$isOk) {
+            $code = (int)($providerRes['code'] ?? 502);
+            Response::error((string)($providerRes['message'] ?? 'Automated identity lookup failed.'), $code >= 400 ? $code : 502);
+            return;
+        }
+
+        $data = $providerRes['data'] ?? $providerRes;
+        $verifiedName = strtolower(trim(implode(' ', array_filter([
+            $data['firstname'] ?? $data['first_name'] ?? '',
+            $data['middlename'] ?? $data['middle_name'] ?? '',
+            $data['surname'] ?? $data['last_name'] ?? '',
+        ]))));
+        $submittedName = strtolower(trim((string)($sub['full_legal_name'] ?? '')));
+        $nameMatched = false;
+        if ($verifiedName !== '' && $submittedName !== '') {
+            $parts = preg_split('/\s+/', $submittedName);
+            $hits = 0;
+            foreach ($parts as $part) {
+                if (strlen($part) > 1 && str_contains($verifiedName, $part)) {
+                    $hits++;
+                }
+            }
+            $nameMatched = $hits >= min(2, count($parts));
+        }
+
+        $resultMeta = [
+            'verified' => $nameMatched,
+            'provider' => $providerName,
+            'reference' => (string)($providerRes['reference'] ?? 'KYC_AUTO_' . time()),
+            'name_matched' => $nameMatched,
+            'registry_name' => $verifiedName,
+            'timestamp' => date('c'),
+        ];
+
+        $targetLevel = max(2, (int)($sub['target_level'] ?? 2));
+        $newStatus = $nameMatched ? 'verified' : 'pending';
+        $reviewNotes = $nameMatched
+            ? "Automated verification passed via {$providerName} ({$resultMeta['reference']})"
+            : "Automated lookup succeeded via {$providerName}, but legal name requires manual confirmation.";
 
         $this->db->execute(
-            'UPDATE users SET kyc_status = "verified", tier = 2, updated_at = NOW() WHERE id = :uid',
-            ['uid' => $sub['user_id']]
+            'UPDATE kyc_submissions
+             SET status = :st,
+                 verification_reference = :vref,
+                 automated_verification_result = :ares,
+                 review_notes = :notes,
+                 reviewed_by = "Automated Engine",
+                 reviewed_at = NOW()
+             WHERE id = :id',
+            [
+                'st' => $newStatus,
+                'vref' => $resultMeta['reference'],
+                'ares' => json_encode($resultMeta),
+                'notes' => $reviewNotes,
+                'id' => $id,
+            ]
         );
+
+        if ($nameMatched) {
+            $this->db->execute(
+                'UPDATE users SET kyc_status = "verified", tier = GREATEST(tier, :t), kyc_level = GREATEST(kyc_level, :kl), updated_at = NOW() WHERE id = :uid',
+                ['t' => $targetLevel, 'kl' => $targetLevel, 'uid' => $sub['user_id']]
+            );
+        }
 
         Response::success([
-            'verified' => true,
-            'message' => 'Automated identity match confirmed. Account upgraded to Tier 2.',
+            'verified' => $nameMatched,
+            'result' => $resultMeta,
+            'message' => $reviewNotes,
         ]);
     }
 
@@ -2279,10 +3224,16 @@ class AdminController
                 id VARCHAR(50) PRIMARY KEY,
                 service_key VARCHAR(100) NOT NULL UNIQUE,
                 name VARCHAR(191) NOT NULL,
+                service_name VARCHAR(191) NULL,
                 category VARCHAR(50) NOT NULL DEFAULT "general",
                 require_pin TINYINT(1) NOT NULL DEFAULT 0,
+                requires_pin TINYINT(1) NULL,
                 min_tier INT NOT NULL DEFAULT 1,
+                min_kyc_level INT NULL,
                 max_daily_limit DECIMAL(16,2) NOT NULL DEFAULT 100000.00,
+                daily_limit DECIMAL(16,2) NULL,
+                description TEXT NULL,
+                updated_by VARCHAR(191) NULL,
                 is_active TINYINT(1) NOT NULL DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -2318,9 +3269,16 @@ class AdminController
         }
 
         foreach ($rules as &$rl) {
-            $rl['require_pin'] = (bool)$rl['require_pin'];
-            $rl['min_tier'] = (int)$rl['min_tier'];
-            $rl['max_daily_limit'] = (float)$rl['max_daily_limit'];
+            $reqPin = (bool)($rl['requires_pin'] ?? $rl['require_pin'] ?? false);
+            $minLvl = (int)($rl['min_kyc_level'] ?? $rl['min_tier'] ?? 1);
+            $dLimit = (float)($rl['daily_limit'] ?? $rl['max_daily_limit'] ?? 100000);
+            $rl['service_name'] = $rl['service_name'] ?: $rl['name'];
+            $rl['require_pin'] = $reqPin;
+            $rl['requires_pin'] = $reqPin;
+            $rl['min_tier'] = $minLvl;
+            $rl['min_kyc_level'] = $minLvl;
+            $rl['max_daily_limit'] = $dLimit;
+            $rl['daily_limit'] = $dLimit;
             $rl['is_active'] = (bool)$rl['is_active'];
         }
 
@@ -2329,30 +3287,76 @@ class AdminController
 
     public function updateServiceSecurityRule(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
         $key = $params['key'] ?? '';
         $body = $request->getBody();
 
+        $pinVal = null;
+        if (array_key_exists('requires_pin', $body)) {
+            $pinVal = $body['requires_pin'] ? 1 : 0;
+        } elseif (array_key_exists('require_pin', $body)) {
+            $pinVal = $body['require_pin'] ? 1 : 0;
+        }
+
+        $levelVal = null;
+        if (array_key_exists('min_kyc_level', $body)) {
+            $levelVal = (int)$body['min_kyc_level'];
+        } elseif (array_key_exists('min_tier', $body)) {
+            $levelVal = (int)$body['min_tier'];
+        }
+
+        $limitVal = null;
+        if (array_key_exists('daily_limit', $body)) {
+            $limitVal = (float)$body['daily_limit'];
+        } elseif (array_key_exists('max_daily_limit', $body)) {
+            $limitVal = (float)$body['max_daily_limit'];
+        }
+
+        $actVal = array_key_exists('is_active', $body) ? ($body['is_active'] ? 1 : 0) : null;
+        $descVal = array_key_exists('description', $body) ? (string)$body['description'] : null;
+
         $this->db->execute(
             'UPDATE service_security_rules 
-             SET require_pin = CASE WHEN :pin IS NOT NULL THEN :pin2 ELSE require_pin END,
-                 min_tier = COALESCE(:tier, min_tier),
-                 max_daily_limit = COALESCE(:lim, max_daily_limit),
-                 is_active = CASE WHEN :act IS NOT NULL THEN :act2 ELSE is_active END
+             SET require_pin = COALESCE(:pin1, require_pin),
+                 requires_pin = COALESCE(:pin2, requires_pin),
+                 min_tier = COALESCE(:tier1, min_tier),
+                 min_kyc_level = COALESCE(:tier2, min_kyc_level),
+                 max_daily_limit = COALESCE(:lim1, max_daily_limit),
+                 daily_limit = COALESCE(:lim2, daily_limit),
+                 description = COALESCE(:desc, description),
+                 updated_by = :uby,
+                 is_active = COALESCE(:act, is_active),
+                 updated_at = NOW()
              WHERE service_key = :k OR id = :id',
             [
-                'pin' => isset($body['require_pin']) ? ($body['require_pin'] ? 1 : 0) : null,
-                'pin2' => isset($body['require_pin']) ? ($body['require_pin'] ? 1 : 0) : null,
-                'tier' => isset($body['min_tier']) ? (int)$body['min_tier'] : null,
-                'lim' => isset($body['max_daily_limit']) ? (float)$body['max_daily_limit'] : null,
-                'act' => isset($body['is_active']) ? ($body['is_active'] ? 1 : 0) : null,
-                'act2' => isset($body['is_active']) ? ($body['is_active'] ? 1 : 0) : null,
+                'pin1' => $pinVal,
+                'pin2' => $pinVal,
+                'tier1' => $levelVal,
+                'tier2' => $levelVal,
+                'lim1' => $limitVal,
+                'lim2' => $limitVal,
+                'desc' => $descVal,
+                'uby' => $admin['email'],
+                'act' => $actVal,
                 'k' => $key,
                 'id' => $key,
             ]
         );
 
         $row = $this->db->fetchOne('SELECT * FROM service_security_rules WHERE service_key = :k OR id = :id', ['k' => $key, 'id' => $key]);
+        if ($row) {
+            $reqPin = (bool)($row['requires_pin'] ?? $row['require_pin'] ?? false);
+            $minLvl = (int)($row['min_kyc_level'] ?? $row['min_tier'] ?? 1);
+            $dLimit = (float)($row['daily_limit'] ?? $row['max_daily_limit'] ?? 100000);
+            $row['service_name'] = $row['service_name'] ?: $row['name'];
+            $row['require_pin'] = $reqPin;
+            $row['requires_pin'] = $reqPin;
+            $row['min_tier'] = $minLvl;
+            $row['min_kyc_level'] = $minLvl;
+            $row['max_daily_limit'] = $dLimit;
+            $row['daily_limit'] = $dLimit;
+            $row['is_active'] = (bool)$row['is_active'];
+        }
         Response::success(['rule' => $row], 'Service security rule updated');
     }
 

@@ -212,7 +212,7 @@ class PaystackAdapter implements PaymentGatewayInterface
     {
         try {
             $this->db->execute(
-                'INSERT INTO provider_logs (id, provider_id, endpoint, method, status_code, request_payload, response_payload, latency_ms, reference, created_at)
+                'INSERT INTO provider_logs (id, provider_id, endpoint, method, status_code, request_body, response_body, latency_ms, reference, created_at)
                  VALUES (:id, "paystack", :ep, :m, :code, :req, :res, :lat, :ref, NOW())',
                 [
                     'id' => Security::generateUuid(),

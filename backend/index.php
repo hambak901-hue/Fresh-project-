@@ -32,18 +32,26 @@ $request = new Request();
 $router = new Router();
 
 // -----------------------------------------------------------------------------
-// 1. SYSTEM & HEALTH
+// 1. SYSTEM, CPANEL & SCHEMA SYNC
 // -----------------------------------------------------------------------------
 $router->get('/api/health', [SystemController::class, 'health']);
 $router->get('/api/system/status', [SystemController::class, 'status']);
 $router->get('/api/system/settings', [SystemController::class, 'settings']);
-$router->get('/api/cpanel/diagnostics', [SystemController::class, 'cpanelDiagnostics']);
+$router->get('/api/system/rates', [SystemController::class, 'rates']);
+$router->get('/api/system/audit-logs', [AdminController::class, 'auditLogs']);
+$router->post('/api/system/test-smtp', [SystemController::class, 'testSmtp']);
+$router->post('/api/system/sync-schema', [SystemController::class, 'syncSchema']);
 $router->get('/api/system/init-database', [SystemController::class, 'initDatabase']);
+$router->get('/api/cpanel/diagnostics', [SystemController::class, 'cpanelDiagnostics']);
+$router->get('/api/cpanel/info', [SystemController::class, 'cpanelInfo']);
+$router->post('/api/cpanel/test-sftp', [SystemController::class, 'testSftp']);
+$router->get('/api/cpanel/export-package', [SystemController::class, 'exportPackage']);
 
 // -----------------------------------------------------------------------------
 // 2. CMS & BRANDING
 // -----------------------------------------------------------------------------
 $router->get('/api/cms/public-data', [CmsController::class, 'publicData']);
+$router->get('/api/cms/public-content', [CmsController::class, 'publicData']);
 $router->get('/api/cms/public', [CmsController::class, 'publicData']);
 $router->get('/api/cms/admin', [CmsController::class, 'adminData']);
 $router->post('/api/cms/branding', [CmsController::class, 'updateBranding']);
@@ -97,8 +105,9 @@ $router->post('/api/wallet/manual-funding', [WalletController::class, 'manualFun
 $router->get('/api/wallet/receipt/:filename', [WalletController::class, 'getReceipt']);
 $router->get('/api/wallet/virtual-account', [WalletController::class, 'virtualAccount']);
 
-// Aliases for Wallet Admin (Pending fundings, Approve, Reject, Adjust Balance)
+// Aliases for Wallet Admin (Pending fundings, Approve, Reject, Adjust Balance, Reports)
 $router->get('/api/wallet/admin/pending-fundings', [AdminController::class, 'manualFundingRequests']);
+$router->get('/api/wallet/admin/financial-reports', [AdminController::class, 'financialReports']);
 $router->post('/api/wallet/admin/approve-funding/:id', [AdminController::class, 'approveFunding']);
 $router->post('/api/wallet/admin/reject-funding/:id', [AdminController::class, 'rejectFunding']);
 $router->post('/api/wallet/admin/adjust-balance', [AdminController::class, 'creditDebitUser']);
@@ -109,7 +118,12 @@ $router->post('/api/wallet/admin/adjust-balance', [AdminController::class, 'cred
 $router->get('/api/verification/services', [VerificationController::class, 'services']);
 $router->post('/api/verification/verify', [VerificationController::class, 'verify']);
 $router->get('/api/verification/history', [VerificationController::class, 'history']);
+$router->get('/api/verification/slip-templates', [VerificationController::class, 'slipTemplates']);
 $router->get('/api/verification/banks', [VerificationController::class, 'banks']);
+$router->get('/api/verification/banks/modification', [VerificationController::class, 'modificationBanks']);
+$router->get('/api/verification/banks/enrollment', [VerificationController::class, 'enrollmentBanks']);
+$router->get('/api/verification/status/:ref', [VerificationController::class, 'checkStatus']);
+$router->get('/api/verification/record/:id', [VerificationController::class, 'getRecord']);
 
 // -----------------------------------------------------------------------------
 // 6. TELECOMMUNICATIONS (DATA, AIRTIME, BILLS, PINS, EXAMS, SWAP, BULKSMS)
@@ -144,18 +158,45 @@ $router->post('/api/telecom/purchase-exam-pin', [TelecomController::class, 'vend
 $router->post('/api/telecom/bulksms', [TelecomController::class, 'sendBulkSms']);
 $router->post('/api/telecom/send-bulksms', [TelecomController::class, 'sendBulkSms']);
 $router->post('/api/telecom/webhook', [TelecomController::class, 'webhook']);
+$router->post('/api/telecom/webhook/ulamadata', [TelecomController::class, 'webhook']);
+$router->post('/api/telecom/webhook/vtpass', [TelecomController::class, 'vtpassWebhook']);
 $router->get('/api/telecom/orders', [TelecomController::class, 'orders']);
 $router->get('/api/telecom/history', [TelecomController::class, 'orders']);
 $router->get('/api/telecom/verify/:ref', [TelecomController::class, 'verifyTransaction']);
 $router->get('/api/telecom/providers', [TelecomController::class, 'providers']);
+$router->post('/api/telecom/providers/switch', [TelecomController::class, 'switchProvider']);
 
 // -----------------------------------------------------------------------------
-// 7. CUSTOMER PORTAL
+// 7. CUSTOMER PORTAL & KYC STATUS
 // -----------------------------------------------------------------------------
 $router->get('/api/customer/dashboard', [CustomerController::class, 'dashboard']);
+$router->get('/api/customer/summary', [CustomerController::class, 'summary']);
+$router->put('/api/customer/profile', [AuthController::class, 'updateProfile']);
+$router->put('/api/customer/password', [AuthController::class, 'changePassword']);
+$router->put('/api/customer/pin', [CustomerController::class, 'updatePin']);
+$router->post('/api/customer/verify-pin', [AuthController::class, 'verifyPin']);
+$router->put('/api/customer/preferences', [CustomerController::class, 'updatePreferences']);
 $router->post('/api/customer/kyc', [CustomerController::class, 'submitKyc']);
+$router->post('/api/customer/kyc-submit', [CustomerController::class, 'submitKyc']);
+$router->post('/api/customer/manual-funding', [WalletController::class, 'manualFunding']);
 $router->get('/api/customer/notifications', [CustomerController::class, 'notifications']);
 $router->post('/api/customer/notifications/:id/read', [CustomerController::class, 'markNotificationRead']);
+$router->put('/api/customer/notifications/:id/read', [CustomerController::class, 'markNotificationRead']);
+$router->put('/api/customer/notifications/read-all', [CustomerController::class, 'markAllNotificationsRead']);
+$router->get('/api/customer/statement', [WalletController::class, 'statement']);
+$router->post('/api/customer/upload', [CustomerController::class, 'uploadDocument']);
+$router->get('/api/customer/document/:id', [CustomerController::class, 'getDocument']);
+$router->get('/api/customer/store', [CustomerController::class, 'storeItems']);
+$router->get('/api/customer/academy', [CustomerController::class, 'academyCourses']);
+$router->get('/api/customer/reports', [CustomerController::class, 'reports']);
+$router->get('/api/customer/messages', [CustomerController::class, 'messages']);
+$router->put('/api/customer/messages/:id/read', [CustomerController::class, 'markMessageRead']);
+
+// Customer KYC & Purchase Authorization
+$router->get('/api/kyc/status', [CustomerController::class, 'kycStatus']);
+$router->post('/api/kyc/submit', [CustomerController::class, 'submitKycFull']);
+$router->post('/api/kyc/authorize-purchase', [CustomerController::class, 'authorizePurchase']);
+$router->get('/api/kyc/virtual-account', [CustomerController::class, 'virtualAccount']);
 
 // -----------------------------------------------------------------------------
 // 8. SUPER ADMIN CONSOLE & OPERATIONS
@@ -176,6 +217,10 @@ $router->post('/api/admin/customers/create', [AdminController::class, 'createCus
 
 // Funding Approvals
 $router->get('/api/admin/funding-requests', [AdminController::class, 'manualFundingRequests']);
+$router->get('/api/admin/manual-funding/queue', [AdminController::class, 'manualFundingRequests']);
+$router->get('/api/admin/funding/pending', [AdminController::class, 'manualFundingRequests']);
+$router->post('/api/admin/funding/:id/approve', [AdminController::class, 'approveFunding']);
+$router->post('/api/admin/funding/:id/reject', [AdminController::class, 'rejectFunding']);
 $router->post('/api/admin/funding-requests/:id/action', [AdminController::class, 'approveFunding']);
 $router->post('/api/admin/funding-requests/:id/approve', [AdminController::class, 'approveFunding']);
 $router->post('/api/admin/funding-requests/:id/reject', [AdminController::class, 'rejectFunding']);
@@ -191,12 +236,21 @@ $router->post('/api/admin/bank-settings', [AdminController::class, 'updateBankSe
 
 // Core Services, Pricing, Wholesale & Providers
 $router->get('/api/admin/services', [AdminController::class, 'services']);
+$router->post('/api/admin/services/update-price', [AdminController::class, 'updateServicePrice']);
 $router->put('/api/admin/services/update-price', [AdminController::class, 'updateServicePrice']);
 $router->put('/api/admin/services/pricing', [AdminController::class, 'updatePricing']);
 $router->put('/api/admin/services/providers', [AdminController::class, 'updateProviders']);
 $router->get('/api/admin/services/verification', [AdminController::class, 'verificationServices']);
 $router->put('/api/admin/services/verification/:key', [AdminController::class, 'updateVerificationService']);
 $router->post('/api/admin/services/verification/sync-wholesale', [AdminController::class, 'syncWholesalePrices']);
+
+// Store & Academy aliases under /api/admin/services/*
+$router->post('/api/admin/services/store', [AdminController::class, 'saveStoreItem']);
+$router->put('/api/admin/services/store/:id', [AdminController::class, 'saveStoreItem']);
+$router->delete('/api/admin/services/store/:id', [AdminController::class, 'deleteStoreItem']);
+$router->post('/api/admin/services/academy', [AdminController::class, 'saveAcademyCourse']);
+$router->put('/api/admin/services/academy/:id', [AdminController::class, 'saveAcademyCourse']);
+$router->delete('/api/admin/services/academy/:id', [AdminController::class, 'deleteAcademyCourse']);
 
 // Provider Gateways & Logs
 $router->get('/api/admin/providers', [AdminController::class, 'providers']);
@@ -290,6 +344,9 @@ $router->post('/api/customer/support-ticket', [SupportController::class, 'create
 $router->get('/api/support/tickets/:id', [SupportController::class, 'getTicketDetails']);
 $router->post('/api/support/tickets/:id/reply', [SupportController::class, 'replyTicket']);
 $router->get('/api/admin/support/tickets', [SupportController::class, 'adminTickets']);
+$router->get('/api/admin/support/tickets/:id', [SupportController::class, 'getTicketDetails']);
+$router->post('/api/admin/support/tickets/:id/reply', [SupportController::class, 'replyTicket']);
+$router->post('/api/admin/support/tickets/:id/status', [SupportController::class, 'updateStatus']);
 $router->put('/api/admin/support/tickets/:id/status', [SupportController::class, 'updateStatus']);
 
 // Global 22-Category Settings Routes
@@ -307,6 +364,7 @@ $router->get('/api/admin/notifications/broadcasts', [NotificationController::cla
 $router->post('/api/admin/notifications/broadcast', [NotificationController::class, 'sendBroadcast']);
 $router->get('/api/admin/announcements', [NotificationController::class, 'listAnnouncements']);
 $router->post('/api/admin/announcements', [NotificationController::class, 'saveAnnouncement']);
+$router->put('/api/admin/announcements/:id', [NotificationController::class, 'saveAnnouncement']);
 $router->delete('/api/admin/announcements/:id', [NotificationController::class, 'deleteAnnouncement']);
 
 // Dispatch Request

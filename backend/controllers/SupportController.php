@@ -51,9 +51,10 @@ class SupportController
     {
         $user = Auth::requireAuth($request);
         $subject = trim((string)$request->input('subject', ''));
-        $department = trim((string)$request->input('department', 'General Support'));
+        $category = trim((string)$request->input('category', 'general'));
+        $department = trim((string)$request->input('department', $category ?: 'General Support'));
         $priority = strtolower(trim((string)$request->input('priority', 'medium')));
-        $message = trim((string)$request->input('message', ''));
+        $message = trim((string)$request->input('message', $request->input('description', '')));
         $attachmentUrl = (string)$request->input('attachment_url', '');
 
         if (empty($subject) || empty($message)) {
@@ -66,17 +67,34 @@ class SupportController
 
         $ticketId = 'TCK-' . strtoupper(substr(md5(uniqid((string)mt_rand(), true)), 0, 8));
 
-        $this->db->execute(
-            'INSERT INTO support_tickets (id, user_id, subject, priority, status, department, created_at, updated_at)
-             VALUES (:id, :uid, :sub, :prio, "open", :dept, NOW(), NOW())',
-            [
-                'id' => $ticketId,
-                'uid' => $user['id'],
-                'sub' => $subject,
-                'prio' => $priority,
-                'dept' => $department,
-            ]
-        );
+        try {
+            $this->db->execute(
+                'INSERT INTO support_tickets (id, ticket_number, user_id, subject, category, priority, status, department, description, created_at, updated_at)
+                 VALUES (:id, :tnum, :uid, :sub, :cat, :prio, "open", :dept, :desc, NOW(), NOW())',
+                [
+                    'id' => $ticketId,
+                    'tnum' => $ticketId,
+                    'uid' => $user['id'],
+                    'sub' => $subject,
+                    'cat' => $category ?: 'general',
+                    'prio' => $priority,
+                    'dept' => $department,
+                    'desc' => $message,
+                ]
+            );
+        } catch (Exception) {
+            $this->db->execute(
+                'INSERT INTO support_tickets (id, user_id, subject, priority, status, department, created_at, updated_at)
+                 VALUES (:id, :uid, :sub, :prio, "open", :dept, NOW(), NOW())',
+                [
+                    'id' => $ticketId,
+                    'uid' => $user['id'],
+                    'sub' => $subject,
+                    'prio' => $priority,
+                    'dept' => $department,
+                ]
+            );
+        }
 
         $replyId = Security::generateUuid();
         $this->db->execute(
@@ -99,12 +117,18 @@ class SupportController
                 'id' => Security::generateUuid(),
                 'uid' => $user['id'],
                 'email' => $user['email'],
-                'details' => json_encode(['ticket_id' => $ticketId, 'subject' => $subject, 'priority' => $priority]),
+                'details' => json_encode(['ticket_id' => $ticketId, 'subject' => $subject, 'category' => $category, 'priority' => $priority]),
                 'ip' => $request->getIp(),
             ]
         );
 
-        Response::success(['ticket_id' => $ticketId, 'ticketId' => $ticketId], 'Support ticket created successfully. Our team will review shortly.', 201);
+        $ticket = $this->db->fetchOne('SELECT * FROM support_tickets WHERE id = :id', ['id' => $ticketId]);
+        Response::success([
+            'ticket' => $ticket,
+            'ticket_id' => $ticketId,
+            'ticketId' => $ticketId,
+            'ticket_reference' => $ticketId,
+        ], 'Support ticket created successfully. Our team will review shortly.', 201);
     }
 
     /**
@@ -133,17 +157,31 @@ class SupportController
             Response::error('Unauthorized access to this support ticket.', 403);
         }
 
-        $replies = $this->db->fetchAll(
-            'SELECT r.*, u.full_name as author_name, u.role as author_role
-             FROM support_replies r
-             JOIN users u ON u.id = r.user_id
-             WHERE r.ticket_id = :tid
-             ORDER BY r.created_at ASC',
-            ['tid' => $ticketId]
-        );
+        $sql = 'SELECT r.*, u.full_name as author_name, u.role as author_role
+                FROM support_replies r
+                JOIN users u ON u.id = r.user_id
+                WHERE r.ticket_id = :tid ';
+        if (!$isAdmin) {
+            $sql .= 'AND (r.is_internal_note IS NULL OR r.is_internal_note = 0) ';
+        }
+        $sql .= 'ORDER BY r.created_at ASC';
+
+        try {
+            $replies = $this->db->fetchAll($sql, ['tid' => $ticketId]);
+        } catch (Exception) {
+            $replies = $this->db->fetchAll(
+                'SELECT r.*, u.full_name as author_name, u.role as author_role
+                 FROM support_replies r
+                 JOIN users u ON u.id = r.user_id
+                 WHERE r.ticket_id = :tid
+                 ORDER BY r.created_at ASC',
+                ['tid' => $ticketId]
+            );
+        }
 
         foreach ($replies as &$r) {
             $r['is_staff'] = (bool)$r['is_staff'];
+            $r['is_internal_note'] = (bool)($r['is_internal_note'] ?? false);
         }
 
         Response::success([
@@ -162,6 +200,8 @@ class SupportController
         $message = trim((string)$request->input('message', ''));
         $attachmentUrl = (string)$request->input('attachment_url', '');
         $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isInternalNote = $isAdmin && (bool)$request->input('is_internal_note', false);
+        $requestedStatus = strtolower(trim((string)$request->input('status', '')));
 
         if (empty($message)) {
             Response::error('Message cannot be empty.', 422);
@@ -179,28 +219,60 @@ class SupportController
         $replyId = Security::generateUuid();
         $isStaff = $isAdmin ? 1 : 0;
 
-        $this->db->execute(
-            'INSERT INTO support_replies (id, ticket_id, user_id, is_staff, message, attachment_url, created_at)
-             VALUES (:id, :tid, :uid, :staff, :msg, :att, NOW())',
-            [
-                'id' => $replyId,
-                'tid' => $ticketId,
-                'uid' => $user['id'],
-                'staff' => $isStaff,
-                'msg' => $message,
-                'att' => !empty($attachmentUrl) ? $attachmentUrl : null,
-            ]
-        );
+        try {
+            $this->db->execute(
+                'INSERT INTO support_replies (id, ticket_id, user_id, is_staff, is_internal_note, message, attachment_url, created_at)
+                 VALUES (:id, :tid, :uid, :staff, :note, :msg, :att, NOW())',
+                [
+                    'id' => $replyId,
+                    'tid' => $ticketId,
+                    'uid' => $user['id'],
+                    'staff' => $isStaff,
+                    'note' => $isInternalNote ? 1 : 0,
+                    'msg' => $message,
+                    'att' => !empty($attachmentUrl) ? $attachmentUrl : null,
+                ]
+            );
+        } catch (Exception) {
+            $this->db->execute(
+                'INSERT INTO support_replies (id, ticket_id, user_id, is_staff, message, attachment_url, created_at)
+                 VALUES (:id, :tid, :uid, :staff, :msg, :att, NOW())',
+                [
+                    'id' => $replyId,
+                    'tid' => $ticketId,
+                    'uid' => $user['id'],
+                    'staff' => $isStaff,
+                    'msg' => $message,
+                    'att' => !empty($attachmentUrl) ? $attachmentUrl : null,
+                ]
+            );
+        }
 
-        // Update ticket status
-        $newStatus = $isAdmin ? 'pending' : 'open'; // If admin replies -> pending customer; if customer replies -> open
-        $this->db->execute(
-            'UPDATE support_tickets SET status = :st, updated_at = NOW() WHERE id = :tid',
-            ['st' => $newStatus, 'tid' => $ticketId]
-        );
+        // Update ticket status if not merely an internal note (or if status explicitly requested)
+        $allowedStatuses = ['open', 'pending', 'in_progress', 'waiting_customer', 'resolved', 'closed'];
+        if (!empty($requestedStatus) && in_array($requestedStatus, $allowedStatuses, true)) {
+            $newStatus = $requestedStatus;
+        } elseif ($isInternalNote) {
+            $newStatus = $ticket['status'];
+        } else {
+            $newStatus = $isAdmin ? 'waiting_customer' : 'open';
+        }
 
-        // If staff replied, send dashboard notification to customer
-        if ($isAdmin && $ticket['user_id'] !== $user['id']) {
+        try {
+            $this->db->execute(
+                'UPDATE support_tickets SET status = :st, updated_at = NOW() WHERE id = :tid',
+                ['st' => $newStatus, 'tid' => $ticketId]
+            );
+        } catch (Exception) {
+            $fallbackStatus = ($newStatus === 'waiting_customer') ? 'pending' : $newStatus;
+            $this->db->execute(
+                'UPDATE support_tickets SET status = :st, updated_at = NOW() WHERE id = :tid',
+                ['st' => $fallbackStatus, 'tid' => $ticketId]
+            );
+        }
+
+        // If staff posted a customer-visible reply, notify customer
+        if ($isAdmin && !$isInternalNote && $ticket['user_id'] !== $user['id']) {
             $this->db->execute(
                 'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
                  VALUES (:id, :uid, :title, :msg, "info", 0, NOW())',
@@ -213,7 +285,23 @@ class SupportController
             );
         }
 
-        Response::success(['reply_id' => $replyId], 'Reply added successfully.');
+        $replyRow = $this->db->fetchOne(
+            'SELECT r.*, u.full_name as author_name, u.role as author_role
+             FROM support_replies r
+             JOIN users u ON u.id = r.user_id
+             WHERE r.id = :rid',
+            ['rid' => $replyId]
+        );
+        if ($replyRow) {
+            $replyRow['is_staff'] = (bool)$replyRow['is_staff'];
+            $replyRow['is_internal_note'] = (bool)($replyRow['is_internal_note'] ?? false);
+        }
+
+        Response::success([
+            'reply_id' => $replyId,
+            'reply' => $replyRow,
+            'status' => $newStatus,
+        ], $isInternalNote ? 'Internal staff note recorded.' : 'Reply added successfully.');
     }
 
     /**
@@ -222,9 +310,10 @@ class SupportController
     public function adminTickets(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        $status = $request->query('status', '');
-        $priority = $request->query('priority', '');
-        $search = $request->query('search', '');
+        $status = (string)$request->query('status', '');
+        $priority = (string)$request->query('priority', '');
+        $category = (string)$request->query('category', '');
+        $search = trim((string)$request->query('search', ''));
 
         $sql = 'SELECT t.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone,
                        (SELECT COUNT(*) FROM support_replies r WHERE r.ticket_id = t.id) as reply_count,
@@ -244,9 +333,20 @@ class SupportController
             $params['prio'] = $priority;
         }
 
+        if (!empty($category) && $category !== 'all') {
+            $sql .= 'AND (t.category = :cat OR t.department = :dept) ';
+            $params['cat'] = $category;
+            $params['dept'] = $category;
+        }
+
         if (!empty($search)) {
-            $sql .= 'AND (t.subject LIKE :q OR t.id LIKE :q OR u.full_name LIKE :q OR u.email LIKE :q) ';
-            $params['q'] = '%' . $search . '%';
+            $sql .= 'AND (t.subject LIKE :q1 OR t.id LIKE :q2 OR COALESCE(t.ticket_number, "") LIKE :q3 OR u.full_name LIKE :q4 OR u.email LIKE :q5) ';
+            $like = '%' . $search . '%';
+            $params['q1'] = $like;
+            $params['q2'] = $like;
+            $params['q3'] = $like;
+            $params['q4'] = $like;
+            $params['q5'] = $like;
         }
 
         $sql .= 'ORDER BY FIELD(t.priority, "urgent", "high", "medium", "low"), t.updated_at DESC LIMIT 100';
@@ -259,6 +359,8 @@ class SupportController
                 COUNT(*) as total,
                 SUM(CASE WHEN status = "open" THEN 1 ELSE 0 END) as `open`,
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as `pending`,
+                SUM(CASE WHEN status = "in_progress" THEN 1 ELSE 0 END) as `in_progress`,
+                SUM(CASE WHEN status IN ("waiting_customer", "pending") THEN 1 ELSE 0 END) as `waiting_customer`,
                 SUM(CASE WHEN status = "resolved" THEN 1 ELSE 0 END) as `resolved`,
                 SUM(CASE WHEN status = "closed" THEN 1 ELSE 0 END) as `closed`,
                 SUM(CASE WHEN priority = "urgent" AND status != "closed" THEN 1 ELSE 0 END) as `urgent`
@@ -271,6 +373,8 @@ class SupportController
                 'total' => (int)($counts['total'] ?? 0),
                 'open' => (int)($counts['open'] ?? 0),
                 'pending' => (int)($counts['pending'] ?? 0),
+                'in_progress' => (int)($counts['in_progress'] ?? 0),
+                'waiting_customer' => (int)($counts['waiting_customer'] ?? 0),
                 'resolved' => (int)($counts['resolved'] ?? 0),
                 'closed' => (int)($counts['closed'] ?? 0),
                 'urgent' => (int)($counts['urgent'] ?? 0),
@@ -279,23 +383,62 @@ class SupportController
     }
 
     /**
-     * 6. PUT /api/admin/support/tickets/:id/status (Update ticket status)
+     * 6. PUT/POST /api/admin/support/tickets/:id/status (Update ticket status/priority/assignee)
      */
     public function updateStatus(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireRole($request, ['admin', 'superadmin']);
         $ticketId = $params['id'] ?? '';
-        $status = strtolower(trim((string)$request->input('status', 'resolved')));
+        $status = $request->input('status');
+        $priority = $request->input('priority');
+        $assignedTo = $request->input('assigned_to');
 
-        if (!in_array($status, ['open', 'pending', 'resolved', 'closed'], true)) {
-            Response::error('Invalid ticket status.', 422);
+        $sets = ['updated_at = NOW()'];
+        $sqlParams = ['tid' => $ticketId];
+
+        if ($status !== null && $status !== '') {
+            $statusNorm = strtolower(trim((string)$status));
+            if (!in_array($statusNorm, ['open', 'pending', 'in_progress', 'waiting_customer', 'resolved', 'closed'], true)) {
+                Response::error('Invalid ticket status.', 422);
+            }
+            $sets[] = 'status = :st';
+            $sqlParams['st'] = $statusNorm;
         }
 
-        $this->db->execute(
-            'UPDATE support_tickets SET status = :st, updated_at = NOW() WHERE id = :tid',
-            ['st' => $status, 'tid' => $ticketId]
-        );
+        if ($priority !== null && $priority !== '') {
+            $prioNorm = strtolower(trim((string)$priority));
+            if (!in_array($prioNorm, ['low', 'medium', 'high', 'urgent'], true)) {
+                Response::error('Invalid ticket priority.', 422);
+            }
+            $sets[] = 'priority = :prio';
+            $sqlParams['prio'] = $prioNorm;
+        }
 
-        Response::success(['status' => $status], "Ticket {$ticketId} marked as {$status}.");
+        if ($assignedTo !== null) {
+            $sets[] = 'assigned_to = :assignee';
+            $sqlParams['assignee'] = (string)$assignedTo;
+        }
+
+        try {
+            $this->db->execute(
+                'UPDATE support_tickets SET ' . implode(', ', $sets) . ' WHERE id = :tid',
+                $sqlParams
+            );
+        } catch (Exception $e) {
+            if (isset($sqlParams['st']) && in_array($sqlParams['st'], ['in_progress', 'waiting_customer'], true)) {
+                $sqlParams['st'] = 'pending';
+                $this->db->execute(
+                    'UPDATE support_tickets SET status = :st, updated_at = NOW() WHERE id = :tid',
+                    ['st' => $sqlParams['st'], 'tid' => $ticketId]
+                );
+            } else {
+                throw $e;
+            }
+        }
+
+        Response::success([
+            'status' => $sqlParams['st'] ?? null,
+            'priority' => $sqlParams['prio'] ?? null,
+        ], "Ticket {$ticketId} updated successfully.");
     }
 }

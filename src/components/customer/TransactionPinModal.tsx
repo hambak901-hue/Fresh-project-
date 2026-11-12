@@ -59,7 +59,7 @@ export function TransactionPinModal({
         setPin('');
       }
     } catch (err: any) {
-      setError(err.message || 'PIN verification failed. Default test PIN is 1234.');
+      setError(err.message || 'PIN verification failed. Please check your 4-digit PIN.');
       setPin('');
     } finally {
       setLoading(false);
@@ -160,7 +160,7 @@ export function TransactionPinModal({
 
         <div className="mt-4 pt-3 border-t border-slate-800 text-center">
           <p className="text-[11px] text-slate-500 font-mono">
-            Protected &bull; Default test PIN: <span className="text-emerald-400 font-bold">1234</span>
+            Protected &bull; <span className="text-emerald-400 font-semibold">4-Digit Transaction PIN</span>
           </p>
         </div>
       </div>

@@ -9,11 +9,11 @@ import { SmsConfig, SmsTemplateItem, SmsLogItem } from '../../types';
 export const SmsSettingsManagement: React.FC = () => {
   const [config, setConfig] = useState<SmsConfig>({
     provider: 'termii',
-    api_key: 'TM_LIVE_SEC_892049182041289',
-    sender_id: 'HambakTech',
+    api_key: '',
+    sender_id: 'HAMBAKTECH',
     route: 'generic',
-    enabled: true,
-    balance_units: 8500,
+    enabled: false,
+    balance_units: 0,
     templates: [],
     logs: []
   });
@@ -268,8 +268,7 @@ export const SmsSettingsManagement: React.FC = () => {
               <div className="relative">
                 <input
                   type="password"
-                  required
-                  placeholder="TM_LIVE_SEC_..."
+                  placeholder="Enter live gateway API key (leave masked to keep existing)"
                   value={config.api_key}
                   onChange={(e) => setConfig({ ...config, api_key: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500"

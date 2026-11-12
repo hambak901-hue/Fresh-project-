@@ -578,11 +578,12 @@ class CmsController
 
         // Record in audit log
         $this->db->execute(
-            'INSERT INTO audit_logs (id, user_id, action, resource, details, ip_address, created_at)
-             VALUES (:id, NULL, "CONTACT_FORM_SUBMISSION", "cms_contact", :details, :ip, NOW())',
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, NULL, :email, "CONTACT_FORM_SUBMISSION", :details, :ip, NOW())',
             [
                 'id' => Security::generateUuid(),
-                'details' => json_encode(compact('name', 'email', 'phone', 'subject')),
+                'email' => $email,
+                'details' => json_encode(compact('name', 'email', 'phone', 'subject', 'message')),
                 'ip' => $request->getIp(),
             ]
         );

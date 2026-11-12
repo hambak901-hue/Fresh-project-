@@ -956,39 +956,43 @@ export const NinServicesPage: React.FC = () => {
                 <div className="rounded-2xl bg-slate-950 border border-slate-800 p-6 space-y-6">
                   <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
                     {/* Photo */}
-                    <div className="w-28 h-32 rounded-xl overflow-hidden border border-slate-700 bg-slate-900 shrink-0 shadow-md">
-                      <img
-                        src={verifiedResult.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80'}
-                        alt="Citizen Photo"
-                        className="w-full h-full object-cover"
-                      />
+                    <div className="w-28 h-32 rounded-xl overflow-hidden border border-slate-700 bg-slate-900 shrink-0 shadow-md flex items-center justify-center">
+                      {verifiedResult.photo ? (
+                        <img
+                          src={verifiedResult.photo}
+                          alt="Citizen Photo"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="w-10 h-10 text-slate-600" />
+                      )}
                     </div>
 
                     {/* Details */}
                     <div className="flex-1 grid grid-cols-2 gap-4 text-xs">
                       <div>
                         <div className="text-slate-500 text-[10px] uppercase font-bold">Surname</div>
-                        <div className="text-white font-bold text-sm">{verifiedResult.surname || 'MUSBAU'}</div>
+                        <div className="text-white font-bold text-sm">{verifiedResult.surname || verifiedResult.last_name || '—'}</div>
                       </div>
                       <div>
                         <div className="text-slate-500 text-[10px] uppercase font-bold">First Name</div>
-                        <div className="text-white font-bold text-sm">{verifiedResult.firstname || 'FATIMOH'}</div>
+                        <div className="text-white font-bold text-sm">{verifiedResult.firstname || verifiedResult.first_name || '—'}</div>
                       </div>
                       <div>
                         <div className="text-slate-500 text-[10px] uppercase font-bold">Middle Name</div>
-                        <div className="text-slate-300 font-medium">{verifiedResult.middlename || '-'}</div>
+                        <div className="text-slate-300 font-medium">{verifiedResult.middlename || verifiedResult.middle_name || '—'}</div>
                       </div>
                       <div>
                         <div className="text-slate-500 text-[10px] uppercase font-bold">Gender</div>
-                        <div className="text-slate-300 font-medium">{verifiedResult.gender || 'Female'}</div>
+                        <div className="text-slate-300 font-medium">{verifiedResult.gender || '—'}</div>
                       </div>
                       <div>
                         <div className="text-slate-500 text-[10px] uppercase font-bold">Date of Birth</div>
-                        <div className="text-slate-300 font-mono">{verifiedResult.birthdate || '1995-08-14'}</div>
+                        <div className="text-slate-300 font-mono">{verifiedResult.birthdate || verifiedResult.dob || '—'}</div>
                       </div>
                       <div>
                         <div className="text-slate-500 text-[10px] uppercase font-bold">Telephone</div>
-                        <div className="text-slate-300 font-mono">{verifiedResult.telephoneno || '08032503238'}</div>
+                        <div className="text-slate-300 font-mono">{verifiedResult.telephoneno || verifiedResult.phone || '—'}</div>
                       </div>
                     </div>
                   </div>
@@ -998,13 +1002,13 @@ export const NinServicesPage: React.FC = () => {
                     <div>
                       <div className="text-[10px] text-slate-500 font-mono uppercase">Verified Identity Number</div>
                       <div className="text-xl sm:text-2xl font-black text-emerald-400 font-mono tracking-widest">
-                        {verifiedResult.nin || verifiedResult.bvn || formData.nin || formData.bvn || '35359517922'}
+                        {verifiedResult.nin || verifiedResult.bvn || formData.nin || formData.bvn || '—'}
                       </div>
                     </div>
                     <div className="text-left sm:text-right">
                       <div className="text-[10px] text-slate-500 font-mono uppercase">NIMC Tracking Code</div>
                       <div className="text-xs font-mono text-slate-300 font-bold">
-                        {verifiedResult.tracking_id || `NIMC-${Math.floor(100000000 + Math.random() * 900000000)}`}
+                        {verifiedResult.tracking_id || verifiedResult.reference || '—'}
                       </div>
                     </div>
                   </div>

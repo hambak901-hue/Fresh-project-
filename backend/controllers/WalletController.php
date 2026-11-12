@@ -212,28 +212,13 @@ class WalletController
 
         try {
             if ($gateway === 'flutterwave') {
-                try {
-                    $initRes = $this->flutterwave->initializePayment(
-                        $user['email'],
-                        $amount,
-                        $reference,
-                        $callbackUrl . '&gateway=flutterwave&reference=' . $reference,
-                        ['customer_name' => $user['full_name'], 'phone_number' => $user['phone_number']]
-                    );
-                } catch (Throwable $flwErr) {
-                    $msg = strtolower($flwErr->getMessage());
-                    if (str_contains($msg, 'authorization key') || str_contains($msg, 'not configured') || str_contains($msg, 'inactive')) {
-                        $initRes = [
-                            'authorization_url' => "https://checkout.flutterwave.com/v3/hosted/pay/{$reference}",
-                            'link' => "https://checkout.flutterwave.com/v3/hosted/pay/{$reference}",
-                            'reference' => $reference,
-                            'tx_ref' => $reference,
-                            'amount' => $amount,
-                        ];
-                    } else {
-                        throw $flwErr;
-                    }
-                }
+                $initRes = $this->flutterwave->initializePayment(
+                    $user['email'],
+                    $amount,
+                    $reference,
+                    $callbackUrl . '&gateway=flutterwave&reference=' . $reference,
+                    ['customer_name' => $user['full_name'], 'phone_number' => $user['phone_number']]
+                );
             } else {
                 $initRes = $this->paystack->initializePayment(
                     $user['email'],

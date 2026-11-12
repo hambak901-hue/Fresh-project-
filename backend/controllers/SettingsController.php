@@ -142,8 +142,8 @@ class SettingsController
                 'max_funding_amount' => 500000,
                 'manual_funding_enabled' => true,
                 'bank_name' => 'Moniepoint MFB',
-                'bank_account_number' => '8210492817',
-                'bank_account_name' => 'Hambak Technologies Enterprise',
+                'bank_account_number' => '5210471634',
+                'bank_account_name' => 'Hambaktech_Services',
             ],
 
             // 12. Payment gateways
@@ -158,8 +158,8 @@ class SettingsController
 
             // 13. Provider integration
             'provider_integration' => $settingsMap['provider_integration_settings'] ?? [
-                'primary_identity_provider' => '2sureverify',
-                'fallback_identity_provider' => 'veripine',
+                'primary_identity_provider' => 'veripine',
+                'fallback_identity_provider' => '2sureverify',
                 'primary_telecom_provider' => 'ulamadata',
                 'fallback_telecom_provider' => 'vtpass',
                 'auto_failover_enabled' => true,
@@ -187,12 +187,12 @@ class SettingsController
 
             // 16. SMTP
             'smtp' => $settingsMap['smtp_settings'] ?? [
-                'smtp_host' => 'lon110.truehost.cloud',
-                'smtp_port' => 587,
-                'smtp_secure' => false,
-                'smtp_user' => 'notifications@hambaktech.com.ng',
-                'from_email' => 'notifications@hambaktech.com.ng',
-                'from_name' => 'HambakTech Notifications',
+                'smtp_host' => 'mail.hambaktech.com.ng',
+                'smtp_port' => 465,
+                'smtp_secure' => true,
+                'smtp_user' => 'support@hambaktech.com.ng',
+                'from_email' => 'support@hambaktech.com.ng',
+                'from_name' => 'HambakTech Support',
             ],
 
             // 17. Email templates
@@ -258,7 +258,7 @@ class SettingsController
     {
         $admin = Auth::requireRole($request, ['admin', 'superadmin']);
         $category = trim((string)$request->input('category', 'general'));
-        $settingsData = $request->input('values') ?: $request->input('data', []);
+        $settingsData = $request->input('values') ?? $request->input('data') ?? $request->input('settings', []);
 
         if (empty($settingsData) || !is_array($settingsData)) {
             Response::error('Invalid settings payload provided.', 422);
@@ -284,14 +284,22 @@ class SettingsController
             ]
         );
 
-        // Also update individual key mirrors for active gateways and bank info if applicable
+        // Mirror key settings to top-level keys for direct runtime lookup
         if ($category === 'wallet' && isset($settingsData['bank_name'])) {
             $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_bank", :v, "wallet", NOW())', ['v' => (string)$settingsData['bank_name']]);
-            $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_account_number", :v, "wallet", NOW())', ['v' => (string)$settingsData['bank_account_number']]);
-            $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_account_name", :v, "wallet", NOW())', ['v' => (string)$settingsData['bank_account_name']]);
+            $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_account_number", :v, "wallet", NOW())', ['v' => (string)($settingsData['bank_account_number'] ?? '5210471634')]);
+            $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_account_name", :v, "wallet", NOW())', ['v' => (string)($settingsData['bank_account_name'] ?? 'Hambaktech_Services')]);
         }
         if ($category === 'payment_gateways' && isset($settingsData['active_gateway'])) {
             $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "active_payment_gateway", :v, "payments", NOW())', ['v' => (string)$settingsData['active_gateway']]);
+        }
+        if ($category === 'provider_integration') {
+            if (!empty($settingsData['primary_telecom_provider'])) {
+                $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "active_telecom_provider", :v, "telecom", NOW())', ['v' => (string)$settingsData['primary_telecom_provider']]);
+            }
+            if (!empty($settingsData['primary_identity_provider'])) {
+                $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "active_verification_provider", :v, "identity", NOW())', ['v' => (string)$settingsData['primary_identity_provider']]);
+            }
         }
 
         // Audit log
@@ -307,6 +315,9 @@ class SettingsController
             ]
         );
 
-        Response::success(['category' => $category], "Settings for {$category} saved to MySQL database successfully.");
+        Response::success([
+            'category' => $category,
+            'updated' => count($settingsData),
+        ], "Settings for {$category} saved to MySQL database successfully.");
     }
 }

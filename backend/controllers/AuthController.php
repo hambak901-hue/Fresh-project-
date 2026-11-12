@@ -43,21 +43,42 @@ class AuthController
             $email = 'hambak901@gmail.com';
         }
 
-        $user = $this->db->fetchOne(
-            'SELECT u.*, w.balance AS live_balance, p.nin, p.bvn, p.address, p.state, p.lga, p.bio
-             FROM users u
-             LEFT JOIN wallets w ON w.user_id = u.id
-             LEFT JOIN user_profiles p ON p.user_id = u.id
-             WHERE LOWER(u.email) = :email
-                OR u.phone_number = :ident
-                OR (:phone != "" AND REPLACE(REPLACE(REPLACE(u.phone_number, " ", ""), "-", ""), "+234", "0") = :phone)
-             ORDER BY (u.role = "superadmin") DESC, u.created_at ASC LIMIT 1',
-            [
-                'email' => $email,
-                'ident' => $inputIdent,
-                'phone' => $phoneDigits,
-            ]
-        );
+        try {
+            $user = $this->db->fetchOne(
+                'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
+                        w.balance AS live_balance, p.nin, p.bvn, p.address, p.state, p.lga, p.bio, p.date_of_birth,
+                        p.notification_preferences, p.security_settings
+                 FROM users u
+                 LEFT JOIN wallets w ON w.user_id = u.id
+                 LEFT JOIN user_profiles p ON p.user_id = u.id
+                 WHERE LOWER(u.email) = :email
+                    OR u.phone_number = :ident
+                    OR (:phone != "" AND REPLACE(REPLACE(REPLACE(u.phone_number, " ", ""), "-", ""), "+234", "0") = :phone)
+                 ORDER BY (u.role = "superadmin") DESC, u.created_at ASC LIMIT 1',
+                [
+                    'email' => $email,
+                    'ident' => $inputIdent,
+                    'phone' => $phoneDigits,
+                ]
+            );
+        } catch (Throwable) {
+            $user = $this->db->fetchOne(
+                'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
+                        w.balance AS live_balance, p.nin, p.bvn, p.address, p.state, p.lga, p.bio
+                 FROM users u
+                 LEFT JOIN wallets w ON w.user_id = u.id
+                 LEFT JOIN user_profiles p ON p.user_id = u.id
+                 WHERE LOWER(u.email) = :email
+                    OR u.phone_number = :ident
+                    OR (:phone != "" AND REPLACE(REPLACE(REPLACE(u.phone_number, " ", ""), "-", ""), "+234", "0") = :phone)
+                 ORDER BY (u.role = "superadmin") DESC, u.created_at ASC LIMIT 1',
+                [
+                    'email' => $email,
+                    'ident' => $inputIdent,
+                    'phone' => $phoneDigits,
+                ]
+            );
+        }
 
         if (!$user) {
             FootprintService::record('security', 'LOGIN_FAILED', null, null, null, null, 'failed', null, 'User identifier not found', ['identifier' => $inputIdent], $request->getIp());
@@ -82,6 +103,15 @@ class AuthController
 
         $token = Auth::generateToken($user);
         $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
+        $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
+        $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
+        $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        if (isset($user['notification_preferences']) && is_string($user['notification_preferences'])) {
+            $user['notification_preferences'] = json_decode($user['notification_preferences'], true);
+        }
+        if (isset($user['security_settings']) && is_string($user['security_settings'])) {
+            $user['security_settings'] = json_decode($user['security_settings'], true);
+        }
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
 
         // Log audit event and activity footprint
@@ -267,10 +297,11 @@ class AuthController
         $currentUser = Auth::requireAuth($request);
         $fullName = trim((string)$request->input('full_name', $currentUser['full_name']));
         $phone = trim((string)$request->input('phone_number', $currentUser['phone_number']));
-        $address = (string)$request->input('address', '');
-        $state = (string)$request->input('state', '');
-        $lga = (string)$request->input('lga', '');
-        $bio = (string)$request->input('bio', '');
+        $address = (string)($request->input('address') ?? $request->input('residential_address', $currentUser['address'] ?? ''));
+        $state = (string)$request->input('state', $currentUser['state'] ?? '');
+        $lga = (string)$request->input('lga', $currentUser['lga'] ?? '');
+        $bio = (string)$request->input('bio', $currentUser['bio'] ?? '');
+        $dob = (string)($request->input('date_of_birth') ?? $request->input('dob', $currentUser['date_of_birth'] ?? ''));
         $avatarUrl = (string)$request->input('avatar_url', $currentUser['avatar_url'] ?? '');
 
         $this->db->execute(
@@ -278,22 +309,43 @@ class AuthController
             ['name' => $fullName, 'phone' => $phone, 'avatar' => $avatarUrl, 'id' => $currentUser['id']]
         );
 
-        $this->db->execute(
-            'INSERT INTO user_profiles (user_id, address, state, lga, bio, updated_at)
-             VALUES (:uid, :addr, :state, :lga, :bio, NOW())
-             ON DUPLICATE KEY UPDATE address = :addr2, state = :state2, lga = :lga2, bio = :bio2, updated_at = NOW()',
-            [
-                'uid' => $currentUser['id'],
-                'addr' => $address,
-                'state' => $state,
-                'lga' => $lga,
-                'bio' => $bio,
-                'addr2' => $address,
-                'state2' => $state,
-                'lga2' => $lga,
-                'bio2' => $bio,
-            ]
-        );
+        try {
+            $this->db->execute(
+                'INSERT INTO user_profiles (user_id, address, state, lga, bio, date_of_birth, updated_at)
+                 VALUES (:uid, :addr, :state, :lga, :bio, :dob, NOW())
+                 ON DUPLICATE KEY UPDATE address = :addr2, state = :state2, lga = :lga2, bio = :bio2, date_of_birth = :dob2, updated_at = NOW()',
+                [
+                    'uid' => $currentUser['id'],
+                    'addr' => $address,
+                    'state' => $state,
+                    'lga' => $lga,
+                    'bio' => $bio,
+                    'dob' => $dob ?: null,
+                    'addr2' => $address,
+                    'state2' => $state,
+                    'lga2' => $lga,
+                    'bio2' => $bio,
+                    'dob2' => $dob ?: null,
+                ]
+            );
+        } catch (Throwable) {
+            $this->db->execute(
+                'INSERT INTO user_profiles (user_id, address, state, lga, bio, updated_at)
+                 VALUES (:uid, :addr, :state, :lga, :bio, NOW())
+                 ON DUPLICATE KEY UPDATE address = :addr2, state = :state2, lga = :lga2, bio = :bio2, updated_at = NOW()',
+                [
+                    'uid' => $currentUser['id'],
+                    'addr' => $address,
+                    'state' => $state,
+                    'lga' => $lga,
+                    'bio' => $bio,
+                    'addr2' => $address,
+                    'state2' => $state,
+                    'lga2' => $lga,
+                    'bio2' => $bio,
+                ]
+            );
+        }
 
         $updated = Auth::user($request);
         Response::success(['user' => $updated], 'Profile updated successfully');
@@ -330,10 +382,19 @@ class AuthController
     public function setPin(Request $request): void
     {
         $currentUser = Auth::requireAuth($request);
-        $pin = (string)$request->input('pin', '');
+        $pin = trim((string)($request->input('pin') ?? $request->input('newPin') ?? $request->input('new_pin', '')));
+        $currentPin = trim((string)($request->input('current_pin') ?? $request->input('currentPin', '')));
 
         if (!preg_match('/^[0-9]{4}$/', $pin)) {
             Response::error('Transaction PIN must be exactly 4 digits.', 422);
+        }
+
+        $row = $this->db->fetchOne('SELECT transaction_pin_hash FROM users WHERE id = :id', ['id' => $currentUser['id']]);
+        $existingHash = $row['transaction_pin_hash'] ?? null;
+        if (!empty($existingHash)) {
+            if (empty($currentPin) || !Security::verifyPin($currentPin, $existingHash)) {
+                Response::error('Invalid current transaction PIN.', 401);
+            }
         }
 
         $pinHash = Security::hashPin($pin);
@@ -342,13 +403,17 @@ class AuthController
             ['hash' => $pinHash, 'id' => $currentUser['id']]
         );
 
-        Response::success(null, 'Transaction PIN set successfully');
+        Response::success(['has_transaction_pin' => true], 'Transaction PIN updated successfully');
     }
 
     public function verifyPin(Request $request): void
     {
         $currentUser = Auth::requireAuth($request);
-        $pin = (string)$request->input('pin', '');
+        $pin = trim((string)$request->input('pin', ''));
+
+        if (!preg_match('/^[0-9]{4}$/', $pin)) {
+            Response::error('Transaction PIN must be exactly 4 digits.', 422);
+        }
 
         $row = $this->db->fetchOne('SELECT transaction_pin_hash FROM users WHERE id = :id', ['id' => $currentUser['id']]);
         $hash = $row['transaction_pin_hash'] ?? null;
@@ -361,7 +426,7 @@ class AuthController
             Response::error('Invalid transaction PIN.', 401);
         }
 
-        Response::success(['valid' => true], 'Transaction PIN verified');
+        Response::success(['valid' => true, 'verified' => true], 'Transaction PIN verified');
     }
 
     /**
@@ -536,7 +601,8 @@ class AuthController
 
         // Fetch refreshed user record
         $user = $this->db->fetchOne(
-            'SELECT u.*, w.balance as live_balance 
+            'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
+                    w.balance as live_balance 
              FROM users u 
              LEFT JOIN wallets w ON w.user_id = u.id 
              WHERE u.email = :email',
@@ -545,6 +611,9 @@ class AuthController
 
         $jwtToken = Auth::generateToken($user);
         $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
+        $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
+        $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
+        $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
 
         // Log audit event

@@ -19,19 +19,45 @@ use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
+use HambakTech\Adapters\Telecom\TelecomAdapterInterface;
 use HambakTech\Adapters\Telecom\UlamaDataAdapter;
+use HambakTech\Adapters\Telecom\VtpassAdapter;
 
 class TelecomController
 {
     private Database $db;
     private WalletService $walletService;
-    private UlamaDataAdapter $adapter;
+    private TelecomAdapterInterface $adapter;
+    private string $activeProviderId;
 
     public function __construct()
     {
         $this->db = Database::getInstance();
         $this->walletService = new WalletService();
-        $this->adapter = new UlamaDataAdapter();
+        $this->activeProviderId = $this->resolveActiveProviderId();
+        $this->adapter = ($this->activeProviderId === 'vtpass') ? new VtpassAdapter() : new UlamaDataAdapter();
+    }
+
+    private function resolveActiveProviderId(): string
+    {
+        try {
+            $setting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_telecom_provider"');
+            if ($setting && !empty($setting['setting_value'])) {
+                $val = strtolower(trim((string)$setting['setting_value']));
+                if (in_array($val, ['ulamadata', 'vtpass'], true)) {
+                    return $val;
+                }
+            }
+            $defaultRow = $this->db->fetchOne('SELECT id FROM providers WHERE provider_type = "telecom" AND is_default = 1 AND is_active = 1 LIMIT 1');
+            if ($defaultRow && !empty($defaultRow['id'])) {
+                $val = strtolower(trim((string)$defaultRow['id']));
+                if (in_array($val, ['ulamadata', 'vtpass'], true)) {
+                    return $val;
+                }
+            }
+        } catch (Throwable) {
+        }
+        return 'ulamadata';
     }
 
     private function logFootprint(array $user, string $serviceType, string $action, string $ref, float $amount, string $status, ?string $provider = 'ulamadata', ?string $error = null, ?array $meta = []): void
@@ -123,6 +149,8 @@ class TelecomController
         }
 
         Response::success([
+            'activeProvider' => $this->activeProviderId,
+            'active_provider' => $this->activeProviderId,
             'plans' => $dataPlans,
             'cable_packages' => $cablePackages,
             'electricity_discos' => $electricityDiscos,
@@ -193,7 +221,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "data", :net, :phone, :plan, :amt, :cost, :profit, "ulamadata", :pref, "successful", :meta, NOW())',
+                 (:id, :uid, "data", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -203,6 +231,7 @@ class TelecomController
                     'amt' => $price,
                     'cost' => $wholesaleCost,
                     'profit' => $profit,
+                    'prov' => $this->activeProviderId,
                     'pref' => $dispatchRes['provider_reference'] ?? $reference,
                     'meta' => json_encode($dispatchRes),
                 ]
@@ -224,7 +253,7 @@ class TelecomController
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
-            $this->logFootprint($user, 'data', 'DATA_PURCHASED', $reference, $price, 'successful', 'ulamadata', null, [
+            $this->logFootprint($user, 'data', 'DATA_PURCHASED', $reference, $price, 'successful', $this->activeProviderId, null, [
                 'network' => $plan['network'],
                 'phone' => $phone,
                 'plan' => "{$plan['network']} {$plan['size']}",
@@ -248,7 +277,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "data", :net, :phone, :plan, :amt, :cost, 0.00, "ulamadata", :pref, "failed", :meta, NOW())',
+                 (:id, :uid, "data", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -257,12 +286,13 @@ class TelecomController
                     'plan' => "{$plan['network']} {$plan['size']}",
                     'amt' => $price,
                     'cost' => $wholesaleCost,
+                    'prov' => $this->activeProviderId,
                     'pref' => $reference,
                     'meta' => json_encode(['error' => $e->getMessage()]),
                 ]
             );
 
-            $this->logFootprint($user, 'data', 'DATA_PURCHASE_FAILED', $reference, $price, 'failed', 'ulamadata', $e->getMessage(), [
+            $this->logFootprint($user, 'data', 'DATA_PURCHASE_FAILED', $reference, $price, 'failed', $this->activeProviderId, $e->getMessage(), [
                 'network' => $plan['network'],
                 'phone' => $phone,
             ]);
@@ -308,7 +338,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, :profit, "ulamadata", :pref, "successful", :meta, NOW())',
+                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -318,6 +348,7 @@ class TelecomController
                     'amt' => $discountedPrice,
                     'cost' => $wholesaleCost,
                     'profit' => $discountedPrice - $wholesaleCost,
+                    'prov' => $this->activeProviderId,
                     'pref' => $dispatchRes['provider_reference'] ?? $reference,
                     'meta' => json_encode($dispatchRes),
                 ]
@@ -339,7 +370,7 @@ class TelecomController
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
-            $this->logFootprint($user, 'airtime', 'AIRTIME_TOPUP', $reference, $discountedPrice, 'successful', 'ulamadata', null, [
+            $this->logFootprint($user, 'airtime', 'AIRTIME_TOPUP', $reference, $discountedPrice, 'successful', $this->activeProviderId, null, [
                 'network' => $network,
                 'phone' => $phone,
                 'amount' => $amount,
@@ -361,7 +392,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, 0.00, "ulamadata", :pref, "failed", :meta, NOW())',
+                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -370,12 +401,13 @@ class TelecomController
                     'plan' => "₦{$amount} Airtime",
                     'amt' => $discountedPrice,
                     'cost' => $wholesaleCost,
+                    'prov' => $this->activeProviderId,
                     'pref' => $reference,
                     'meta' => json_encode(['error' => $e->getMessage()]),
                 ]
             );
 
-            $this->logFootprint($user, 'airtime', 'AIRTIME_TOPUP_FAILED', $reference, $discountedPrice, 'failed', 'ulamadata', $e->getMessage(), [
+            $this->logFootprint($user, 'airtime', 'AIRTIME_TOPUP_FAILED', $reference, $discountedPrice, 'failed', $this->activeProviderId, $e->getMessage(), [
                 'network' => $network,
                 'phone' => $phone,
             ]);
@@ -415,7 +447,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "airtime_pin", :net, "CARD_PRINT", :plan, :amt, :cost, :profit, "ulamadata", :pref, "successful", :meta, NOW())',
+                 (:id, :uid, "airtime_pin", :net, "CARD_PRINT", :plan, :amt, :cost, :profit, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -424,6 +456,7 @@ class TelecomController
                     'amt' => $totalPrice,
                     'cost' => round($denomination * $quantity * 0.965, 2),
                     'profit' => round($denomination * $quantity * 0.015, 2),
+                    'prov' => $this->activeProviderId,
                     'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
@@ -443,6 +476,12 @@ class TelecomController
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
+            $this->logFootprint($user, 'airtime_pin', 'AIRTIME_PIN_VENDED', $reference, $totalPrice, 'successful', $this->activeProviderId, null, [
+                'network' => $network,
+                'quantity' => $quantity,
+                'denomination' => $denomination,
+            ]);
+
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
@@ -454,6 +493,22 @@ class TelecomController
             ], "{$quantity} Recharge PINs generated successfully!");
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $totalPrice, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed PIN order {$reference}");
+            $this->db->execute(
+                'INSERT INTO telecom_orders (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES (:id, :uid, "airtime_pin", :net, "CARD_PRINT", :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                [
+                    'id' => $orderId,
+                    'uid' => $user['id'],
+                    'net' => $network,
+                    'plan' => "{$quantity}x ₦{$denomination} Recharge PINs",
+                    'amt' => $totalPrice,
+                    'cost' => $totalPrice,
+                    'prov' => $this->activeProviderId,
+                    'pref' => $reference,
+                    'meta' => json_encode(['error' => $e->getMessage()]),
+                ]
+            );
+            $this->logFootprint($user, 'airtime_pin', 'AIRTIME_PIN_FAILED', $reference, $totalPrice, 'failed', $this->activeProviderId, $e->getMessage());
             Response::error('Failed to generate recharge PINs: ' . $e->getMessage() . '. Wallet refunded.', 502);
         }
     }
@@ -497,7 +552,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "data_pin", :net, "CARD_PRINT", :plan, :amt, :cost, :profit, "ulamadata", :pref, "successful", :meta, NOW())',
+                 (:id, :uid, "data_pin", :net, "CARD_PRINT", :plan, :amt, :cost, :profit, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -506,6 +561,7 @@ class TelecomController
                     'amt' => $totalPrice,
                     'cost' => (float)$plan['wholesale_cost'] * $quantity,
                     'profit' => $totalPrice - ((float)$plan['wholesale_cost'] * $quantity),
+                    'prov' => $this->activeProviderId,
                     'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
@@ -525,6 +581,8 @@ class TelecomController
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
+            $this->logFootprint($user, 'data_pin', 'DATA_PIN_VENDED', $reference, $totalPrice, 'successful', $this->activeProviderId);
+
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
@@ -536,6 +594,22 @@ class TelecomController
             ], "{$quantity} Data PINs generated successfully!");
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $totalPrice, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed Data PIN order {$reference}");
+            $this->db->execute(
+                'INSERT INTO telecom_orders (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES (:id, :uid, "data_pin", :net, "CARD_PRINT", :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                [
+                    'id' => $orderId,
+                    'uid' => $user['id'],
+                    'net' => $network,
+                    'plan' => "{$quantity}x {$plan['size']} Data PINs",
+                    'amt' => $totalPrice,
+                    'cost' => (float)$plan['wholesale_cost'] * $quantity,
+                    'prov' => $this->activeProviderId,
+                    'pref' => $reference,
+                    'meta' => json_encode(['error' => $e->getMessage()]),
+                ]
+            );
+            $this->logFootprint($user, 'data_pin', 'DATA_PIN_FAILED', $reference, $totalPrice, 'failed', $this->activeProviderId, $e->getMessage());
             Response::error('Failed to generate data PINs: ' . $e->getMessage() . '. Wallet refunded.', 502);
         }
     }
@@ -562,7 +636,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "airtime_swap", :net, :phone, :plan, :amt, :cost, :profit, "ulamadata", :pref, "pending", :meta, NOW())',
+                 (:id, :uid, "airtime_swap", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, "pending", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -572,6 +646,7 @@ class TelecomController
                     'amt' => $amount,
                     'cost' => round($amount * 0.80, 2),
                     'profit' => round($amount * 0.05, 2),
+                    'prov' => $this->activeProviderId,
                     'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
@@ -673,7 +748,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "cable", :phone, :plan, :amt, :cost, 100.00, "ulamadata", :pref, "successful", :meta, NOW())',
+                 (:id, :uid, "cable", :phone, :plan, :amt, :cost, 100.00, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -681,6 +756,7 @@ class TelecomController
                     'plan' => ($pkg['name'] ?? strtoupper($provider)) . " Subscription",
                     'amt' => $amount,
                     'cost' => $amount - 100.00,
+                    'prov' => $this->activeProviderId,
                     'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
@@ -700,6 +776,8 @@ class TelecomController
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
+            $this->logFootprint($user, 'cable', 'CABLE_RENEWED', $reference, $amount, 'successful', $this->activeProviderId);
+
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
@@ -710,6 +788,22 @@ class TelecomController
             ], 'Cable TV subscription renewed successfully!');
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $amount, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed cable subscription {$reference}");
+            $this->db->execute(
+                'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES (:id, :uid, "cable", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                [
+                    'id' => $orderId,
+                    'uid' => $user['id'],
+                    'phone' => $smartcard,
+                    'plan' => ($pkg['name'] ?? strtoupper($provider)) . " Subscription",
+                    'amt' => $amount,
+                    'cost' => $amount,
+                    'prov' => $this->activeProviderId,
+                    'pref' => $reference,
+                    'meta' => json_encode(['error' => $e->getMessage()]),
+                ]
+            );
+            $this->logFootprint($user, 'cable', 'CABLE_FAILED', $reference, $amount, 'failed', $this->activeProviderId, $e->getMessage());
             Response::error('Failed to renew cable: ' . $e->getMessage() . '. Wallet refunded.', 502);
         }
     }
@@ -780,7 +874,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "electricity", :phone, :plan, :amt, :cost, 50.00, "ulamadata", :pref, "successful", :meta, NOW())',
+                 (:id, :uid, "electricity", :phone, :plan, :amt, :cost, 50.00, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -788,6 +882,7 @@ class TelecomController
                     'plan' => strtoupper($discoCode) . " Token",
                     'amt' => $amount,
                     'cost' => $amount - 50.00,
+                    'prov' => $this->activeProviderId,
                     'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
@@ -812,6 +907,8 @@ class TelecomController
                 'units' => $units,
             ];
 
+            $this->logFootprint($user, 'electricity', 'ELECTRICITY_VENDED', $reference, $amount, 'successful', $this->activeProviderId);
+
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
@@ -824,6 +921,22 @@ class TelecomController
             ], 'Prepaid token generated successfully!');
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $amount, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed electricity token {$reference}");
+            $this->db->execute(
+                'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES (:id, :uid, "electricity", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                [
+                    'id' => $orderId,
+                    'uid' => $user['id'],
+                    'phone' => $meterNumber,
+                    'plan' => strtoupper($discoCode) . " Token",
+                    'amt' => $amount,
+                    'cost' => $amount,
+                    'prov' => $this->activeProviderId,
+                    'pref' => $reference,
+                    'meta' => json_encode(['error' => $e->getMessage()]),
+                ]
+            );
+            $this->logFootprint($user, 'electricity', 'ELECTRICITY_FAILED', $reference, $amount, 'failed', $this->activeProviderId, $e->getMessage());
             Response::error('Failed to vend electricity token: ' . $e->getMessage() . '. Wallet refunded.', 502);
         }
     }
@@ -866,7 +979,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "exam", "CARD_PRINT", :plan, :amt, :cost, :profit, "ulamadata", :pref, "successful", :meta, NOW())',
+                 (:id, :uid, "exam", "CARD_PRINT", :plan, :amt, :cost, :profit, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -874,6 +987,7 @@ class TelecomController
                     'amt' => $totalPrice,
                     'cost' => (float)$exam['wholesale_cost'] * $quantity,
                     'profit' => $totalPrice - ((float)$exam['wholesale_cost'] * $quantity),
+                    'prov' => $this->activeProviderId,
                     'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
@@ -892,6 +1006,8 @@ class TelecomController
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
+            $this->logFootprint($user, 'exam', 'EXAM_PIN_VENDED', $reference, $totalPrice, 'successful', $this->activeProviderId);
+
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
@@ -903,6 +1019,21 @@ class TelecomController
             ], "{$quantity} {$exam['exam_name']} PINs generated successfully!");
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $totalPrice, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed exam PIN {$reference}");
+            $this->db->execute(
+                'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES (:id, :uid, "exam", "CARD_PRINT", :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                [
+                    'id' => $orderId,
+                    'uid' => $user['id'],
+                    'plan' => "{$quantity}x {$exam['exam_name']} PINs",
+                    'amt' => $totalPrice,
+                    'cost' => (float)$exam['wholesale_cost'] * $quantity,
+                    'prov' => $this->activeProviderId,
+                    'pref' => $reference,
+                    'meta' => json_encode(['error' => $e->getMessage()]),
+                ]
+            );
+            $this->logFootprint($user, 'exam', 'EXAM_PIN_FAILED', $reference, $totalPrice, 'failed', $this->activeProviderId, $e->getMessage());
             Response::error('Failed to purchase exam PINs: ' . $e->getMessage() . '. Wallet refunded.', 502);
         }
     }
@@ -943,7 +1074,7 @@ class TelecomController
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "bulksms", :phone, :plan, :amt, :cost, :profit, "ulamadata", :pref, "successful", :meta, NOW())',
+                 (:id, :uid, "bulksms", :phone, :plan, :amt, :cost, :profit, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -952,6 +1083,7 @@ class TelecomController
                     'amt' => $totalCost,
                     'cost' => $units * 2.50,
                     'profit' => $totalCost - ($units * 2.50),
+                    'prov' => $this->activeProviderId,
                     'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
@@ -970,6 +1102,8 @@ class TelecomController
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
+            $this->logFootprint($user, 'bulksms', 'BULKSMS_SENT', $reference, $totalCost, 'successful', $this->activeProviderId);
+
             Response::success([
                 'order_id' => $orderId,
                 'messageId' => $orderId,
@@ -983,6 +1117,22 @@ class TelecomController
             ], 'Bulk SMS dispatched successfully!');
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $totalCost, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed Bulk SMS {$reference}");
+            $this->db->execute(
+                'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES (:id, :uid, "bulksms", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                [
+                    'id' => $orderId,
+                    'uid' => $user['id'],
+                    'phone' => substr(implode(',', $recipients), 0, 100),
+                    'plan' => "Bulk SMS ({$units} units)",
+                    'amt' => $totalCost,
+                    'cost' => $units * 2.50,
+                    'prov' => $this->activeProviderId,
+                    'pref' => $reference,
+                    'meta' => json_encode(['error' => $e->getMessage()]),
+                ]
+            );
+            $this->logFootprint($user, 'bulksms', 'BULKSMS_FAILED', $reference, $totalCost, 'failed', $this->activeProviderId, $e->getMessage());
             Response::error('Failed to send Bulk SMS: ' . $e->getMessage() . '. Wallet refunded.', 502);
         }
     }
@@ -1122,6 +1272,7 @@ class TelecomController
         $rows = $this->db->fetchAll('SELECT * FROM electricity_discos WHERE is_active = 1 ORDER BY name ASC');
         foreach ($rows as &$r) {
             $r['minimum_amount'] = (float)$r['minimum_amount'];
+            $r['min'] = $r['minimum_amount'];
         }
 
         Response::success([
@@ -1237,17 +1388,38 @@ class TelecomController
     public function providers(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
+        $activeProvider = $this->resolveActiveProviderId();
 
+        $ulamaAdapter = new UlamaDataAdapter();
         $ulamadataBal = 0.00;
         $ulamadataLatency = 0;
-        $ulamadataStatus = 'operational';
-
+        $ulamadataStatus = 'error';
+        $ulamadataMsg = '';
         try {
-            $bal = $this->adapter->checkBalance();
-            $ulamadataBal = $bal['balance'];
-            $ulamadataLatency = $bal['latency_ms'];
-        } catch (\Throwable $e) {
-            $ulamadataStatus = 'error: ' . $e->getMessage();
+            $bal = $ulamaAdapter->checkBalance();
+            $ulamadataBal = (float)($bal['balance'] ?? 0);
+            $ulamadataLatency = (int)($bal['latency_ms'] ?? 0);
+            $ulamadataStatus = 'operational';
+            $ulamadataMsg = 'UlamaData gateway active and authenticated';
+        } catch (Throwable $e) {
+            $ulamadataStatus = str_contains(strtolower($e->getMessage()), 'not configured') ? 'unconfigured' : 'error';
+            $ulamadataMsg = $e->getMessage();
+        }
+
+        $vtpassAdapter = new VtpassAdapter();
+        $vtpassBal = 0.00;
+        $vtpassLatency = 0;
+        $vtpassStatus = 'error';
+        $vtpassMsg = '';
+        try {
+            $vBal = $vtpassAdapter->checkBalance();
+            $vtpassBal = (float)($vBal['balance'] ?? 0);
+            $vtpassLatency = (int)($vBal['latency_ms'] ?? 0);
+            $vtpassStatus = 'operational';
+            $vtpassMsg = 'VTpass gateway active and authenticated';
+        } catch (Throwable $e) {
+            $vtpassStatus = str_contains(strtolower($e->getMessage()), 'not configured') ? 'unconfigured' : 'error';
+            $vtpassMsg = $e->getMessage();
         }
 
         $providers = [
@@ -1255,30 +1427,97 @@ class TelecomController
                 'id' => 'ulamadata',
                 'name' => 'UlamaData Sovereign Gateway',
                 'base_url' => 'https://www.ulamadata.ng',
-                'is_primary' => true,
+                'is_primary' => ($activeProvider === 'ulamadata'),
                 'balance' => $ulamadataBal,
                 'currency' => 'NGN',
                 'latency_ms' => $ulamadataLatency,
                 'status' => $ulamadataStatus,
+                'message' => $ulamadataMsg,
             ],
             [
                 'id' => 'vtpass',
-                'name' => 'VTpass Engine (Secondary / Failover)',
+                'name' => 'VTpass Enterprise VTU',
                 'base_url' => 'https://api-service.vtpass.com/api',
-                'is_primary' => false,
-                'balance' => 0.00,
+                'is_primary' => ($activeProvider === 'vtpass'),
+                'balance' => $vtpassBal,
                 'currency' => 'NGN',
-                'latency_ms' => 85,
-                'status' => 'standby',
-            ]
+                'latency_ms' => $vtpassLatency,
+                'status' => $vtpassStatus,
+                'message' => $vtpassMsg,
+            ],
         ];
 
+        $activeBal = ($activeProvider === 'vtpass') ? $vtpassBal : $ulamadataBal;
+        $activeMsg = ($activeProvider === 'vtpass') ? $vtpassMsg : $ulamadataMsg;
+
         Response::success([
-            'active_provider' => 'ulamadata',
-            'activeProvider' => 'ulamadata',
-            'wallet_balance' => $ulamadataBal,
-            'message' => 'UlamaData gateway active and authenticated',
+            'active_provider' => $activeProvider,
+            'activeProvider' => $activeProvider,
+            'wallet_balance' => $activeBal,
+            'message' => $activeMsg,
             'providers' => $providers,
         ]);
+    }
+
+    /**
+     * 24. POST /api/telecom/providers/switch (Admin only)
+     */
+    public function switchProvider(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $providerId = strtolower(trim((string)($request->input('providerId') ?? $request->input('provider_id', ''))));
+
+        if (!in_array($providerId, ['ulamadata', 'vtpass'], true)) {
+            Response::error('Invalid telecom provider ID. Supported: ulamadata, vtpass.', 422);
+        }
+
+        $this->db->execute(
+            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+             VALUES ("set_active_telecom_provider", "active_telecom_provider", :pv, "telecom", "Active telecom provider")
+             ON DUPLICATE KEY UPDATE setting_value = :pv2',
+            ['pv' => $providerId, 'pv2' => $providerId]
+        );
+
+        try {
+            $this->db->execute('UPDATE providers SET is_default = 0 WHERE provider_type = "telecom"');
+            $this->db->execute('UPDATE providers SET is_default = 1, is_active = 1 WHERE id = :id', ['id' => $providerId]);
+        } catch (Throwable) {
+        }
+
+        Response::success([
+            'activeProvider' => $providerId,
+            'active_provider' => $providerId,
+        ], "Active telecom provider switched to {$providerId}.");
+    }
+
+    /**
+     * 25. POST /api/telecom/webhook/vtpass
+     */
+    public function vtpassWebhook(Request $request): void
+    {
+        $raw = file_get_contents('php://input');
+        $payload = json_decode($raw ?: '{}', true) ?: [];
+        $data = $payload['data'] ?? $payload;
+        $tx = $data['content']['transactions'] ?? [];
+        $ref = (string)($data['requestId'] ?? $tx['transactionId'] ?? $payload['request_id'] ?? '');
+        if (empty($ref)) {
+            Response::error('Missing transaction reference', 400);
+        }
+
+        $order = $this->db->fetchOne('SELECT * FROM telecom_orders WHERE provider_ref = :ref OR id = :id', ['ref' => $ref, 'id' => $ref]);
+        if (!$order) {
+            Response::success(['status' => 'ignored', 'message' => 'Reference not found in local orders']);
+            return;
+        }
+
+        $st = strtolower((string)($tx['status'] ?? $data['status'] ?? ''));
+        if (in_array($st, ['delivered', 'successful', 'success'], true)) {
+            $this->db->execute('UPDATE telecom_orders SET status = "successful", updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
+        } elseif (in_array($st, ['failed', 'reversed'], true) && $order['status'] !== 'failed') {
+            $this->db->execute('UPDATE telecom_orders SET status = "failed", updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
+            $this->walletService->credit($order['user_id'], (float)$order['amount'], 'manual_adjustment', 'REFUND_VT_' . $order['provider_ref'], "Automated VTpass refund for {$order['provider_ref']}");
+        }
+
+        Response::success(['status' => 'reconciled', 'reference' => $ref]);
     }
 }

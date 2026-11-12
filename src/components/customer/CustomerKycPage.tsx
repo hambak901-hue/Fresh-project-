@@ -92,7 +92,7 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
             phone_number: res.user.phone_number || prev.phone_number,
             email: res.user.email || prev.email,
             date_of_birth: res.user.date_of_birth || res.user.dob || prev.date_of_birth,
-            address: res.user.address || prev.residential_address,
+            residential_address: res.user.residential_address || res.user.address || prev.residential_address,
           }));
         }
       }
