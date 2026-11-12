@@ -177,7 +177,7 @@ function MainAppContent() {
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-white text-sm">Phase 05: Sovereign Identity Desk (NIN &amp; BVN Verification)</span>
                   <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20 text-[10px]">
-                    2SureVerify &bull; Veripine
+                    Verified Identity Network
                   </span>
                 </div>
                 <p className="text-slate-400 text-[11px] mt-0.5">

@@ -69,9 +69,9 @@ export const TermsPage: React.FC = () => {
 
         {/* Section 5 */}
         <section className="rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-3">
-          <h2 className="text-base font-bold text-white">5. Infrastructure &amp; TrueHost LON110 Availability</h2>
+          <h2 className="text-base font-bold text-white">5. Service Availability &amp; Maintenance</h2>
           <p>
-            {companyName} is hosted in TrueHost's London Tier-3 facility (51.89.153.183:1624). We strive for a 99.98% platform uptime SLA. Scheduled maintenance is announced via the official Announcements board at least 24 hours in advance.
+            {companyName} utilizes high-availability cloud infrastructure designed for continuous uptime and sub-second execution. Routine system maintenance is announced via the official Announcements board in advance.
           </p>
         </section>
 

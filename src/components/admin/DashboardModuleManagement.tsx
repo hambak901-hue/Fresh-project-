@@ -32,6 +32,7 @@ export function DashboardModuleManagement() {
   const [editingModule, setEditingModule] = useState<DashboardModuleConfig | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchModules = async () => {
     setLoading(true);
@@ -54,6 +55,7 @@ export function DashboardModuleManagement() {
     if (!editingModule) return;
     setSaveLoading(true);
     setSuccessMsg(null);
+    setErrorMsg(null);
     try {
       const res = await api.updateDashboardModule(editingModule.id, editingModule);
       setSuccessMsg(res.message);
@@ -61,7 +63,7 @@ export function DashboardModuleManagement() {
       await fetchModules();
       setTimeout(() => setSuccessMsg(null), 3500);
     } catch (err: any) {
-      alert(err.message || 'Failed to update module');
+      setErrorMsg(err.message || 'Failed to update module');
     } finally {
       setSaveLoading(false);
     }
@@ -69,20 +71,22 @@ export function DashboardModuleManagement() {
 
   const handleQuickToggleVisibility = async (mod: DashboardModuleConfig) => {
     const nextVis = !mod.visible;
+    setErrorMsg(null);
     try {
       await api.updateDashboardModule(mod.id, { visible: nextVis });
       setModules(prev => prev.map(m => m.id === mod.id ? { ...m, visible: nextVis } : m));
     } catch (e: any) {
-      alert(e.message || 'Failed to toggle visibility');
+      setErrorMsg(e.message || 'Failed to toggle visibility');
     }
   };
 
   const handleQuickStatusChange = async (mod: DashboardModuleConfig, status: 'active' | 'coming_soon' | 'disabled') => {
+    setErrorMsg(null);
     try {
       await api.updateDashboardModule(mod.id, { status });
       setModules(prev => prev.map(m => m.id === mod.id ? { ...m, status } : m));
     } catch (e: any) {
-      alert(e.message || 'Failed to update status');
+      setErrorMsg(e.message || 'Failed to update status');
     }
   };
 

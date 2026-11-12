@@ -68,8 +68,8 @@ class FootprintService
      * Record a system/user activity footprint
      */
     public static function record(
-        string $category,
-        string $action,
+        string|array $category,
+        string $action = 'UNKNOWN_ACTION',
         ?array $user = null,
         ?string $serviceType = null,
         ?string $reference = null,
@@ -83,25 +83,55 @@ class FootprintService
     ): string {
         self::ensureTable();
 
+        if (is_array($category)) {
+            $p = $category;
+            $cat = (string)($p['category'] ?? 'service');
+            $act = (string)($p['action'] ?? 'ACTION');
+            $userId = $p['user_id'] ?? ($p['user']['id'] ?? null);
+            $userEmail = $p['user_email'] ?? ($p['user']['email'] ?? null);
+            $userName = $p['user_name'] ?? ($p['user']['full_name'] ?? ($p['user']['name'] ?? null));
+            $stype = $p['service_type'] ?? null;
+            $ref = $p['reference'] ?? null;
+            $prov = $p['provider'] ?? null;
+            $stat = (string)($p['status'] ?? 'successful');
+            $amt = isset($p['amount']) ? (float)$p['amount'] : null;
+            $err = $p['error_message'] ?? null;
+            $meta = $p['metadata'] ?? null;
+            $ip = $p['ip_address'] ?? null;
+            $ua = $p['user_agent'] ?? null;
+        } else {
+            $cat = $category;
+            $act = $action;
+            $userId = $user['id'] ?? null;
+            $userEmail = $user['email'] ?? null;
+            $userName = $user['full_name'] ?? ($user['name'] ?? null);
+            $stype = $serviceType;
+            $ref = $reference;
+            $prov = $provider;
+            $stat = $status;
+            $amt = $amount;
+            $err = $errorMessage;
+            $meta = $metadata;
+            $ip = $ipAddress;
+            $ua = $userAgent;
+        }
+
         $id = 'fp_' . Security::generateUuid();
-        $userId = $user['id'] ?? null;
-        $userEmail = $user['email'] ?? null;
-        $userName = $user['full_name'] ?? ($user['name'] ?? null);
 
         // Auto-detect IP and User-Agent if not supplied
-        if ($ipAddress === null) {
-            $ipAddress = self::getClientIp();
+        if ($ip === null) {
+            $ip = self::getClientIp();
         }
-        if ($userAgent === null) {
-            $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown Agent';
+        if ($ua === null) {
+            $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown Agent';
         }
 
-        $userAgentTruncated = mb_substr((string)$userAgent, 0, 500);
-        $deviceInfo = self::parseDevice($userAgent);
-        $browserInfo = self::parseBrowser($userAgent);
+        $userAgentTruncated = mb_substr((string)$ua, 0, 500);
+        $deviceInfo = self::parseDevice((string)$ua);
+        $browserInfo = self::parseBrowser((string)$ua);
 
         // Sanitize metadata to never store passwords, pins, tokens, or card details
-        $sanitizedMetadata = self::sanitizeMetadata($metadata);
+        $sanitizedMetadata = self::sanitizeMetadata($meta);
 
         try {
             $db = self::getDb();
@@ -115,16 +145,16 @@ class FootprintService
                     'uid' => $userId,
                     'email' => $userEmail,
                     'name' => $userName,
-                    'cat' => $category,
-                    'act' => $action,
-                    'stype' => $serviceType,
-                    'ref' => $reference,
-                    'prov' => $provider,
-                    'st' => in_array($status, ['pending', 'processing', 'successful', 'failed'], true) ? $status : 'successful',
-                    'amt' => $amount !== null ? number_format($amount, 2, '.', '') : null,
-                    'err' => $errorMessage,
+                    'cat' => $cat,
+                    'act' => $act,
+                    'stype' => $stype,
+                    'ref' => $ref,
+                    'prov' => $prov,
+                    'st' => in_array($stat, ['pending', 'processing', 'successful', 'failed'], true) ? $stat : 'successful',
+                    'amt' => $amt !== null ? number_format($amt, 2, '.', '') : null,
+                    'err' => $err,
                     'meta' => $sanitizedMetadata ? json_encode($sanitizedMetadata) : null,
-                    'ip' => mb_substr((string)$ipAddress, 0, 50),
+                    'ip' => mb_substr((string)$ip, 0, 50),
                     'ua' => $userAgentTruncated,
                     'dev' => $deviceInfo,
                     'brow' => $browserInfo,

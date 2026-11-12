@@ -42,6 +42,7 @@ export function ServiceManagement() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Phase 5 Identity Services & Providers State
   const [identityServices, setIdentityServices] = useState<IdentityService[]>([]);
@@ -127,7 +128,7 @@ export function ServiceManagement() {
       setSuccessMsg('Service pricing & telecom tariffs updated live across the platform.');
       setTimeout(() => setSuccessMsg(null), 3500);
     } catch (err: any) {
-      alert(err.message || 'Failed to update pricing');
+      setErrorMsg(err.message || 'Failed to update pricing');
     } finally {
       setSaving(false);
     }
@@ -135,13 +136,14 @@ export function ServiceManagement() {
 
   const handleSaveProviders = async (updates: any) => {
     setSaving(true);
+    setErrorMsg(null);
     try {
       await api.updateServiceProviders(updates);
       setSettings((prev: any) => ({ ...prev, ...updates }));
       setSuccessMsg('Active provider routing updated.');
       setTimeout(() => setSuccessMsg(null), 3500);
     } catch (err: any) {
-      alert(err.message || 'Failed to switch provider');
+      setErrorMsg(err.message || 'Failed to switch provider');
     } finally {
       setSaving(false);
     }
@@ -151,6 +153,7 @@ export function ServiceManagement() {
     const newPrice = editingPriceMap[serviceKey];
     if (newPrice === undefined || isNaN(newPrice) || newPrice < 0) return;
     setSavingPriceKey(serviceKey);
+    setErrorMsg(null);
     try {
       await api.updateAdminVerificationPricing(serviceKey, {
         selling_price: Number(newPrice),
@@ -170,7 +173,7 @@ export function ServiceManagement() {
         })
       );
     } catch (err: any) {
-      alert(err.message || 'Failed to update price');
+      setErrorMsg(err.message || 'Failed to update price');
     } finally {
       setSavingPriceKey(null);
     }
@@ -178,6 +181,7 @@ export function ServiceManagement() {
 
   const handleToggleService = async (service: IdentityService) => {
     const newEnabled = !service.enabled;
+    setErrorMsg(null);
     try {
       await api.updateAdminVerificationPricing(service.key, {
         enabled: newEnabled,
@@ -186,11 +190,12 @@ export function ServiceManagement() {
         prev.map(s => (s.key === service.key ? { ...s, enabled: newEnabled } : s))
       );
     } catch (err: any) {
-      alert(err.message || 'Failed to toggle service');
+      setErrorMsg(err.message || 'Failed to toggle service');
     }
   };
 
   const handleChangeServiceProvider = async (serviceKey: string, provider: string) => {
+    setErrorMsg(null);
     try {
       await api.updateAdminVerificationPricing(serviceKey, {
         provider,
@@ -199,22 +204,23 @@ export function ServiceManagement() {
         prev.map(s => (s.key === serviceKey ? { ...s, provider } : s))
       );
     } catch (err: any) {
-      alert(err.message || 'Failed to assign provider');
+      setErrorMsg(err.message || 'Failed to assign provider');
     }
   };
 
   const handleSyncWholesale = async () => {
     setSyncingWholesale(true);
+    setErrorMsg(null);
     try {
       const res = await api.syncWholesalePrices();
-      setSuccessMsg(res.message || 'Wholesale rates synced successfully from 2SureVerify API.');
+      setSuccessMsg(res.message || 'Wholesale rates synced successfully from upstream API.');
       setTimeout(() => setSuccessMsg(null), 4000);
       const pricingRes = await api.getAdminVerificationPricing();
       if (pricingRes?.services) {
         setIdentityServices(pricingRes.services);
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to sync wholesale rates');
+      setErrorMsg(err.message || 'Failed to sync wholesale rates');
     } finally {
       setSyncingWholesale(false);
     }
@@ -258,13 +264,14 @@ export function ServiceManagement() {
         prev.map(p => (p.id === provider.id ? { ...p, is_active: !provider.is_active } : p))
       );
     } catch (err: any) {
-      alert(err.message || 'Failed to update provider status');
+      setErrorMsg(err.message || 'Failed to update provider status');
     }
   };
 
   const handleSaveStoreItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStoreItem || !editingStoreItem.name || !editingStoreItem.price) return;
+    setErrorMsg(null);
     try {
       if (editingStoreItem.id) {
         await api.updateStoreItem(editingStoreItem.id, editingStoreItem);
@@ -276,23 +283,26 @@ export function ServiceManagement() {
       setSuccessMsg('Store product saved successfully.');
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
-      alert(err.message || 'Failed to save store product');
+      setErrorMsg(err.message || 'Failed to save store product');
     }
   };
 
   const handleDeleteStoreItem = async (id: string) => {
-    if (!window.confirm('Delete this product from the store catalog?')) return;
+    setErrorMsg(null);
     try {
       await api.deleteStoreItem(id);
       await fetchServices();
+      setSuccessMsg('Store product removed.');
+      setTimeout(() => setSuccessMsg(null), 2500);
     } catch (e: any) {
-      alert(e.message || 'Failed to delete product');
+      setErrorMsg(e.message || 'Failed to delete product');
     }
   };
 
   const handleSaveCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCourse || !editingCourse.title) return;
+    setErrorMsg(null);
     try {
       if (editingCourse.id) {
         await api.updateAcademyCourse(editingCourse.id, editingCourse);
@@ -304,17 +314,19 @@ export function ServiceManagement() {
       setSuccessMsg('Academy course curriculum updated.');
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
-      alert(err.message || 'Failed to save course');
+      setErrorMsg(err.message || 'Failed to save course');
     }
   };
 
   const handleDeleteCourse = async (id: string) => {
-    if (!window.confirm('Delete this course from Academy?')) return;
+    setErrorMsg(null);
     try {
       await api.deleteAcademyCourse(id);
       await fetchServices();
+      setSuccessMsg('Academy course removed.');
+      setTimeout(() => setSuccessMsg(null), 2500);
     } catch (e: any) {
-      alert(e.message || 'Failed to delete course');
+      setErrorMsg(e.message || 'Failed to delete course');
     }
   };
 
@@ -322,6 +334,7 @@ export function ServiceManagement() {
     e.preventDefault();
     if (!editingSlipTemplate || !editingSlipTemplate.name || !editingSlipTemplate.demo_image_url) return;
     setSavingSlipTemplate(true);
+    setErrorMsg(null);
     try {
       if (editingSlipTemplate.id) {
         await api.updateAdminSlipTemplate(editingSlipTemplate.id, editingSlipTemplate);
@@ -334,14 +347,14 @@ export function ServiceManagement() {
       setSuccessMsg('Slip template saved successfully.');
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
-      alert(err.message || 'Failed to save slip template');
+      setErrorMsg(err.message || 'Failed to save slip template');
     } finally {
       setSavingSlipTemplate(false);
     }
   };
 
   const handleDeleteSlipTemplate = async (id: string) => {
-    if (!window.confirm('Delete this slip template preview?')) return;
+    setErrorMsg(null);
     try {
       await api.deleteAdminSlipTemplate(id);
       const res = await api.getAdminSlipTemplates();
@@ -349,18 +362,19 @@ export function ServiceManagement() {
       setSuccessMsg('Slip template removed.');
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
-      alert(err.message || 'Failed to delete template');
+      setErrorMsg(err.message || 'Failed to delete template');
     }
   };
 
   const handleToggleSlipActive = async (template: SlipTemplateItem) => {
+    setErrorMsg(null);
     try {
       await api.updateAdminSlipTemplate(template.id, { is_active: !template.is_active });
       setSlipTemplates(prev =>
         prev.map(t => (t.id === template.id ? { ...t, is_active: !t.is_active } : t))
       );
     } catch (err: any) {
-      alert(err.message || 'Failed to toggle template status');
+      setErrorMsg(err.message || 'Failed to toggle template status');
     }
   };
 
@@ -424,9 +438,22 @@ export function ServiceManagement() {
       </div>
 
       {successMsg && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3.5 text-xs text-emerald-300 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{successMsg}</span>
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3.5 text-xs text-emerald-300 flex items-center justify-between gap-2 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+          <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-emerald-200 text-xs">Dismiss</button>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3.5 text-xs text-rose-300 flex items-center justify-between gap-2 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-rose-400 shrink-0"></span>
+            <span>{errorMsg}</span>
+          </div>
+          <button onClick={() => setErrorMsg(null)} className="text-rose-400 hover:text-rose-200 text-xs">Dismiss</button>
         </div>
       )}
 
@@ -1595,7 +1622,10 @@ export function ServiceManagement() {
             </div>
             <button
               type="button"
-              onClick={() => alert('Generating full audit statement CSV package... Check server audit trail.')}
+              onClick={() => {
+                setSuccessMsg('Generating full audit statement CSV package... Ready in Footprints Journal.');
+                setTimeout(() => setSuccessMsg(null), 3500);
+              }}
               className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-semibold flex items-center gap-1.5 transition"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />

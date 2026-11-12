@@ -24,17 +24,27 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAuth }) => {
           {/* Column 1: Brand & Tagline */}
           <div className="space-y-4 md:col-span-1">
             <div className="flex items-center gap-2">
+              {branding?.logo_url ? (
+                <img
+                  src={branding.logo_url}
+                  alt={companyName}
+                  className="h-6 w-auto object-contain"
+                  onError={e => {
+                    (e.target as HTMLElement).style.display = 'none';
+                  }}
+                />
+              ) : null}
               <span className="text-base font-extrabold tracking-tight text-white">
                 {companyName}
               </span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
               {branding?.footer_text ||
-                "Nigeria's premier digital infrastructure provider for NIMC/BVN identity verification, SME telecoms vending, and digital payments on TrueHost LON110."}
+                "Nigeria's premier digital infrastructure platform for official identity verification, wholesale telecom vending, and automated digital payments."}
             </p>
             <div className="flex items-center gap-2 text-[11px] text-emerald-400">
               <ShieldCheck className="w-4 h-4 shrink-0" />
-              <span>NIMC & NIBSS Compliant Enterprise Gateway</span>
+              <span>Certified Enterprise Verification Standard</span>
             </div>
           </div>
 
@@ -200,7 +210,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAuth }) => {
         <div className="mt-12 pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-slate-500">
           <div>
             {branding?.copyright_text ||
-              '© 2026 Hambak Technologies Enterprise. All Rights Reserved. Infrastructure hosted on TrueHost LON110 (51.89.153.183:1624).'}
+              '© 2026 Hambak Technologies Enterprise. All Rights Reserved.'}
           </div>
           <div className="flex items-center gap-4 text-slate-400">
             <button onClick={() => onNavigate('privacy')} className="hover:text-slate-200">

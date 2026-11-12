@@ -307,9 +307,9 @@ export function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
               Your session is authenticated via encrypted JWT Bearer tokens signed with HMAC-SHA256.
             </p>
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1 text-slate-400 font-mono text-[11px]">
-              <p>Host: TrueHost Cloud (LON110)</p>
+              <p>Environment: High-Availability Cloud Edge</p>
               <p>TLS: TLS 1.3 / AES-256-GCM</p>
-              <p>IP Binding: Active</p>
+              <p>Session Binding: Authenticated</p>
             </div>
           </div>
         </div>

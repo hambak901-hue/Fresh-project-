@@ -775,7 +775,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Trust marker */}
         <div className="flex items-center justify-center gap-2 text-[10px] text-slate-500 pt-2 border-t border-slate-800/60">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-          <span>TrueHost LON110 256-bit SSL &bull; NIMC/NIBSS Accredited Gateway</span>
+          <span>256-Bit SSL Encryption &bull; Official Digital Verification Standards</span>
         </div>
       </div>
     </div>

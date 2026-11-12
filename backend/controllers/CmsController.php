@@ -30,8 +30,17 @@ class CmsController
     {
         // 1. Branding
         $branding = $this->db->fetchOne('SELECT * FROM website_branding LIMIT 1');
+        if (!$branding) {
+            $defaultId = Security::generateUuid();
+            $this->db->execute(
+                'INSERT INTO website_branding (id, company_name, tagline, logo_url, favicon_url, primary_color, secondary_color, font_family, support_phone, support_email, office_address, whatsapp_number, social_links, footer_text, copyright_text, seo_title, seo_description, seo_keywords, updated_at)
+                 VALUES (:id, "HambakTech Enterprise", "Sovereign VTU, Telecom & Identity Verification", "/logo.svg", "/favicon.ico", "#10b981", "#0284c7", "Plus Jakarta Sans", "+234 803 000 1122", "support@hambaktech.com.ng", "Lagos, Nigeria", "+2348030001122", "{}", "Nigeria\'s premier digital infrastructure platform for official identity verification, wholesale telecom vending, and automated digital payments.", "© 2026 Hambak Technologies Enterprise. All Rights Reserved.", "HambakTech Enterprise Portal", "All-in-one Nigerian VTU, identity verification (NIN/BVN), telecom, payments, academy, and digital services platform for HambakTech.", "VTU, NIN, BVN, Telecom, Data, Airtime, Nigeria", NOW())',
+                ['id' => $defaultId]
+            );
+            $branding = $this->db->fetchOne('SELECT * FROM website_branding WHERE id = :id', ['id' => $defaultId]);
+        }
         if ($branding && !empty($branding['social_links'])) {
-            $branding['social_links'] = json_decode($branding['social_links'], true);
+            $branding['social_links'] = is_string($branding['social_links']) ? json_decode($branding['social_links'], true) : $branding['social_links'];
         }
 
         // 2. Sections
@@ -191,39 +200,69 @@ class CmsController
         Auth::requireRole($request, ['admin', 'superadmin']);
         $b = $request->getBody();
 
-        $this->db->execute(
-            'UPDATE website_branding 
-             SET company_name = :name, tagline = :tag, logo_url = :logo, favicon_url = :fav,
-                 primary_color = :pcol, secondary_color = :scol, font_family = :font,
-                 support_phone = :phone, support_email = :email, office_address = :addr,
-                 whatsapp_number = :wa, social_links = :soc, footer_text = :foot,
-                 copyright_text = :copy, seo_title = :stitle, seo_description = :sdesc,
-                 seo_keywords = :skey, updated_at = NOW()
-             WHERE id = (SELECT id FROM (SELECT id FROM website_branding LIMIT 1) AS t)',
-            [
-                'name' => $b['company_name'] ?? 'HambakTech Enterprise',
-                'tag' => $b['tagline'] ?? '',
-                'logo' => $b['logo_url'] ?? '',
-                'fav' => $b['favicon_url'] ?? '/favicon.ico',
-                'pcol' => $b['primary_color'] ?? '#10b981',
-                'scol' => $b['secondary_color'] ?? '#0284c7',
-                'font' => $b['font_family'] ?? 'Plus Jakarta Sans',
-                'phone' => $b['support_phone'] ?? '+234 803 000 1122',
-                'email' => $b['support_email'] ?? 'support@hambaktech.com.ng',
-                'addr' => $b['office_address'] ?? '',
-                'wa' => $b['whatsapp_number'] ?? '',
-                'soc' => isset($b['social_links']) ? json_encode($b['social_links']) : null,
-                'foot' => $b['footer_text'] ?? '',
-                'copy' => $b['copyright_text'] ?? '',
-                'stitle' => $b['seo_title'] ?? '',
-                'sdesc' => $b['seo_description'] ?? '',
-                'skey' => $b['seo_keywords'] ?? '',
-            ]
-        );
+        $existing = $this->db->fetchOne('SELECT id FROM website_branding LIMIT 1');
+        if (!$existing) {
+            $rowId = Security::generateUuid();
+            $this->db->execute(
+                'INSERT INTO website_branding (id, company_name, tagline, logo_url, favicon_url, primary_color, secondary_color, font_family, support_phone, support_email, office_address, whatsapp_number, social_links, footer_text, copyright_text, seo_title, seo_description, seo_keywords, updated_at)
+                 VALUES (:id, :name, :tag, :logo, :fav, :pcol, :scol, :font, :phone, :email, :addr, :wa, :soc, :foot, :copy, :stitle, :sdesc, :skey, NOW())',
+                [
+                    'id' => $rowId,
+                    'name' => $b['company_name'] ?? 'HambakTech Enterprise',
+                    'tag' => $b['tagline'] ?? '',
+                    'logo' => $b['logo_url'] ?? '',
+                    'fav' => $b['favicon_url'] ?? '/favicon.ico',
+                    'pcol' => $b['primary_color'] ?? '#10b981',
+                    'scol' => $b['secondary_color'] ?? '#0284c7',
+                    'font' => $b['font_family'] ?? 'Plus Jakarta Sans',
+                    'phone' => $b['support_phone'] ?? '+234 803 000 1122',
+                    'email' => $b['support_email'] ?? 'support@hambaktech.com.ng',
+                    'addr' => $b['office_address'] ?? 'Lagos, Nigeria',
+                    'wa' => $b['whatsapp_number'] ?? '',
+                    'soc' => isset($b['social_links']) ? (is_string($b['social_links']) ? $b['social_links'] : json_encode($b['social_links'])) : null,
+                    'foot' => $b['footer_text'] ?? '',
+                    'copy' => $b['copyright_text'] ?? '',
+                    'stitle' => $b['seo_title'] ?? '',
+                    'sdesc' => $b['seo_description'] ?? '',
+                    'skey' => $b['seo_keywords'] ?? '',
+                ]
+            );
+        } else {
+            $this->db->execute(
+                'UPDATE website_branding 
+                 SET company_name = :name, tagline = :tag, logo_url = :logo, favicon_url = :fav,
+                     primary_color = :pcol, secondary_color = :scol, font_family = :font,
+                     support_phone = :phone, support_email = :email, office_address = :addr,
+                     whatsapp_number = :wa, social_links = :soc, footer_text = :foot,
+                     copyright_text = :copy, seo_title = :stitle, seo_description = :sdesc,
+                     seo_keywords = :skey, updated_at = NOW()
+                 WHERE id = :id',
+                [
+                    'id' => $existing['id'],
+                    'name' => $b['company_name'] ?? 'HambakTech Enterprise',
+                    'tag' => $b['tagline'] ?? '',
+                    'logo' => $b['logo_url'] ?? '',
+                    'fav' => $b['favicon_url'] ?? '/favicon.ico',
+                    'pcol' => $b['primary_color'] ?? '#10b981',
+                    'scol' => $b['secondary_color'] ?? '#0284c7',
+                    'font' => $b['font_family'] ?? 'Plus Jakarta Sans',
+                    'phone' => $b['support_phone'] ?? '+234 803 000 1122',
+                    'email' => $b['support_email'] ?? 'support@hambaktech.com.ng',
+                    'addr' => $b['office_address'] ?? 'Lagos, Nigeria',
+                    'wa' => $b['whatsapp_number'] ?? '',
+                    'soc' => isset($b['social_links']) ? (is_string($b['social_links']) ? $b['social_links'] : json_encode($b['social_links'])) : null,
+                    'foot' => $b['footer_text'] ?? '',
+                    'copy' => $b['copyright_text'] ?? '',
+                    'stitle' => $b['seo_title'] ?? '',
+                    'sdesc' => $b['seo_description'] ?? '',
+                    'skey' => $b['seo_keywords'] ?? '',
+                ]
+            );
+        }
 
         $updated = $this->db->fetchOne('SELECT * FROM website_branding LIMIT 1');
         if ($updated && !empty($updated['social_links'])) {
-            $updated['social_links'] = json_decode($updated['social_links'], true);
+            $updated['social_links'] = is_string($updated['social_links']) ? json_decode($updated['social_links'], true) : $updated['social_links'];
         }
 
         Response::success(['branding' => $updated], 'Branding updated successfully in MySQL');

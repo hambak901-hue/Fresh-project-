@@ -2872,10 +2872,18 @@ class AdminController
         }
 
         // 1. Commit to website_branding
-        $this->db->execute(
-            'UPDATE website_branding SET logo_url = :url, updated_at = NOW() WHERE id = (SELECT id FROM (SELECT id FROM website_branding LIMIT 1) AS t)',
-            ['url' => $finalUrl]
-        );
+        $existing = $this->db->fetchOne('SELECT id FROM website_branding LIMIT 1');
+        if (!$existing) {
+            $this->db->execute(
+                'INSERT INTO website_branding (id, company_name, logo_url, updated_at) VALUES (:id, "HambakTech Enterprise", :url, NOW())',
+                ['id' => Security::generateUuid(), 'url' => $finalUrl]
+            );
+        } else {
+            $this->db->execute(
+                'UPDATE website_branding SET logo_url = :url, updated_at = NOW() WHERE id = :id',
+                ['id' => $existing['id'], 'url' => $finalUrl]
+            );
+        }
 
         // 2. Commit to system_settings branding_settings
         $brandingSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "branding_settings"');
@@ -2915,10 +2923,18 @@ class AdminController
 
         $defaultLogo = '/logo.svg';
 
-        $this->db->execute(
-            'UPDATE website_branding SET logo_url = :url, updated_at = NOW() WHERE id = (SELECT id FROM (SELECT id FROM website_branding LIMIT 1) AS t)',
-            ['url' => $defaultLogo]
-        );
+        $existing = $this->db->fetchOne('SELECT id FROM website_branding LIMIT 1');
+        if (!$existing) {
+            $this->db->execute(
+                'INSERT INTO website_branding (id, company_name, logo_url, updated_at) VALUES (:id, "HambakTech Enterprise", :url, NOW())',
+                ['id' => Security::generateUuid(), 'url' => $defaultLogo]
+            );
+        } else {
+            $this->db->execute(
+                'UPDATE website_branding SET logo_url = :url, updated_at = NOW() WHERE id = :id',
+                ['id' => $existing['id'], 'url' => $defaultLogo]
+            );
+        }
 
         $brandingSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "branding_settings"');
         $bVals = $brandingSetting ? json_decode($brandingSetting['setting_value'], true) : [];

@@ -60,12 +60,15 @@ export function CustomerManagement() {
   const [adjustReason, setAdjustReason] = useState('Bank transfer reconciliation');
   const [adjustLoading, setAdjustLoading] = useState(false);
   const [adjustSuccess, setAdjustSuccess] = useState<string | null>(null);
+  const [adjustError, setAdjustError] = useState<string | null>(null);
 
   // KYC review state
   const [kycDecision, setKycDecision] = useState<'verified' | 'rejected'>('verified');
   const [kycAssignedTier, setKycAssignedTier] = useState<number>(2);
   const [kycNotes, setKycNotes] = useState('Verified against NIMC official database');
   const [kycLoading, setKycLoading] = useState(false);
+  const [kycSuccess, setKycSuccess] = useState<string | null>(null);
+  const [kycError, setKycError] = useState<string | null>(null);
 
   // Notification dispatch state
   const [notifTitle, setNotifTitle] = useState('');
@@ -73,6 +76,7 @@ export function CustomerManagement() {
   const [notifType, setNotifType] = useState<'info' | 'success' | 'warning' | 'alert'>('info');
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifSuccess, setNotifSuccess] = useState<string | null>(null);
+  const [notifError, setNotifError] = useState<string | null>(null);
 
   // Profile edit state
   const [editName, setEditName] = useState('');
@@ -80,6 +84,8 @@ export function CustomerManagement() {
   const [editTier, setEditTier] = useState<number>(1);
   const [editSaving, setEditSaving] = useState(false);
   const [editSuccess, setEditSuccess] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   // Create User modal state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -223,6 +229,7 @@ export function CustomerManagement() {
       // In iframe environments where window.prompt is disallowed, fallback gracefully
     }
 
+    setStatusError(null);
     try {
       const res = await api.setCustomerStatus(user.id, nextStatus, reason);
       await fetchCustomers();
@@ -230,7 +237,7 @@ export function CustomerManagement() {
         setSelectedUser(res.customer);
       }
     } catch (e: any) {
-      alert(e.message || 'Status change failed');
+      setStatusError(e.message || 'Status change failed');
     }
   };
 
@@ -239,6 +246,7 @@ export function CustomerManagement() {
     if (!selectedUser) return;
     setAdjustLoading(true);
     setAdjustSuccess(null);
+    setAdjustError(null);
     try {
       const res = await api.adjustCustomerWallet(selectedUser.id, {
         type: adjustType,
@@ -252,7 +260,7 @@ export function CustomerManagement() {
       const updatedDetail = await api.getAdminCustomerDetail(selectedUser.id);
       setCustomerDetail(updatedDetail);
     } catch (err: any) {
-      alert(err.message || 'Wallet adjustment failed');
+      setAdjustError(err.message || 'Wallet adjustment failed');
     } finally {
       setAdjustLoading(false);
     }
@@ -262,6 +270,8 @@ export function CustomerManagement() {
     e.preventDefault();
     if (!selectedUser) return;
     setKycLoading(true);
+    setKycSuccess(null);
+    setKycError(null);
     try {
       const res = await api.reviewCustomerKyc(selectedUser.id, {
         status: kycDecision,
@@ -272,9 +282,9 @@ export function CustomerManagement() {
       await fetchCustomers();
       const updatedDetail = await api.getAdminCustomerDetail(selectedUser.id);
       setCustomerDetail(updatedDetail);
-      alert(res.message);
+      setKycSuccess(res.message || 'KYC status updated successfully.');
     } catch (err: any) {
-      alert(err.message || 'KYC review failed');
+      setKycError(err.message || 'KYC review failed');
     } finally {
       setKycLoading(false);
     }
@@ -285,6 +295,7 @@ export function CustomerManagement() {
     if (!selectedUser) return;
     setNotifLoading(true);
     setNotifSuccess(null);
+    setNotifError(null);
     try {
       const res = await api.sendCustomerNotification(selectedUser.id, {
         title: notifTitle,
@@ -295,7 +306,7 @@ export function CustomerManagement() {
       setNotifTitle('');
       setNotifMessage('');
     } catch (err: any) {
-      alert(err.message || 'Failed to dispatch notification');
+      setNotifError(err.message || 'Failed to dispatch notification');
     } finally {
       setNotifLoading(false);
     }
@@ -306,6 +317,7 @@ export function CustomerManagement() {
     if (!selectedUser) return;
     setEditSaving(true);
     setEditSuccess(null);
+    setEditError(null);
     try {
       const res = await api.updateAdminCustomer(selectedUser.id, {
         full_name: editName,
@@ -316,7 +328,7 @@ export function CustomerManagement() {
       setEditSuccess(res.message);
       await fetchCustomers();
     } catch (err: any) {
-      alert(err.message || 'Failed to update profile');
+      setEditError(err.message || 'Failed to update profile');
     } finally {
       setEditSaving(false);
     }

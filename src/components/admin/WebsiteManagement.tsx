@@ -48,6 +48,7 @@ export function WebsiteManagement() {
   const [visibilityForm, setVisibilityForm] = useState<Record<string, boolean>>({});
   const [navItems, setNavItems] = useState<NavMenuItem[]>([]);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Announcement modal / form
   const [editingAnnouncement, setEditingAnnouncement] = useState<Partial<AnnouncementItem> | null>(null);
@@ -65,23 +66,33 @@ export function WebsiteManagement() {
 
   const handleSaveBranding = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
     try {
-      await updateBranding(brandForm);
-      setSaveSuccess('Branding and SEO configurations updated live!');
-      setTimeout(() => setSaveSuccess(null), 3500);
+      const ok = await updateBranding(brandForm);
+      if (ok) {
+        setSaveSuccess('Branding and SEO configurations updated live!');
+        setTimeout(() => setSaveSuccess(null), 3500);
+      } else {
+        setErrorMessage('Failed to save branding updates. Please retry.');
+      }
     } catch (err: any) {
-      alert(err.message || 'Failed to save branding');
+      setErrorMessage(err.message || 'Failed to save branding');
     }
   };
 
   const handleSaveLanding = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
     try {
-      await updateSections(sectionForm);
-      setSaveSuccess('Landing page content & banners updated live!');
-      setTimeout(() => setSaveSuccess(null), 3500);
+      const ok = await updateSections(sectionForm);
+      if (ok) {
+        setSaveSuccess('Landing page content & banners updated live!');
+        setTimeout(() => setSaveSuccess(null), 3500);
+      } else {
+        setErrorMessage('Failed to update sections. Please check input.');
+      }
     } catch (err: any) {
-      alert(err.message || 'Failed to save sections');
+      setErrorMessage(err.message || 'Failed to save sections');
     }
   };
 
@@ -89,38 +100,53 @@ export function WebsiteManagement() {
     const next = !current;
     const updated = { ...visibilityForm, [key]: next };
     setVisibilityForm(updated);
+    setErrorMessage(null);
     try {
-      await updateVisibility({ [key]: next } as any);
-      setSaveSuccess(`Page visibility for "${key}" updated.`);
-      setTimeout(() => setSaveSuccess(null), 2500);
+      const ok = await updateVisibility({ [key]: next } as any);
+      if (ok) {
+        setSaveSuccess(`Page visibility for "${key}" updated.`);
+        setTimeout(() => setSaveSuccess(null), 2500);
+      } else {
+        setErrorMessage(`Failed to update visibility for "${key}".`);
+      }
     } catch (err: any) {
-      alert(err.message || 'Failed to update visibility');
+      setErrorMessage(err.message || 'Failed to update visibility');
     }
   };
 
   const handleSaveAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAnnouncement || !editingAnnouncement.title || !editingAnnouncement.content) return;
+    setErrorMessage(null);
     try {
-      await saveAnnouncement(editingAnnouncement);
-      setEditingAnnouncement(null);
-      setSaveSuccess('Announcement saved and published live.');
-      setTimeout(() => setSaveSuccess(null), 3000);
+      const ok = await saveAnnouncement(editingAnnouncement);
+      if (ok) {
+        setEditingAnnouncement(null);
+        setSaveSuccess('Announcement saved and published live.');
+        setTimeout(() => setSaveSuccess(null), 3000);
+      } else {
+        setErrorMessage('Failed to publish announcement.');
+      }
     } catch (e: any) {
-      alert(e.message || 'Failed to save announcement');
+      setErrorMessage(e.message || 'Failed to save announcement');
     }
   };
 
   const handleSaveFaq = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingFaq || !editingFaq.question || !editingFaq.answer) return;
+    setErrorMessage(null);
     try {
-      await saveFaq(editingFaq);
-      setEditingFaq(null);
-      setSaveSuccess('FAQ saved and updated live.');
-      setTimeout(() => setSaveSuccess(null), 3000);
+      const ok = await saveFaq(editingFaq);
+      if (ok) {
+        setEditingFaq(null);
+        setSaveSuccess('FAQ saved and updated live.');
+        setTimeout(() => setSaveSuccess(null), 3000);
+      } else {
+        setErrorMessage('Failed to save FAQ.');
+      }
     } catch (e: any) {
-      alert(e.message || 'Failed to save FAQ');
+      setErrorMessage(e.message || 'Failed to save FAQ');
     }
   };
 
@@ -175,9 +201,22 @@ export function WebsiteManagement() {
       </div>
 
       {saveSuccess && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3.5 text-xs text-emerald-300 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{saveSuccess}</span>
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3.5 text-xs text-emerald-300 flex items-center justify-between gap-2 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{saveSuccess}</span>
+          </div>
+          <button onClick={() => setSaveSuccess(null)} className="text-emerald-400 hover:text-emerald-200 text-xs">Dismiss</button>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3.5 text-xs text-rose-300 flex items-center justify-between gap-2 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-rose-400 shrink-0"></span>
+            <span>{errorMessage}</span>
+          </div>
+          <button onClick={() => setErrorMessage(null)} className="text-rose-400 hover:text-rose-200 text-xs">Dismiss</button>
         </div>
       )}
 

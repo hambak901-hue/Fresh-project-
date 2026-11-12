@@ -621,6 +621,11 @@ CREATE TABLE website_branding (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+INSERT INTO website_branding (id, company_name, tagline, logo_url, favicon_url, primary_color, secondary_color, font_family, support_phone, support_email, office_address, whatsapp_number, social_links, footer_text, copyright_text, seo_title, seo_description, seo_keywords)
+VALUES ('brand_default_001', 'HambakTech Enterprise', 'Sovereign VTU, Telecom & Identity Verification', '/logo.svg', '/favicon.ico', '#10b981', '#0284c7', 'Plus Jakarta Sans', '+234 803 000 1122', 'support@hambaktech.com.ng', 'Lagos, Nigeria', '+2348030001122', '{"whatsapp":"https://wa.me/2348030001122"}', 'Nigeria\'s premier digital infrastructure platform for official identity verification, wholesale telecom vending, and automated digital payments.', '© 2026 Hambak Technologies Enterprise. All Rights Reserved.', 'HambakTech Enterprise Portal', 'All-in-one Nigerian VTU, identity verification (NIN/BVN), telecom, payments, academy, and digital services platform for HambakTech.', 'VTU, NIN, BVN, Telecom, Data, Airtime, Nigeria')
+ON DUPLICATE KEY UPDATE company_name=VALUES(company_name);
+
+
 CREATE TABLE announcements (
     id VARCHAR(36) PRIMARY KEY,
     title VARCHAR(255) NOT NULL,

@@ -74,13 +74,13 @@ export const ContactPage: React.FC = () => {
         <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
           <span>Support &amp; Inquiries</span>
           <span className="text-slate-600">&bull;</span>
-          <span>TrueHost LON110 Help Desk</span>
+          <span>24/7 Dedicated Help Desk</span>
         </div>
         <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
           Get in Touch with HambakTech
         </h1>
         <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
-          Have questions about our NIN/BVN verification adapters, wholesale telecom rates, or developer API integrations? Our support engineers are on standby to assist you.
+          Have questions about our identity verification services, wholesale telecom bundles, or developer API integrations? Our support specialists are on standby to assist you.
         </p>
       </div>
 
@@ -96,7 +96,7 @@ export const ContactPage: React.FC = () => {
                   <Mail className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-slate-400 font-medium">Email Support (LON110 Webmail)</div>
+                  <div className="text-slate-400 font-medium">Official Support Email</div>
                   <a
                     href={`mailto:${branding?.support_email || 'support@hambaktech.com.ng'}`}
                     className="text-white font-semibold hover:text-emerald-400 transition-colors"

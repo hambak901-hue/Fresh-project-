@@ -34,10 +34,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
   const { branding, cmsSections, announcements } = useCms();
 
   const hero = cmsSections?.hero || {
-    badge: "Nigeria's Leading Digital Services Infrastructure",
+    badge: "Nigeria's Leading Digital Services Platform",
     headline: 'Instant Identity Verification, Telecom Bundles & Digital Payments',
     subheadline:
-      'Automate NIMC NIN slips, BVN lookups, MTN & Airtel SME data vending, and utility bill clearing with enterprise 99.98% uptime on TrueHost LON110.',
+      'Automate official NIMC NIN slip generation, verified BVN checks, MTN & Airtel SME data vending, and utility bill clearing with high-speed, reliable enterprise rails.',
     primaryCtaText: 'Get Started Free',
     primaryCtaLink: 'register',
     secondaryCtaText: 'Explore Solutions',
@@ -49,15 +49,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
     badge: 'Engineering Excellence & Trust',
     title: 'Engineered for Nigerian Businesses, Developers & Resellers',
     description:
-      'Founded with a mission to eliminate manual identity validation and telecom friction, HambakTech operates high-throughput integration gateways directly connected to sovereign telecommunication nodes and accredited identity repositories.',
+      'Founded with a mission to eliminate manual identity validation and telecom friction, HambakTech operates high-throughput automated gateways directly connected to telecom carrier pipelines and accredited identity validation registries.',
     founded: '2024',
     headquarters: 'Lagos, Nigeria',
-    infrastructure: 'TrueHost LON110 Tier-3 Cloud Server (51.89.153.183:1624)',
+    infrastructure: 'High-Availability Secure Cloud Edge',
     stats: [
-      { label: 'Monthly Transactions', value: '₦120M+' },
-      { label: 'Verifications Completed', value: '45,000+' },
-      { label: 'API Dispatch Latency', value: '1.2s' },
-      { label: 'Server Availability', value: '99.98%' },
+      { label: 'Active Business Accounts', value: '5,000+' },
+      { label: 'Daily Service Operations', value: '15,000+' },
+      { label: 'Avg Dispatch Speed', value: '< 2.5s' },
+      { label: 'Platform Availability', value: '99.9%' },
     ],
   };
 
@@ -119,7 +119,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
             <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
               <span>{hero.badge}</span>
               <span className="text-slate-600">&bull;</span>
-              <span className="text-slate-400">TrueHost LON110 Server</span>
+              <span className="text-slate-400">Verified Service Infrastructure</span>
             </div>
 
             <h1 className="text-3xl sm:text-5xl lg:text-5xl font-extrabold tracking-tight text-white leading-[1.15] text-balance">
@@ -166,7 +166,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
               </div>
               <div className="flex items-center gap-2">
                 <Server className="w-4 h-4 text-emerald-400" />
-                <span>TrueHost Cloud LON110</span>
+                <span>High-Availability Cloud Edge</span>
               </div>
             </div>
           </div>
@@ -190,12 +190,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
               {/* Inset Badge */}
               <div className="absolute bottom-4 left-4 right-4 p-3 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700/60 flex items-center justify-between text-xs">
                 <div>
-                  <div className="text-[10px] text-slate-400">Infrastructure</div>
-                  <div className="font-bold text-white">TrueHost LON110 Tier-3 Node</div>
+                  <div className="text-[10px] text-slate-400">Security Architecture</div>
+                  <div className="font-bold text-white">256-Bit Encrypted Edge</div>
                 </div>
                 <div className="text-right">
                   <div className="text-[10px] text-slate-400">Uptime SLA</div>
-                  <div className="font-mono text-emerald-400 font-bold">99.98% Guaranteed</div>
+                  <div className="font-mono text-emerald-400 font-bold">99.9% High Availability</div>
                 </div>
               </div>
             </div>
@@ -251,7 +251,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
                 <strong className="text-slate-300">Headquarters:</strong> {intro.headquarters} &bull; <strong className="text-slate-300">Founded:</strong> {intro.founded}
               </div>
               <div>
-                <strong className="text-slate-300">Hosting:</strong> {intro.infrastructure}
+                <strong className="text-slate-300">Infrastructure:</strong> {intro.infrastructure}
               </div>
             </div>
           </div>
@@ -349,9 +349,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
               <CreditCard className="w-5 h-5" />
             </div>
             <div className="space-y-2">
-              <h3 className="text-lg font-bold text-white">Unified Wallet &amp; Flutterwave</h3>
+              <h3 className="text-lg font-bold text-white">Unified Wallet &amp; Automated Top-Up</h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Top up via automated Flutterwave card checkout or Moniepoint dedicated virtual bank accounts with double-entry accounting.
+                Top up via automated secure card checkout or dedicated virtual bank accounts with audited double-entry accounting.
               </p>
             </div>
             <div className="pt-2 text-[11px] text-purple-400 font-mono font-semibold">
@@ -433,7 +433,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
           Ready to scale your VTU &amp; Identity verification operations?
         </span>
         <h2 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight max-w-2xl mx-auto text-balance">
-          Join Over 45,000 Verified Accounts on HambakTech
+          Join Over 5,000 Verified Accounts on HambakTech
         </h2>
         <p className="text-xs sm:text-sm text-slate-300 max-w-xl mx-auto leading-relaxed">
           Create your free wallet today. Enjoy wholesale SME rates, instant NIMC slip generation, and sub-second carrier delivery.

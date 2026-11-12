@@ -99,7 +99,7 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ onNavigate, onOpenAu
       description:
         'Practical certifications and training modules designed by Nigerian fintech engineers. Master telecom API integration, secure wallet ledger architecture, and VTU reseller marketing.',
       features: [
-        'Hands-on cPanel & LON110 server deployment tutorials',
+        'Hands-on cloud & web server deployment tutorials',
         'Building sovereign identity verification apps',
         'Wholesale telecom business operational models',
         'Verified certificate of completion upon graduation',
@@ -111,9 +111,9 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ onNavigate, onOpenAu
     {
       id: 'wallet-payments',
       category: 'Payment Infrastructure',
-      title: 'Unified Wallet & Moniepoint Virtual Accounts',
+      title: 'Unified Digital Wallet & Virtual Accounts',
       description:
-        'High-speed wallet funding via Flutterwave automated card checkout or dedicated Moniepoint virtual bank accounts with zero-delay auto-credit.',
+        'High-speed wallet funding via automated card checkout or dedicated virtual bank accounts with zero-delay auto-credit.',
       features: [
         'Instant card funding via 256-bit encrypted gateway',
         'Permanent dedicated Nigerian virtual bank accounts',
@@ -133,7 +133,7 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ onNavigate, onOpenAu
         <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
           <span>Enterprise Catalog</span>
           <span className="text-slate-600">&bull;</span>
-          <span>TrueHost LON110 Connected</span>
+          <span>Verified Redundant Rails</span>
         </div>
         <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
           Comprehensive Telecom, Identity &amp; Digital Solutions

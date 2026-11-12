@@ -684,7 +684,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
             </div>
 
             <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-              <span className="text-[11px] text-slate-500">TrueHost LON110 Cryptographic Stamp Verified</span>
+              <span className="text-[11px] text-slate-500">Enterprise Cryptographic Audit Stamp Verified</span>
               <button
                 onClick={() => window.print()}
                 className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs"

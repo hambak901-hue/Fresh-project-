@@ -112,7 +112,7 @@ export function StaffPermissionsManagement() {
       setEditingStaff(null);
       await fetchStaff();
     } catch (err: any) {
-      alert(err.message || 'Failed to update staff');
+      setMessage({ type: 'error', text: err.message || 'Failed to update staff' });
     } finally {
       setEditSaving(false);
     }
@@ -120,15 +120,16 @@ export function StaffPermissionsManagement() {
 
   const handleToggleStaffStatus = async (staffUser: User) => {
     if (staffUser.role === 'superadmin') {
-      alert('Super Admin accounts cannot be suspended.');
+      setMessage({ type: 'error', text: 'Super Admin accounts cannot be suspended.' });
       return;
     }
     const nextStatus = staffUser.status === 'active' ? 'suspended' : 'active';
     try {
       await api.updateStaffAccount(staffUser.id, { status: nextStatus });
+      setMessage({ type: 'success', text: `Staff status updated to ${nextStatus}.` });
       await fetchStaff();
     } catch (e: any) {
-      alert(e.message || 'Failed to update staff status');
+      setMessage({ type: 'error', text: e.message || 'Failed to update staff status' });
     }
   };
 

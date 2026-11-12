@@ -80,7 +80,7 @@ export const RatesCalculator: React.FC<RatesCalculatorProps> = ({ onActionClick 
           </div>
           <h3 className="text-xl font-bold text-white mt-1">Live Pricing Calculator</h3>
           <p className="text-xs text-slate-400">
-            Calculated instantly against TrueHost LON110 carrier and NIMC identity pipeline rates.
+            Calculated transparently against real-time wholesale network tariffs and verification fees.
           </p>
         </div>
 
