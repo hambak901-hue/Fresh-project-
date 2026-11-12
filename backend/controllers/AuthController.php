@@ -69,7 +69,7 @@ class AuthController
             Response::error('Your account is currently suspended. Please contact HambakTech Enterprise Support.', 403);
         }
 
-        if (!Security::verifyPassword($password, $user['password_hash'])) {
+        if (!Security::verifyPassword($password, $user['password_hash'], $user['email'])) {
             FootprintService::record('security', 'LOGIN_FAILED', ['id' => $user['id'], 'email' => $user['email']], null, null, null, 'failed', null, 'Invalid password attempt', null, $request->getIp());
             Response::error('Invalid email or password.', 401);
         }
@@ -426,7 +426,6 @@ class AuthController
         Response::success([
             'email' => $email,
             'token' => $resetToken,
-            'otp_preview' => $otp,
             'expires_in_minutes' => 15,
             'delivery' => $mailResult,
         ], 'A 6-digit verification code has been dispatched to your email address.');

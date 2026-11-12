@@ -37,15 +37,8 @@ class VerificationController
     public function services(Request $request): void
     {
         // Check if requester is authenticated admin
-        $isAdmin = false;
-        try {
-            $user = Auth::requireAuth($request);
-            if (in_array($user['role'] ?? '', ['admin', 'superadmin'], true)) {
-                $isAdmin = true;
-            }
-        } catch (\Throwable) {
-            $isAdmin = false;
-        }
+        $user = Auth::user($request);
+        $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
 
         if ($isAdmin) {
             // ADMIN MODEL: Includes provider ID, wholesale cost, endpoint, and margins

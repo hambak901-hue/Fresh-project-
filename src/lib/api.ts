@@ -639,7 +639,7 @@ export const api = {
     return request(`/api/telecom/history${qs ? `?${qs}` : ''}`);
   },
 
-  // cPanel & TrueHost LON110 (Phase 10 ready)
+  // cPanel Deployment & Server Management
   async getCpanelInfo(): Promise<any> {
     return request('/api/cpanel/info');
   },

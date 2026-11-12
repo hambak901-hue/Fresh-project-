@@ -44,7 +44,7 @@ class SystemController
             ],
             'server_time' => date('c'),
             'uptime' => '99.98%',
-            'deployment' => 'TrueHost LON110 / cPanel Native',
+            'deployment' => 'Enterprise Cloud Native',
         ]);
     }
 
@@ -61,7 +61,7 @@ class SystemController
             'airtime_discount_percent' => 2.5,
             'maintenance_mode' => false,
             'bank_transfer_account_name' => 'Hambak Technologies Enterprise',
-            'bank_transfer_bank' => 'Moniepoint MFB / TrueHost LON110',
+            'bank_transfer_bank' => 'Moniepoint MFB',
             'bank_transfer_account_number' => '8210492817',
             'company_name' => 'HambakTech Technologies',
             'support_phone' => '+234 803 000 1122',

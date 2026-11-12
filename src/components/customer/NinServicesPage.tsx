@@ -1,8 +1,7 @@
 /**
  * @file NinServicesPage.tsx
- * Phase 5 Complete Sovereign Identity Hub.
- * Integrates 2SureVerify as primary provider with official endpoint paths,
- * complete service coverage (NIN V1/V2/V3, Phone V1/V2/V3, Demo V1/V2/V3, VNIN, BVN V1/V2/V3, BVN Retrieval,
+ * Official Identity & Verification Hub.
+ * Complete service coverage (NIN V1/V2/V3, Phone V1/V2/V3, Demo V1/V2/V3, VNIN, BVN V1/V2/V3, BVN Retrieval,
  * all 16 NIN modifications, Personalisation 1&2, Adult/Child Enrolment, and 8 Additional Services),
  * printable slips, status polling, and wallet transaction safety with NDPR consent.
  */

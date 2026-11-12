@@ -1645,8 +1645,8 @@ export function ServiceManagement() {
               <p className="text-[11px] text-emerald-400 mt-1">NIMC margin: 30.0%</p>
             </div>
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
-              <p className="text-slate-400">TrueHost LON110 Ingress</p>
-              <p className="text-lg font-bold font-mono text-white mt-1">51.89.153.183:1624</p>
+              <p className="text-slate-400">Enterprise Ingress Cluster</p>
+              <p className="text-lg font-bold font-mono text-white mt-1">High-Availability Node</p>
               <p className="text-[11px] text-indigo-400 mt-1">99.98% Gateway Uptime</p>
             </div>
           </div>

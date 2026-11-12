@@ -65,15 +65,8 @@ class TelecomController
         $network = strtoupper((string)$request->query('network', ''));
 
         // Check if requester is authenticated admin
-        $isAdmin = false;
-        try {
-            $user = Auth::requireAuth($request);
-            if (in_array($user['role'] ?? '', ['admin', 'superadmin'], true)) {
-                $isAdmin = true;
-            }
-        } catch (\Throwable) {
-            $isAdmin = false;
-        }
+        $user = Auth::user($request);
+        $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
 
         if ($isAdmin) {
             $sql = 'SELECT id, provider_plan_id, network, name, size, plan_type as type, validity, wholesale_cost, price, is_active as enabled, provider_id as provider 
@@ -117,8 +110,17 @@ class TelecomController
             $cablePackages = $this->db->fetchAll('SELECT id, provider as provider_type, name, price, is_active FROM cable_packages WHERE is_active = 1 ORDER BY provider ASC, price ASC');
             $electricityDiscos = $this->db->fetchAll('SELECT id, name, code, is_active FROM electricity_discos WHERE is_active = 1 ORDER BY name ASC');
         }
-        $examPackages = $this->db->fetchAll('SELECT id, name, price, is_active FROM exam_packages WHERE is_active = 1 ORDER BY price ASC');
-        $airtimeSwap = $this->db->fetchAll('SELECT network, swap_rate_percent, is_active FROM airtime_swap_configs WHERE is_active = 1');
+        try {
+            $examPackages = $this->db->fetchAll('SELECT id, name, price, is_active FROM exam_packages WHERE is_active = 1 ORDER BY price ASC');
+        } catch (\Throwable) {
+            $examPackages = [];
+        }
+
+        try {
+            $airtimeSwap = $this->db->fetchAll('SELECT network, conversion_rate_percent, conversion_rate_percent as swap_rate_percent, is_active FROM airtime_swap_configs WHERE is_active = 1');
+        } catch (\Throwable) {
+            $airtimeSwap = [];
+        }
 
         Response::success([
             'plans' => $dataPlans,

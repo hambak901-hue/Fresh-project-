@@ -166,7 +166,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold rounded-full mb-3">
               <Shield className="w-3.5 h-3.5" />
-              <span>Executive Command Centre &bull; TrueHost LON110</span>
+              <span>Executive Command Centre &bull; Enterprise Cloud</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               Global Platform Overview
@@ -351,20 +351,20 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
 
               <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3.5 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-white">TrueHost SMTP Mail</span>
+                  <span className="font-semibold text-white">Enterprise SMTP Mail</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400" />
                 </div>
                 <p className="text-slate-400 text-[11px] font-mono">{data.providerStatus.smtpMail.status}</p>
-                <p className="text-[10px] text-slate-500 font-mono">{data.providerStatus.smtpMail.host}:{data.providerStatus.smtpMail.port}</p>
+                <p className="text-[10px] text-slate-500 font-mono">Mail Gateway: Active</p>
               </div>
 
               <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3.5 space-y-1 sm:col-span-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-white">TrueHost LON110 Server</span>
+                  <span className="font-semibold text-white">Production Server Core</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400" />
                 </div>
                 <p className="text-slate-400 text-[11px] font-mono">{data.providerStatus.cpanel.status}</p>
-                <p className="text-[10px] text-slate-500 font-mono">SFTP Target: {data.providerStatus.cpanel.serverIp}:1624</p>
+                <p className="text-[10px] text-slate-500 font-mono">Hosting Cluster: Operational</p>
               </div>
             </>
           )}

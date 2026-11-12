@@ -132,13 +132,13 @@ adminRouter.get('/overview', requireAdmin, (req, res) => {
     },
     smtpMail: {
       configured: Boolean(CREDENTIALS.mail.host),
-      status: CREDENTIALS.mail.host ? 'TrueHost LON110 Connected' : 'Local Fallback',
+      status: CREDENTIALS.mail.host ? 'Enterprise Cloud Connected' : 'Local Fallback',
       host: CREDENTIALS.mail.host,
       port: CREDENTIALS.mail.port,
     },
     cpanel: {
       configured: Boolean(CREDENTIALS.cpanel.serverIp),
-      status: 'LON110 Active (51.89.153.183:1624)',
+      status: 'Primary Node Active',
       host: CREDENTIALS.cpanel.ftpHost,
       serverIp: CREDENTIALS.cpanel.serverIp,
     },
@@ -1254,11 +1254,11 @@ adminRouter.post('/smtp/test-connection', requireAdmin, async (req: any, res) =>
 adminRouter.post('/smtp/send-test', requireAdmin, async (req: any, res) => {
   const { toEmail, subject, body } = req.body;
   const target = toEmail || req.user?.email || 'admin@hambaktech.com.ng';
-  const mailSubject = subject || 'HambakTech LON110 SMTP Outbound Test';
+  const mailSubject = subject || 'HambakTech Production SMTP Outbound Test';
   const content = body || `
     <div style="font-family: Arial, sans-serif; padding: 24px; background: #020617; color: #f8fafc; border-radius: 8px; border: 1px solid #10b981;">
       <h2 style="color: #10b981; margin-top: 0;">✓ Outbound Email Delivery Test</h2>
-      <p>This email verifies that outbound SMTP dispatch from <strong>lon110.truehost.cloud</strong> is fully functional.</p>
+      <p>This email verifies that outbound SMTP dispatch from the production mail gateway is fully functional.</p>
       <p style="color: #94a3b8; font-size: 13px;">Tested by: ${req.user?.email || 'Super Admin'}<br/>Timestamp: ${new Date().toISOString()}</p>
     </div>
   `;
@@ -1420,7 +1420,7 @@ adminRouter.put('/sms-config/template/:id', requireAdmin, (req, res) => {
 adminRouter.post('/sms-config/test', requireAdmin, (req, res) => {
   const { phone, message } = req.body;
   const targetPhone = phone || '+2348123456789';
-  const text = message || 'Test broadcast from HambakTech SMS Gateway on LON110.';
+  const text = message || 'Test broadcast from HambakTech SMS Gateway.';
   const units = Math.ceil(text.length / 160) || 1;
 
   const log = db.logSmsDispatch(targetPhone, text, units, 'delivered');

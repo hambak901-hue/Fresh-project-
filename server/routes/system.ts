@@ -120,10 +120,10 @@ systemRouter.post('/test-smtp', requireAdmin, async (req: any, res) => {
   if (testResult.success) {
     sendResult = await sendEmail(
       target,
-      'HambakTech LON110 SMTP Connectivity Test',
+      'HambakTech Production SMTP Connectivity Test',
       `<div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f8fafc; border-radius: 8px;">
         <h2 style="color: #059669;">HambakTech Mail Gateway Verified</h2>
-        <p>This email confirms that the SMTP credentials on <strong>lon110.truehost.cloud</strong> are properly connected and authorized.</p>
+        <p>This email confirms that the production SMTP credentials are properly connected and authorized.</p>
         <p>Target: <code>${target}</code></p>
         <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;" />
         <small style="color: #64748b;">HambakTech Enterprise Systems &bull; Phase 01 Architecture</small>

@@ -1,7 +1,7 @@
 /**
  * @file TelecomPage.tsx
- * Sovereign Telecommunications Hub (Phase 6 Complete).
- * Integrates Ulamadata Primary Provider with full-spectrum telecom modules:
+ * Sovereign Telecommunications Hub.
+ * Enterprise telecom services:
  * 1. Airtime Top-Up (MTN, Airtel, Glo, 9mobile)
  * 2. Dynamic Data Bundles (SME, Corporate, Gifting, Direct)
  * 3. Airtime PIN Generator (Printable recharge cards)

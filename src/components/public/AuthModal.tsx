@@ -60,7 +60,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // Forgot Password / OTP States
   const [otpCode, setOtpCode] = useState('');
   const [resetToken, setResetToken] = useState('');
-  const [otpPreview, setOtpPreview] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
 
   // Cooldown countdown timer
@@ -169,9 +168,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setLoading(true);
       const res = await api.forgotPassword(targetEmail);
       setResetToken(res.token || '');
-      if (res.otp_preview) {
-        setOtpPreview(res.otp_preview);
-      }
       setSuccessMsg(res.message || 'A 6-digit verification code has been dispatched to your email.');
       setMode('verify_otp');
       setResendCooldown(45); // 45 seconds cooldown
@@ -349,21 +345,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        {/* OTP Preview Callout (Fast-track assistance if email has delivery latency) */}
-        {otpPreview && (mode === 'verify_otp' || mode === 'forgot') && (
-          <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs space-y-1">
-            <div className="font-semibold flex items-center gap-1.5">
-              <KeyRound className="w-4 h-4 text-cyan-400" />
-              <span>Instant Recovery Code Available</span>
-            </div>
-            <p className="text-[11px] text-cyan-200">
-              For immediate access, your 6-digit verification code is:{' '}
-              <span className="font-mono font-bold text-white text-sm bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/40 tracking-wider">
-                {otpPreview}
-              </span>
-            </p>
-          </div>
-        )}
+
 
         {/* ---------------------------------------------------- */}
         {/* 1. LOGIN FORM */}

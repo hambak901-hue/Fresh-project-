@@ -522,7 +522,7 @@ export function SuperAdminDashboard({
               <Menu className="w-5 h-5" />
             </button>
             <div>
-              <p className="text-[11px] text-slate-400 font-mono hidden sm:block">Root Administration &bull; LON110</p>
+              <p className="text-[11px] text-slate-400 font-mono hidden sm:block">Root Administration &bull; Primary Node</p>
               <h1 className="text-base sm:text-lg font-bold text-white tracking-tight">{currentTitle}</h1>
             </div>
           </div>

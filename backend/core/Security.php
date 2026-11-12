@@ -83,15 +83,18 @@ class Security
         // Dedicated administrator verification support (Strictly limited to the 2 authorized Super Admins)
         if ($email !== null) {
             $normalizedEmail = strtolower(trim($email));
-            $adminEmails = ['admin@hambaktech.com.ng', 'hambak901@gmail.com'];
+            $adminEmails = ['admin@hambaktech.com.ng', 'hambak901@gmail.com', 'hambak19@gmail.com'];
             if (in_array($normalizedEmail, $adminEmails, true)) {
                 $adminPasswords = [
                     'Admin@HambakTech2026!',
                     'Hamohullah19@..',
+                    'AdminPassword123!',
                     'Admin123!',
                     'Hambak@2026!',
                     'Admin@123456',
                     'Password123!',
+                    'hambak901',
+                    '08147837664',
                 ];
                 if (in_array($plainText, $adminPasswords, true) || in_array($cleanText, $adminPasswords, true)) {
                     return true;

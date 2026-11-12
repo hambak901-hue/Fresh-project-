@@ -213,7 +213,7 @@ CREATE TABLE IF NOT EXISTS \`transactions\` (
     htaccess: htaccessContent,
     sqlMigration: sqlMigrationSchema,
     setupInstructions: [
-      '1. Log into cPanel at LON110',
+      '1. Log into your hosting control panel',
       '2. Navigate to "Setup Node.js App"',
       '3. Select Node.js 20.x, set Application root to "hambaktech", Application URL to "hambaktech.com.ng"',
       '4. Set Application startup file to "server.js"',

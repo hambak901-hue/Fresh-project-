@@ -393,7 +393,6 @@ authRouter.post('/forgot-password', async (req, res) => {
       message: 'A 6-digit verification code has been dispatched to your email address.',
       email: cleanEmail,
       token: resetToken,
-      otp_preview: otp,
       expires_in_minutes: 15,
     });
   } catch (err: any) {

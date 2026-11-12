@@ -1519,7 +1519,7 @@ export const Phase9IntegrationQa: React.FC<Phase9IntegrationQaProps> = ({
                   Signed &bull; Phase 09 Certified
                 </span>
               </div>
-              <span className="text-xs text-slate-400 font-mono">TrueHost LON110 (51.89.153.183)</span>
+              <span className="text-xs text-slate-400 font-mono">Enterprise Node</span>
             </div>
 
             {/* Document Content Viewer */}
@@ -1527,7 +1527,7 @@ export const Phase9IntegrationQa: React.FC<Phase9IntegrationQaProps> = ({
               {selectedReport === 'TEST_REPORT' && (
                 <div>
                   <h4 className="text-sm font-bold text-emerald-400 mb-2"># PHASE 9 FULL TEST REPORT</h4>
-                  <p className="text-slate-400">Date: November 8, 2026 | Environment: TrueHost LON110 Tier-3 (51.89.153.183:1624)</p>
+                  <p className="text-slate-400">Date: November 8, 2026 | Environment: Production Enterprise Node</p>
                   <p className="text-slate-400">Tested by: HambakTech Quality Assurance &amp; Infrastructure Engineering Team</p>
                   <hr className="border-slate-800 my-3" />
                   <p className="font-bold text-white">SUMMARY OF RESULTS:</p>
@@ -1567,7 +1567,7 @@ export const Phase9IntegrationQa: React.FC<Phase9IntegrationQaProps> = ({
               {selectedReport === 'API_INTEGRATION_REPORT' && (
                 <div>
                   <h4 className="text-sm font-bold text-emerald-400 mb-2"># API INTEGRATION &amp; ADAPTER TELEMETRY</h4>
-                  <p className="text-slate-400">Host: Node.js 22 Runtime &bull; Express REST Core &bull; TrueHost LON110</p>
+                  <p className="text-slate-400">Host: Node.js 22 Runtime &bull; Express REST Core &bull; Enterprise Cluster</p>
                   <hr className="border-slate-800 my-3" />
                   <p className="font-bold text-white">INTEGRATED EXTERNAL PROVIDERS:</p>
                   <p>1. Primary Identity Gateway: Configured via SECURE_2SUREVERIFY_KEY environment variable</p>
@@ -1610,12 +1610,12 @@ export const Phase9IntegrationQa: React.FC<Phase9IntegrationQaProps> = ({
                   <p className="font-bold text-white">ENVIRONMENTAL CONSTRAINTS:</p>
                   <p>1. Flutterwave Online Gateway: Staged as Coming Soon pending live compliance certification; Paystack is the primary operational gateway.</p>
                   <p>2. Hardware Store &amp; Academy: Customer pages staged as Coming Soon with waitlist subscription; backend catalog and admin management fully built.</p>
-                  <p>3. TrueHost LON110 Outbound SMTP: In preview container environment, outbound port 465 is simulated with full delivery logging; live on server.</p>
+                  <p>3. Enterprise Outbound SMTP: In preview container environment, outbound port is simulated with full delivery logging; live on server.</p>
                   <p className="font-bold text-white mt-3">PHASE 10 PRODUCTION STAGING DELIVERABLES:</p>
                   <p>- Production Vite bundle minification.</p>
                   <p>- cPanel Application Manager deployment package (.htaccess, server.js).</p>
-                  <p>- MySQL database schema export script for TrueHost PHPMyAdmin.</p>
-                  <p>- Automated SFTP deployment script to 51.89.153.183:1624.</p>
+                  <p>- MySQL database schema export script for PHPMyAdmin.</p>
+                  <p>- Automated secure deployment scripts.</p>
                 </div>
               )}
             </div>

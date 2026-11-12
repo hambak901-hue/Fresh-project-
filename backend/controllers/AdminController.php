@@ -1775,7 +1775,7 @@ class AdminController
         Response::success([
             'sent' => true,
             'recipient' => $recipient,
-            'message' => "Test verification email dispatched to {$recipient} via LON110 mail relay.",
+            'message' => "Test verification email dispatched to {$recipient} via secure mail relay.",
         ]);
     }
 

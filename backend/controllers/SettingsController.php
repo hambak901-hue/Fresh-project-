@@ -141,7 +141,7 @@ class SettingsController
                 'min_funding_amount' => 100,
                 'max_funding_amount' => 500000,
                 'manual_funding_enabled' => true,
-                'bank_name' => 'Moniepoint MFB / TrueHost LON110',
+                'bank_name' => 'Moniepoint MFB',
                 'bank_account_number' => '8210492817',
                 'bank_account_name' => 'Hambak Technologies Enterprise',
             ],
@@ -236,7 +236,7 @@ class SettingsController
 
             // 22. System configuration
             'system_config' => $settingsMap['system_config_settings'] ?? [
-                'cpanel_server' => 'TrueHost LON110 (51.89.153.183:1624)',
+                'cpanel_server' => 'Production Core Cluster',
                 'environment' => 'production',
                 'php_version' => PHP_VERSION,
                 'version' => '2.8.0-STAGE8',
