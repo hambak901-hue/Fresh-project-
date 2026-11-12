@@ -30,6 +30,7 @@ import {
   X
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { LogoUploader } from './LogoUploader';
 
 interface CategoryConfig {
   key: string;
@@ -556,6 +557,13 @@ export const GlobalSettingsManagement: React.FC = () => {
               </div>
             ) : (
               <form onSubmit={handleSaveCategory} className="space-y-5">
+                {activeCategory.key === 'branding' && (
+                  <LogoUploader
+                    currentLogoUrl={String(settingsValues.branding?.logo_url || '/logo.svg')}
+                    onLogoUpdated={(newUrl) => handleFieldChange('logo_url', newUrl)}
+                  />
+                )}
+
                 <div className="space-y-4">
                   {activeCategory.fields.map(field => {
                     const currentCategoryValues = settingsValues[activeCategory.key] || {};

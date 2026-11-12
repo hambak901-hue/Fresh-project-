@@ -3,7 +3,7 @@
  * Frontend HTTP client for HambakTech server APIs.
  */
 
-import { User, Transaction, VerificationRecord, TelecomOrder, SystemStatusResponse, KycSubmission, ServiceSecurityRule, VirtualAccountItem } from '../types';
+import { User, Transaction, VerificationRecord, TelecomOrder, SystemStatusResponse, KycSubmission, ServiceSecurityRule, VirtualAccountItem, ActivityFootprint, FootprintStats, AdminCreateCustomerPayload } from '../types';
 
 const TOKEN_KEY = 'hambaktech_auth_token';
 
@@ -1769,6 +1769,116 @@ export const api = {
     };
   }> {
     return request('/api/admin/reports/detailed');
+  },
+
+  // ─── Production Cleanup & Footprints Monitoring ───────────────────────────
+  async getFootprints(params: {
+    category?: string;
+    status?: string;
+    search?: string;
+    start_date?: string;
+    end_date?: string;
+    limit?: number;
+    page?: number;
+  } = {}): Promise<{
+    success: boolean;
+    footprints: ActivityFootprint[];
+    pagination: {
+      total: number;
+      page: number;
+      limit: number;
+      pages: number;
+    };
+  }> {
+    const query = new URLSearchParams();
+    if (params.category && params.category !== 'all') query.set('category', params.category);
+    if (params.status && params.status !== 'all') query.set('status', params.status);
+    if (params.search) query.set('search', params.search);
+    if (params.start_date) query.set('start_date', params.start_date);
+    if (params.end_date) query.set('end_date', params.end_date);
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.page) query.set('page', String(params.page));
+    const qs = query.toString();
+    return request(`/api/admin/footprints${qs ? `?${qs}` : ''}`);
+  },
+
+  async getFootprintStats(): Promise<{
+    success: boolean;
+    stats: FootprintStats;
+    recent_activities: ActivityFootprint[];
+  }> {
+    return request('/api/admin/footprints/stats');
+  },
+
+  getFootprintsExportUrl(params: {
+    category?: string;
+    status?: string;
+    search?: string;
+    start_date?: string;
+    end_date?: string;
+  } = {}): string {
+    const token = getStoredToken();
+    const query = new URLSearchParams();
+    if (params.category && params.category !== 'all') query.set('category', params.category);
+    if (params.status && params.status !== 'all') query.set('status', params.status);
+    if (params.search) query.set('search', params.search);
+    if (params.start_date) query.set('start_date', params.start_date);
+    if (params.end_date) query.set('end_date', params.end_date);
+    if (token) query.set('token', token);
+    const qs = query.toString();
+    return `/api/admin/footprints/export${qs ? `?${qs}` : ''}`;
+  },
+
+  async createAdminCustomer(payload: AdminCreateCustomerPayload): Promise<{
+    success: boolean;
+    message: string;
+    user: any;
+    wallet: any;
+  }> {
+    return request('/api/admin/customers/create', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async cleanDemoData(): Promise<{
+    success: boolean;
+    message: string;
+    backup_file: string;
+    deleted_test_users: number;
+    deleted_counts: Record<string, number>;
+    preserved_genuine_count: number;
+    preserved_emails: string[];
+  }> {
+    return request('/api/admin/maintenance/clean-demo-data', {
+      method: 'POST',
+    });
+  },
+
+  async uploadLogo(payload: {
+    file_base64?: string;
+    file_name?: string;
+    mime_type?: string;
+    image_url?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    logo_url: string;
+  }> {
+    return request('/api/admin/settings/upload-logo', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async removeLogo(): Promise<{
+    success: boolean;
+    message: string;
+    logo_url: string;
+  }> {
+    return request('/api/admin/settings/remove-logo', {
+      method: 'POST',
+    });
   },
 };
 

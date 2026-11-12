@@ -744,3 +744,29 @@ CREATE TABLE audit_logs (
     INDEX idx_audit_created (created_at),
     INDEX idx_audit_action (action)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE slip_templates (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    demo_image_url VARCHAR(500) NULL,
+    description TEXT NULL,
+    supported_service VARCHAR(100) DEFAULT 'all_nin',
+    is_active TINYINT(1) DEFAULT 1,
+    display_order INT DEFAULT 1,
+    badge VARCHAR(50) NULL,
+    watermark_text VARCHAR(100) DEFAULT 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE service_security_rules (
+    id VARCHAR(50) PRIMARY KEY,
+    service_key VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(150) NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    require_pin TINYINT(1) DEFAULT 1,
+    min_tier INT DEFAULT 1,
+    max_daily_limit DECIMAL(15, 2) DEFAULT 500000.00,
+    is_active TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

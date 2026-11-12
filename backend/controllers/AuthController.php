@@ -13,6 +13,9 @@ use HambakTech\Core\Request;
 use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
+use HambakTech\Services\FootprintService;
+use HambakTech\Services\MailService;
+use Throwable;
 
 class AuthController
 {
@@ -57,14 +60,17 @@ class AuthController
         );
 
         if (!$user) {
+            FootprintService::record('security', 'LOGIN_FAILED', null, null, null, null, 'failed', null, 'User identifier not found', ['identifier' => $inputIdent], $request->getIp());
             Response::error('Invalid email or password.', 401);
         }
 
         if ($user['status'] === 'suspended') {
+            FootprintService::record('security', 'LOGIN_BLOCKED_SUSPENDED', ['id' => $user['id'], 'email' => $user['email']], null, null, null, 'failed', null, 'Account is suspended', null, $request->getIp());
             Response::error('Your account is currently suspended. Please contact HambakTech Enterprise Support.', 403);
         }
 
         if (!Security::verifyPassword($password, $user['password_hash'])) {
+            FootprintService::record('security', 'LOGIN_FAILED', ['id' => $user['id'], 'email' => $user['email']], null, null, null, 'failed', null, 'Invalid password attempt', null, $request->getIp());
             Response::error('Invalid email or password.', 401);
         }
 
@@ -78,7 +84,21 @@ class AuthController
         $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
 
-        // Log audit event
+        // Log audit event and activity footprint
+        FootprintService::record(
+            'auth',
+            'CUSTOMER_LOGIN',
+            ['id' => $user['id'], 'email' => $user['email'], 'full_name' => $user['full_name'] ?? 'User'],
+            null,
+            null,
+            null,
+            'successful',
+            null,
+            null,
+            ['role' => $user['role']],
+            $request->getIp()
+        );
+
         $this->db->execute(
             'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
              VALUES (:id, :uid, :email, "USER_LOGIN", :details, :ip, NOW())',
@@ -158,6 +178,73 @@ class AuthController
                 ['id' => $notifId, 'uid' => $userId]
             );
         });
+
+        // 5. Admin Registration Notification & Email Dispatch (Requirement 3)
+        try {
+            $nowStr = date('Y-m-d H:i:s');
+            // Check duplicate prevention: avoid duplicate admin notifications within 5 minutes
+            $dupCheck = $this->db->fetchOne(
+                'SELECT id FROM notifications WHERE type = "new_customer_registration" AND message LIKE :m AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE) LIMIT 1',
+                ['m' => "%{$email}%"]
+            );
+            if (!$dupCheck) {
+                $adminNotifId = Security::generateUuid();
+                $this->db->execute(
+                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                     VALUES (:id, NULL, :title, :msg, "new_customer_registration", 0, NOW())',
+                    [
+                        'id' => $adminNotifId,
+                        'title' => "New Customer Registration: {$fullName}",
+                        'msg' => "Customer {$fullName} ({$email}, {$phoneNumber}) registered at {$nowStr}. Status: Active (Tier 1).",
+                    ]
+                );
+
+                // Fetch configurable administrator email from system_settings
+                $adminEmailSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "admin_notification_email"');
+                $adminEmail = $adminEmailSetting ? json_decode($adminEmailSetting['setting_value'], true) : null;
+                if (empty($adminEmail) || !filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
+                    $adminEmail = 'admin@hambaktech.com.ng';
+                }
+
+                $mailService = new MailService();
+                $mailBody = "
+                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;'>
+                    <div style='background: #4f46e5; color: #ffffff; padding: 16px 20px; border-radius: 8px 8px 0 0;'>
+                        <h2 style='margin: 0; font-size: 18px;'>New Customer Registration Alert</h2>
+                    </div>
+                    <div style='padding: 20px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;'>
+                        <p>A new customer has registered on the HambakTech Enterprise Portal.</p>
+                        <table style='width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;'>
+                            <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Customer Name:</strong></td><td style='padding: 8px 0; font-weight: bold;'>{$fullName}</td></tr>
+                            <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Email Address:</strong></td><td style='padding: 8px 0;'>{$email}</td></tr>
+                            <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Phone Number:</strong></td><td style='padding: 8px 0;'>{$phoneNumber}</td></tr>
+                            <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Registration Time:</strong></td><td style='padding: 8px 0;'>{$nowStr} (WAT)</td></tr>
+                            <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Account Status:</strong></td><td style='padding: 8px 0;'><span style='color: #16a34a; font-weight: bold;'>Active (Tier 1)</span></td></tr>
+                            <tr><td style='padding: 8px 0; color: #64748b;'><strong>IP Address:</strong></td><td style='padding: 8px 0;'>{$request->getIp()}</td></tr>
+                        </table>
+                        <p><a href='https://hambaktech.com.ng/#admin' style='display: inline-block; padding: 10px 20px; background: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;'>Open Admin Console</a></p>
+                    </div>
+                </div>";
+                $mailService->send($adminEmail, 'Administrator', "[HambakTech Alert] New Customer Registration: {$fullName}", $mailBody);
+            }
+        } catch (Throwable $e) {
+            error_log('[Registration Admin Notification Error] ' . $e->getMessage());
+        }
+
+        // 6. Record Activity Footprint
+        FootprintService::record(
+            'auth',
+            'CUSTOMER_REGISTRATION',
+            ['id' => $userId, 'email' => $email, 'full_name' => $fullName],
+            null,
+            null,
+            null,
+            'successful',
+            null,
+            null,
+            ['phone' => $phoneNumber, 'referral_code' => $referralCode, 'status' => 'active'],
+            $request->getIp()
+        );
 
         $user = $this->db->fetchOne('SELECT * FROM users WHERE id = :id', ['id' => $userId]);
         $token = Auth::generateToken($user);

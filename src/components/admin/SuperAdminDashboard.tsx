@@ -43,6 +43,7 @@ import {
   Sliders,
   Eye,
   EyeOff,
+  Activity,
 } from 'lucide-react';
 
 // Admin child views
@@ -54,6 +55,7 @@ import { DashboardModuleManagement } from './DashboardModuleManagement';
 import { ServiceManagement } from './ServiceManagement';
 import { StaffPermissionsManagement } from './StaffPermissionsManagement';
 import { AuditLogsViewer } from './AuditLogsViewer';
+import { FootprintsManagement } from './FootprintsManagement';
 
 // Phase 8 Admin Views
 import { DigitalServicesManagement } from './DigitalServicesManagement';
@@ -78,6 +80,7 @@ export type AdminTabKey =
   | 'overview'
   | 'customers'
   | 'funding'
+  | 'footprints'
   | 'support_admin'
   | 'notifications_admin'
   | 'global_settings'
@@ -356,6 +359,7 @@ export function SuperAdminDashboard({
     {
       title: 'Governance & Security',
       items: [
+        { id: 'footprints', label: 'Footprints & Telemetry', icon: Activity, badge: 'Live Audit' },
         { id: 'kyc_admin', label: 'KYC & PIN Policies', icon: ShieldCheck, badge: 'Stage 4' },
         { id: 'staff', label: 'Staff & Permissions', icon: ShieldAlert },
         { id: 'audit', label: 'Audit Logs', icon: FileText },
@@ -547,6 +551,8 @@ export function SuperAdminDashboard({
             {activeTab === 'customers' && <CustomerManagement />}
 
             {activeTab === 'funding' && <ManualFundingQueue />}
+
+            {activeTab === 'footprints' && <FootprintsManagement />}
 
             {activeTab === 'support_admin' && <SupportManagement />}
 

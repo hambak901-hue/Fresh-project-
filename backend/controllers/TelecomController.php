@@ -18,6 +18,7 @@ use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
 use HambakTech\Services\WalletService;
+use HambakTech\Services\FootprintService;
 use HambakTech\Adapters\Telecom\UlamaDataAdapter;
 
 class TelecomController
@@ -31,6 +32,28 @@ class TelecomController
         $this->db = Database::getInstance();
         $this->walletService = new WalletService();
         $this->adapter = new UlamaDataAdapter();
+    }
+
+    private function logFootprint(array $user, string $serviceType, string $action, string $ref, float $amount, string $status, ?string $provider = 'ulamadata', ?string $error = null, ?array $meta = []): void
+    {
+        try {
+            FootprintService::record([
+                'user_id' => $user['id'] ?? null,
+                'user_email' => $user['email'] ?? null,
+                'user_name' => $user['full_name'] ?? null,
+                'category' => 'service',
+                'action' => $action,
+                'service_type' => $serviceType,
+                'reference' => $ref,
+                'provider' => $provider,
+                'status' => $status,
+                'amount' => $amount,
+                'error_message' => $error,
+                'metadata' => $meta,
+            ]);
+        } catch (\Throwable) {
+            // Non-blocking footprint record
+        }
     }
 
     /**
@@ -199,6 +222,12 @@ class TelecomController
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
+            $this->logFootprint($user, 'data', 'DATA_PURCHASED', $reference, $price, 'successful', 'ulamadata', null, [
+                'network' => $plan['network'],
+                'phone' => $phone,
+                'plan' => "{$plan['network']} {$plan['size']}",
+            ]);
+
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
@@ -230,6 +259,11 @@ class TelecomController
                     'meta' => json_encode(['error' => $e->getMessage()]),
                 ]
             );
+
+            $this->logFootprint($user, 'data', 'DATA_PURCHASE_FAILED', $reference, $price, 'failed', 'ulamadata', $e->getMessage(), [
+                'network' => $plan['network'],
+                'phone' => $phone,
+            ]);
 
             Response::error('Failed to dispatch data: ' . $e->getMessage() . '. Your wallet balance has been refunded.', 502);
         }
@@ -303,6 +337,12 @@ class TelecomController
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
+            $this->logFootprint($user, 'airtime', 'AIRTIME_TOPUP', $reference, $discountedPrice, 'successful', 'ulamadata', null, [
+                'network' => $network,
+                'phone' => $phone,
+                'amount' => $amount,
+            ]);
+
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
@@ -332,6 +372,11 @@ class TelecomController
                     'meta' => json_encode(['error' => $e->getMessage()]),
                 ]
             );
+
+            $this->logFootprint($user, 'airtime', 'AIRTIME_TOPUP_FAILED', $reference, $discountedPrice, 'failed', 'ulamadata', $e->getMessage(), [
+                'network' => $network,
+                'phone' => $phone,
+            ]);
 
             Response::error('Failed to recharge airtime: ' . $e->getMessage() . '. Your wallet balance has been refunded.', 502);
         }

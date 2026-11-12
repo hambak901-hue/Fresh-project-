@@ -23,9 +23,15 @@ import {
   Ban,
   ShieldAlert,
   ArrowRight,
+  UserPlus,
+  Trash2,
+  Database,
+  Key,
+  Copy,
+  Sparkles,
 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { User, Transaction, TelecomOrder } from '../../types';
+import { User, Transaction, TelecomOrder, AdminCreateCustomerPayload } from '../../types';
 
 export function CustomerManagement() {
   const [customers, setCustomers] = useState<User[]>([]);
@@ -75,6 +81,93 @@ export function CustomerManagement() {
   const [editSaving, setEditSaving] = useState(false);
   const [editSuccess, setEditSuccess] = useState<string | null>(null);
 
+  // Create User modal state
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  const [createForm, setCreateForm] = useState<AdminCreateCustomerPayload>({
+    full_name: '',
+    email: '',
+    phone_number: '',
+    role: 'customer',
+    status: 'active',
+    tier: 1,
+    password: '',
+    initial_balance: 0,
+    notify_customer: true,
+  });
+
+  // Clean Demo Data modal state
+  const [isCleanDemoModalOpen, setIsCleanDemoModalOpen] = useState(false);
+  const [cleanLoading, setCleanLoading] = useState(false);
+  const [cleanError, setCleanError] = useState<string | null>(null);
+  const [cleanResult, setCleanResult] = useState<{
+    backup_file: string;
+    deleted_test_users: number;
+    preserved_genuine_count: number;
+    preserved_emails: string[];
+  } | null>(null);
+
+  const generateRandomPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
+    let pwd = '';
+    for (let i = 0; i < 12; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setCreateForm(prev => ({ ...prev, password: pwd }));
+  };
+
+  const handleCreateCustomerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateLoading(true);
+    setCreateError(null);
+    setCreateSuccess(null);
+    try {
+      const res = await api.createAdminCustomer(createForm);
+      setCreateSuccess(res.message || 'User created successfully!');
+      await fetchCustomers();
+      setTimeout(() => {
+        setIsCreateModalOpen(false);
+        setCreateSuccess(null);
+        setCreateForm({
+          full_name: '',
+          email: '',
+          phone_number: '',
+          role: 'customer',
+          status: 'active',
+          tier: 1,
+          password: '',
+          initial_balance: 0,
+          notify_customer: true,
+        });
+      }, 1500);
+    } catch (err: any) {
+      setCreateError(err.message || 'Failed to create customer');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const handleCleanDemoDataSubmit = async () => {
+    setCleanLoading(true);
+    setCleanError(null);
+    try {
+      const res = await api.cleanDemoData();
+      setCleanResult({
+        backup_file: res.backup_file,
+        deleted_test_users: res.deleted_test_users,
+        preserved_genuine_count: res.preserved_genuine_count,
+        preserved_emails: res.preserved_emails || [],
+      });
+      await fetchCustomers();
+    } catch (err: any) {
+      setCleanError(err.message || 'Failed to clean demo data');
+    } finally {
+      setCleanLoading(false);
+    }
+  };
+
   const fetchCustomers = async () => {
     setLoading(true);
     try {
@@ -118,11 +211,17 @@ export function CustomerManagement() {
 
   const handleToggleStatus = async (user: User) => {
     const nextStatus = user.status === 'active' ? 'suspended' : 'active';
-    const reason = window.prompt(
-      `Enter reason for ${nextStatus.toUpperCase()} account for ${user.full_name}:`,
-      nextStatus === 'suspended' ? 'Audit violation / suspicious chargeback' : 'Account restored after audit'
-    );
-    if (reason === null) return;
+    let reason = nextStatus === 'suspended' ? 'Audit violation / suspicious chargeback' : 'Account restored after audit';
+    try {
+      const p = window.prompt(
+        `Enter reason for ${nextStatus.toUpperCase()} account for ${user.full_name}:`,
+        reason
+      );
+      if (p === null) return;
+      if (p) reason = p;
+    } catch {
+      // In iframe environments where window.prompt is disallowed, fallback gracefully
+    }
 
     try {
       const res = await api.setCustomerStatus(user.id, nextStatus, reason);
@@ -240,13 +339,40 @@ export function CustomerManagement() {
               Search, audit, adjust balances, review submitted KYC documents, and enforce security policies.
             </p>
           </div>
-          <button
-            onClick={fetchCustomers}
-            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition flex items-center gap-2 text-xs font-semibold self-start sm:self-auto"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            <span>Refresh Table</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+            <button
+              onClick={() => {
+                setCleanResult(null);
+                setCleanError(null);
+                setIsCleanDemoModalOpen(true);
+              }}
+              className="px-3.5 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl transition flex items-center gap-2 text-xs font-semibold"
+            >
+              <Trash2 className="w-4 h-4 text-rose-400" />
+              <span>Clean Demo Data</span>
+            </button>
+
+            <button
+              onClick={() => {
+                generateRandomPassword();
+                setCreateError(null);
+                setCreateSuccess(null);
+                setIsCreateModalOpen(true);
+              }}
+              className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition flex items-center gap-2 text-xs font-semibold shadow-lg shadow-indigo-600/20"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>+ Create User</span>
+            </button>
+
+            <button
+              onClick={fetchCustomers}
+              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition flex items-center gap-2 text-xs font-semibold"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh Table</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -795,6 +921,324 @@ export function CustomerManagement() {
                     <span>Dispatch Notification</span>
                   </button>
                 </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE CUSTOMER MODAL */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-800/40">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">Provision New Customer Account</h3>
+                  <p className="text-xs text-slate-400">Admin onboarding with role, tier, and initial wallet credit</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCreateModalOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCustomerSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
+              {createError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{createError}</span>
+                </div>
+              )}
+
+              {createSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                  <span>{createSuccess}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="text-slate-300 font-medium block mb-1">Full Legal Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={createForm.full_name}
+                    onChange={e => setCreateForm(prev => ({ ...prev, full_name: e.target.value }))}
+                    placeholder="e.g. Alabi Stephen"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">Email Address *</label>
+                  <input
+                    type="email"
+                    required
+                    value={createForm.email}
+                    onChange={e => setCreateForm(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="customer@domain.com"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">Phone Number *</label>
+                  <input
+                    type="tel"
+                    required
+                    value={createForm.phone_number}
+                    onChange={e => setCreateForm(prev => ({ ...prev, phone_number: e.target.value }))}
+                    placeholder="08012345678"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">Account Role</label>
+                  <select
+                    value={createForm.role}
+                    onChange={e => setCreateForm(prev => ({ ...prev, role: e.target.value as any }))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="customer">Customer (Standard End-User)</option>
+                    <option value="agent">Agent (Commercial Reseller)</option>
+                    <option value="staff">Staff (Internal Operator)</option>
+                    <option value="admin">Administrator (Super Admin Access)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">Initial Status</label>
+                  <select
+                    value={createForm.status}
+                    onChange={e => setCreateForm(prev => ({ ...prev, status: e.target.value as any }))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="active">Active (Immediate Portal Access)</option>
+                    <option value="pending">Pending Email Verification</option>
+                    <option value="suspended">Suspended (Blocked Access)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">KYC Tier</label>
+                  <select
+                    value={createForm.tier}
+                    onChange={e => setCreateForm(prev => ({ ...prev, tier: Number(e.target.value) }))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value={1}>Tier 1 (₦50,000 Daily Limit)</option>
+                    <option value={2}>Tier 2 (₦500,000 Daily Limit)</option>
+                    <option value={3}>Tier 3 (₦5,000,000 Unlimited)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">Initial Wallet Credit (₦)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="50"
+                    value={createForm.initial_balance}
+                    onChange={e => setCreateForm(prev => ({ ...prev, initial_balance: Math.max(0, parseFloat(e.target.value) || 0) }))}
+                    placeholder="0.00"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-emerald-400 font-bold focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-300 font-medium">Temporary Password</label>
+                    <button
+                      type="button"
+                      onClick={generateRandomPassword}
+                      className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 text-[11px]"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      Auto-generate
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={createForm.password || ''}
+                      onChange={e => setCreateForm(prev => ({ ...prev, password: e.target.value }))}
+                      placeholder="Leave blank to auto-generate secure password"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2 p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 flex items-center justify-between">
+                  <div>
+                    <span className="font-medium text-white block">Send Welcome &amp; Credential Email</span>
+                    <span className="text-[11px] text-slate-400">Notifies user with credentials and login URL</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={createForm.notify_customer}
+                    onChange={e => setCreateForm(prev => ({ ...prev, notify_customer: e.target.checked }))}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-700"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={createLoading}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-2 shadow-lg shadow-indigo-600/20 disabled:opacity-50"
+                >
+                  {createLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                  <span>Provision Account</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CLEAN DEMO DATA SAFETY MODAL */}
+      {isCleanDemoModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-xl bg-slate-900 border border-rose-500/30 rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-rose-500/10">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">Clean Production Test &amp; Demo Data</h3>
+                  <p className="text-xs text-rose-300/80">Automated SQL Backup &amp; Safe Demo Pruning</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCleanDemoModalOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
+              {cleanError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{cleanError}</span>
+                </div>
+              )}
+
+              {cleanResult ? (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-2">
+                    <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                      <CheckCircle2 className="w-5 h-5" />
+                      <span>Cleanup Completed Successfully</span>
+                    </div>
+                    <p className="text-slate-300">
+                      Deleted <span className="font-bold text-white">{cleanResult.deleted_test_users}</span> test &amp; demo accounts and cascaded records.
+                    </p>
+                    <p className="text-slate-400 font-mono text-[11px] truncate" title={cleanResult.backup_file}>
+                      Pre-cleanup backup saved: {cleanResult.backup_file}
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/60">
+                    <span className="font-semibold text-white block mb-1">
+                      {cleanResult.preserved_genuine_count} Genuine Customers 100% Preserved:
+                    </span>
+                    <div className="max-h-32 overflow-y-auto space-y-1 pr-1 font-mono text-[11px] text-slate-300">
+                      {cleanResult.preserved_emails.map((email) => (
+                        <div key={email} className="flex items-center gap-1.5">
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span>{email}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => setIsCleanDemoModalOpen(false)}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/60 space-y-2 leading-relaxed text-slate-300">
+                    <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                      <Database className="w-4 h-4" />
+                      Automatic Pre-Cleanup Database Dump
+                    </div>
+                    <p>
+                      Before any test rows are removed, the system creates a full timestamped SQL database snapshot in <code className="text-indigo-300 font-mono">storage/backups/</code> to guarantee complete data recoverability.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 space-y-1.5">
+                    <div className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                      <Shield className="w-4 h-4" />
+                      Strict Genuine Customer Whitelist Protection
+                    </div>
+                    <p className="text-slate-300 text-[11px]">
+                      The following accounts, their wallet balances, funding histories, and transactions are <strong className="text-white">permanently protected</strong>:
+                    </p>
+                    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-[11px] font-mono text-emerald-300/90 pl-1">
+                      <li>• fatimohmusbau34@gmail.com</li>
+                      <li>• ifedayophilip@gmail.com</li>
+                      <li>• dakomajid123@gmail.com</li>
+                      <li>• uche4039@gmail.com</li>
+                      <li>• alabistephen498@gmail.com</li>
+                      <li>• emmanuelchidi1999@gmail.com</li>
+                      <li>• uwemedimogenerous@gmail.com</li>
+                      <li>• earr.music@gmaill.com</li>
+                      <li>• adebisiabdul96@gmail.com</li>
+                      <li>• admin@hambaktech.com.ng</li>
+                    </ul>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
+                    <strong className="block mb-1">What will be purged:</strong>
+                    Only demo accounts with patterns <code className="font-mono text-rose-200">@test.hambaktech.com.ng</code>, <code className="font-mono text-rose-200">@hambaktest.com</code>, <code className="font-mono text-rose-200">live_vtu_%</code>, and dummy test transactions.
+                  </div>
+
+                  <div className="pt-2 flex justify-end gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsCleanDemoModalOpen(false)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCleanDemoDataSubmit}
+                      disabled={cleanLoading}
+                      className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-semibold flex items-center gap-2 shadow-lg shadow-rose-600/20 disabled:opacity-50"
+                    >
+                      {cleanLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      <span>Execute Safe Cleanup</span>
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>

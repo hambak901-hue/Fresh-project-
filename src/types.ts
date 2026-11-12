@@ -792,4 +792,46 @@ export interface VirtualAccountItem {
   webhook_reference?: string;
 }
 
+export interface ActivityFootprint {
+  id: string;
+  user_id: string | null;
+  user_email: string | null;
+  user_name: string | null;
+  category: 'auth' | 'wallet' | 'service' | 'admin' | 'security' | 'visitor';
+  action: string;
+  service_type: string | null;
+  reference: string | null;
+  provider: string | null;
+  status: 'pending' | 'processing' | 'successful' | 'failed';
+  amount: number | null;
+  error_message: string | null;
+  metadata: Record<string, any> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  device_info: string | null;
+  browser_info: string | null;
+  created_at: string;
+}
+
+export interface FootprintStats {
+  total_activities: number;
+  today_logins: number;
+  today_services: number;
+  wallet_operations: number;
+  failed_activities: number;
+  unique_ips: number;
+}
+
+export interface AdminCreateCustomerPayload {
+  full_name: string;
+  email: string;
+  phone_number: string;
+  role: 'customer' | 'agent' | 'staff' | 'admin';
+  status: 'active' | 'pending' | 'suspended';
+  tier: number;
+  password?: string;
+  initial_balance?: number;
+  notify_customer?: boolean;
+}
+
 

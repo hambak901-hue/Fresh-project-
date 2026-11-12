@@ -17,6 +17,7 @@ use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
 use HambakTech\Services\WalletService;
+use HambakTech\Services\FootprintService;
 use HambakTech\Adapters\Payment\PaystackAdapter;
 use HambakTech\Adapters\Payment\FlutterwaveAdapter;
 
@@ -226,6 +227,20 @@ class WalletController
                 );
             }
 
+            FootprintService::record([
+                'user_id' => $user['id'],
+                'user_email' => $user['email'] ?? null,
+                'user_name' => $user['full_name'] ?? null,
+                'category' => 'wallet',
+                'action' => 'WALLET_FUND_INITIATED',
+                'service_type' => 'wallet_funding',
+                'reference' => $reference,
+                'provider' => $gateway,
+                'status' => 'pending',
+                'amount' => $amount,
+                'metadata' => ['gateway' => $gateway],
+            ]);
+
             Response::success([
                 'reference' => $reference,
                 'amount' => $amount,
@@ -238,6 +253,21 @@ class WalletController
                 'UPDATE payment_records SET status = "failed" WHERE id = :id',
                 ['id' => $paymentRecordId]
             );
+
+            FootprintService::record([
+                'user_id' => $user['id'],
+                'user_email' => $user['email'] ?? null,
+                'user_name' => $user['full_name'] ?? null,
+                'category' => 'wallet',
+                'action' => 'WALLET_FUND_INIT_FAILED',
+                'service_type' => 'wallet_funding',
+                'reference' => $reference,
+                'provider' => $gateway,
+                'status' => 'failed',
+                'amount' => $amount,
+                'error_message' => $e->getMessage(),
+            ]);
+
             Response::error($e->getMessage(), 502);
         }
     }
@@ -345,6 +375,20 @@ class WalletController
                     ]
                 );
 
+                FootprintService::record([
+                    'user_id' => $user['id'],
+                    'user_email' => $user['email'] ?? null,
+                    'user_name' => $user['full_name'] ?? null,
+                    'category' => 'wallet',
+                    'action' => 'WALLET_FUND_SUCCESSFUL',
+                    'service_type' => 'wallet_funding',
+                    'reference' => $reference,
+                    'provider' => $gateway,
+                    'status' => 'successful',
+                    'amount' => $amount,
+                    'metadata' => ['balance_after' => $txResult['balance_after'] ?? null],
+                ]);
+
                 Response::success([
                     'settled' => true,
                     'amount' => $amount,
@@ -358,9 +402,37 @@ class WalletController
                         ['id' => $record['id']]
                     );
                 }
+
+                FootprintService::record([
+                    'user_id' => $user['id'],
+                    'user_email' => $user['email'] ?? null,
+                    'user_name' => $user['full_name'] ?? null,
+                    'category' => 'wallet',
+                    'action' => 'WALLET_FUND_FAILED',
+                    'service_type' => 'wallet_funding',
+                    'reference' => $reference,
+                    'provider' => $gateway,
+                    'status' => 'failed',
+                    'amount' => $amount,
+                    'error_message' => $verifyRes['gateway_response'] ?? 'Transaction incomplete',
+                ]);
+
                 Response::error("Payment not verified upstream: " . ($verifyRes['gateway_response'] ?? 'Transaction incomplete'), 400);
             }
         } catch (Throwable $e) {
+            FootprintService::record([
+                'user_id' => $user['id'],
+                'user_email' => $user['email'] ?? null,
+                'user_name' => $user['full_name'] ?? null,
+                'category' => 'wallet',
+                'action' => 'WALLET_FUND_ERROR',
+                'service_type' => 'wallet_funding',
+                'reference' => $reference,
+                'provider' => $gateway,
+                'status' => 'failed',
+                'amount' => $amount,
+                'error_message' => $e->getMessage(),
+            ]);
             Response::error($e->getMessage(), 502);
         }
     }
@@ -604,6 +676,24 @@ class WalletController
                 'msg' => "Your manual transfer proof for ₦" . number_format($amount, 2) . " (Ref: {$paymentRef}) has been received and is pending verification.",
             ]
         );
+
+        FootprintService::record([
+            'user_id' => $user['id'],
+            'user_email' => $user['email'] ?? null,
+            'user_name' => $user['full_name'] ?? null,
+            'category' => 'wallet',
+            'action' => 'WALLET_MANUAL_FUND_SUBMITTED',
+            'service_type' => 'manual_transfer',
+            'reference' => $paymentRef,
+            'provider' => 'bank_transfer',
+            'status' => 'pending',
+            'amount' => $amount,
+            'metadata' => [
+                'bank_name' => $bankName,
+                'account_number' => $accountNumber,
+                'depositor_name' => $depositorName,
+            ],
+        ]);
 
         Response::success([
             'request_id' => $requestId,

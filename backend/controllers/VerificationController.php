@@ -16,6 +16,7 @@ use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
 use HambakTech\Services\WalletService;
+use HambakTech\Services\FootprintService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 
 class VerificationController
@@ -174,6 +175,23 @@ class VerificationController
                 ]
             );
 
+            FootprintService::record([
+                'user_id' => $user['id'],
+                'user_email' => $user['email'] ?? null,
+                'user_name' => $user['full_name'] ?? null,
+                'category' => 'service',
+                'action' => 'IDENTITY_VERIFIED',
+                'service_type' => $serviceKey,
+                'reference' => $reference,
+                'provider' => '2sureverify',
+                'status' => 'successful',
+                'amount' => $cost,
+                'metadata' => [
+                    'slip_type' => $slipType,
+                    'search_type' => strtoupper(explode('_', $serviceKey)[0] ?? 'NIN'),
+                ],
+            ]);
+
             Response::success([
                 'verification_id' => $recordId,
                 'reference' => $reference,
@@ -210,6 +228,21 @@ class VerificationController
                     'result' => json_encode(['error' => $e->getMessage()]),
                 ]
             );
+
+            FootprintService::record([
+                'user_id' => $user['id'],
+                'user_email' => $user['email'] ?? null,
+                'user_name' => $user['full_name'] ?? null,
+                'category' => 'service',
+                'action' => 'IDENTITY_VERIFY_FAILED',
+                'service_type' => $serviceKey,
+                'reference' => $reference,
+                'provider' => '2sureverify',
+                'status' => 'failed',
+                'amount' => $cost,
+                'error_message' => $e->getMessage(),
+                'metadata' => ['slip_type' => $slipType],
+            ]);
 
             Response::error('Verification could not be completed at this time. Your wallet has been automatically refunded.', 502);
         }

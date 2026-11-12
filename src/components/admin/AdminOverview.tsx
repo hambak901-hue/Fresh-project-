@@ -84,8 +84,14 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   };
 
   const handleRejectFunding = async (id: string) => {
-    const reason = window.prompt('Enter reason for declining this manual payment proof:', 'Bank deposit could not be verified on statement');
-    if (reason === null) return;
+    let reason = 'Bank deposit could not be verified on statement';
+    try {
+      const p = window.prompt('Enter reason for declining this manual payment proof:', reason);
+      if (p === null) return;
+      if (p) reason = p;
+    } catch {
+      // In iframe environments where window.prompt is disallowed, fallback gracefully
+    }
 
     setActionLoading(id);
     setActionSuccess(null);
@@ -131,7 +137,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
     );
   }
 
-  const rawMetrics = data?.metrics || {};
+  const rawMetrics = (data?.metrics as any) || {};
   const metrics = {
     totalCustomers: Number(rawMetrics.totalCustomers ?? rawMetrics.total_customers ?? 0),
     activeCustomers: Number(rawMetrics.activeCustomers ?? rawMetrics.active_customers ?? 0),
@@ -149,8 +155,8 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
     pendingKycCount: Number(rawMetrics.pendingKycCount ?? rawMetrics.pending_kyc_count ?? 0),
   };
 
-  const recentRegistrations = data?.recentRegistrations || data?.recent_registrations || [];
-  const pendingFundings = data?.pendingFundings || data?.pending_funding || [];
+  const recentRegistrations: any[] = data?.recentRegistrations || (data as any)?.recent_registrations || [];
+  const pendingFundings: any[] = data?.pendingFundings || (data as any)?.pending_funding || [];
 
   return (
     <div className="space-y-6">
@@ -391,7 +397,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              {pendingFundings.map(item => (
+              {pendingFundings.map((item: any) => (
                 <div
                   key={item.id}
                   className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
@@ -458,7 +464,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
           </div>
 
           <div className="space-y-2.5">
-            {recentRegistrations.map(user => (
+            {recentRegistrations.map((user: any) => (
               <div
                 key={user.id}
                 className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 flex items-center justify-between text-xs hover:border-slate-700 transition"

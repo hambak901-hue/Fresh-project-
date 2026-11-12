@@ -21,6 +21,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { BrandSettings, CmsSections, AnnouncementItem, FaqItem, NavMenuItem } from '../../types';
+import { LogoUploader } from './LogoUploader';
 
 export function WebsiteManagement() {
   const {
@@ -199,6 +200,11 @@ export function WebsiteManagement() {
               <span>Save Branding</span>
             </button>
           </div>
+
+          <LogoUploader
+            currentLogoUrl={brandForm.logo_url || '/logo.svg'}
+            onLogoUpdated={(newUrl) => setBrandForm(prev => ({ ...prev, logo_url: newUrl }))}
+          />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="space-y-1">
