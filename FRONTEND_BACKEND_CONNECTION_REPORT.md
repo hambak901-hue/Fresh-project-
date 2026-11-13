@@ -24,7 +24,7 @@ In the interactive AI Studio development environment:
 - Vite dev server hot-reloads React components and serves CSS/assets.
 - API endpoints (`/api/*`) are handled seamlessly by Express while maintaining exact schema parity with the PHP backend.
 
-### 2.2 Production Environment (TrueHost LON110 / cPanel Native)
+### 2.2 Production Environment (Production Cloud Host / cPanel Native)
 In production on cPanel:
 - The React build output (`/dist/*`) is deployed directly into the web root (`public_html/`).
 - The PHP backend (`/backend/`) is hosted alongside the frontend.

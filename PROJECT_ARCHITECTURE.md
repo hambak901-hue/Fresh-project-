@@ -1,6 +1,6 @@
 # Project Architecture: HambakTech Enterprise Portal
 **Author**: Senior Software Architect & Systems Engineer  
-**System Target**: TrueHost LON110 cPanel Shared Hosting (IP: 51.89.153.183, Port: 1624, User: qfqzpeqx)  
+**System Target**: Production Cloud Host cPanel Shared Hosting (IP: <CPANEL_HOST>, Port: 1624, User: <CPANEL_USER>)  
 **Phase**: Phase 01: Project Foundation and System Architecture  
 **Status**: Completed & Approved
 
@@ -11,7 +11,7 @@
 HambakTech Enterprise Portal is a high-availability Nigerian fintech, identity verification (NIN/BVN), telecommunications (data/airtime vending), utility billing, and academy platform.
 
 ### Hosting Compatibility Decision:
-* **The Production Constraint**: Standard cPanel shared hosting accounts (such as TrueHost LON110) are optimized for **PHP 8.2+ and MySQL/MariaDB**, where processes run on Apache/LiteSpeed web servers under suPHP or PHP-FPM. Continuous Node.js daemons on shared hosting are often subject to process killing, memory throttles, and socket resets.
+* **The Production Constraint**: Standard cPanel shared hosting accounts (such as Production Cloud Host) are optimized for **PHP 8.2+ and MySQL/MariaDB**, where processes run on Apache/LiteSpeed web servers under suPHP or PHP-FPM. Continuous Node.js daemons on shared hosting are often subject to process killing, memory throttles, and socket resets.
 * **The Architectural Solution**:
   1. **Production Runtime**: A native **PHP 8.2+ REST backend** located in `/backend` (or `public_html/api`), paired with a compiled, minified **static SPA frontend** (`/dist`) deployed directly into `public_html/`.
   2. **Development Runtime**: A full-stack TypeScript + Express + Vite dev server (`server.ts`) for real-time development in AI Studio, mirroring the exact contract of the PHP 8.2 production backend.

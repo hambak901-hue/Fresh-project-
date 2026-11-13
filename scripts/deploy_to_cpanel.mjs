@@ -7,11 +7,16 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-const FTP_HOST = '51.89.153.183';
-const FTP_PORT = '21';
-const FTP_USER = 'qfqzpeqx';
-const FTP_PASS = '2h9PAQk[kE[t96';
+const FTP_HOST = process.env.CPANEL_SFTP_HOST || '';
+const FTP_PORT = process.env.CPANEL_FTP_PORT || '21';
+const FTP_USER = process.env.CPANEL_SFTP_USER || '';
+const FTP_PASS = process.env.CPANEL_SFTP_PASS || '';
 const REMOTE_ROOT = 'public_html';
+
+if (!FTP_HOST || !FTP_USER || !FTP_PASS) {
+  console.error('❌ CPANEL_SFTP_HOST, CPANEL_SFTP_USER, and CPANEL_SFTP_PASS environment variables are required.');
+  process.exit(1);
+}
 
 console.log('🚀 Starting deployment to TrueHost cPanel (hambaktech.com.ng)...');
 

@@ -215,8 +215,16 @@ class VeripineAdapter implements VerificationAdapterInterface
         }
 
         $inner = is_array($decoded['data'] ?? null) ? $decoded['data'] : $decoded;
-        if (!empty($inner['photo']) && is_string($inner['photo']) && !str_starts_with($inner['photo'], 'data:') && !str_starts_with($inner['photo'], 'http') && !str_starts_with($inner['photo'], '/')) {
-            $inner['photo'] = 'data:image/jpeg;base64,' . $inner['photo'];
+        $rawPhoto = $inner['photo'] ?? $inner['base64Image'] ?? $inner['image'] ?? null;
+        if (!empty($rawPhoto) && is_string($rawPhoto)) {
+            $p = trim($rawPhoto);
+            if ($p !== '' && !str_starts_with($p, 'data:') && !str_starts_with($p, 'http') && !str_starts_with($p, '/')) {
+                $mime = str_starts_with($p, 'iVBOR') ? 'image/png' : 'image/jpeg';
+                $p = "data:{$mime};base64," . $p;
+            }
+            if ($p !== '') {
+                $inner['photo'] = $p;
+            }
         }
         $inner['provider'] = 'veripine';
         $inner['verified_at'] = $inner['verified_at'] ?? date('c');
@@ -241,7 +249,7 @@ class VeripineAdapter implements VerificationAdapterInterface
         if (str_contains($ep, 'modification') || str_contains($ep, 'nin_mod')) {
             return '/nin-modification';
         }
-        if (str_contains($ep, 'bvn') && str_contains($ep, 'phone')) {
+        if (str_contains($ep, 'bvn') && (str_contains($ep, 'phone') || str_contains($ep, 'retrieval'))) {
             return '/bvn-phone';
         }
         if (str_contains($ep, 'bvn')) {
@@ -253,7 +261,7 @@ class VeripineAdapter implements VerificationAdapterInterface
         if (str_contains($ep, 'tracking')) {
             return '/nin-tracking';
         }
-        if (str_contains($ep, 'demograph')) {
+        if (str_contains($ep, 'demograph') || str_contains($ep, 'demo_v')) {
             return '/nin-demography';
         }
         if (str_starts_with($endpoint, '/nin-') || str_starts_with($endpoint, '/bvn-')) {
@@ -272,9 +280,12 @@ class VeripineAdapter implements VerificationAdapterInterface
             return $p;
         };
 
+        $rawGender = strtolower(trim((string)($payload['gender'] ?? 'male')));
+        $normGender = ($rawGender === 'f' || $rawGender === 'female') ? 'female' : 'male';
+
         return match ($endpoint) {
             '/nin-phone' => [
-                'phone' => $cleanPhone($payload['phone'] ?? $payload['telephone'] ?? ''),
+                'phone' => $cleanPhone($payload['phone'] ?? $payload['telephone'] ?? $payload['search_value'] ?? ''),
                 'consent' => true,
             ],
             '/nin-tracking' => [
@@ -284,16 +295,16 @@ class VeripineAdapter implements VerificationAdapterInterface
             '/nin-demography' => [
                 'firstname' => trim((string)($payload['firstname'] ?? $payload['first_name'] ?? $payload['firstName'] ?? '')),
                 'lastname' => trim((string)($payload['lastname'] ?? $payload['surname'] ?? $payload['last_name'] ?? $payload['lastName'] ?? '')),
-                'gender' => strtolower(trim((string)($payload['gender'] ?? 'male'))),
+                'gender' => $normGender,
                 'dob' => trim((string)($payload['dob'] ?? $payload['birthdate'] ?? '')),
                 'consent' => true,
             ],
             '/bvn-verification' => [
-                'bvn' => preg_replace('/\D/', '', (string)($payload['bvn'] ?? '')),
+                'bvn' => preg_replace('/\D/', '', (string)($payload['bvn'] ?? $payload['search_value'] ?? '')),
                 'consent' => true,
             ],
             '/bvn-phone' => [
-                'phone' => $cleanPhone($payload['phone'] ?? ''),
+                'phone' => $cleanPhone($payload['phone'] ?? $payload['search_value'] ?? ''),
                 'consent' => true,
             ],
             '/nin-modification' => array_filter([
@@ -314,7 +325,7 @@ class VeripineAdapter implements VerificationAdapterInterface
                 'reference_id' => trim((string)($payload['reference_id'] ?? $payload['reference'] ?? '')),
             ],
             default => [
-                'nin' => preg_replace('/\D/', '', (string)($payload['nin'] ?? $payload['vnin'] ?? '')),
+                'nin' => preg_replace('/\D/', '', (string)($payload['nin'] ?? $payload['vnin'] ?? $payload['search_value'] ?? '')),
                 'consent' => true,
             ],
         };

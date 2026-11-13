@@ -37,7 +37,8 @@ import {
 } from 'lucide-react';
 
 type HubCategory = 'nin_verify' | 'bvn_verify' | 'nin_mod' | 'enrolment' | 'additional' | 'history';
-type NinSearchType = 'nin_v1' | 'phone_v1';
+type NinSearchType = 'nin_v1' | 'phone_v1' | 'demo_v1';
+type BvnSearchMode = 'bvn_number' | 'bvn_retrieval';
 
 const PENDING_RECOVERY_KEY = 'hambak_pending_nin_recovery';
 
@@ -69,9 +70,21 @@ export const NinServicesPage: React.FC = () => {
   const [previewModalTemplate, setPreviewModalTemplate] = useState<SlipTemplateItem | null>(null);
   const [loadingServices, setLoadingServices] = useState<boolean>(true);
 
+  // NIN Verification Form State (includes NIN Number, Phone Number, Demographic Verification)
   const [ninSearchType, setNinSearchType] = useState<NinSearchType>('nin_v1');
   const [ninInputValue, setNinInputValue] = useState<string>('');
+  const [demoFirstName, setDemoFirstName] = useState<string>('');
+  const [demoLastName, setDemoLastName] = useState<string>('');
+  const [demoDob, setDemoDob] = useState<string>('');
+  const [demoGender, setDemoGender] = useState<'m' | 'f'>('m');
   const [selectedSlipId, setSelectedSlipId] = useState<string>('');
+
+  // BVN Verification Form State
+  const [bvnSearchMode, setBvnSearchMode] = useState<BvnSearchMode>('bvn_number');
+  const [bvnInputValue, setBvnInputValue] = useState<string>('');
+  const [bvnFirstName, setBvnFirstName] = useState<string>('');
+  const [bvnLastName, setBvnLastName] = useState<string>('');
+  const [selectedBvnSlipId, setSelectedBvnSlipId] = useState<string>('');
 
   const [selectedServiceKey, setSelectedServiceKey] = useState<string>('nin_v1');
   const [formData, setFormData] = useState<Record<string, any>>({
@@ -141,13 +154,22 @@ export const NinServicesPage: React.FC = () => {
         }
         setSlipTemplates(templates);
 
-        const activeNinSlips = templates
+        const activeNinSlipsList = templates
           .filter(t => t.category === 'NIN' && t.is_active !== false)
           .sort((a, b) => a.display_order - b.display_order);
 
-        if (activeNinSlips.length > 0 && !selectedSlipId) {
-          const recommended = activeNinSlips.find(s => s.is_recommended) || activeNinSlips[0];
+        if (activeNinSlipsList.length > 0 && !selectedSlipId) {
+          const recommended = activeNinSlipsList.find(s => s.is_recommended) || activeNinSlipsList[0];
           setSelectedSlipId(recommended.id);
+        }
+
+        const activeBvnSlipsList = templates
+          .filter(t => t.category === 'BVN' && t.is_active !== false)
+          .sort((a, b) => a.display_order - b.display_order);
+
+        if (activeBvnSlipsList.length > 0 && !selectedBvnSlipId) {
+          const recommendedBvn = activeBvnSlipsList.find(s => s.is_recommended) || activeBvnSlipsList[0];
+          setSelectedBvnSlipId(recommendedBvn.id);
         }
       }
     } catch (e) {
@@ -190,6 +212,12 @@ export const NinServicesPage: React.FC = () => {
       .sort((a, b) => a.display_order - b.display_order);
   }, [slipTemplates]);
 
+  const activeBvnSlips = useMemo(() => {
+    return slipTemplates
+      .filter(t => t.category === 'BVN' && t.is_active !== false)
+      .sort((a, b) => a.display_order - b.display_order);
+  }, [slipTemplates]);
+
   useEffect(() => {
     if (activeNinSlips.length === 0) return;
     const exists = activeNinSlips.some(s => s.id === selectedSlipId || s.slip_code === selectedSlipId);
@@ -199,26 +227,100 @@ export const NinServicesPage: React.FC = () => {
     }
   }, [activeNinSlips, selectedSlipId]);
 
+  useEffect(() => {
+    if (activeBvnSlips.length === 0) return;
+    const exists = activeBvnSlips.some(s => s.id === selectedBvnSlipId || s.slip_code === selectedBvnSlipId);
+    if (!selectedBvnSlipId || !exists) {
+      const recommended = activeBvnSlips.find(s => s.is_recommended) || activeBvnSlips[0];
+      setSelectedBvnSlipId(recommended.id);
+    }
+  }, [activeBvnSlips, selectedBvnSlipId]);
+
   const selectedNinSlip = useMemo(() => {
     return activeNinSlips.find(s => s.id === selectedSlipId || s.slip_code === selectedSlipId) || activeNinSlips[0] || null;
   }, [activeNinSlips, selectedSlipId]);
 
-  const activeServiceKey = activeCategory === 'nin_verify' ? ninSearchType : selectedServiceKey;
+  const selectedBvnSlip = useMemo(() => {
+    return activeBvnSlips.find(s => s.id === selectedBvnSlipId || s.slip_code === selectedBvnSlipId) || activeBvnSlips[0] || null;
+  }, [activeBvnSlips, selectedBvnSlipId]);
+
+  const bvnServicesList = useMemo(() => {
+    return (categories.bvn_verification || services.filter(s => s.category === 'bvn_verification'))
+      .filter(s => s.enabled !== false);
+  }, [categories, services]);
+
+  const bvnNumberServiceKey = useMemo(() => {
+    const preferred = ['bvn_v1', 'bvn_v2', 'bvn_v3'];
+    for (const k of preferred) {
+      if (bvnServicesList.some(s => s.key === k)) return k;
+    }
+    return bvnServicesList.find(s => s.key !== 'bvn_retrieval')?.key || 'bvn_v1';
+  }, [bvnServicesList]);
+
+  const bvnRetrievalAvailable = useMemo(() => {
+    if (services.length === 0) return true;
+    return bvnServicesList.some(s => s.key === 'bvn_retrieval');
+  }, [services.length, bvnServicesList]);
+
+  const bvnTargetServiceKey = bvnSearchMode === 'bvn_retrieval' ? 'bvn_retrieval' : bvnNumberServiceKey;
+
+  const demoVerificationAvailable = useMemo(() => {
+    if (services.length === 0) return true;
+    return services.some(s => s.key === 'demo_v1' && s.enabled !== false);
+  }, [services]);
+
+  const activeServiceKey =
+    activeCategory === 'nin_verify'
+      ? ninSearchType
+      : activeCategory === 'bvn_verify'
+      ? bvnTargetServiceKey
+      : selectedServiceKey;
 
   const currentService = useMemo(() => {
     return (
       services.find(s => s.key === activeServiceKey) ||
       services[0] || {
         key: activeServiceKey,
-        name: activeServiceKey === 'phone_v1' ? 'NIN Search via Phone Number' : 'NIN Verification',
-        category: 'nin_verification',
-        price: 200,
-        required_fields: activeServiceKey === 'phone_v1' ? ['phone', 'slip_type'] : ['nin', 'slip_type'],
-        description: 'Verify National Identification Number details.',
+        name:
+          activeServiceKey === 'phone_v1'
+            ? 'NIN Search via Phone Number'
+            : activeServiceKey === 'demo_v1'
+            ? 'NIN Verification via Demographic Data'
+            : activeServiceKey === 'bvn_retrieval'
+            ? 'BVN Retrieval via Phone Number'
+            : activeServiceKey.startsWith('bvn_')
+            ? 'BVN Verification'
+            : 'NIN Verification',
+        category: activeCategory === 'bvn_verify' ? 'bvn_verification' : 'nin_verification',
+        price: activeServiceKey === 'bvn_retrieval' ? 1200 : activeCategory === 'bvn_verify' ? 250 : 200,
+        required_fields:
+          activeServiceKey === 'phone_v1' || activeServiceKey === 'bvn_retrieval'
+            ? ['phone', 'slip_type']
+            : activeServiceKey === 'demo_v1'
+            ? ['firstname', 'lastname', 'dob', 'gender', 'slip_type']
+            : activeServiceKey.startsWith('bvn_')
+            ? ['bvn', 'slip_type']
+            : ['nin', 'slip_type'],
+        description:
+          activeCategory === 'bvn_verify'
+            ? 'Verify Bank Verification Number details and generate an authorized BVN slip report.'
+            : 'Verify National Identification Number details.',
         slip_type_supported: true,
       }
     );
-  }, [services, activeServiceKey]);
+  }, [services, activeServiceKey, activeCategory]);
+
+  const computeBvnSlipPrice = (slip: SlipTemplateItem | null): number => {
+    const servicePrice = Number((currentService as any).price ?? (currentService as any).selling_price ?? 0);
+    const slipPrice =
+      slip?.price !== null && slip?.price !== undefined && Number(slip.price) > 0
+        ? Number(slip.price)
+        : 0;
+    if (bvnSearchMode === 'bvn_retrieval') {
+      return Math.max(servicePrice || 1200, slipPrice);
+    }
+    return slipPrice > 0 ? slipPrice : servicePrice;
+  };
 
   const finalCharge = useMemo(() => {
     if (activeCategory === 'nin_verify') {
@@ -226,8 +328,11 @@ export const NinServicesPage: React.FC = () => {
         return Number(selectedNinSlip.price);
       }
     }
+    if (activeCategory === 'bvn_verify') {
+      return computeBvnSlipPrice(selectedBvnSlip);
+    }
     return Number((currentService as any).price ?? (currentService as any).selling_price ?? 0);
-  }, [activeCategory, selectedNinSlip, currentService]);
+  }, [activeCategory, selectedNinSlip, selectedBvnSlip, currentService, bvnSearchMode]);
 
   const walletBalance = Number(user?.wallet_balance ?? 0);
   const insufficientBalance = walletBalance < finalCharge;
@@ -249,10 +354,19 @@ export const NinServicesPage: React.FC = () => {
     resetIdempotency();
 
     if (cat === 'nin_verify') setSelectedServiceKey(ninSearchType);
-    if (cat === 'bvn_verify') setSelectedServiceKey('bvn_v1');
-    if (cat === 'nin_mod') setSelectedServiceKey('nin_mod_name');
-    if (cat === 'enrolment') setSelectedServiceKey('bvn_enroll_adult');
-    if (cat === 'additional') setSelectedServiceKey('npc_attestation');
+    if (cat === 'bvn_verify') setSelectedServiceKey(bvnTargetServiceKey);
+    if (cat === 'nin_mod') {
+      const firstMod = (categories.nin_modification || [])[0];
+      setSelectedServiceKey(firstMod?.key || 'nin_mod_name');
+    }
+    if (cat === 'enrolment') {
+      const firstEnroll = (categories.enrolment || [])[0];
+      setSelectedServiceKey(firstEnroll?.key || 'bvn_enroll_adult');
+    }
+    if (cat === 'additional') {
+      const firstAdd = (categories.additional_services || []).filter(s => !s.key.toLowerCase().startsWith('demo_'))[0];
+      setSelectedServiceKey(firstAdd?.key || '');
+    }
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -272,15 +386,51 @@ export const NinServicesPage: React.FC = () => {
         setError('No active slip format is currently available. Please contact support.');
         return;
       }
-      const digitsOnly = ninInputValue.replace(/\s+/g, '');
-      if (ninSearchType === 'nin_v1') {
-        if (!/^\d{11}$/.test(digitsOnly)) {
-          setError('Please enter a valid 11-digit National Identification Number (NIN).');
+      if (ninSearchType === 'demo_v1') {
+        if (!demoFirstName.trim() || !demoLastName.trim()) {
+          setError('Please enter both First Name and Surname for Demographic Verification.');
+          return;
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(demoDob)) {
+          setError('Please select a valid Date of Birth (YYYY-MM-DD) for Demographic Verification.');
           return;
         }
       } else {
+        const digitsOnly = ninInputValue.replace(/\s+/g, '');
+        if (ninSearchType === 'nin_v1') {
+          if (!/^\d{11}$/.test(digitsOnly)) {
+            setError('Please enter a valid 11-digit National Identification Number (NIN).');
+            return;
+          }
+        } else {
+          if (!/^\d{11}$/.test(digitsOnly)) {
+            setError('Please enter a valid 11-digit Nigerian Phone Number (e.g. 08012345678).');
+            return;
+          }
+        }
+      }
+      if (insufficientBalance) {
+        setError(`Insufficient wallet balance. Available: ₦${walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}, Required: ₦${finalCharge.toLocaleString('en-NG', { minimumFractionDigits: 2 })}. Please fund your wallet.`);
+        return;
+      }
+    } else if (activeCategory === 'bvn_verify') {
+      if (!selectedBvnSlip) {
+        setError('No active BVN slip format is currently available. Please contact support.');
+        return;
+      }
+      const digitsOnly = bvnInputValue.replace(/\s+/g, '');
+      if (bvnSearchMode === 'bvn_number') {
         if (!/^\d{11}$/.test(digitsOnly)) {
-          setError('Please enter a valid 11-digit Nigerian Phone Number (e.g. 08012345678).');
+          setError('Please enter a valid 11-digit Bank Verification Number (BVN).');
+          return;
+        }
+      } else {
+        if (!bvnFirstName.trim() || !bvnLastName.trim()) {
+          setError('Please enter both First Name and Last Name for BVN Retrieval.');
+          return;
+        }
+        if (!/^\d{11}$/.test(digitsOnly)) {
+          setError('Please enter a valid 11-digit Phone Number linked to the BVN (e.g. 08012345678).');
           return;
         }
       }
@@ -412,16 +562,35 @@ export const NinServicesPage: React.FC = () => {
     const activeIkey = idempotencyKeyRef.current;
     const cleanSearchVal =
       activeCategory === 'nin_verify'
-        ? ninInputValue.replace(/\s+/g, '')
+        ? ninSearchType === 'demo_v1'
+          ? `${demoFirstName.trim().toUpperCase()} ${demoLastName.trim().toUpperCase()} (${demoDob})`
+          : ninInputValue.replace(/\s+/g, '')
+        : activeCategory === 'bvn_verify'
+        ? bvnInputValue.replace(/\s+/g, '')
         : String(formData.nin || formData.bvn || formData.phone || '').trim();
-    const targetKey = activeCategory === 'nin_verify' ? ninSearchType : currentService.key;
+    const targetKey =
+      activeCategory === 'nin_verify'
+        ? ninSearchType
+        : activeCategory === 'bvn_verify'
+        ? bvnTargetServiceKey
+        : currentService.key;
 
     const attemptSnapshot: PendingRecoveryAttempt = {
       idempotencyKey: activeIkey,
       serviceKey: targetKey,
       searchValue: cleanSearchVal,
-      slipType: activeCategory === 'nin_verify' ? selectedNinSlip?.slip_code : formData.slip_type,
-      slipName: activeCategory === 'nin_verify' ? selectedNinSlip?.name : currentService.name,
+      slipType:
+        activeCategory === 'nin_verify'
+          ? selectedNinSlip?.slip_code
+          : activeCategory === 'bvn_verify'
+          ? selectedBvnSlip?.slip_code
+          : formData.slip_type,
+      slipName:
+        activeCategory === 'nin_verify'
+          ? selectedNinSlip?.name
+          : activeCategory === 'bvn_verify'
+          ? selectedBvnSlip?.name
+          : currentService.name,
       startedAt: new Date().toISOString(),
     };
     saveRecoveryAttempt(attemptSnapshot);
@@ -429,12 +598,34 @@ export const NinServicesPage: React.FC = () => {
     try {
       const payload: Record<string, any> =
         activeCategory === 'nin_verify'
+          ? ninSearchType === 'demo_v1'
+            ? {
+                search_type: 'demo',
+                firstname: demoFirstName.trim().toUpperCase(),
+                lastname: demoLastName.trim().toUpperCase(),
+                dob: demoDob,
+                gender: demoGender,
+                slip_type: selectedNinSlip?.slip_code || 'ninStandard',
+                slip_template_id: selectedNinSlip?.id,
+                idempotency_key: activeIkey,
+              }
+            : {
+                search_type: ninSearchType === 'phone_v1' ? 'phone' : 'nin',
+                nin: ninSearchType === 'nin_v1' ? cleanSearchVal : undefined,
+                phone: ninSearchType === 'phone_v1' ? cleanSearchVal : undefined,
+                slip_type: selectedNinSlip?.slip_code || 'ninStandard',
+                slip_template_id: selectedNinSlip?.id,
+                idempotency_key: activeIkey,
+              }
+          : activeCategory === 'bvn_verify'
           ? {
-              search_type: ninSearchType === 'phone_v1' ? 'phone' : 'nin',
-              nin: ninSearchType === 'nin_v1' ? cleanSearchVal : undefined,
-              phone: ninSearchType === 'phone_v1' ? cleanSearchVal : undefined,
-              slip_type: selectedNinSlip?.slip_code || 'ninStandard',
-              slip_template_id: selectedNinSlip?.id,
+              search_type: bvnSearchMode === 'bvn_retrieval' ? 'phone' : 'bvn',
+              bvn: bvnSearchMode === 'bvn_number' ? cleanSearchVal : undefined,
+              phone: bvnSearchMode === 'bvn_retrieval' ? cleanSearchVal : undefined,
+              first_name: bvnSearchMode === 'bvn_retrieval' ? bvnFirstName.trim().toUpperCase() : undefined,
+              last_name: bvnSearchMode === 'bvn_retrieval' ? bvnLastName.trim().toUpperCase() : undefined,
+              slip_type: selectedBvnSlip?.slip_code || 'bvnBasic',
+              slip_template_id: selectedBvnSlip?.id,
               idempotency_key: activeIkey,
             }
           : {
@@ -451,6 +642,7 @@ export const NinServicesPage: React.FC = () => {
 
       if (res && res.success === true && (res.result || res.reference)) {
         const normalizedResult = res.result || (res as any).data?.result || (res as any).data || {};
+        const resolvedFallbackSlip = activeCategory === 'bvn_verify' ? selectedBvnSlip : selectedNinSlip;
         const recordPayload = {
           id: res.recordId || (res as any).verification_id,
           data: normalizedResult,
@@ -459,8 +651,8 @@ export const NinServicesPage: React.FC = () => {
           type: currentService.category,
           search_value: cleanSearchVal,
           reference: res.reference,
-          slip_type: res.slip_type || selectedNinSlip?.slip_code,
-          slip_name: res.slip_name || selectedNinSlip?.name,
+          slip_type: res.slip_type || resolvedFallbackSlip?.slip_code,
+          slip_name: res.slip_name || resolvedFallbackSlip?.name,
           has_original_pdf: Boolean(
             (res as any).has_original_pdf ||
               normalizedResult?.pdf_base64 ||
@@ -586,12 +778,20 @@ export const NinServicesPage: React.FC = () => {
         { label: 'First Name', value: report.firstName },
         { label: 'Middle Name', value: report.middleName },
         { label: 'Surname', value: report.surname },
-        { label: 'NIN Number', value: report.nin, mono: true },
         { label: 'BVN Number', value: report.bvn, mono: true },
+        { label: 'NIN Number', value: report.nin, mono: true },
         { label: 'Date of Birth', value: report.dateOfBirth, mono: true },
         { label: 'Gender', value: report.gender },
         { label: 'Phone Number', value: report.phoneNumber, mono: true },
+        { label: 'Email Address', value: report.email },
         { label: 'Residential Address', value: [report.address, report.lga, report.state].filter(Boolean).join(', ') || null },
+        { label: 'Enrollment Bank', value: report.enrollmentBank },
+        { label: 'Enrollment Branch', value: report.enrollmentBranch },
+        { label: 'Account Level', value: report.levelOfAccount },
+        { label: 'Watchlisted', value: report.watchListed },
+        { label: 'Marital Status', value: report.maritalStatus },
+        { label: 'Name on Card', value: report.nameOnCard },
+        { label: 'Registration Date', value: report.registrationDate, mono: true },
         { label: 'Tracking Reference', value: report.trackingId, mono: true },
       ].filter(item => Boolean(item.value))
     : [];
@@ -758,50 +958,146 @@ export const NinServicesPage: React.FC = () => {
                     >
                       <option value="nin_v1">NIN Number</option>
                       <option value="phone_v1">Phone Number</option>
+                      {demoVerificationAvailable && (
+                        <option value="demo_v1">Demographic Verification (Name, DOB &amp; Gender)</option>
+                      )}
                     </select>
                   </div>
 
-                  {/* 2. Dynamic Search Input Field */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label
-                        htmlFor="nin-search-value"
-                        className="block text-xs font-bold text-slate-700 dark:text-slate-200"
-                      >
-                        {ninSearchType === 'nin_v1' ? 'NIN Number (11 Digits)' : 'Phone Number (11 Digits)'}
-                      </label>
-                      <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                        {ninInputValue.replace(/\D/g, '').length}/11 digits
-                      </span>
+                  {/* 2. Dynamic Search Input Field(s) */}
+                  {ninSearchType === 'demo_v1' ? (
+                    <div className="space-y-3 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 p-3.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label
+                            htmlFor="demo-first-name"
+                            className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1"
+                          >
+                            First Name
+                          </label>
+                          <input
+                            id="demo-first-name"
+                            type="text"
+                            value={demoFirstName}
+                            onChange={e => {
+                              setDemoFirstName(e.target.value);
+                              setError(null);
+                              resetIdempotency();
+                            }}
+                            placeholder="e.g. AHMAD"
+                            className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="demo-last-name"
+                            className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1"
+                          >
+                            Surname
+                          </label>
+                          <input
+                            id="demo-last-name"
+                            type="text"
+                            value={demoLastName}
+                            onChange={e => {
+                              setDemoLastName(e.target.value);
+                              setError(null);
+                              resetIdempotency();
+                            }}
+                            placeholder="e.g. BELLO"
+                            className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label
+                            htmlFor="demo-dob"
+                            className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1"
+                          >
+                            Date of Birth
+                          </label>
+                          <input
+                            id="demo-dob"
+                            type="date"
+                            max={new Date().toISOString().split('T')[0]}
+                            value={demoDob}
+                            onChange={e => {
+                              setDemoDob(e.target.value);
+                              setError(null);
+                              resetIdempotency();
+                            }}
+                            className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="demo-gender"
+                            className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1"
+                          >
+                            Gender
+                          </label>
+                          <select
+                            id="demo-gender"
+                            value={demoGender}
+                            onChange={e => {
+                              setDemoGender(e.target.value as 'm' | 'f');
+                              setError(null);
+                              resetIdempotency();
+                            }}
+                            className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="m">Male</option>
+                            <option value="f">Female</option>
+                          </select>
+                        </div>
+                      </div>
                     </div>
-                    <div className="relative">
-                      {ninSearchType === 'nin_v1' ? (
-                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                      ) : (
-                        <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                      )}
-                      <input
-                        id="nin-search-value"
-                        type={ninSearchType === 'nin_v1' ? 'text' : 'tel'}
-                        inputMode="numeric"
-                        maxLength={11}
-                        value={ninInputValue}
-                        onChange={e => {
-                          const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
-                          setNinInputValue(digits);
-                          setError(null);
-                          resetIdempotency();
-                        }}
-                        placeholder={
-                          ninSearchType === 'nin_v1'
-                            ? 'Enter 11-digit NIN number'
-                            : 'e.g. 08012345678'
-                        }
-                        className="w-full min-h-[44px] pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                        required
-                      />
+                  ) : (
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label
+                          htmlFor="nin-search-value"
+                          className="block text-xs font-bold text-slate-700 dark:text-slate-200"
+                        >
+                          {ninSearchType === 'nin_v1' ? 'NIN Number (11 Digits)' : 'Phone Number (11 Digits)'}
+                        </label>
+                        <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                          {ninInputValue.replace(/\D/g, '').length}/11 digits
+                        </span>
+                      </div>
+                      <div className="relative">
+                        {ninSearchType === 'nin_v1' ? (
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                        ) : (
+                          <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                        )}
+                        <input
+                          id="nin-search-value"
+                          type={ninSearchType === 'nin_v1' ? 'text' : 'tel'}
+                          inputMode="numeric"
+                          maxLength={11}
+                          value={ninInputValue}
+                          onChange={e => {
+                            const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
+                            setNinInputValue(digits);
+                            setError(null);
+                            resetIdempotency();
+                          }}
+                          placeholder={
+                            ninSearchType === 'nin_v1'
+                              ? 'Enter 11-digit NIN number'
+                              : 'e.g. 08012345678'
+                          }
+                          className="w-full min-h-[44px] pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                          required
+                        />
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* 3. Select Slip Type Dropdown */}
                   <div>
@@ -970,8 +1266,348 @@ export const NinServicesPage: React.FC = () => {
                   </button>
                 </form>
               </>
+            ) : activeCategory === 'bvn_verify' ? (
+              <>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">BVN Verification</h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Verify a Bank Verification Number or retrieve BVN via phone number, select your BVN slip format, and download your report.
+                  </p>
+                </div>
+
+                {error && (
+                  <div className="space-y-2.5 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 text-rose-700 dark:text-rose-300 text-xs">
+                    <div className="flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <div className="flex-1 leading-relaxed">{error}</div>
+                    </div>
+                    {recoveryAttempt && !submitting && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleRecoverAttempt()}
+                          disabled={recovering}
+                          className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white text-[11px] font-bold inline-flex items-center gap-1.5 transition"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${recovering ? 'animate-spin' : ''}`} />
+                          <span>{recovering ? 'Checking Saved Result...' : 'Recover Completed Result'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearRecoveryAttempt}
+                          className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!error && recoveryAttempt && !submitting && (
+                  <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 text-amber-800 dark:text-amber-300 text-xs">
+                    <span>An earlier verification check was interrupted.</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRecoverAttempt()}
+                      disabled={recovering}
+                      className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold inline-flex items-center gap-1 shrink-0"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${recovering ? 'animate-spin' : ''}`} />
+                      <span>{recovering ? 'Recovering...' : 'Recover Result'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {successMessage && (
+                  <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/25 text-emerald-800 dark:text-emerald-300 text-xs">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1 leading-relaxed">{successMessage}</div>
+                  </div>
+                )}
+
+                <form onSubmit={handleFormSubmit} className="space-y-4">
+                  {/* 1. Select Search Type Dropdown */}
+                  <div>
+                    <label
+                      htmlFor="bvn-search-type"
+                      className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5"
+                    >
+                      Select Search Type
+                    </label>
+                    <select
+                      id="bvn-search-type"
+                      value={bvnSearchMode}
+                      onChange={e => {
+                        setBvnSearchMode(e.target.value as BvnSearchMode);
+                        setBvnInputValue('');
+                        setError(null);
+                        setSuccessMessage(null);
+                        resetIdempotency();
+                      }}
+                      className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="bvn_number">BVN Number</option>
+                      {bvnRetrievalAvailable && (
+                        <option value="bvn_retrieval">Phone Number (BVN Retrieval)</option>
+                      )}
+                    </select>
+                  </div>
+
+                  {bvnSearchMode === 'bvn_retrieval' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label
+                          htmlFor="bvn-ret-firstname"
+                          className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5"
+                        >
+                          First Name
+                        </label>
+                        <input
+                          id="bvn-ret-firstname"
+                          type="text"
+                          value={bvnFirstName}
+                          onChange={e => {
+                            setBvnFirstName(e.target.value);
+                            setError(null);
+                            resetIdempotency();
+                          }}
+                          placeholder="e.g. MUSA"
+                          className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="bvn-ret-lastname"
+                          className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5"
+                        >
+                          Last Name (Surname)
+                        </label>
+                        <input
+                          id="bvn-ret-lastname"
+                          type="text"
+                          value={bvnLastName}
+                          onChange={e => {
+                            setBvnLastName(e.target.value);
+                            setError(null);
+                            resetIdempotency();
+                          }}
+                          placeholder="e.g. IBRAHIM"
+                          className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2. Dynamic BVN / Phone Input Field */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label
+                        htmlFor="bvn-search-value"
+                        className="block text-xs font-bold text-slate-700 dark:text-slate-200"
+                      >
+                        {bvnSearchMode === 'bvn_number' ? 'BVN Number (11 Digits)' : 'Phone Number (11 Digits)'}
+                      </label>
+                      <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                        {bvnInputValue.replace(/\D/g, '').length}/11 digits
+                      </span>
+                    </div>
+                    <div className="relative">
+                      {bvnSearchMode === 'bvn_number' ? (
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                      ) : (
+                        <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                      )}
+                      <input
+                        id="bvn-search-value"
+                        type={bvnSearchMode === 'bvn_number' ? 'text' : 'tel'}
+                        inputMode="numeric"
+                        maxLength={11}
+                        value={bvnInputValue}
+                        onChange={e => {
+                          const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
+                          setBvnInputValue(digits);
+                          setError(null);
+                          resetIdempotency();
+                        }}
+                        placeholder={
+                          bvnSearchMode === 'bvn_number'
+                            ? 'Enter 11-digit BVN number'
+                            : 'e.g. 08012345678'
+                        }
+                        className="w-full min-h-[44px] pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* 3. Select BVN Slip Type Dropdown */}
+                  <div>
+                    <label
+                      htmlFor="bvn-slip-type"
+                      className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5"
+                    >
+                      Select Slip Type
+                    </label>
+                    {loadingServices ? (
+                      <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Loading BVN slip formats...</span>
+                      </div>
+                    ) : activeBvnSlips.length === 0 ? (
+                      <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 text-xs text-amber-800 dark:text-amber-300">
+                        No active BVN slip types are currently available. Please contact support.
+                      </div>
+                    ) : (
+                      <select
+                        id="bvn-slip-type"
+                        value={selectedBvnSlip?.id || ''}
+                        onChange={e => {
+                          setSelectedBvnSlipId(e.target.value);
+                          setError(null);
+                          resetIdempotency();
+                        }}
+                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {activeBvnSlips.map(slip => {
+                          const effectivePrice = computeBvnSlipPrice(slip);
+                          return (
+                            <option key={slip.id} value={slip.id}>
+                              {slip.name} — ₦{effectivePrice.toLocaleString('en-NG')}
+                              {slip.is_recommended ? ' (Recommended)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    )}
+                  </div>
+
+                  {/* 4. Selected BVN Slip Specimen Preview, Description & Price */}
+                  {selectedBvnSlip && (
+                    <div className="rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-slate-900 dark:text-white">
+                              {selectedBvnSlip.name}
+                            </span>
+                            {(selectedBvnSlip.is_recommended || selectedBvnSlip.badge) && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25 text-[10px] font-bold">
+                                {selectedBvnSlip.is_recommended && <Star className="w-2.5 h-2.5 fill-current" />}
+                                <span>{selectedBvnSlip.badge || 'Recommended'}</span>
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
+                            {selectedBvnSlip.description}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
+                            Price
+                          </span>
+                          <span className="text-sm font-extrabold font-mono text-blue-700 dark:text-emerald-400">
+                            ₦{finalCharge.toLocaleString('en-NG')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="relative h-36 w-full rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                        <img
+                          src={selectedBvnSlip.demo_image_url}
+                          alt={`${selectedBvnSlip.name} Specimen`}
+                          className="w-full h-full object-cover"
+                          onError={e => {
+                            (e.target as HTMLImageElement).src = '/assets/slips/bvn_basic.jpg';
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-slate-950/30 flex items-center justify-center pointer-events-none">
+                          <span className="px-2.5 py-1 rounded-md bg-amber-950/85 border border-amber-400/60 text-amber-200 font-mono text-[10px] font-bold tracking-wider rotate-[-4deg]">
+                            {selectedBvnSlip.watermark_text || 'SAMPLE SPECIMEN'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewModalTemplate(selectedBvnSlip)}
+                          className="absolute top-2 right-2 min-h-[32px] px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-slate-900 text-white text-[10px] font-semibold inline-flex items-center gap-1 transition"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>Preview</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 5. Wallet & Final Charge Breakdown */}
+                  <div className="rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-4 space-y-2 text-xs">
+                    <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                      <span>Available Wallet Balance</span>
+                      <span className="font-mono font-bold text-slate-900 dark:text-white">
+                        ₦{walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                      <span>Final Customer Charge</span>
+                      <span className="font-mono font-extrabold text-blue-700 dark:text-emerald-400">
+                        ₦{finalCharge.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between font-semibold">
+                      <span className="text-slate-700 dark:text-slate-300">Balance After Verification</span>
+                      <span
+                        className={`font-mono ${
+                          insufficientBalance
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-emerald-700 dark:text-emerald-400'
+                        }`}
+                      >
+                        {insufficientBalance
+                          ? 'Insufficient Balance'
+                          : `₦${(walletBalance - finalCharge).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 6. Legal Authorization / Consent Checkbox */}
+                  <label className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={consentAccepted}
+                      onChange={e => {
+                        setConsentAccepted(e.target.checked);
+                        setError(null);
+                      }}
+                      className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      <strong className="text-slate-900 dark:text-white">Authorization Consent:</strong> I confirm that I have received explicit legal consent from the BVN holder to perform this verification under Nigerian data protection laws (NDPR) and CBN/NIBSS guidelines.
+                    </span>
+                  </label>
+
+                  {/* 7. Verify & Debit Wallet Button */}
+                  <button
+                    type="submit"
+                    disabled={submitting || activeBvnSlips.length === 0}
+                    className="w-full min-h-[48px] py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-bold transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Verifying BVN Record...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Verify &amp; Debit Wallet (₦{finalCharge.toLocaleString('en-NG')})</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              </>
             ) : (
-              /* Preserved Non-NIN Workflows (BVN / Modification / Enrolment / Additional) */
+              /* Modification / Enrolment / Additional Services */
               <>
                 <div>
                   <span className="text-[10px] font-mono uppercase tracking-wider text-blue-600 dark:text-emerald-400 font-bold">
@@ -984,39 +1620,51 @@ export const NinServicesPage: React.FC = () => {
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Select Service</label>
                   <div className="grid grid-cols-1 gap-1.5 max-h-52 overflow-y-auto pr-1">
-                    {((categories as any)[
-                      activeCategory === 'bvn_verify'
-                        ? 'bvn_verification'
-                        : activeCategory === 'nin_mod'
-                        ? 'nin_modification'
-                        : activeCategory === 'enrolment'
-                        ? 'enrolment'
-                        : 'additional_services'
-                    ] || []).map((srv: IdentityService) => {
-                      const isSelected = selectedServiceKey === srv.key;
-                      return (
-                        <button
-                          key={srv.key}
-                          type="button"
-                          onClick={() => {
-                            setSelectedServiceKey(srv.key);
-                            setError(null);
-                            setSuccessMessage(null);
-                            resetIdempotency();
-                          }}
-                          className={`flex items-center justify-between p-2.5 rounded-xl border text-xs text-left transition ${
-                            isSelected
-                              ? 'bg-blue-50 dark:bg-emerald-500/10 border-blue-500 dark:border-emerald-500/60 text-slate-900 dark:text-white font-semibold'
-                              : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                          }`}
-                        >
-                          <span className="truncate pr-2">{srv.name}</span>
-                          <span className="font-mono font-bold text-blue-700 dark:text-emerald-400 shrink-0">
-                            ₦{(srv.price ?? (srv as any).selling_price ?? 0).toLocaleString()}
-                          </span>
-                        </button>
-                      );
-                    })}
+                    {(() => {
+                      const catList: IdentityService[] = (categories as any)[
+                        activeCategory === 'nin_mod'
+                          ? 'nin_modification'
+                          : activeCategory === 'enrolment'
+                          ? 'enrolment'
+                          : 'additional_services'
+                      ] || [];
+                      const filteredList =
+                        activeCategory === 'additional'
+                          ? catList.filter(s => !s.key.toLowerCase().startsWith('demo_'))
+                          : catList;
+                      if (filteredList.length === 0) {
+                        return (
+                          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-500">
+                            No active services are currently listed under this section.
+                          </div>
+                        );
+                      }
+                      return filteredList.map((srv: IdentityService) => {
+                        const isSelected = selectedServiceKey === srv.key;
+                        return (
+                          <button
+                            key={srv.key}
+                            type="button"
+                            onClick={() => {
+                              setSelectedServiceKey(srv.key);
+                              setError(null);
+                              setSuccessMessage(null);
+                              resetIdempotency();
+                            }}
+                            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs text-left transition ${
+                              isSelected
+                                ? 'bg-blue-50 dark:bg-emerald-500/10 border-blue-500 dark:border-emerald-500/60 text-slate-900 dark:text-white font-semibold'
+                                : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                          >
+                            <span className="truncate pr-2">{srv.name}</span>
+                            <span className="font-mono font-bold text-blue-700 dark:text-emerald-400 shrink-0">
+                              ₦{(srv.price ?? (srv as any).selling_price ?? 0).toLocaleString()}
+                            </span>
+                          </button>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
 
@@ -1419,7 +2067,7 @@ export const NinServicesPage: React.FC = () => {
                 <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 flex items-start gap-2.5">
                   <Lock className="w-4 h-4 text-blue-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                   <span>
-                    This {companyName} verification report is provided for authorized identity validation and KYC records. It does not replace an official government-issued NIMC identity card.
+                    This {companyName} verification report is provided for authorized identity validation and KYC records. It does not replace {report.isBvnReport ? 'official banking credentials issued directly by CBN/NIBSS' : 'an official government-issued NIMC identity card'}.
                   </span>
                 </div>
               </div>
@@ -1432,7 +2080,10 @@ export const NinServicesPage: React.FC = () => {
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">Ready to Verify</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 leading-relaxed">
-                    Select a search type, enter the 11-digit NIN or phone number, pick your preferred slip type, and click <strong>Verify &amp; Debit Wallet</strong> to view your report.
+                    {activeCategory === 'bvn_verify'
+                      ? 'Select a BVN search type, enter the 11-digit BVN or linked phone number, pick your preferred BVN slip format, and click '
+                      : 'Select a search type, enter the NIN, phone number, or demographic details, pick your preferred slip type, and click '}
+                    <strong>Verify &amp; Debit Wallet</strong> to view your report.
                   </p>
                 </div>
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 max-w-md mx-auto text-left text-xs space-y-1.5">
@@ -1632,7 +2283,11 @@ export const NinServicesPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  setSelectedSlipId(previewModalTemplate.id);
+                  if (previewModalTemplate.category === 'BVN') {
+                    setSelectedBvnSlipId(previewModalTemplate.id);
+                  } else {
+                    setSelectedSlipId(previewModalTemplate.id);
+                  }
                   setPreviewModalTemplate(null);
                   resetIdempotency();
                 }}

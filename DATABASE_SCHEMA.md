@@ -121,7 +121,7 @@ The HambakTech database is structured into 6 logical domain clusters:
 ## 3. Migration to cPanel
 
 To import this schema on cPanel:
-1. Open cPanel at `51.89.153.183:2083`.
-2. Navigate to **MySQL Databases** and create `qfqzpeqx_hambakdb`.
-3. Open **phpMyAdmin**, select `qfqzpeqx_hambakdb`.
+1. Open cPanel at `<CPANEL_HOST>:2083`.
+2. Navigate to **MySQL Databases** and create `<DB_NAME>`.
+3. Open **phpMyAdmin**, select `<DB_NAME>`.
 4. Click **Import** and upload `backend/database/schema.sql`, followed by `backend/database/seed.sql`.

@@ -1,6 +1,6 @@
 # HAMBakTECH — STAGE 6: TELECOMMUNICATIONS LIVE INTEGRATION REPORT
 **Enterprise VTU, Bill Payments & Telecommunications Infrastructure**
-**Production Target:** cPanel LON110 Linux / PHP 8.2+ / MySQL 8.0+
+**Production Target:** cPanel <HOST_NODE> Linux / PHP 8.2+ / MySQL 8.0+
 **Primary Gateway:** UlamaData Sovereign Gateway (`https://www.ulamadata.ng`)
 **Secondary Failover:** VTpass Commercial Engine (`https://api-service.vtpass.com/api`)
 **Live Production URL:** `https://hambaktech.com.ng`

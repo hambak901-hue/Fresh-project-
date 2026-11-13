@@ -2,7 +2,7 @@
 
 **Audit Date**: November 11, 2026  
 **Implementation**: `GlobalSettingsManagement.tsx` & `SettingsController.php`  
-**Storage**: MySQL `system_settings` table on `qfqzpeqx_hambak`.
+**Storage**: MySQL `system_settings` table on `<DB_NAME>`.
 
 ---
 

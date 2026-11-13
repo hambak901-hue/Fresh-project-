@@ -1,6 +1,6 @@
 # HAMBAKTECH ENTERPRISE — STAGE 2: DATABASE BACKUP & RESTORATION GUIDE
 **Platform**: MySQL 8.0+ / MariaDB 10.11+  
-**Target Environment**: TrueHost LON110 Cloud / cPanel Shared Hosting  
+**Target Environment**: Production Cloud Host Cloud / cPanel Shared Hosting  
 **Scope**: Disaster Recovery, Automated Cron Exports, phpMyAdmin Procedures
 
 ---

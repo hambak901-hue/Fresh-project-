@@ -491,6 +491,7 @@ export const api = {
     services: import('../types').IdentityService[];
     categories: Record<string, import('../types').IdentityService[]>;
     slipTypes: Array<{ id: string; template_id?: string; name: string; description: string; price?: number | null; is_recommended?: boolean; badge?: string | null }>;
+    bvnSlipTypes?: Array<{ id: string; template_id?: string; name: string; description: string; price?: number | null; is_recommended?: boolean; badge?: string | null }>;
     slipTemplates?: import('../types').SlipTemplateItem[];
   }> {
     return request('/api/verification/services');
@@ -1254,6 +1255,13 @@ export const api = {
     success: boolean;
     primaryProviderId: string;
     providers: import('../types').ProviderConfigItem[];
+    routing?: {
+      active_verification_provider: string;
+      bvn_primary_provider: string;
+      bvn_fallback_provider: string;
+      bvn_auto_fallback: boolean;
+      identity_auto_fallback: boolean;
+    };
   }> {
     return request('/api/admin/providers');
   },

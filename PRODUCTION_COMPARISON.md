@@ -1,6 +1,6 @@
 # PRODUCTION COMPARISON: LIVE PRODUCTION VS. LOCAL IMPLEMENTATION
 
-**Production Target Host**: `https://hambaktech.com.ng` (TrueHost LON110 Cloud Server: `51.89.153.183:1624`)  
+**Production Target Host**: `https://hambaktech.com.ng` (Production Cloud Host Cloud Server: `<CPANEL_HOST>:1624`)  
 **Audit Date**: November 9, 2026  
 **Auditor**: HambakTech Enterprise Architecture Division  
 **Methodology**: Direct HTTP probe, Turbopack client bundle extraction, AST analysis of production Next.js App Router chunks, and field-by-field parity comparison with the local React+Express application.
@@ -83,7 +83,7 @@ By analyzing the production client chunk manifests (`1d_gaeie0lpmt.js`, `3-j-_0-
     1. Identity Providers: 2SureVerify (Primary), Veripine (Failover)
     2. Telecom Providers: Ulamadata (Primary), VTpass (Utility Bridge)
     3. Payment Gateways: Paystack (Live), Flutterwave (Staged)
-    4. Mail Gateway: TrueHost LON110 SMTP
+    4. Mail Gateway: Production Cloud Host SMTP
   - Workflows:
     - Live Balance Retrieval: Query available float on 2SureVerify and Ulamadata
     - Transaction Requery Tool: Query upstream provider reference directly (`/api/requery`)

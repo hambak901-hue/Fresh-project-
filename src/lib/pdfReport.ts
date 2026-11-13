@@ -14,13 +14,22 @@ export interface NormalizedIdentityReport {
   fullName: string | null;
   nin: string | null;
   bvn: string | null;
+  isBvnReport: boolean;
   dateOfBirth: string | null;
   gender: string | null;
   phoneNumber: string | null;
+  email: string | null;
   address: string | null;
   state: string | null;
   lga: string | null;
   trackingId: string | null;
+  enrollmentBank: string | null;
+  enrollmentBranch: string | null;
+  levelOfAccount: string | null;
+  watchListed: string | null;
+  maritalStatus: string | null;
+  nameOnCard: string | null;
+  registrationDate: string | null;
   photo: string | null;
   pdfBase64: string | null;
   pdfUrl: string | null;
@@ -40,41 +49,81 @@ function cleanField(val: unknown): string | null {
 
 export function extractVerificationReport(record: any): NormalizedIdentityReport {
   const raw = record?.data || record?.result || record || {};
-  const nested = (raw?.user_data && typeof raw.user_data === 'object')
-    ? { ...raw, ...raw.user_data }
-    : raw;
+  const nested =
+    raw?.user_data && typeof raw.user_data === 'object'
+      ? { ...raw, ...raw.user_data }
+      : raw?.data && typeof raw.data === 'object'
+      ? { ...raw, ...raw.data }
+      : raw;
 
   const firstName = cleanField(nested.firstname ?? nested.firstName ?? nested.first_name);
   const middleName = cleanField(nested.middlename ?? nested.middleName ?? nested.middle_name);
   const surname = cleanField(nested.surname ?? nested.lastName ?? nested.last_name ?? nested.lastname);
   const fullNameParts = [firstName, middleName, surname].filter(Boolean);
-  const fullName = fullNameParts.length > 0
-    ? fullNameParts.join(' ')
-    : cleanField(nested.full_name ?? nested.fullName);
+  const fullName =
+    fullNameParts.length > 0
+      ? fullNameParts.join(' ')
+      : cleanField(nested.full_name ?? nested.fullName ?? nested.nameOnCard ?? nested.name_on_card);
 
-  const nin = cleanField(nested.nin ?? nested.NIN ?? (record?.service_key?.includes('nin') ? record?.search_value : null));
-  const bvn = cleanField(nested.bvn ?? nested.BVN ?? (record?.service_key?.includes('bvn') ? record?.search_value : null));
+  const serviceKeyLower = String(record?.service_key ?? '').toLowerCase();
+  const typeLower = String(record?.type ?? '').toLowerCase();
+
+  const nin = cleanField(
+    nested.nin ??
+      nested.NIN ??
+      (serviceKeyLower.includes('nin') && !serviceKeyLower.includes('bvn') ? record?.search_value : null)
+  );
+  const bvn = cleanField(
+    nested.bvn ??
+      nested.BVN ??
+      ((serviceKeyLower === 'bvn_v1' || serviceKeyLower === 'bvn_v2' || serviceKeyLower === 'bvn_v3')
+        ? record?.search_value
+        : null)
+  );
+  const isBvnReport = Boolean(
+    bvn ||
+      serviceKeyLower.startsWith('bvn') ||
+      typeLower === 'bvn' ||
+      typeLower.includes('bvn')
+  );
+
   const dateOfBirth = cleanField(nested.birthdate ?? nested.dateOfBirth ?? nested.date_of_birth ?? nested.dob);
   const gender = cleanField(nested.gender ?? nested.sex);
   const phoneNumber = cleanField(
     nested.telephoneno ??
-    nested.phone ??
-    nested.phoneNumber ??
-    nested.phone_number ??
-    (record?.service_key?.includes('phone') ? record?.search_value : null)
+      nested.phone ??
+      nested.phoneNumber ??
+      nested.phoneNumber1 ??
+      nested.phone_number ??
+      nested.phone_number_1 ??
+      (serviceKeyLower.includes('phone') || serviceKeyLower === 'bvn_retrieval' ? record?.search_value : null)
   );
+  const email = cleanField(nested.email ?? nested.emailAddress);
 
   const address = cleanField(
     nested.address ??
-    nested.residence_address ??
-    nested.residential_address ??
-    nested.residence_AdressLine1
+      nested.residence_address ??
+      nested.residential_address ??
+      nested.residentialAddress ??
+      nested.residence_AdressLine1
   );
-  const state = cleanField(nested.residence_state ?? nested.state ?? nested.stateOfOrigin);
-  const lga = cleanField(nested.residence_lga ?? nested.lga ?? nested.lgaOfOrigin);
+  const state = cleanField(
+    nested.residence_state ?? nested.stateOfResidence ?? nested.state ?? nested.stateOfOrigin
+  );
+  const lga = cleanField(
+    nested.residence_lga ?? nested.lgaOfResidence ?? nested.lga ?? nested.lgaOfOrigin
+  );
   const trackingId = cleanField(nested.tracking_id ?? nested.trackingId);
 
-  let photo = cleanField(nested.photo ?? nested.image ?? nested.avatar);
+  const enrollmentBank = cleanField(nested.enrollment_bank ?? nested.enrollmentBank);
+  const enrollmentBranch = cleanField(nested.enrollment_branch ?? nested.enrollmentBranch);
+  const levelOfAccount = cleanField(nested.level_of_account ?? nested.levelOfAccount);
+  const watchListed = cleanField(nested.watch_listed ?? nested.watchListed ?? nested.watchlisted);
+  const maritalStatus = cleanField(nested.marital_status ?? nested.maritalStatus);
+  const nameOnCard = cleanField(nested.name_on_card ?? nested.nameOnCard);
+  const registrationDate = cleanField(nested.registration_date ?? nested.registrationDate);
+
+  let photo = cleanField(nested.photo ?? nested.base64Image ?? nested.image ?? nested.avatar);
   if (photo) {
     const isUrlOrAsset =
       photo.startsWith('data:') ||
@@ -109,7 +158,9 @@ export function extractVerificationReport(record: any): NormalizedIdentityReport
     : new Date().toLocaleString('en-NG');
 
   const status = cleanField(record?.status) || 'VERIFIED';
-  const slipTypeName = cleanField(record?.slip_name ?? record?.slip_type ?? nested.slip_type) || 'Standard Verification Report';
+  const slipTypeName =
+    cleanField(record?.slip_name ?? record?.slip_type ?? nested.slip_type) ||
+    (isBvnReport ? 'BVN Verification Report' : 'Standard Verification Report');
 
   return {
     firstName,
@@ -118,13 +169,22 @@ export function extractVerificationReport(record: any): NormalizedIdentityReport
     fullName,
     nin,
     bvn,
+    isBvnReport,
     dateOfBirth,
     gender,
     phoneNumber,
+    email,
     address,
     state,
     lga,
     trackingId,
+    enrollmentBank,
+    enrollmentBranch,
+    levelOfAccount,
+    watchListed,
+    maritalStatus,
+    nameOnCard,
+    registrationDate,
     photo,
     pdfBase64,
     pdfUrl,
@@ -174,7 +234,7 @@ export async function downloadVerificationReportPdf(
     a.href = report.pdfUrl;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
-    a.download = `HAMBAKTECH_ORIGINAL_SLIP_${report.nin || report.bvn || report.reference}.pdf`;
+    a.download = `HAMBAKTECH_ORIGINAL_SLIP_${report.bvn || report.nin || report.reference}.pdf`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -193,7 +253,7 @@ export async function downloadVerificationReportPdf(
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `HAMBAKTECH_ORIGINAL_SLIP_${report.nin || report.bvn || report.reference}.pdf`;
+      a.download = `HAMBAKTECH_ORIGINAL_SLIP_${report.bvn || report.nin || report.reference}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -204,7 +264,7 @@ export async function downloadVerificationReportPdf(
     }
   }
 
-  // 2. Generate clean HAMBAKTECH Verification Report PDF using jsPDF
+  // Generate clean HAMBAKTECH Verification Report PDF using jsPDF
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -215,7 +275,7 @@ export async function downloadVerificationReportPdf(
   let y = 18;
 
   // Header Banner
-  doc.setFillColor(15, 23, 42); // Slate 900
+  doc.setFillColor(15, 23, 42);
   doc.rect(0, 0, pageWidth, 34, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
@@ -224,7 +284,11 @@ export async function downloadVerificationReportPdf(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(148, 163, 184);
-  doc.text('DIGITAL IDENTITY VERIFICATION REPORT', 15, 22);
+  doc.text(
+    report.isBvnReport ? 'BANK VERIFICATION NUMBER (BVN) REPORT' : 'DIGITAL IDENTITY VERIFICATION REPORT',
+    15,
+    22
+  );
   doc.setFontSize(8.5);
   doc.text(`Format: ${report.slipTypeName}   |   Status: ${report.status}`, 15, 28);
 
@@ -265,12 +329,20 @@ export async function downloadVerificationReportPdf(
     ['First Name', report.firstName],
     ['Middle Name', report.middleName],
     ['Surname', report.surname],
-    ['National Identity Number (NIN)', report.nin],
     ['Bank Verification Number (BVN)', report.bvn],
+    ['National Identity Number (NIN)', report.nin],
     ['Date of Birth', report.dateOfBirth],
     ['Gender', report.gender],
     ['Phone Number', report.phoneNumber],
+    ['Email Address', report.email],
     ['Residential Address', [report.address, report.lga, report.state].filter(Boolean).join(', ') || null],
+    ['Enrollment Bank', report.enrollmentBank],
+    ['Enrollment Branch', report.enrollmentBranch],
+    ['Account Level', report.levelOfAccount],
+    ['Watchlisted', report.watchListed],
+    ['Marital Status', report.maritalStatus],
+    ['Name on Card', report.nameOnCard],
+    ['Registration Date', report.registrationDate],
     ['Tracking Reference', report.trackingId],
   ];
   const fields = rawFields.filter((entry): entry is [string, string] => Boolean(entry[1]));
@@ -278,13 +350,17 @@ export async function downloadVerificationReportPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(15, 23, 42);
-  doc.text('Verified Identity Summary', textStartX, y + 4);
+  doc.text(report.isBvnReport ? 'Verified BVN Identity Summary' : 'Verified Identity Summary', textStartX, y + 4);
   let fieldY = y + 12;
 
   fields.forEach(([label, value], index) => {
     const startX = index < 4 ? textStartX : 15;
     if (index === 4 && textStartX > 15) {
       fieldY = Math.max(fieldY, y + 50);
+    }
+    if (fieldY > 250) {
+      doc.addPage();
+      fieldY = 20;
     }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
@@ -310,12 +386,15 @@ export async function downloadVerificationReportPdf(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
+  const authorityText = report.isBvnReport
+    ? 'official banking credentials issued directly by the Central Bank of Nigeria (CBN) or NIBSS.'
+    : 'an official government-issued ID card or certificate issued directly by the National Identity Management Commission (NIMC).';
   const disclaimer = doc.splitTextToSize(
-    `This document is an automated verification report generated by ${companyName} based on authorized identity registry query results at the timestamp indicated above. It serves strictly as a digital verification record for business/KYC reference and does NOT replace an official government-issued ID card or certificate issued directly by the National Identity Management Commission (NIMC).`,
+    `This document is an automated verification report generated by ${companyName} based on authorized identity registry query results at the timestamp indicated above. It serves strictly as a digital verification record for business/KYC reference and does NOT replace ${authorityText}`,
     pageWidth - 30
   );
   doc.text(disclaimer, 15, footerY + 5);
 
-  doc.save(`HAMBAKTECH_VERIFICATION_REPORT_${report.nin || report.bvn || report.reference}.pdf`);
+  doc.save(`HAMBAKTECH_VERIFICATION_REPORT_${report.bvn || report.nin || report.reference}.pdf`);
   return 'generated_report_pdf';
 }

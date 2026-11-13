@@ -174,6 +174,106 @@ class VerificationController
                     );
                 }
             }
+
+            // Seed canonical BVN Slip Templates (BVN Basic, Advanced Stamp, Plastic BVN, Bank BVN)
+            $bvnCanonicalCount = $db->fetchOne(
+                'SELECT COUNT(*) as cnt FROM slip_templates WHERE category = "BVN" AND slip_code IN ("bvnBasic", "bvnAdvanced", "plasticBvn", "bankBvn")'
+            );
+            if ((int)($bvnCanonicalCount['cnt'] ?? 0) === 0) {
+                $db->execute(
+                    'DELETE FROM slip_templates WHERE id IN ("tpl_bvn_standard", "tpl_bvn_plastic") AND (slip_code IS NULL OR slip_code = "")'
+                );
+
+                $bvnDefaults = [
+                    [
+                        'id' => 'tpl_bvn_basic',
+                        'slip_code' => 'bvnBasic',
+                        'name' => 'BVN Basic',
+                        'category' => 'BVN',
+                        'price' => 250.00,
+                        'demo_image_url' => '/assets/slips/bvn_basic.jpg',
+                        'description' => 'Essential CBN BVN verification slip showing verified full name, 11-digit BVN, portrait photograph, phone number, and date of birth.',
+                        'supported_service' => 'all_bvn',
+                        'is_active' => 1,
+                        'display_order' => 1,
+                        'is_recommended' => 0,
+                        'badge' => null,
+                        'watermark_text' => 'SAMPLE SPECIMEN',
+                    ],
+                    [
+                        'id' => 'tpl_bvn_advanced',
+                        'slip_code' => 'bvnAdvanced',
+                        'name' => 'Advanced Stamp',
+                        'category' => 'BVN',
+                        'price' => 300.00,
+                        'demo_image_url' => '/assets/slips/bvn_advanced.jpg',
+                        'description' => 'Stamped NIBSS BVN verification report featuring QR authentication badge, full demographic records, enrollment details, and compliance seal.',
+                        'supported_service' => 'all_bvn',
+                        'is_active' => 1,
+                        'display_order' => 2,
+                        'is_recommended' => 1,
+                        'badge' => 'Recommended',
+                        'watermark_text' => 'SAMPLE SPECIMEN',
+                    ],
+                    [
+                        'id' => 'tpl_bvn_plastic_card',
+                        'slip_code' => 'plasticBvn',
+                        'name' => 'Plastic BVN',
+                        'category' => 'BVN',
+                        'price' => 350.00,
+                        'demo_image_url' => '/assets/slips/bvn_plastic.jpg',
+                        'description' => 'Compact biometric plastic BVN card layout with portrait photo, CBN security pattern, and scannable verification QR code.',
+                        'supported_service' => 'all_bvn',
+                        'is_active' => 1,
+                        'display_order' => 3,
+                        'is_recommended' => 0,
+                        'badge' => 'Plastic Card',
+                        'watermark_text' => 'SAMPLE SPECIMEN',
+                    ],
+                    [
+                        'id' => 'tpl_bvn_bank',
+                        'slip_code' => 'bankBvn',
+                        'name' => 'Bank BVN',
+                        'category' => 'BVN',
+                        'price' => 300.00,
+                        'demo_image_url' => '/assets/slips/bvn_bank.jpg',
+                        'description' => 'Formal institutional Bank BVN verification certificate formatted for commercial bank onboarding, corporate KYC, and audit compliance.',
+                        'supported_service' => 'all_bvn',
+                        'is_active' => 1,
+                        'display_order' => 4,
+                        'is_recommended' => 0,
+                        'badge' => 'Bank Format',
+                        'watermark_text' => 'SAMPLE SPECIMEN',
+                    ],
+                ];
+
+                foreach ($bvnDefaults as $bd) {
+                    $db->execute(
+                        'INSERT IGNORE INTO slip_templates
+                         (id, slip_code, name, category, price, demo_image_url, description, supported_service, is_active, display_order, is_recommended, badge, watermark_text)
+                         VALUES (:id, :slip_code, :name, :category, :price, :demo_image_url, :description, :supported_service, :is_active, :display_order, :is_recommended, :badge, :watermark_text)',
+                        $bd
+                    );
+                }
+            }
+
+            // Ensure demo_v1 supports slip_type selection seamlessly inside NIN Verification
+            $db->execute(
+                'UPDATE service_catalogue
+                 SET slip_type_supported = 1,
+                     required_fields = :rf
+                 WHERE service_key = "demo_v1" AND slip_type_supported = 0',
+                ['rf' => '["firstname", "lastname", "dob", "gender", "slip_type"]']
+            );
+
+            // Ensure bvn_retrieval includes first_name, last_name, phone, and slip_type required by provider
+            $db->execute(
+                'UPDATE service_catalogue
+                 SET slip_type_supported = 1,
+                     required_fields = :rf
+                 WHERE service_key = "bvn_retrieval"',
+                ['rf' => '["first_name", "last_name", "phone", "slip_type"]']
+            );
         } catch (Throwable $e) {
             error_log('[Slip Schema/Seed Notice]: ' . $e->getMessage());
         }
@@ -213,6 +313,85 @@ class VerificationController
         return '2sureverify';
     }
 
+    private function resolveProviderChain(string $categoryKey, ?string $serviceProvider = null): array
+    {
+        $settings = [];
+        try {
+            $rows = $this->db->fetchAll(
+                'SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("active_verification_provider", "bvn_primary_provider", "bvn_fallback_provider", "bvn_auto_fallback", "identity_auto_fallback", "provider_integration_settings")'
+            );
+            foreach ($rows as $r) {
+                $settings[$r['setting_key']] = (string)$r['setting_value'];
+            }
+        } catch (Throwable) {
+        }
+
+        $integ = !empty($settings['provider_integration_settings'])
+            ? (json_decode($settings['provider_integration_settings'], true) ?: [])
+            : [];
+
+        $activeMap = ['2sureverify' => true, 'veripine' => true];
+        try {
+            $provRows = $this->db->fetchAll('SELECT id, is_active FROM providers WHERE id IN ("2sureverify", "veripine")');
+            foreach ($provRows as $pr) {
+                $activeMap[strtolower((string)$pr['id'])] = (bool)$pr['is_active'];
+            }
+        } catch (Throwable) {
+        }
+
+        $twoSure = new TwoSureVerifyAdapter();
+        $veripine = new VeripineAdapter();
+        $adapters = [
+            '2sureverify' => $twoSure,
+            'veripine' => $veripine,
+        ];
+        $usable = [
+            '2sureverify' => $activeMap['2sureverify'] && $twoSure->hasCredentials(),
+            'veripine' => $activeMap['veripine'] && $veripine->hasCredentials(),
+        ];
+
+        $isBvn = ($categoryKey === 'bvn_verification');
+        if ($isBvn) {
+            $primary = strtolower(trim((string)($settings['bvn_primary_provider'] ?? '')));
+            if (!in_array($primary, ['2sureverify', 'veripine'], true)) {
+                $primary = !empty($serviceProvider) && in_array(strtolower($serviceProvider), ['2sureverify', 'veripine'], true)
+                    ? strtolower($serviceProvider)
+                    : $this->resolveActiveProviderId($serviceProvider);
+            }
+            $autoFallbackRaw = $settings['bvn_auto_fallback'] ?? ($integ['auto_failover_enabled'] ?? '1');
+            $autoFallback = filter_var($autoFallbackRaw, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            $autoFallback = $autoFallback === null ? true : $autoFallback;
+            $fallback = strtolower(trim((string)($settings['bvn_fallback_provider'] ?? ($primary === '2sureverify' ? 'veripine' : '2sureverify'))));
+        } else {
+            $primary = $this->resolveActiveProviderId($serviceProvider);
+            $autoFallbackRaw = $settings['identity_auto_fallback'] ?? ($integ['auto_failover_enabled'] ?? '1');
+            $autoFallback = filter_var($autoFallbackRaw, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            $autoFallback = $autoFallback === null ? true : $autoFallback;
+            $fallback = strtolower(trim((string)($integ['fallback_identity_provider'] ?? ($primary === '2sureverify' ? 'veripine' : '2sureverify'))));
+        }
+
+        $chain = [];
+        if (isset($adapters[$primary]) && !empty($usable[$primary])) {
+            $chain[] = $primary;
+        }
+        if ($autoFallback && $fallback !== 'none' && isset($adapters[$fallback]) && !empty($usable[$fallback]) && !in_array($fallback, $chain, true)) {
+            $chain[] = $fallback;
+        }
+        // If configured primary is unconfigured/inactive, fall back to any active configured identity adapter
+        if (empty($chain)) {
+            foreach (['2sureverify', 'veripine'] as $cand) {
+                if (!empty($usable[$cand])) {
+                    $chain[] = $cand;
+                }
+            }
+        }
+
+        return [
+            'chain' => $chain,
+            'adapters' => $adapters,
+        ];
+    }
+
     private function mapCategoryKey(string $categoryName): string
     {
         $c = strtolower(trim($categoryName));
@@ -245,12 +424,23 @@ class VerificationController
         $bvn = $merged['bvn'] ?? $merged['BVN'] ?? null;
         $dob = $merged['birthdate'] ?? $merged['dateOfBirth'] ?? $merged['date_of_birth'] ?? $merged['dob'] ?? null;
         $gender = $merged['gender'] ?? $merged['sex'] ?? null;
-        $phone = $merged['telephoneno'] ?? $merged['phone'] ?? $merged['phoneNumber'] ?? $merged['phone_number'] ?? null;
-        $address = $merged['address'] ?? $merged['residence_address'] ?? $merged['residential_address'] ?? $merged['residence_AdressLine1'] ?? null;
-        $state = $merged['residence_state'] ?? $merged['state'] ?? $merged['stateOfOrigin'] ?? null;
-        $lga = $merged['residence_lga'] ?? $merged['lga'] ?? $merged['lgaOfOrigin'] ?? null;
+        $phone = $merged['telephoneno']
+            ?? $merged['phone']
+            ?? $merged['phoneNumber']
+            ?? $merged['phoneNumber1']
+            ?? $merged['phone_number']
+            ?? $merged['phone_number_1']
+            ?? null;
+        $address = $merged['address']
+            ?? $merged['residence_address']
+            ?? $merged['residential_address']
+            ?? $merged['residentialAddress']
+            ?? $merged['residence_AdressLine1']
+            ?? null;
+        $state = $merged['residence_state'] ?? $merged['stateOfResidence'] ?? $merged['state'] ?? $merged['stateOfOrigin'] ?? null;
+        $lga = $merged['residence_lga'] ?? $merged['lgaOfResidence'] ?? $merged['lga'] ?? $merged['lgaOfOrigin'] ?? null;
         $tracking = $merged['tracking_id'] ?? $merged['trackingId'] ?? null;
-        $photo = $merged['photo'] ?? $merged['image'] ?? $merged['avatar'] ?? null;
+        $photo = $merged['photo'] ?? $merged['base64Image'] ?? $merged['image'] ?? $merged['avatar'] ?? null;
 
         if (is_string($photo) && trim($photo) !== '') {
             $photo = trim($photo);
@@ -280,6 +470,25 @@ class VerificationController
         if ($lga !== null) $merged['residence_lga'] = (string)$lga;
         if ($tracking !== null) $merged['tracking_id'] = (string)$tracking;
         if ($photo !== null) $merged['photo'] = $photo;
+
+        // Normalize BVN-specific metadata when present
+        $enrollmentBank = $merged['enrollmentBank'] ?? $merged['enrollment_bank'] ?? null;
+        $enrollmentBranch = $merged['enrollmentBranch'] ?? $merged['enrollment_branch'] ?? null;
+        $watchListed = $merged['watchListed'] ?? $merged['watchlisted'] ?? null;
+        $levelOfAccount = $merged['levelOfAccount'] ?? $merged['level_of_account'] ?? null;
+        $maritalStatus = $merged['maritalStatus'] ?? $merged['marital_status'] ?? null;
+        $email = $merged['email'] ?? null;
+        $nameOnCard = $merged['nameOnCard'] ?? $merged['name_on_card'] ?? null;
+        $regDate = $merged['registrationDate'] ?? $merged['registration_date'] ?? null;
+
+        if ($enrollmentBank !== null && $enrollmentBank !== '') $merged['enrollment_bank'] = (string)$enrollmentBank;
+        if ($enrollmentBranch !== null && $enrollmentBranch !== '') $merged['enrollment_branch'] = (string)$enrollmentBranch;
+        if ($watchListed !== null && $watchListed !== '') $merged['watch_listed'] = (string)$watchListed;
+        if ($levelOfAccount !== null && $levelOfAccount !== '') $merged['level_of_account'] = (string)$levelOfAccount;
+        if ($maritalStatus !== null && $maritalStatus !== '') $merged['marital_status'] = (string)$maritalStatus;
+        if ($email !== null && $email !== '') $merged['email'] = (string)$email;
+        if ($nameOnCard !== null && $nameOnCard !== '') $merged['name_on_card'] = (string)$nameOnCard;
+        if ($regDate !== null && $regDate !== '') $merged['registration_date'] = (string)$regDate;
 
         if (!empty($providerResult['pdf_base64']) && empty($merged['pdf_base64'])) {
             $merged['pdf_base64'] = $providerResult['pdf_base64'];
@@ -412,11 +621,32 @@ class VerificationController
             ];
         }, array_filter($slipTemplates, static fn($t) => strtoupper((string)($t['category'] ?? '')) === 'NIN')));
 
+        $bvnSlipTypes = array_values(array_map(static function ($t) {
+            return [
+                'id' => $t['slip_code'] ?: $t['id'],
+                'template_id' => $t['id'],
+                'name' => $t['name'],
+                'description' => $t['description'] ?? '',
+                'price' => $t['price'],
+                'is_recommended' => $t['is_recommended'],
+                'badge' => $t['badge'] ?? null,
+            ];
+        }, array_filter($slipTemplates, static fn($t) => strtoupper((string)($t['category'] ?? '')) === 'BVN')));
+
+        // Ensure demographic verification is never duplicated in additional_services
+        if (!empty($categories['additional_services'])) {
+            $categories['additional_services'] = array_values(array_filter(
+                $categories['additional_services'],
+                static fn($s) => !str_starts_with(strtolower((string)($s['key'] ?? '')), 'demo_')
+            ));
+        }
+
         Response::success([
             'activeProvider' => $isAdmin ? $activeProvider : 'verified',
             'services' => $rows,
             'categories' => $categories,
             'slipTypes' => $slipTypes,
+            'bvnSlipTypes' => $bvnSlipTypes,
             'slipTemplates' => $slipTemplates,
         ]);
     }
@@ -441,11 +671,24 @@ class VerificationController
         $serviceKey = trim((string)($request->input('serviceKey') ?? $request->input('service_key', '')));
         $searchType = strtolower(trim((string)($allInputs['search_type'] ?? $request->input('search_type', ''))));
         if ($serviceKey === '' || $serviceKey === 'nin_verify') {
-            $serviceKey = ($searchType === 'phone' || $searchType === 'phone_number') ? 'phone_v1' : 'nin_v1';
+            if (in_array($searchType, ['demo', 'demographic', 'demo_v1'], true)) {
+                $serviceKey = 'demo_v1';
+            } elseif (in_array($searchType, ['phone', 'phone_number', 'phone_v1'], true)) {
+                $serviceKey = 'phone_v1';
+            } else {
+                $serviceKey = 'nin_v1';
+            }
+        } elseif ($serviceKey === 'bvn_verify') {
+            if (in_array($searchType, ['phone', 'phone_number', 'bvn_phone', 'bvn_retrieval'], true)) {
+                $serviceKey = 'bvn_retrieval';
+            } else {
+                $serviceKey = 'bvn_v1';
+            }
         }
 
         $slipTemplateId = trim((string)($allInputs['slip_template_id'] ?? $request->input('slip_template_id', '')));
-        $slipTypeInput = trim((string)($allInputs['slip_type'] ?? $request->input('slip_type', 'ninStandard')));
+        $defaultSlipFallback = str_starts_with(strtolower($serviceKey), 'bvn_') ? 'bvnBasic' : 'ninStandard';
+        $slipTypeInput = trim((string)($allInputs['slip_type'] ?? $request->input('slip_type', $defaultSlipFallback)));
         $tier = trim((string)($allInputs['tier'] ?? $request->input('tier', 'standard')));
         $idempotencyKey = trim((string)($allInputs['idempotency_key'] ?? $request->input('idempotency_key', '')));
 
@@ -464,11 +707,12 @@ class VerificationController
         if ($searchValue === '' && (!empty($allInputs['firstname']) || !empty($allInputs['first_name']))) {
             $fn = trim((string)($allInputs['firstname'] ?? $allInputs['first_name'] ?? ''));
             $ln = trim((string)($allInputs['lastname'] ?? $allInputs['surname'] ?? $allInputs['last_name'] ?? ''));
-            $searchValue = trim($fn . ' ' . $ln);
+            $dobVal = trim((string)($allInputs['dob'] ?? $allInputs['birthdate'] ?? ''));
+            $searchValue = trim(strtoupper($fn . ' ' . $ln) . ($dobVal !== '' ? " ({$dobVal})" : ''));
         }
 
-        if ($searchValue === '') {
-            Response::error('Please provide the required NIN, phone number, or search value.', 422);
+        if ($searchValue === '' && !in_array($serviceKey, ['demo_v1', 'demo_v2', 'demo_v3'], true)) {
+            Response::error('Please provide the required NIN, BVN, phone number, or search value.', 422);
         }
 
         // Strict format validation BEFORE touching wallet
@@ -479,6 +723,13 @@ class VerificationController
             }
             $searchValue = $cleanNin;
             $allInputs['nin'] = $cleanNin;
+        } elseif (in_array($serviceKey, ['bvn_v1', 'bvn_v2', 'bvn_v3'], true)) {
+            $cleanBvn = preg_replace('/\s+/', '', $searchValue) ?? '';
+            if (!preg_match('/^\d{11}$/', $cleanBvn)) {
+                Response::error('BVN Number must be exactly 11 numeric digits.', 422);
+            }
+            $searchValue = $cleanBvn;
+            $allInputs['bvn'] = $cleanBvn;
         } elseif (in_array($serviceKey, ['phone_v1', 'phone_v2', 'phone_v3'], true)) {
             $cleanPhone = preg_replace('/\s+/', '', $searchValue) ?? '';
             if (!preg_match('/^\d{11}$/', $cleanPhone)) {
@@ -486,6 +737,39 @@ class VerificationController
             }
             $searchValue = $cleanPhone;
             $allInputs['phone'] = $cleanPhone;
+        } elseif ($serviceKey === 'bvn_retrieval') {
+            $fn = trim((string)($allInputs['first_name'] ?? $allInputs['firstname'] ?? ''));
+            $ln = trim((string)($allInputs['last_name'] ?? $allInputs['lastname'] ?? $allInputs['surname'] ?? ''));
+            $cleanPhone = preg_replace('/\s+/', '', (string)($allInputs['phone'] ?? $allInputs['phone_number'] ?? $searchValue)) ?? '';
+            if ($fn === '' || $ln === '') {
+                Response::error('First Name and Last Name are required for BVN Retrieval.', 422);
+            }
+            if (!preg_match('/^\d{11}$/', $cleanPhone)) {
+                Response::error('Phone Number must be exactly 11 numeric digits (e.g. 08012345678).', 422);
+            }
+            $allInputs['first_name'] = strtoupper($fn);
+            $allInputs['last_name'] = strtoupper($ln);
+            $allInputs['phone'] = $cleanPhone;
+            $searchValue = $cleanPhone;
+        } elseif (in_array($serviceKey, ['demo_v1', 'demo_v2', 'demo_v3'], true)) {
+            $fn = trim((string)($allInputs['firstname'] ?? $allInputs['first_name'] ?? ''));
+            $ln = trim((string)($allInputs['lastname'] ?? $allInputs['surname'] ?? $allInputs['last_name'] ?? ''));
+            $dobVal = trim((string)($allInputs['dob'] ?? $allInputs['birthdate'] ?? ''));
+            $genderRaw = strtolower(trim((string)($allInputs['gender'] ?? '')));
+            if ($fn === '' || $ln === '') {
+                Response::error('First Name and Surname are required for Demographic Verification.', 422);
+            }
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dobVal) || !strtotime($dobVal)) {
+                Response::error('Please provide a valid Date of Birth (YYYY-MM-DD) for Demographic Verification.', 422);
+            }
+            if (!in_array($genderRaw, ['m', 'f', 'male', 'female'], true)) {
+                Response::error('Please select a valid Gender (Male or Female) for Demographic Verification.', 422);
+            }
+            $allInputs['firstname'] = strtoupper($fn);
+            $allInputs['lastname'] = strtoupper($ln);
+            $allInputs['dob'] = $dobVal;
+            $allInputs['gender'] = ($genderRaw === 'f' || $genderRaw === 'female') ? 'f' : 'm';
+            $searchValue = strtoupper($fn . ' ' . $ln) . " ({$dobVal})";
         }
 
         // 1. Fetch Service Configuration from MySQL
@@ -500,24 +784,26 @@ class VerificationController
 
         // 2. Resolve Slip Template, Active Status & Dynamic Slip Price BEFORE touching wallet
         $cost = (float)$service['selling_price'];
-        $resolvedSlipCode = $slipTypeInput ?: 'ninStandard';
-        $resolvedSlipName = null;
-
         $categoryKey = $this->mapCategoryKey((string)($service['category_code'] ?? ''));
         $isNinVerification = ($categoryKey === 'nin_verification');
+        $isBvnVerification = ($categoryKey === 'bvn_verification');
+        $expectedSlipCategory = $isBvnVerification ? 'BVN' : 'NIN';
 
-        if ($isNinVerification || $slipTemplateId !== '' || !empty($service['slip_type_supported'])) {
+        $resolvedSlipCode = $slipTypeInput ?: ($isBvnVerification ? 'bvnBasic' : 'ninStandard');
+        $resolvedSlipName = null;
+
+        if ($isNinVerification || $isBvnVerification || $slipTemplateId !== '' || !empty($service['slip_type_supported'])) {
             $tpl = null;
             if ($slipTemplateId !== '') {
                 $tpl = $this->db->fetchOne(
-                    'SELECT * FROM slip_templates WHERE id = :id OR slip_code = :code LIMIT 1',
-                    ['id' => $slipTemplateId, 'code' => $slipTemplateId]
+                    'SELECT * FROM slip_templates WHERE (id = :id OR slip_code = :code) AND UPPER(category) = :cat LIMIT 1',
+                    ['id' => $slipTemplateId, 'code' => $slipTemplateId, 'cat' => $expectedSlipCategory]
                 );
             }
             if (!$tpl && $slipTypeInput !== '') {
                 $tpl = $this->db->fetchOne(
-                    'SELECT * FROM slip_templates WHERE slip_code = :code OR id = :id LIMIT 1',
-                    ['code' => $slipTypeInput, 'id' => $slipTypeInput]
+                    'SELECT * FROM slip_templates WHERE (slip_code = :code OR id = :id) AND UPPER(category) = :cat LIMIT 1',
+                    ['code' => $slipTypeInput, 'id' => $slipTypeInput, 'cat' => $expectedSlipCategory]
                 );
             }
 
@@ -529,10 +815,14 @@ class VerificationController
                     $resolvedSlipCode = (string)$tpl['slip_code'];
                 }
                 $resolvedSlipName = (string)$tpl['name'];
-                if ($tpl['price'] !== null && (float)$tpl['price'] > 0) {
+                if ($serviceKey === 'bvn_retrieval') {
+                    // Phone-to-BVN retrieval carries a higher upstream registry fee; never charge below service selling_price
+                    $slipPrice = ($tpl['price'] !== null && (float)$tpl['price'] > 0) ? (float)$tpl['price'] : 0.0;
+                    $cost = max((float)$service['selling_price'], $slipPrice);
+                } elseif (!empty($service['slip_type_supported']) && $tpl['price'] !== null && (float)$tpl['price'] > 0) {
                     $cost = (float)$tpl['price'];
                 }
-            } elseif ($isNinVerification && $slipTemplateId !== '') {
+            } elseif (($isNinVerification || $isBvnVerification) && $slipTemplateId !== '') {
                 Response::error('Selected slip type was not found.', 422);
             }
         }
@@ -599,45 +889,34 @@ class VerificationController
             }
         }
 
-        // 4. Determine adapter and ensure credentials exist before debiting wallet
-        $preferredProvider = $this->resolveActiveProviderId($service['provider_id'] ?? null);
-        $veripine = new VeripineAdapter();
-        $twoSure = new TwoSureVerifyAdapter();
-        $config = file_exists(__DIR__ . '/../config/config.php') ? require __DIR__ . '/../config/config.php' : [];
-        $hasTwoSureKey = !empty(getenv('TWOSUREVERIFY_API_KEY')) || !empty($config['providers']['2sureverify']['api_key']);
-        if (!$hasTwoSureKey) {
-            try {
-                $r = $this->db->fetchOne('SELECT api_key FROM providers WHERE id = "2sureverify"');
-                $hasTwoSureKey = !empty($r['api_key']);
-            } catch (Throwable) {
-            }
-        }
+        // 4. Determine configured provider chain (priority + fallback) and ensure credentials exist before debiting wallet
+        $routing = $this->resolveProviderChain($categoryKey, $service['provider_id'] ?? null);
+        $providerChain = $routing['chain'];
+        $adapters = $routing['adapters'];
 
-        $usedProvider = $preferredProvider;
-        if ($preferredProvider === 'veripine' && !$veripine->hasCredentials() && $hasTwoSureKey) {
-            $usedProvider = '2sureverify';
-        } elseif ($preferredProvider === '2sureverify' && !$hasTwoSureKey && $veripine->hasCredentials()) {
-            $usedProvider = 'veripine';
-        }
-
-        $adapter = ($usedProvider === 'veripine') ? $veripine : $twoSure;
-        if (($usedProvider === 'veripine' && !$veripine->hasCredentials()) || ($usedProvider === '2sureverify' && !$hasTwoSureKey)) {
+        if (empty($providerChain)) {
             Response::error(
                 'Verification service is temporarily unavailable because gateway credentials are not configured.',
                 503
             );
         }
+        $usedProvider = $providerChain[0];
 
         $wholesaleCost = (float)$service['wholesale_cost'];
         $endpoint = (string)($service['endpoint'] ?? $serviceKey);
 
         // 5. Atomic Wallet Debit
+        $debitCategory = $isBvnVerification ? 'bvn_verification' : 'nin_verification';
+        $recordTypeLabel = $isBvnVerification
+            ? 'BVN'
+            : (str_starts_with($serviceKey, 'demo_') ? 'DEMO' : (str_starts_with($serviceKey, 'phone_') ? 'PHONE' : 'NIN'));
+
         $reference = 'VRF_' . strtoupper(bin2hex(random_bytes(6)));
         try {
             $debitResult = $this->walletService->debit(
                 $user['id'],
                 $cost,
-                'nin_verification',
+                $debitCategory,
                 $reference,
                 "Identity verification fee for {$service['name']}" . ($resolvedSlipName ? " ({$resolvedSlipName})" : '') . " ({$searchValue})",
                 'internal',
@@ -663,7 +942,7 @@ class VerificationController
                 [
                     'id' => $recordId,
                     'uid' => $user['id'],
-                    'type' => strtoupper(explode('_', $serviceKey)[0] ?? 'NIN'),
+                    'type' => $recordTypeLabel,
                     'skey' => $serviceKey,
                     'search' => $searchValue,
                     'prov' => $usedProvider,
@@ -676,7 +955,7 @@ class VerificationController
         } catch (Throwable) {
         }
 
-        // 6. Dispatch to Real Upstream Provider Adapter
+        // 6. Dispatch to Real Upstream Provider Adapter (with configured priority & fallback)
         try {
             $payload = array_merge($allInputs, [
                 'service_key' => $serviceKey,
@@ -686,14 +965,44 @@ class VerificationController
                 'reference' => $reference,
             ]);
 
-            $providerResult = $adapter->verify($endpoint, $payload);
+            $providerResult = null;
+            $lastErrorMsg = 'Upstream identity verification failed.';
+            $primaryErrorMsg = null;
 
-            $ok = !isset($providerResult['success']) ? true : (bool)$providerResult['success'];
-            if (strtolower((string)($providerResult['status'] ?? '')) === 'failed') {
-                $ok = false;
+            foreach ($providerChain as $idx => $candidateProv) {
+                $usedProvider = $candidateProv;
+                $candidateAdapter = $adapters[$candidateProv];
+                $attemptPayload = $payload;
+                if ($idx > 0) {
+                    $attemptPayload['reference'] = $reference . '_FB' . $idx;
+                }
+                $attemptRes = $candidateAdapter->verify($endpoint, $attemptPayload);
+                $attemptOk = !isset($attemptRes['success']) ? true : (bool)$attemptRes['success'];
+                if (strtolower((string)($attemptRes['status'] ?? '')) === 'failed') {
+                    $attemptOk = false;
+                }
+                if ($attemptOk) {
+                    $providerResult = $attemptRes;
+                    break;
+                }
+                $candidateMsg = trim((string)($attemptRes['message'] ?? ''));
+                if ($idx === 0 && $candidateMsg !== '') {
+                    $primaryErrorMsg = $candidateMsg;
+                }
+                $candLower = strtolower($candidateMsg);
+                $isMerchantWalletErr = str_contains($candLower, 'insufficient') && (str_contains($candLower, 'balance') || str_contains($candLower, 'fund'));
+                if ($isMerchantWalletErr) {
+                    $candidateMsg = 'Identity gateway service is temporarily unavailable. Please try again shortly.';
+                }
+                if ($idx > 0 && $primaryErrorMsg !== null && str_contains(strtolower($primaryErrorMsg), 'no record found') && ($isMerchantWalletErr || str_contains($candLower, 'unavailable'))) {
+                    $lastErrorMsg = $primaryErrorMsg;
+                } elseif ($candidateMsg !== '') {
+                    $lastErrorMsg = $candidateMsg;
+                }
             }
-            if (!$ok) {
-                throw new Exception((string)($providerResult['message'] ?? 'Upstream identity verification failed.'));
+
+            if ($providerResult === null) {
+                throw new Exception($lastErrorMsg);
             }
 
             $resultData = $this->extractNormalizedIdentity($providerResult);
@@ -713,9 +1022,10 @@ class VerificationController
 
             $this->db->execute(
                 'UPDATE verification_records
-                 SET provider_cost = :pcost, status = "completed", has_slip = 1, result_data = :result
+                 SET provider = :prov, provider_cost = :pcost, status = "completed", has_slip = 1, result_data = :result
                  WHERE id = :id',
                 [
+                    'prov' => $usedProvider,
                     'pcost' => $actualProviderCost,
                     'result' => $encodedRecordResult,
                     'id' => $recordId,
@@ -727,7 +1037,7 @@ class VerificationController
                 'user_email' => $user['email'] ?? null,
                 'user_name' => $user['full_name'] ?? null,
                 'category' => 'service',
-                'action' => 'IDENTITY_VERIFIED',
+                'action' => $isBvnVerification ? 'BVN_VERIFIED' : 'IDENTITY_VERIFIED',
                 'service_type' => $serviceKey,
                 'reference' => $reference,
                 'provider' => $usedProvider,
@@ -736,7 +1046,7 @@ class VerificationController
                 'metadata' => [
                     'slip_type' => $resolvedSlipCode,
                     'slip_name' => $resolvedSlipName,
-                    'search_type' => strtoupper(explode('_', $serviceKey)[0] ?? 'NIN'),
+                    'search_type' => $recordTypeLabel,
                 ],
             ]);
 

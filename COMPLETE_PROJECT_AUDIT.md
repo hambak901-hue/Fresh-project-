@@ -36,7 +36,7 @@ Following the completion of Phases 1 through 9, an independent, empirical re-aud
 - `server.ts`: Central Express entry point. Integrates body parsers (10MB limit for proof uploads), security response headers (`X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Referrer-Policy`), recursive XSS request body sanitization, and Vite development middleware mounting.
 - `server/config/credentials.ts`: **Strictly Sanitized**. All hardcoded fallback secrets, API keys, SFTP passwords, and SMTP passwords have been completely eradicated. Reads strictly from `process.env` with crypto-random fallback for JWT signing.
 - `server/services/security.ts`: Provides recursive input sanitization, MIME-type file upload validation (`image/jpeg`, `image/png`, `image/webp`, `application/pdf`), and sliding-window rate limiting.
-- `server/services/mailer.ts`: Implements nodemailer transport connecting to TrueHost LON110 (`lon110.truehost.cloud:465` SSL) with fallback simulation mode when outbound TCP sockets are restricted.
+- `server/services/mailer.ts`: Implements nodemailer transport connecting to Production Cloud Host (`lon110.truehost.cloud:465` SSL) with fallback simulation mode when outbound TCP sockets are restricted.
 - `server/db/database.ts`: LowDB-based atomic JSON ledger. Implements `hashPassword`, `verifyPassword`, `hashPin`, `verifyPin` using `bcryptjs`. Implements atomic balance adjustments via `adjustBalance` preventing negative balances, audit logging, and automated persistence.
 - `server/db/data.json`: 5,490-line database storing 24 collections including users, transactions, verifications, telecom orders, store inventory, academy courses, email templates, and audit logs. All default production passwords and pre-shared PINs removed.
 
@@ -95,7 +95,7 @@ Following the completion of Phases 1 through 9, an independent, empirical re-aud
 | `RatesCalculator.tsx` | Interactive public pricing calculator with real-time wholesale vs selling rates | **PASS** | Connected to `/api/system/rates` |
 | `AnnouncementsPage.tsx` | Public corporate news bulletin and system maintenance announcements | **PASS** | Connected to `/api/cms/public-content` |
 | `FaqPage.tsx` | Searchable customer FAQ categorized by Account, Funding, Identity, and Telecom | **PASS** | Connected to `/api/cms/public-content` |
-| `ContactPage.tsx` | Corporate contact details, TrueHost LON110 server info, support form, and map | **PASS** | Operational inquiry dispatch |
+| `ContactPage.tsx` | Corporate contact details, Production Cloud Host server info, support form, and map | **PASS** | Operational inquiry dispatch |
 | `TermsPage.tsx` & `PrivacyPage.tsx` | NDPR-compliant regulatory privacy policy and user service agreements | **PASS** | Fully documented and accessible |
 | `PublicNavbar.tsx` & `Footer.tsx` | Public header navigation with dynamic branding and footer links | **PASS** | Responsive across mobile and desktop |
 | `AuthModal.tsx` | Customer authentication modal (Login and Registration forms) | **PASS** | Connected to `/api/auth/login` and `/api/auth/register` |

@@ -62,12 +62,21 @@ export function ServiceManagement() {
   const [providerLogs, setProviderLogs] = useState<ProviderLogItem[]>([]);
   const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({});
 
-  // Slip Templates State (NIN Slip Management)
+  // Slip Templates State (NIN & BVN Slip Management)
   const [slipTemplates, setSlipTemplates] = useState<SlipTemplateItem[]>([]);
   const [editingSlipTemplate, setEditingSlipTemplate] = useState<Partial<SlipTemplateItem> | null>(null);
   const [slipCategoryFilter, setSlipCategoryFilter] = useState<'ALL' | 'NIN' | 'BVN'>('NIN');
   const [savingSlipTemplate, setSavingSlipTemplate] = useState(false);
   const [uploadingSpecimen, setUploadingSpecimen] = useState(false);
+
+  // BVN & Identity Provider Priority / Fallback State
+  const [providerRouting, setProviderRouting] = useState({
+    active_verification_provider: '2sureverify',
+    bvn_primary_provider: '2sureverify',
+    bvn_fallback_provider: 'veripine',
+    bvn_auto_fallback: true,
+    identity_auto_fallback: true,
+  });
 
   // Store Item modal
   const [editingStoreItem, setEditingStoreItem] = useState<Partial<StoreItem> | null>(null);
@@ -81,7 +90,7 @@ export function ServiceManagement() {
       const [res, pricingRes, providersRes, logsRes, templatesRes] = await Promise.all([
         api.getAdminServices(),
         api.getAdminVerificationPricing().catch(() => ({ services: [] })),
-        api.getAdminProviders().catch(() => ({ providers: [] })),
+        api.getAdminProviders().catch(() => ({ providers: [], routing: undefined })),
         api.getAdminProviderLogs().catch(() => ({ logs: [] })),
         api.getAdminSlipTemplates().catch(() => ({ templates: [] })),
       ]);
@@ -98,6 +107,18 @@ export function ServiceManagement() {
       }
       if (providersRes?.providers) {
         setProviderConfigs(providersRes.providers);
+      }
+      if (providersRes?.routing) {
+        setProviderRouting(prev => ({ ...prev, ...providersRes.routing }));
+      } else if (res?.settings) {
+        setProviderRouting(prev => ({
+          ...prev,
+          active_verification_provider: res.settings.active_verification_provider || prev.active_verification_provider,
+          bvn_primary_provider: res.settings.bvn_primary_provider || prev.bvn_primary_provider,
+          bvn_fallback_provider: res.settings.bvn_fallback_provider || prev.bvn_fallback_provider,
+          bvn_auto_fallback: res.settings.bvn_auto_fallback !== undefined ? Boolean(Number(res.settings.bvn_auto_fallback) || res.settings.bvn_auto_fallback === true) : prev.bvn_auto_fallback,
+          identity_auto_fallback: res.settings.identity_auto_fallback !== undefined ? Boolean(Number(res.settings.identity_auto_fallback) || res.settings.identity_auto_fallback === true) : prev.identity_auto_fallback,
+        }));
       }
       if (logsRes?.logs) {
         setProviderLogs(logsRes.logs);
@@ -420,9 +441,13 @@ export function ServiceManagement() {
     setSavingSlipTemplate(true);
     setErrorMsg(null);
     try {
+      const defaultImg =
+        editingSlipTemplate.category === 'BVN'
+          ? '/assets/slips/bvn_basic.jpg'
+          : '/assets/aistudio/IMG_0483_23e1a1e1.png';
       const payload: Partial<SlipTemplateItem> = {
         ...editingSlipTemplate,
-        demo_image_url: editingSlipTemplate.demo_image_url || '/assets/aistudio/IMG_0483_23e1a1e1.png',
+        demo_image_url: editingSlipTemplate.demo_image_url || defaultImg,
         price:
           editingSlipTemplate.price !== undefined && editingSlipTemplate.price !== null && String(editingSlipTemplate.price) !== ''
             ? Number(editingSlipTemplate.price)
@@ -436,7 +461,7 @@ export function ServiceManagement() {
       setEditingSlipTemplate(null);
       const res = await api.getAdminSlipTemplates();
       if (res?.templates) setSlipTemplates(res.templates);
-      setSuccessMsg('NIN Slip configuration saved successfully.');
+      setSuccessMsg(`${editingSlipTemplate.category || 'NIN'} Slip configuration saved successfully.`);
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to save slip template');
@@ -499,8 +524,8 @@ export function ServiceManagement() {
         {/* Sub-tab Navigation */}
         <div className="flex gap-2 mt-6 pt-6 border-t border-slate-800 text-xs overflow-x-auto">
           {[
-            { id: 'nin', label: 'NIN & BVN Services (42 Matrix)', icon: ShieldCheck },
-            { id: 'slip_templates', label: 'NIN Slip Management', icon: FileSpreadsheet },
+            { id: 'nin', label: 'NIN & BVN Services Matrix', icon: ShieldCheck },
+            { id: 'slip_templates', label: 'NIN & BVN Slip Management', icon: FileSpreadsheet },
             { id: 'providers', label: 'Providers & Gateways', icon: Server },
             { id: 'telecom', label: 'Telecommunications', icon: Smartphone },
             { id: 'digital', label: 'Digital Utilities', icon: Zap },
@@ -591,10 +616,10 @@ export function ServiceManagement() {
               </div>
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
                 {[
-                  { id: 'all', label: 'All (42)' },
+                  { id: 'all', label: `All (${identityServices.length})` },
                   { id: 'nin_verification', label: 'NIN' },
-                  { id: 'bvn_services', label: 'BVN' },
-                  { id: 'nin_modification', label: 'Modifications (16)' },
+                  { id: 'bvn_verification', label: 'BVN' },
+                  { id: 'nin_modification', label: 'Modifications' },
                   { id: 'enrolment', label: 'Enrolment' },
                   { id: 'additional_services', label: 'Additional' },
                 ].map(cat => (
@@ -757,34 +782,35 @@ export function ServiceManagement() {
               <div>
                 <h2 className="text-base font-bold text-white flex items-center gap-2">
                   <FileSpreadsheet className="w-5 h-5 text-indigo-400" />
-                  <span>NIN Slip Management &amp; Pricing</span>
+                  <span>NIN &amp; BVN Slip Management &amp; Pricing</span>
                 </h2>
                 <p className="text-slate-400 mt-1 max-w-2xl leading-relaxed">
-                  Configure customer-facing NIN verification slips (Basic, Regular, Standard, Premium, VNIN), customer selling prices, specimen image previews, descriptions, display order, and active availability.
+                  Configure customer-facing NIN slips (Basic, Regular, Standard, Premium, VNIN) and BVN slips (BVN Basic, Advanced Stamp, Plastic BVN, Bank BVN), selling prices, specimen image previews, descriptions, display order, and active availability.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  const defaultCat: 'NIN' | 'BVN' = slipCategoryFilter === 'BVN' ? 'BVN' : 'NIN';
                   setEditingSlipTemplate({
                     name: '',
-                    slip_code: 'ninStandard',
-                    category: 'NIN',
-                    price: 200,
-                    demo_image_url: '/assets/aistudio/IMG_0483_23e1a1e1.png',
+                    slip_code: defaultCat === 'BVN' ? 'bvnBasic' : 'ninStandard',
+                    category: defaultCat,
+                    price: defaultCat === 'BVN' ? 250 : 200,
+                    demo_image_url: defaultCat === 'BVN' ? '/assets/slips/bvn_basic.jpg' : '/assets/aistudio/IMG_0483_23e1a1e1.png',
                     description: '',
-                    supported_service: 'all_nin',
+                    supported_service: defaultCat === 'BVN' ? 'all_bvn' : 'all_nin',
                     is_active: true,
-                    display_order: (slipTemplates.filter(s => s.category === 'NIN').length || 0) + 1,
+                    display_order: (slipTemplates.filter(s => s.category === defaultCat).length || 0) + 1,
                     is_recommended: false,
                     badge: '',
                     watermark_text: 'SAMPLE SPECIMEN',
-                  })
-                }
+                  });
+                }}
                 className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold flex items-center gap-2 transition shadow-lg shadow-indigo-600/20 self-start sm:self-auto"
               >
                 <Plus className="w-4 h-4" />
-                <span>Add Slip Format</span>
+                <span>Add {slipCategoryFilter === 'BVN' ? 'BVN' : 'Slip'} Format</span>
               </button>
             </div>
 
@@ -953,7 +979,9 @@ export function ServiceManagement() {
               <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl my-8">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                   <h3 className="font-bold text-white text-sm">
-                    {editingSlipTemplate.id ? 'Edit NIN Slip Configuration' : 'Add NIN Slip Format'}
+                    {editingSlipTemplate.id
+                      ? `Edit ${editingSlipTemplate.category || 'NIN'} Slip Configuration`
+                      : `Add ${editingSlipTemplate.category || 'NIN'} Slip Format`}
                   </h3>
                   <button
                     type="button"
@@ -972,7 +1000,7 @@ export function ServiceManagement() {
                         type="text"
                         value={editingSlipTemplate.name || ''}
                         onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, name: e.target.value })}
-                        placeholder="e.g. Standard Slip"
+                        placeholder={editingSlipTemplate.category === 'BVN' ? 'e.g. Advanced Stamp' : 'e.g. Standard Slip'}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                         required
                       />
@@ -991,7 +1019,7 @@ export function ServiceManagement() {
                             price: e.target.value === '' ? null : Number(e.target.value),
                           })
                         }
-                        placeholder="e.g. 200"
+                        placeholder="e.g. 250"
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-indigo-500"
                         required
                       />
@@ -1003,7 +1031,15 @@ export function ServiceManagement() {
                       <label className="block text-slate-300 font-semibold mb-1">Category</label>
                       <select
                         value={editingSlipTemplate.category || 'NIN'}
-                        onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, category: e.target.value as any })}
+                        onChange={e => {
+                          const nextCat = e.target.value as 'NIN' | 'BVN' | 'OTHER';
+                          setEditingSlipTemplate({
+                            ...editingSlipTemplate,
+                            category: nextCat,
+                            slip_code: nextCat === 'BVN' ? 'bvnBasic' : 'ninStandard',
+                            supported_service: nextCat === 'BVN' ? 'all_bvn' : 'all_nin',
+                          });
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
                       >
                         <option value="NIN">NIN</option>
@@ -1015,15 +1051,26 @@ export function ServiceManagement() {
                     <div>
                       <label className="block text-slate-300 font-semibold mb-1">Slip Code / Format</label>
                       <select
-                        value={editingSlipTemplate.slip_code || 'ninStandard'}
+                        value={editingSlipTemplate.slip_code || (editingSlipTemplate.category === 'BVN' ? 'bvnBasic' : 'ninStandard')}
                         onChange={e => setEditingSlipTemplate({ ...editingSlipTemplate, slip_code: e.target.value })}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-indigo-500"
                       >
-                        <option value="ninBasic">ninBasic (Basic Slip)</option>
-                        <option value="ninRegular">ninRegular (Regular Slip)</option>
-                        <option value="ninStandard">ninStandard (Standard Slip)</option>
-                        <option value="ninPremium">ninPremium (Premium Slip)</option>
-                        <option value="ninVnin">ninVnin (VNIN Slip)</option>
+                        {editingSlipTemplate.category === 'BVN' ? (
+                          <>
+                            <option value="bvnBasic">bvnBasic (BVN Basic)</option>
+                            <option value="bvnAdvanced">bvnAdvanced (Advanced Stamp)</option>
+                            <option value="plasticBvn">plasticBvn (Plastic BVN)</option>
+                            <option value="bankBvn">bankBvn (Bank BVN)</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="ninBasic">ninBasic (Basic Slip)</option>
+                            <option value="ninRegular">ninRegular (Regular Slip)</option>
+                            <option value="ninStandard">ninStandard (Standard Slip)</option>
+                            <option value="ninPremium">ninPremium (Premium Slip)</option>
+                            <option value="ninVnin">ninVnin (VNIN Slip)</option>
+                          </>
+                        )}
                       </select>
                     </div>
                   </div>
@@ -1161,6 +1208,92 @@ export function ServiceManagement() {
       {/* 2. PROVIDERS & GATEWAYS ARCHITECTURE */}
       {activeTab === 'providers' && (
         <div className="space-y-6 text-xs">
+          {/* BVN & Identity Priority / Failover Routing */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+              <div>
+                <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-indigo-400" />
+                  <span>BVN &amp; Identity Verification Provider Priority &amp; Failover</span>
+                </h2>
+                <p className="text-slate-400 mt-0.5">
+                  Configure primary and automatic fallback verification providers for BVN and NIN workflows.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => handleSaveProviders(providerRouting)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white rounded-xl font-semibold flex items-center gap-1.5 self-start sm:self-auto transition"
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                <span>Save Routing Policy</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">Primary BVN Provider</label>
+                <select
+                  value={providerRouting.bvn_primary_provider}
+                  onChange={e =>
+                    setProviderRouting(prev => ({
+                      ...prev,
+                      bvn_primary_provider: e.target.value,
+                    }))
+                  }
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="2sureverify">2SureVerify (Primary Recommended)</option>
+                  <option value="veripine">Veripine</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">Fallback BVN Provider</label>
+                <select
+                  value={providerRouting.bvn_fallback_provider}
+                  onChange={e =>
+                    setProviderRouting(prev => ({
+                      ...prev,
+                      bvn_fallback_provider: e.target.value,
+                    }))
+                  }
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="veripine">Veripine</option>
+                  <option value="2sureverify">2SureVerify</option>
+                  <option value="none">No Fallback (Single Provider Only)</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col justify-center gap-2.5 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5">
+                <label className="flex items-center gap-2 cursor-pointer text-slate-200 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={providerRouting.bvn_auto_fallback}
+                    onChange={e =>
+                      setProviderRouting(prev => ({ ...prev, bvn_auto_fallback: e.target.checked }))
+                    }
+                    className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span>Enable Automatic BVN Failover</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={providerRouting.identity_auto_fallback}
+                    onChange={e =>
+                      setProviderRouting(prev => ({ ...prev, identity_auto_fallback: e.target.checked }))
+                    }
+                    className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span>Enable Automatic NIN Failover</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           {/* Provider Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {providerConfigs.map(provider => {

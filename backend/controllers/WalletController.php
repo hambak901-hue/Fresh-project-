@@ -783,21 +783,41 @@ class WalletController
         $offset = max(0, (int)$request->query('offset', 0));
         $category = (string)$request->query('category', '');
 
-        $sql = 'SELECT id, user_id, type, amount, balance_before, balance_after, category, reference, gateway, status, description, metadata, created_at
-                FROM transactions 
-                WHERE user_id = :uid ';
+        $whereSql = 'WHERE user_id = :uid ';
         $params = ['uid' => $user['id']];
 
         if (!empty($category)) {
-            $sql .= 'AND category = :cat ';
+            $whereSql .= 'AND category = :cat ';
             $params['cat'] = $category;
         }
 
-        $sql .= 'ORDER BY created_at DESC LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset;
-
         $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
 
-        $rows = $this->db->fetchAll($sql, $params);
+        $idRows = $this->db->fetchAll(
+            'SELECT id FROM transactions ' . $whereSql . 'ORDER BY created_at DESC LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset,
+            $params
+        );
+        $rows = [];
+        if (!empty($idRows)) {
+            $ids = array_values(array_filter(array_column($idRows, 'id')));
+            if (!empty($ids)) {
+                $placeholders = [];
+                $idParams = [];
+                foreach ($ids as $idx => $tid) {
+                    $ph = ':tx_' . $idx;
+                    $placeholders[] = $ph;
+                    $idParams['tx_' . $idx] = $tid;
+                }
+                $rows = $this->db->fetchAll(
+                    'SELECT id, user_id, type, amount, balance_before, balance_after, category, reference, gateway, status, description, metadata, created_at
+                     FROM transactions
+                     WHERE id IN (' . implode(', ', $placeholders) . ')',
+                    $idParams
+                );
+                $orderMap = array_flip($ids);
+                usort($rows, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
         foreach ($rows as &$r) {
             $r['amount'] = (float)$r['amount'];
             $r['balance_before'] = (float)$r['balance_before'];

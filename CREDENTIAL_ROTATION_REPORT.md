@@ -75,11 +75,11 @@ To complete rotation of potentially exposed integration secrets, the system admi
 4. **VTPass:** Rotate Secret Key and update `VTPASS_SECRET_KEY`.
 
 ### Step 4: Outbound Mail & SFTP
-1. **TrueHost Webmail LON110:**
+1. **TrueHost Webmail <HOST_NODE>:**
    - Reset email password for `notifications@hambaktech.com.ng` via cPanel **Email Accounts**.
    - Update `SMTP_PASS` in environment variables.
 2. **SFTP Deployment Account:**
-   - Reset FTP password for `51.89.153.183:1624` via cPanel **FTP Accounts**.
+   - Reset FTP password for `<CPANEL_HOST>:1624` via cPanel **FTP Accounts**.
    - Update `CPANEL_SFTP_PASS` in environment variables.
 
 ---

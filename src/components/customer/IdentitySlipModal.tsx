@@ -64,12 +64,20 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
     { label: 'First Name', value: report.firstName },
     { label: 'Middle Name', value: report.middleName },
     { label: 'Surname', value: report.surname },
-    { label: 'National Identity Number (NIN)', value: report.nin, mono: true },
     { label: 'Bank Verification Number (BVN)', value: report.bvn, mono: true },
+    { label: 'National Identity Number (NIN)', value: report.nin, mono: true },
     { label: 'Date of Birth', value: report.dateOfBirth, mono: true },
     { label: 'Gender', value: report.gender },
     { label: 'Phone Number', value: report.phoneNumber, mono: true },
+    { label: 'Email Address', value: report.email },
     { label: 'Address / Location', value: [report.address, report.lga, report.state].filter(Boolean).join(', ') || null },
+    { label: 'Enrollment Bank', value: report.enrollmentBank },
+    { label: 'Enrollment Branch', value: report.enrollmentBranch },
+    { label: 'Account Level', value: report.levelOfAccount },
+    { label: 'Watchlisted', value: report.watchListed },
+    { label: 'Marital Status', value: report.maritalStatus },
+    { label: 'Name on Card', value: report.nameOnCard },
+    { label: 'Registration Date', value: report.registrationDate, mono: true },
     { label: 'Tracking Reference', value: report.trackingId, mono: true },
   ].filter(item => Boolean(item.value));
 
@@ -146,7 +154,7 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
                     {companyName}
                   </h2>
                   <p className="text-xs font-semibold text-blue-700 dark:text-blue-400">
-                    Digital Identity Verification Report &bull; {report.slipTypeName}
+                    {report.isBvnReport ? 'Bank Verification Number (BVN) Report' : 'Digital Identity Verification Report'} &bull; {report.slipTypeName}
                   </p>
                 </div>
               </div>
@@ -234,7 +242,7 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
                 </div>
               </div>
               <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3">
-                <strong>Verification Notice:</strong> This document is a {companyName} digital verification report generated from authorized query output at the timestamp above. It is provided strictly for legitimate KYC and identity confirmation records and does not serve as a replacement for an official government-issued ID card issued directly by NIMC.
+                <strong>Verification Notice:</strong> This document is a {companyName} digital verification report generated from authorized query output at the timestamp above. It is provided strictly for legitimate KYC and identity confirmation records and does not replace {report.isBvnReport ? 'official banking credentials issued directly by CBN/NIBSS' : 'an official government-issued ID card issued directly by NIMC'}.
               </p>
             </div>
           </div>

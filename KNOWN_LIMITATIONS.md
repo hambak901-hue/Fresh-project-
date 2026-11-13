@@ -1,7 +1,7 @@
 # PHASE 9: KNOWN LIMITATIONS & PHASE 10 DEPLOYMENT ROADMAP
 
 **System**: HambakTech Enterprise Portal  
-**Target Host**: TrueHost LON110 Tier-3 Server (51.89.153.183:1624)  
+**Target Host**: Production Cloud Host Tier-3 Server (<CPANEL_HOST>:1624)  
 **Document Status**: Production Staging Baseline  
 **Date**: November 8, 2026  
 
@@ -29,9 +29,9 @@ In accordance with the 10-Phase Waterfall Masterplan, certain auxiliary modules 
 
 ---
 
-## 2. Cloud Preview vs. TrueHost LON110 Production Environment Differences
+## 2. Cloud Preview vs. Production Cloud Host Production Environment Differences
 
-| Feature | Cloud Run Development Container | TrueHost LON110 Production (cPanel) |
+| Feature | Cloud Run Development Container | Production Cloud Host Production (cPanel) |
 |---|---|---|
 | **Port Binding** | Fixed port 3000 (proxy through 8080) | Port assigned via cPanel Node.js Application Manager or Unix Socket |
 | **Outbound SMTP Socket** | External TCP port 465/587 may be blocked by container firewall; emails logged in simulated mode | Native outbound socket access to `lon110.truehost.cloud:465` (contact@hambaktech.com.ng) |
@@ -46,7 +46,7 @@ Phase 10 represents the final stage of the masterplan:
 1. **Production Vite Build**: Execute `npm run build` with chunk splitting, gzip compression, and assets optimization.
 2. **cPanel Node.js Setup**: Generate `.htaccess` rewrite rules and `server.js` entry point compatible with cPanel CloudLinux Passenger.
 3. **Database Migration Script**: Run SQL table creation script in TrueHost PHPMyAdmin.
-4. **Automated SFTP Deployment**: Deploy application package directly to `51.89.153.183:1624` using the credentials vault.
+4. **Automated SFTP Deployment**: Deploy application package directly to `<CPANEL_HOST>:1624` using the credentials vault.
 5. **Live Verification**: Verify domain resolution (`hambaktech.com.ng`), SSL certificate, and end-to-end transaction processing on the live TrueHost server.
 
 ---

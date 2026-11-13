@@ -13,16 +13,18 @@ if (!defined('HAMBAKTECH_ROOT')) {
 }
 
 // Environment Detection - Check multiple standard paths (including cPanel home directory)
-$possibleEnvFiles = [
-    '/home/qfqzpeqx/.env',
+$possibleEnvFiles = array_filter([
+    getenv('ENV_FILE') ?: null,
+    getenv('HOME') ? rtrim((string)getenv('HOME'), '/') . '/.env' : null,
+    dirname(HAMBAKTECH_ROOT, 3) . '/.env',
     dirname(HAMBAKTECH_ROOT, 2) . '/.env',
     dirname(HAMBAKTECH_ROOT) . '/.env',
     HAMBAKTECH_ROOT . '/.env',
-    (isset($_SERVER['DOCUMENT_ROOT']) && $_SERVER['DOCUMENT_ROOT'] !== '') ? dirname($_SERVER['DOCUMENT_ROOT']) . '/.env' : '',
-    (isset($_SERVER['DOCUMENT_ROOT']) && $_SERVER['DOCUMENT_ROOT'] !== '') ? $_SERVER['DOCUMENT_ROOT'] . '/.env' : '',
+    (isset($_SERVER['DOCUMENT_ROOT']) && $_SERVER['DOCUMENT_ROOT'] !== '') ? dirname($_SERVER['DOCUMENT_ROOT']) . '/.env' : null,
+    (isset($_SERVER['DOCUMENT_ROOT']) && $_SERVER['DOCUMENT_ROOT'] !== '') ? $_SERVER['DOCUMENT_ROOT'] . '/.env' : null,
     dirname(__DIR__, 2) . '/.env',
     dirname(__DIR__) . '/.env',
-];
+]);
 
 foreach ($possibleEnvFiles as $envFile) {
     if (!empty($envFile) && file_exists($envFile)) {
@@ -127,15 +129,10 @@ return [
         'pop3_port' => 995,
     ],
     'cpanel' => [
-        'server_name' => 'LON110',
-        'server_ip' => '51.89.153.183',
-        'sftp_host' => '51.89.153.183',
+        'server_name' => getenv('CPANEL_SERVER_NAME') ?: '',
+        'server_ip' => getenv('CPANEL_SERVER_IP') ?: '',
+        'sftp_host' => getenv('CPANEL_SFTP_HOST') ?: '',
         'sftp_user' => getenv('CPANEL_SFTP_USER') ?: '',
         'sftp_pass' => getenv('CPANEL_SFTP_PASS') ?: '',
-        'nameservers' => [
-            'ns1.cloudoon.com (57.128.250.247)',
-            'ns2.cloudoon.net (49.12.105.164)',
-            'ns3.cloudoon.org (158.69.211.95)',
-        ],
     ],
 ];

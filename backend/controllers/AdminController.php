@@ -463,15 +463,35 @@ class AdminController
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
 
-        $rows = $this->db->fetchAll(
-            'SELECT m.*, u.full_name, u.email, u.phone_number,
-                    m.payment_reference as reference,
-                    "credit" as type,
-                    "manual_transfer" as gateway
-             FROM manual_funding_requests m
-             LEFT JOIN users u ON u.id = m.user_id
+        $idRows = $this->db->fetchAll(
+            'SELECT id FROM manual_funding_requests m
              ORDER BY FIELD(m.status, "pending", "approved", "rejected"), m.created_at DESC LIMIT 50'
         );
+        $rows = [];
+        if (!empty($idRows)) {
+            $ids = array_values(array_filter(array_column($idRows, 'id')));
+            if (!empty($ids)) {
+                $placeholders = [];
+                $idParams = [];
+                foreach ($ids as $idx => $idVal) {
+                    $ph = ':mf_' . $idx;
+                    $placeholders[] = $ph;
+                    $idParams['mf_' . $idx] = $idVal;
+                }
+                $rows = $this->db->fetchAll(
+                    'SELECT m.*, u.full_name, u.email, u.phone_number,
+                            m.payment_reference as reference,
+                            "credit" as type,
+                            "manual_transfer" as gateway
+                     FROM manual_funding_requests m
+                     LEFT JOIN users u ON u.id = m.user_id
+                     WHERE m.id IN (' . implode(', ', $placeholders) . ')',
+                    $idParams
+                );
+                $orderMap = array_flip($ids);
+                usort($rows, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
 
         foreach ($rows as &$r) {
             $r['amount'] = (float)$r['amount'];
@@ -1276,8 +1296,15 @@ class AdminController
             $db->execute('DELETE FROM verification_records WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM kyc_submissions WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM transactions WHERE user_id = :uid', ['uid' => $customerId]);
-            $db->execute('DELETE FROM wallet_ledger WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute(
+                'DELETE FROM wallet_ledger WHERE user_id = :uid1 OR wallet_id IN (SELECT id FROM wallets WHERE user_id = :uid2)',
+                ['uid1' => $customerId, 'uid2' => $customerId]
+            );
             $db->execute('DELETE FROM wallets WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM customer_virtual_accounts WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM payment_records WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM bulk_sms_records WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM customer_messages WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM user_profiles WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM notifications WHERE user_id = :uid', ['uid' => $customerId]);
             if (!empty($target['email'])) {
@@ -1443,8 +1470,8 @@ class AdminController
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
 
-        // 1. Fetch system pricing settings
-        $settingsRows = $this->db->fetchAll('SELECT setting_key, setting_value FROM system_settings WHERE category IN ("pricing", "payment", "general", "telecom", "identity")');
+        // 1. Fetch system pricing & routing settings
+        $settingsRows = $this->db->fetchAll('SELECT setting_key, setting_value FROM system_settings WHERE category IN ("pricing", "payment", "general", "telecom", "identity", "providers")');
         $settings = [
             'nin_fee' => 200,
             'bvn_fee' => 250,
@@ -1454,12 +1481,18 @@ class AdminController
             'nine_mobile_1gb' => 250,
             'airtime_discount_percent' => 2.5,
             'active_verification_provider' => '2sureverify',
+            'bvn_primary_provider' => '2sureverify',
+            'bvn_fallback_provider' => 'veripine',
+            'bvn_auto_fallback' => true,
+            'identity_auto_fallback' => true,
             'active_telecom_provider' => 'ulamadata',
             'active_payment_gateway' => 'paystack',
         ];
         foreach ($settingsRows as $sr) {
             $val = $sr['setting_value'];
-            if (is_numeric($val)) {
+            if (in_array($sr['setting_key'], ['bvn_auto_fallback', 'identity_auto_fallback'], true)) {
+                $val = filter_var($val, FILTER_VALIDATE_BOOLEAN);
+            } elseif (is_numeric($val)) {
                 $val = strpos($val, '.') !== false ? (float)$val : (int)$val;
             }
             $settings[$sr['setting_key']] = $val;
@@ -1534,15 +1567,16 @@ class AdminController
         $b = $request->getBody();
 
         foreach ($b as $k => $v) {
+            $storeVal = is_bool($v) ? ($v ? '1' : '0') : (string)$v;
             $this->db->execute(
                 'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
                  VALUES (:id, :k, :v, "providers", "Active provider routing")
-                 ON DUPLICATE KEY UPDATE setting_value = :v2',
+                 ON DUPLICATE KEY UPDATE setting_value = :v2, updated_at = NOW()',
                 [
                     'id' => Security::generateUuid(),
                     'k' => (string)$k,
-                    'v' => (string)$v,
-                    'v2' => (string)$v,
+                    'v' => $storeVal,
+                    'v2' => $storeVal,
                 ]
             );
         }
@@ -1552,7 +1586,15 @@ class AdminController
             $this->syncIdentityProviderState($primaryIdentity);
         }
 
-        Response::success(null, 'Provider routing configuration updated successfully');
+        $bvnPrimary = strtolower(trim((string)($b['bvn_primary_provider'] ?? '')));
+        if (in_array($bvnPrimary, ['2sureverify', 'veripine'], true)) {
+            $this->db->execute(
+                'UPDATE service_catalogue SET provider_id = :pid, updated_at = NOW() WHERE service_key IN ("bvn_v1", "bvn_v2", "bvn_v3", "bvn_retrieval")',
+                ['pid' => $bvnPrimary]
+            );
+        }
+
+        Response::success(['routing' => $b], 'Provider routing configuration updated successfully');
     }
 
     private function syncIdentityProviderState(string $primaryId): void
@@ -1734,9 +1776,34 @@ class AdminController
             }
             $p = $this->sanitizeProviderRow($p);
         }
+
+        $routing = [
+            'active_verification_provider' => $primaryId,
+            'bvn_primary_provider' => $primaryId,
+            'bvn_fallback_provider' => $primaryId === '2sureverify' ? 'veripine' : '2sureverify',
+            'bvn_auto_fallback' => true,
+            'identity_auto_fallback' => true,
+        ];
+        try {
+            $rRows = $this->db->fetchAll(
+                'SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("active_verification_provider", "bvn_primary_provider", "bvn_fallback_provider", "bvn_auto_fallback", "identity_auto_fallback")'
+            );
+            foreach ($rRows as $rr) {
+                $k = (string)$rr['setting_key'];
+                $v = (string)$rr['setting_value'];
+                if (in_array($k, ['bvn_auto_fallback', 'identity_auto_fallback'], true)) {
+                    $routing[$k] = filter_var($v, FILTER_VALIDATE_BOOLEAN);
+                } elseif ($v !== '') {
+                    $routing[$k] = $v;
+                }
+            }
+        } catch (Throwable) {
+        }
+
         Response::success([
             'primaryProviderId' => $primaryId,
             'providers' => $providers,
+            'routing' => $routing,
         ]);
     }
 
@@ -1978,7 +2045,32 @@ class AdminController
     public function providerLogs(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        $logs = $this->db->fetchAll('SELECT * FROM provider_logs ORDER BY created_at DESC LIMIT 100');
+        // Two-step deferred ID fetch prevents MySQL SQLSTATE[HY001]: 1038 Out of sort memory on LONGTEXT blobs
+        $idRows = $this->db->fetchAll('SELECT id FROM provider_logs ORDER BY created_at DESC LIMIT 100');
+        $logs = [];
+        if (!empty($idRows)) {
+            $ids = array_values(array_filter(array_column($idRows, 'id')));
+            if (!empty($ids)) {
+                $placeholders = [];
+                $idParams = [];
+                foreach ($ids as $idx => $lid) {
+                    $ph = ':pl_' . $idx;
+                    $placeholders[] = $ph;
+                    $idParams['pl_' . $idx] = $lid;
+                }
+                $logs = $this->db->fetchAll(
+                    'SELECT id, provider_id, endpoint, method, status_code,
+                            LEFT(request_body, 8000) as request_body,
+                            LEFT(response_body, 8000) as response_body,
+                            latency_ms, reference, created_at
+                     FROM provider_logs
+                     WHERE id IN (' . implode(', ', $placeholders) . ')',
+                    $idParams
+                );
+                $orderMap = array_flip($ids);
+                usort($logs, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
         Response::success(['logs' => $logs]);
     }
 
@@ -2578,7 +2670,25 @@ class AdminController
 
         $logs = [];
         try {
-            $logs = $this->db->fetchAll('SELECT * FROM email_logs ORDER BY created_at DESC LIMIT 30');
+            $emailLogIds = $this->db->fetchAll('SELECT id FROM email_logs ORDER BY created_at DESC LIMIT 30');
+            if (!empty($emailLogIds)) {
+                $ids = array_values(array_filter(array_column($emailLogIds, 'id')));
+                if (!empty($ids)) {
+                    $placeholders = [];
+                    $idParams = [];
+                    foreach ($ids as $idx => $eid) {
+                        $ph = ':el_' . $idx;
+                        $placeholders[] = $ph;
+                        $idParams['el_' . $idx] = $eid;
+                    }
+                    $logs = $this->db->fetchAll(
+                        'SELECT * FROM email_logs WHERE id IN (' . implode(', ', $placeholders) . ')',
+                        $idParams
+                    );
+                    $orderMap = array_flip($ids);
+                    usort($logs, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
+                }
+            }
         } catch (Throwable) {
             $logs = [];
         }
@@ -3404,22 +3514,43 @@ class AdminController
         $action = trim((string)$request->query('action', ''));
         $limit = min(200, max(1, (int)$request->query('limit', 50)));
 
-        $sql = 'SELECT * FROM audit_logs WHERE 1=1 ';
+        $whereSql = 'WHERE 1=1 ';
         $params = [];
 
         if (!empty($search)) {
-            $sql .= 'AND (user_email LIKE :s1 OR action LIKE :s2 OR ip_address LIKE :s3) ';
+            $whereSql .= 'AND (user_email LIKE :s1 OR action LIKE :s2 OR ip_address LIKE :s3) ';
             $params['s1'] = "%{$search}%";
             $params['s2'] = "%{$search}%";
             $params['s3'] = "%{$search}%";
         }
         if (!empty($action) && $action !== 'all') {
-            $sql .= 'AND action = :act ';
+            $whereSql .= 'AND action = :act ';
             $params['act'] = $action;
         }
 
-        $sql .= 'ORDER BY created_at DESC LIMIT ' . (int)$limit;
-        $logs = $this->db->fetchAll($sql, $params);
+        $idRows = $this->db->fetchAll(
+            'SELECT id FROM audit_logs ' . $whereSql . 'ORDER BY created_at DESC LIMIT ' . (int)$limit,
+            $params
+        );
+        $logs = [];
+        if (!empty($idRows)) {
+            $ids = array_values(array_filter(array_column($idRows, 'id')));
+            if (!empty($ids)) {
+                $placeholders = [];
+                $idParams = [];
+                foreach ($ids as $idx => $aid) {
+                    $ph = ':al_' . $idx;
+                    $placeholders[] = $ph;
+                    $idParams['al_' . $idx] = $aid;
+                }
+                $logs = $this->db->fetchAll(
+                    'SELECT * FROM audit_logs WHERE id IN (' . implode(', ', $placeholders) . ')',
+                    $idParams
+                );
+                $orderMap = array_flip($ids);
+                usort($logs, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
 
         foreach ($logs as &$l) {
             $l['details'] = is_string($l['details']) ? json_decode($l['details'], true) : $l['details'];
@@ -3469,12 +3600,38 @@ class AdminController
             $params['q4'] = "%{$search}%";
             $params['q5'] = "%{$search}%";
         }
+        $whereSql = '';
         if (!empty($conds)) {
-            $sql .= 'WHERE ' . implode(' AND ', $conds) . ' ';
+            $whereSql = 'WHERE ' . implode(' AND ', $conds) . ' ';
         }
 
-        $sql .= 'ORDER BY k.created_at DESC LIMIT 100';
-        $rows = $this->db->fetchAll($sql, $params);
+        $idRows = $this->db->fetchAll(
+            'SELECT k.id FROM kyc_submissions k LEFT JOIN users u ON u.id = k.user_id ' . $whereSql . 'ORDER BY k.created_at DESC LIMIT 100',
+            $params
+        );
+        $rows = [];
+        if (!empty($idRows)) {
+            $ids = array_values(array_filter(array_column($idRows, 'id')));
+            if (!empty($ids)) {
+                $placeholders = [];
+                $idParams = [];
+                foreach ($ids as $idx => $kid) {
+                    $ph = ':kyc_' . $idx;
+                    $placeholders[] = $ph;
+                    $idParams['kyc_' . $idx] = $kid;
+                }
+                $rows = $this->db->fetchAll(
+                    'SELECT k.*, u.full_name as user_name, u.email as user_email, u.phone_number,
+                            COALESCE(u.kyc_level, u.tier, 1) as current_tier
+                     FROM kyc_submissions k
+                     LEFT JOIN users u ON u.id = k.user_id
+                     WHERE k.id IN (' . implode(', ', $placeholders) . ')',
+                    $idParams
+                );
+                $orderMap = array_flip($ids);
+                usort($rows, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
         foreach ($rows as &$row) {
             if (is_string($row['automated_verification_result'] ?? null)) {
                 $row['automated_verification_result'] = json_decode($row['automated_verification_result'], true);
@@ -4038,11 +4195,19 @@ class AdminController
             $this->db->execute("DELETE FROM support_replies WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM support_tickets WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM transactions WHERE user_id IN ($placeholders)", $testUserIds);
+            $this->db->execute(
+                "DELETE FROM wallet_ledger WHERE user_id IN ($placeholders) OR wallet_id IN (SELECT id FROM wallets WHERE user_id IN ($placeholders))",
+                array_merge($testUserIds, $testUserIds)
+            );
             $this->db->execute("DELETE FROM wallets WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM manual_funding_requests WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM telecom_orders WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM verification_records WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM kyc_submissions WHERE user_id IN ($placeholders)", $testUserIds);
+            $this->db->execute("DELETE FROM customer_virtual_accounts WHERE user_id IN ($placeholders)", $testUserIds);
+            $this->db->execute("DELETE FROM payment_records WHERE user_id IN ($placeholders)", $testUserIds);
+            $this->db->execute("DELETE FROM bulk_sms_records WHERE user_id IN ($placeholders)", $testUserIds);
+            $this->db->execute("DELETE FROM customer_messages WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM user_profiles WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM notifications WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM users WHERE id IN ($placeholders)", $testUserIds);
@@ -4156,8 +4321,29 @@ class AdminController
         $totalRow = $this->db->fetchOne("SELECT COUNT(*) as cnt FROM activity_footprints WHERE {$whereClause}", $params);
         $total = (int)($totalRow['cnt'] ?? 0);
 
-        $sql = "SELECT * FROM activity_footprints WHERE {$whereClause} ORDER BY created_at DESC LIMIT {$limit} OFFSET {$offset}";
-        $rows = $this->db->fetchAll($sql, $params);
+        $idRows = $this->db->fetchAll(
+            "SELECT id FROM activity_footprints WHERE {$whereClause} ORDER BY created_at DESC LIMIT {$limit} OFFSET {$offset}",
+            $params
+        );
+        $rows = [];
+        if (!empty($idRows)) {
+            $ids = array_values(array_filter(array_column($idRows, 'id')));
+            if (!empty($ids)) {
+                $placeholders = [];
+                $idParams = [];
+                foreach ($ids as $idx => $fid) {
+                    $ph = ':fp_' . $idx;
+                    $placeholders[] = $ph;
+                    $idParams['fp_' . $idx] = $fid;
+                }
+                $rows = $this->db->fetchAll(
+                    'SELECT * FROM activity_footprints WHERE id IN (' . implode(', ', $placeholders) . ')',
+                    $idParams
+                );
+                $orderMap = array_flip($ids);
+                usort($rows, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
 
         foreach ($rows as &$r) {
             if (!empty($r['metadata']) && is_string($r['metadata'])) {
@@ -4194,7 +4380,26 @@ class AdminController
              FROM activity_footprints'
         );
 
-        $recent = $this->db->fetchAll('SELECT * FROM activity_footprints ORDER BY created_at DESC LIMIT 6');
+        $recentIdRows = $this->db->fetchAll('SELECT id FROM activity_footprints ORDER BY created_at DESC LIMIT 6');
+        $recent = [];
+        if (!empty($recentIdRows)) {
+            $ids = array_values(array_filter(array_column($recentIdRows, 'id')));
+            if (!empty($ids)) {
+                $placeholders = [];
+                $idParams = [];
+                foreach ($ids as $idx => $fid) {
+                    $ph = ':fpr_' . $idx;
+                    $placeholders[] = $ph;
+                    $idParams['fpr_' . $idx] = $fid;
+                }
+                $recent = $this->db->fetchAll(
+                    'SELECT * FROM activity_footprints WHERE id IN (' . implode(', ', $placeholders) . ')',
+                    $idParams
+                );
+                $orderMap = array_flip($ids);
+                usort($recent, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
         foreach ($recent as &$rc) {
             if (!empty($rc['metadata']) && is_string($rc['metadata'])) {
                 $rc['metadata'] = json_decode($rc['metadata'], true);
@@ -4223,7 +4428,28 @@ class AdminController
         Auth::requireRole($request, ['admin', 'superadmin']);
         FootprintService::ensureTable();
 
-        $rows = $this->db->fetchAll('SELECT id, created_at, category, action, user_email, user_name, service_type, reference, provider, status, amount, ip_address, device_info, browser_info, error_message FROM activity_footprints ORDER BY created_at DESC LIMIT 1000');
+        $exportIdRows = $this->db->fetchAll('SELECT id FROM activity_footprints ORDER BY created_at DESC LIMIT 1000');
+        $rows = [];
+        if (!empty($exportIdRows)) {
+            $ids = array_values(array_filter(array_column($exportIdRows, 'id')));
+            if (!empty($ids)) {
+                $placeholders = [];
+                $idParams = [];
+                foreach ($ids as $idx => $fid) {
+                    $ph = ':fpe_' . $idx;
+                    $placeholders[] = $ph;
+                    $idParams['fpe_' . $idx] = $fid;
+                }
+                $rows = $this->db->fetchAll(
+                    'SELECT id, created_at, category, action, user_email, user_name, service_type, reference, provider, status, amount, ip_address, device_info, browser_info, error_message
+                     FROM activity_footprints
+                     WHERE id IN (' . implode(', ', $placeholders) . ')',
+                    $idParams
+                );
+                $orderMap = array_flip($ids);
+                usort($rows, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
 
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="hambaktech_footprints_' . date('Ymd_His') . '.csv"');

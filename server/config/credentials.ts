@@ -80,16 +80,12 @@ export const CREDENTIALS = {
 
   // cPanel Hosting & SFTP Deployment Configuration
   cpanel: {
-    serverName: process.env.CPANEL_SERVER_NAME || 'LON110',
-    serverIp: process.env.CPANEL_SERVER_IP || '51.89.153.183',
-    ftpHost: process.env.CPANEL_SFTP_HOST || '51.89.153.183',
+    serverName: process.env.CPANEL_SERVER_NAME || '',
+    serverIp: process.env.CPANEL_SERVER_IP || '',
+    ftpHost: process.env.CPANEL_SFTP_HOST || '',
     ftpPort: parseInt(process.env.CPANEL_SFTP_PORT || '1624', 10),
     ftpUser: process.env.CPANEL_SFTP_USER || '',
     ftpPass: process.env.CPANEL_SFTP_PASS || '',
-    nameservers: [
-      'ns1.cloudoon.com (57.128.250.247)',
-      'ns2.cloudoon.net (49.12.105.164)',
-      'ns3.cloudoon.org (158.69.211.95)',
-    ],
+    nameservers: (process.env.CPANEL_NAMESERVERS ? process.env.CPANEL_NAMESERVERS.split(',').map(s => s.trim()).filter(Boolean) : []) as string[],
   },
 };

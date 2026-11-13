@@ -16,14 +16,17 @@ declare(strict_types=1);
 
     // Documented hierarchy for production .env location:
     // 1. Explicit ENV_FILE if passed by process manager
-    // 2. /home/qfqzpeqx/.env (Authoritative cPanel location outside public_html)
+    // 2. Host home directory outside public_html (resolved via HOME or parent directories)
     // 3. Workspace root .env (Local development)
     // 4. Backend root .env
     // NOTE: /public_html/.env is intentionally excluded to guarantee secrets never reside in web root.
+    $homeDir = getenv('HOME') ? rtrim((string)getenv('HOME'), '/') : null;
     $candidateEnvFiles = array_filter([
         getenv('ENV_FILE') ?: null,
-        '/home/qfqzpeqx/.env',
-        '/home/qfqzpeqx/hambaktech_env/.env',
+        $homeDir ? $homeDir . '/.env' : null,
+        $homeDir ? $homeDir . '/hambaktech_env/.env' : null,
+        dirname(__DIR__, 3) . '/.env',
+        dirname(__DIR__, 3) . '/hambaktech_env/.env',
         dirname(__DIR__, 2) . '/.env',
         dirname(__DIR__) . '/.env',
     ]);

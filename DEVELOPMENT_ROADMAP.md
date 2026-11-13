@@ -1,7 +1,7 @@
 # 10-Phase Development Roadmap: HambakTech Enterprise
 **Project**: HambakTech Enterprise Services Portal  
 **Strategy**: Strict Sequential Waterfall Execution (No phase jumping)  
-**Target Environment**: TrueHost LON110 cPanel (PHP 8.2+ & MySQL)  
+**Target Environment**: Production Cloud Host cPanel (PHP 8.2+ & MySQL)  
 
 ---
 
@@ -16,9 +16,9 @@
 | **05** | **NIN & BVN Integration** | 2SureVerify & Veripine, Identity Slips, Phone/CAC Lookup | Queued |
 | **06** | **Telecommunications Integration** | UlamaData & VTpass, MTN SME, Airtel, Glo, 9mobile, Bills | Queued |
 | **07** | **Wallet and Payment System** | Flutterwave Gateway, Moniepoint Virtual Accounts, Immutable Ledger | Queued |
-| **08** | **Additional Modules & Comms** | Hambak Academy, Digital Goods Store, TrueHost LON110 SMTP & SMS | Queued |
+| **08** | **Additional Modules & Comms** | Hambak Academy, Digital Goods Store, Production Cloud Host SMTP & SMS | Queued |
 | **09** | **Complete System Integration** | Security Stress Test, Provider Idempotency, Edge Cases, Bug Fixes | Queued |
-| **10** | **Production & cPanel Deployment** | Static SPA Build, MySQL Import, SFTP Upload to LON110 (51.89.153.183:1624) | Queued |
+| **10** | **Production & cPanel Deployment** | Static SPA Build, MySQL Import, SFTP Upload to <HOST_NODE> (<CPANEL_HOST>:1624) | Queued |
 
 ---
 
@@ -118,9 +118,9 @@
 ---
 
 ### Phase 10: Production Preparation and cPanel Deployment
-* **Goal**: Package and deploy the complete application to TrueHost LON110.
+* **Goal**: Package and deploy the complete application to Production Cloud Host.
 * **Deliverables**:
   1. Production Vite static build (`npm run build`).
-  2. MySQL database creation and schema import into `qfqzpeqx_hambakdb`.
-  3. SFTP upload to `51.89.153.183:1624` into `/home/qfqzpeqx/public_html`.
+  2. MySQL database creation and schema import into `<DB_NAME>`.
+  3. SFTP upload to `<CPANEL_HOST>:1624` into `<CPANEL_HOME>/public_html`.
   4. Live verification of domain `hambaktech.com.ng`.

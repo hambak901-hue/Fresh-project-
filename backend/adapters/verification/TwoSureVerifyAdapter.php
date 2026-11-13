@@ -48,14 +48,31 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         return '2sureverify';
     }
 
+    public function hasCredentials(): bool
+    {
+        return !empty($this->apiKey);
+    }
+
     private function buildRequestPayload(string $endpoint, array $payload): array
     {
         $ep = strtolower(trim($endpoint));
         $slipType = trim((string)($payload['slip_type'] ?? 'ninStandard'));
         $tier = trim((string)($payload['tier'] ?? 'basic'));
-        $nin = trim((string)($payload['nin'] ?? $payload['search_value'] ?? ''));
-        $phone = trim((string)($payload['phone'] ?? $payload['phone_number'] ?? $payload['search_value'] ?? ''));
-        $bvn = trim((string)($payload['bvn'] ?? $payload['search_value'] ?? ''));
+        $nin = preg_replace('/\D/', '', (string)($payload['nin'] ?? $payload['search_value'] ?? '')) ?? '';
+        $phone = preg_replace('/\D/', '', (string)($payload['phone'] ?? $payload['phone_number'] ?? $payload['search_value'] ?? '')) ?? '';
+        $bvn = preg_replace('/\D/', '', (string)($payload['bvn'] ?? $payload['search_value'] ?? '')) ?? '';
+
+        $shortGender = strtolower(trim((string)($payload['gender'] ?? 'm')));
+        $shortGender = ($shortGender === 'female' || $shortGender === 'f') ? 'f' : 'm';
+
+        // Map internal HAMBAKTECH BVN slip code 'bankBvn' to 2SureVerify's supported slip_type
+        $bvnSlipMap = [
+            'bvnBasic' => 'bvnBasic',
+            'bvnAdvanced' => 'bvnAdvanced',
+            'plasticBvn' => 'plasticBvn',
+            'bankBvn' => 'bvnAdvanced',
+        ];
+        $providerBvnSlip = $bvnSlipMap[$slipType] ?? 'bvnBasic';
 
         if (str_contains($ep, 'nin_v1.php')) {
             return ['nin' => $nin, 'slip_type' => $slipType];
@@ -75,14 +92,51 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         if (str_contains($ep, 'phone_v3.php')) {
             return ['phone' => $phone, 'tier' => $tier ?: 'v1', 'slip_type' => $slipType];
         }
+        if (str_contains($ep, 'demo_v1.php')) {
+            return [
+                'firstname' => trim((string)($payload['firstname'] ?? $payload['first_name'] ?? '')),
+                'lastname' => trim((string)($payload['lastname'] ?? $payload['surname'] ?? $payload['last_name'] ?? '')),
+                'dob' => trim((string)($payload['dob'] ?? $payload['birthdate'] ?? '')),
+                'gender' => strtoupper($shortGender),
+                'slip_type' => $slipType,
+            ];
+        }
+        if (str_contains($ep, 'demo_v2.php')) {
+            return [
+                'firstname' => trim((string)($payload['firstname'] ?? $payload['first_name'] ?? '')),
+                'lastname' => trim((string)($payload['lastname'] ?? $payload['surname'] ?? $payload['last_name'] ?? '')),
+                'dob' => trim((string)($payload['dob'] ?? $payload['birthdate'] ?? '')),
+                'gender' => $shortGender,
+            ];
+        }
+        if (str_contains($ep, 'demo_v3.php')) {
+            return [
+                'firstname' => trim((string)($payload['firstname'] ?? $payload['first_name'] ?? '')),
+                'lastname' => trim((string)($payload['lastname'] ?? $payload['surname'] ?? $payload['last_name'] ?? '')),
+                'dob' => trim((string)($payload['dob'] ?? $payload['birthdate'] ?? '')),
+                'gender' => $shortGender,
+                'tier' => in_array($tier, ['v1', 'v2'], true) ? $tier : 'v1',
+                'slip_type' => $slipType,
+            ];
+        }
         if (str_contains($ep, 'vnin')) {
-            return ['nin' => $nin, 'slip_type' => $slipType];
+            return ['nin' => trim((string)($payload['nin'] ?? $payload['search_value'] ?? '')), 'slip_type' => $slipType];
+        }
+        if (str_contains($ep, 'bvn_retrieval.php')) {
+            return [
+                'first_name' => trim((string)($payload['first_name'] ?? $payload['firstname'] ?? '')),
+                'last_name' => trim((string)($payload['last_name'] ?? $payload['lastname'] ?? $payload['surname'] ?? '')),
+                'phone' => $phone,
+            ];
         }
         if (str_contains($ep, 'bvn_v1.php')) {
-            return ['bvn' => $bvn, 'slip_type' => $slipType];
+            return ['bvn' => $bvn, 'slip_type' => $providerBvnSlip];
         }
-        if (str_contains($ep, 'bvn_v2.php') || str_contains($ep, 'bvn_v3.php')) {
-            return ['bvn' => $bvn, 'tier' => $tier, 'slip_type' => $slipType];
+        if (str_contains($ep, 'bvn_v2.php')) {
+            return ['bvn' => $bvn, 'tier' => in_array($tier, ['standard', 'premium'], true) ? $tier : 'premium'];
+        }
+        if (str_contains($ep, 'bvn_v3.php')) {
+            return ['bvn' => $bvn, 'tier' => in_array($tier, ['v1', 'v2', 'v3', 'v4', 'v5'], true) ? $tier : 'v1', 'slip_type' => $providerBvnSlip];
         }
 
         // Preserve full payload for modification / enrolment / additional endpoints (strip internal keys)
@@ -93,8 +147,9 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
 
     private function normalizePhotoField(array $data): array
     {
-        if (!empty($data['photo']) && is_string($data['photo'])) {
-            $p = trim($data['photo']);
+        $rawPhoto = $data['photo'] ?? $data['base64Image'] ?? $data['image'] ?? null;
+        if (!empty($rawPhoto) && is_string($rawPhoto)) {
+            $p = trim($rawPhoto);
             $isUrlOrAsset = str_starts_with($p, 'data:')
                 || str_starts_with($p, 'http://')
                 || str_starts_with($p, 'https://')
@@ -102,7 +157,10 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 || str_starts_with($p, '/uploads/');
             if ($p !== '' && !$isUrlOrAsset) {
                 $mime = str_starts_with($p, 'iVBOR') ? 'image/png' : 'image/jpeg';
-                $data['photo'] = "data:{$mime};base64," . $p;
+                $p = "data:{$mime};base64," . $p;
+            }
+            if ($p !== '') {
+                $data['photo'] = $p;
             }
         }
         if (!empty($data['user_data']) && is_array($data['user_data'])) {
@@ -114,100 +172,132 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         return $data;
     }
 
-    public function verify(string $endpoint, array $payload): array
+    private function executeSingleCall(string $endpoint, array $payload, string $reference): array
     {
         $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
         $startTime = microtime(true);
-        $statusCode = 200;
-        $responseBody = '';
-        $reference = $payload['reference'] ?? ('2SV_' . strtoupper(bin2hex(random_bytes(6))));
+        $requestPayload = $this->buildRequestPayload($endpoint, $payload);
+        $ch = curl_init($url);
+        $jsonPayload = json_encode(array_merge($requestPayload, ['api_key' => $this->apiKey]));
 
-        // Perform real provider cURL call
-        if (!empty($this->apiKey)) {
-            $requestPayload = $this->buildRequestPayload($endpoint, $payload);
-            $ch = curl_init($url);
-            $jsonPayload = json_encode(array_merge($requestPayload, ['api_key' => $this->apiKey]));
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $jsonPayload,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Accept: application/json',
+                'Authorization: Bearer ' . $this->apiKey,
+                'X-Api-Key: ' . $this->apiKey,
+            ],
+            CURLOPT_CONNECTTIMEOUT => 12,
+            CURLOPT_TIMEOUT => $this->timeout,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
 
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => $jsonPayload,
-                CURLOPT_HTTPHEADER => [
-                    'Content-Type: application/json',
-                    'Accept: application/json',
-                    'Authorization: Bearer ' . $this->apiKey,
-                    'X-Api-Key: ' . $this->apiKey,
-                ],
-                CURLOPT_CONNECTTIMEOUT => 12,
-                CURLOPT_TIMEOUT => $this->timeout,
-                CURLOPT_SSL_VERIFYPEER => true,
-            ]);
+        $responseBody = curl_exec($ch);
+        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErrno = curl_errno($ch);
+        $curlError = curl_error($ch);
+        curl_close($ch);
 
-            $responseBody = curl_exec($ch);
-            $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $curlErrno = curl_errno($ch);
-            $curlError = curl_error($ch);
-            curl_close($ch);
+        $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
+        $this->logTransaction($endpoint, $requestPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $reference);
 
-            $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
-            $this->logTransaction($endpoint, $requestPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $reference);
-
-            if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
-                $decoded = json_decode($responseBody, true);
-                if (is_array($decoded)) {
-                    $statusLower = strtolower((string)($decoded['status'] ?? ''));
-                    $isSuccess = (!isset($decoded['success']) || (bool)$decoded['success'] === true) && $statusLower !== 'failed' && $statusLower !== 'error';
-                    if ($isSuccess) {
-                        $decoded = $this->normalizePhotoField($decoded);
-                        $decoded['reference'] = $decoded['reference'] ?? $reference;
-                        if (isset($decoded['amount_charged']) && is_numeric($decoded['amount_charged'])) {
-                            $decoded['provider_cost'] = (float)$decoded['amount_charged'];
-                        }
-                        $decoded['success'] = true;
-                        return $decoded;
+        if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
+            $decoded = json_decode($responseBody, true);
+            if (is_array($decoded)) {
+                $statusLower = strtolower((string)($decoded['status'] ?? ''));
+                $isSuccess = (!isset($decoded['success']) || (bool)$decoded['success'] === true) && $statusLower !== 'failed' && $statusLower !== 'error';
+                if ($isSuccess) {
+                    $decoded = $this->normalizePhotoField($decoded);
+                    $decoded['reference'] = $decoded['reference'] ?? $reference;
+                    if (isset($decoded['amount_charged']) && is_numeric($decoded['amount_charged'])) {
+                        $decoded['provider_cost'] = (float)$decoded['amount_charged'];
                     }
-                    return [
-                        'status' => 'failed',
-                        'success' => false,
-                        'code' => $statusCode,
-                        'message' => (string)($decoded['message'] ?? $decoded['error'] ?? 'Provider verification request failed'),
-                        'reference' => $decoded['reference'] ?? $reference,
-                        'raw_error' => $responseBody,
-                    ];
+                    $decoded['success'] = true;
+                    return $decoded;
                 }
+                return [
+                    'status' => 'failed',
+                    'success' => false,
+                    'code' => $statusCode,
+                    'message' => (string)($decoded['message'] ?? $decoded['error'] ?? 'Provider verification request failed'),
+                    'reference' => $decoded['reference'] ?? $reference,
+                    'raw_error' => $responseBody,
+                ];
             }
-
-            // Upstream provider returned an error, timeout, or non-JSON response
-            $errorMsg = 'Provider verification request failed';
-            if ($curlErrno === CURLE_OPERATION_TIMEDOUT) {
-                $errorMsg = 'Verification gateway timed out while waiting for identity registry response.';
-            } elseif ($responseBody) {
-                $decodedErr = json_decode($responseBody, true);
-                if (is_array($decodedErr) && !empty($decodedErr['message'])) {
-                    $errorMsg = (string)$decodedErr['message'];
-                }
-            } elseif ($curlError) {
-                $errorMsg = 'Connection error: ' . $curlError;
-            }
-
-            return [
-                'status' => 'failed',
-                'success' => false,
-                'code' => $curlErrno === CURLE_OPERATION_TIMEDOUT ? 504 : ($statusCode ?: 502),
-                'message' => $errorMsg,
-                'reference' => $reference,
-                'raw_error' => $responseBody ?: $curlError,
-            ];
         }
 
-        // Live mode without API key configured returns genuine failure
+        $errorMsg = 'Provider verification request failed';
+        if ($curlErrno === CURLE_OPERATION_TIMEDOUT) {
+            $errorMsg = 'Verification gateway timed out while waiting for identity registry response.';
+        } elseif ($responseBody) {
+            $decodedErr = json_decode($responseBody, true);
+            if (is_array($decodedErr) && !empty($decodedErr['message'])) {
+                $errorMsg = (string)$decodedErr['message'];
+            }
+        } elseif ($curlError) {
+            $errorMsg = 'Connection error: ' . $curlError;
+        }
+
         return [
             'status' => 'failed',
             'success' => false,
-            'code' => 503,
-            'message' => '2SureVerify API key is not configured on the production host. Please set TWOSUREVERIFY_API_KEY.',
+            'code' => $curlErrno === CURLE_OPERATION_TIMEDOUT ? 504 : ($statusCode ?: 502),
+            'message' => $errorMsg,
             'reference' => $reference,
+            'raw_error' => $responseBody ?: $curlError,
         ];
+    }
+
+    public function verify(string $endpoint, array $payload): array
+    {
+        $reference = (string)($payload['reference'] ?? ('2SV_' . strtoupper(bin2hex(random_bytes(6)))));
+
+        if (empty($this->apiKey)) {
+            return [
+                'status' => 'failed',
+                'success' => false,
+                'code' => 503,
+                'message' => '2SureVerify API key is not configured on the production host. Please set TWOSUREVERIFY_API_KEY.',
+                'reference' => $reference,
+            ];
+        }
+
+        $result = $this->executeSingleCall($endpoint, $payload, $reference);
+        if (!empty($result['success'])) {
+            return $result;
+        }
+
+        // If a _v1.php endpoint specifically asks callers to try V2 or V3 (or reports upstream unavailability), fail over internally
+        $msgLower = strtolower((string)($result['message'] ?? ''));
+        $isVersionFailoverPrompt = str_contains($msgLower, 'try a different version')
+            || str_contains($msgLower, 'could not be completed right now')
+            || str_contains($msgLower, 'currently unavailable')
+            || str_contains($msgLower, 'temporarily unavailable')
+            || str_contains($msgLower, 'service unavailable');
+        if ($isVersionFailoverPrompt && preg_match('/^(.*)_v1\.php$/i', $endpoint, $m)) {
+            $prefix = $m[1];
+            foreach ([$prefix . '_v3.php', $prefix . '_v2.php'] as $idx => $fallbackEp) {
+                $fbRes = $this->executeSingleCall($fallbackEp, $payload, $reference . '_VFB' . ($idx + 1));
+                if (!empty($fbRes['success'])) {
+                    return $fbRes;
+                }
+                $fbMsgLower = strtolower((string)($fbRes['message'] ?? ''));
+                $shouldContinueFailover = str_contains($fbMsgLower, 'try a different version')
+                    || str_contains($fbMsgLower, 'could not be completed right now')
+                    || str_contains($fbMsgLower, 'currently unavailable')
+                    || str_contains($fbMsgLower, 'temporarily unavailable')
+                    || str_contains($fbMsgLower, 'service unavailable');
+                // Stop failover immediately on definitive registry results (e.g. No record found)
+                if (!$shouldContinueFailover) {
+                    return $fbRes;
+                }
+            }
+        }
+
+        return $result;
     }
 
     public function ping(): array
@@ -257,6 +347,13 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ?string $reference
     ): void {
         try {
+            $safeReq = $requestBody;
+            foreach (['nin', 'bvn', 'phone', 'phone_number'] as $k) {
+                if (!empty($safeReq[$k])) {
+                    $v = (string)$safeReq[$k];
+                    $safeReq[$k] = strlen($v) > 5 ? substr($v, 0, 3) . '•••••' . substr($v, -2) : 'REDACTED';
+                }
+            }
             $db = Database::getInstance();
             $logId = Security::generateUuid();
             $db->execute(
@@ -268,7 +365,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                     'id' => $logId,
                     'endpoint' => $endpoint,
                     'status' => $statusCode,
-                    'req' => json_encode($requestBody),
+                    'req' => json_encode($safeReq),
                     'res' => $responseBody,
                     'latency' => $latencyMs,
                     'ref' => $reference,

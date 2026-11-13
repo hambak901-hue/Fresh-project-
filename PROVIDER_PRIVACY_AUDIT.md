@@ -1,7 +1,7 @@
 # HAMBAKTECH — STAGE 8: PROVIDER PRIVACY AUDIT REPORT
 
 **Audit Date**: November 11, 2026  
-**Target Environment**: Production cPanel (`51.89.153.183`, `hambaktech.com.ng`)  
+**Target Environment**: Production cPanel (`<CPANEL_HOST>`, `hambaktech.com.ng`)  
 **Scope**: Public Website, Customer Portal, REST API Responses, Verification Slips, Transaction Receipts, and Downstream Notifications.  
 **Compliance Standard**: Zero Upstream Provider Exposure in Customer Interfaces.
 
