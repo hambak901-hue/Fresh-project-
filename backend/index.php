@@ -124,7 +124,9 @@ $router->get('/api/verification/banks', [VerificationController::class, 'banks']
 $router->get('/api/verification/banks/modification', [VerificationController::class, 'modificationBanks']);
 $router->get('/api/verification/banks/enrollment', [VerificationController::class, 'enrollmentBanks']);
 $router->get('/api/verification/status/:ref', [VerificationController::class, 'checkStatus']);
+$router->get('/api/verification/recover', [VerificationController::class, 'recover']);
 $router->get('/api/verification/record/:id', [VerificationController::class, 'getRecord']);
+$router->get('/api/verification/record/:id/pdf', [VerificationController::class, 'downloadPdf']);
 
 // -----------------------------------------------------------------------------
 // 6. TELECOMMUNICATIONS (DATA, AIRTIME, BILLS, PINS, EXAMS, SWAP, BULKSMS)

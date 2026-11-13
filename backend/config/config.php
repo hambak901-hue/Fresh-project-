@@ -57,18 +57,18 @@ return [
         'version' => '2.8.0-STAGE8',
     ],
     'security' => [
-        'jwt_secret' => getenv('JWT_SECRET') ?: 'hambaktech_enterprise_prod_jwt_secret_lon110_2026_secured_key',
+        'jwt_secret' => getenv('JWT_SECRET') ?: '',
         'jwt_expiry' => 86400 * 7, // 7 days
         'hash_cost' => 12,
-        'salt' => getenv('APP_SALT') ?: 'hambaktech_salt_2026',
+        'salt' => getenv('APP_SALT') ?: '',
     ],
     'database' => [
         'driver' => 'mysql',
         'host' => getenv('DB_HOST') ?: 'localhost',
         'port' => (int)(getenv('DB_PORT') ?: 3306),
-        'database' => getenv('DB_NAME') ?: (getenv('DB_DATABASE') ?: 'qfqzpeqx_hambak'),
-        'username' => getenv('DB_USER') ?: (getenv('DB_USERNAME') ?: 'qfqzpeqx'),
-        'password' => getenv('DB_PASSWORD') ?: (getenv('DB_PASS') ?: '2h9PAQk[kE[t96'),
+        'database' => getenv('DB_NAME') ?: (getenv('DB_DATABASE') ?: ''),
+        'username' => getenv('DB_USER') ?: (getenv('DB_USERNAME') ?: ''),
+        'password' => getenv('DB_PASSWORD') ?: (getenv('DB_PASS') ?: ''),
         'charset' => 'utf8mb4',
         'collation' => 'utf8mb4_unicode_ci',
     ],

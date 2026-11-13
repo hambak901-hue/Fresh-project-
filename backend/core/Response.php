@@ -22,7 +22,20 @@ class Response
         header('X-XSS-Protection: 1; mode=block');
 
         http_response_code($status);
-        echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        try {
+            echo json_encode(
+                $data,
+                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR
+            );
+        } catch (\Throwable $e) {
+            error_log('[Response JSON Encode Error]: ' . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'status' => 'error',
+                'message' => 'Failed to encode server response.',
+            ]);
+        }
         exit;
     }
 

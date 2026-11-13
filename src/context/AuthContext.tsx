@@ -91,9 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateBalance = (balance: number) => {
-    if (user) {
-      setUser({ ...user, wallet_balance: balance });
-    }
+    setUser(prev => (prev ? { ...prev, wallet_balance: balance } : prev));
   };
 
   return (

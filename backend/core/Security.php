@@ -12,7 +12,7 @@ class Security
 {
     private static function getSalt(): string
     {
-        return getenv('APP_SALT') ?: 'hambaktech_salt_2026';
+        return (string)(getenv('APP_SALT') ?: '');
     }
 
     public static function hashPassword(string $password): string
@@ -48,27 +48,14 @@ class Security
             }
         }
 
-        // SHA-256 with configured salt
+        // SHA-256 with configured salt (legacy migration only)
         $salt = self::getSalt();
-        if (hash_equals(hash('sha256', $plainText . $salt), $hash) || hash_equals(hash('sha256', $cleanText . $salt), $hash)) {
-            return true;
-        }
-        if (hash_equals(hash('sha256', $plainText . 'hambaktech_salt_2026'), $hash) || hash_equals(hash('sha256', $cleanText . 'hambaktech_salt_2026'), $hash)) {
+        if ($salt !== '' && (hash_equals(hash('sha256', $plainText . $salt), $hash) || hash_equals(hash('sha256', $cleanText . $salt), $hash))) {
             return true;
         }
 
-        // Plain SHA-256 without salt
+        // Plain SHA-256 without salt (legacy migration only)
         if (hash_equals(hash('sha256', $plainText), $hash) || hash_equals(hash('sha256', $cleanText), $hash)) {
-            return true;
-        }
-
-        // Legacy MD5 (common in older cPanel migrations)
-        if (hash_equals(md5($plainText), $hash) || hash_equals(md5($cleanText), $hash)) {
-            return true;
-        }
-
-        // Direct plaintext equality fallback
-        if (hash_equals($plainText, $hash) || hash_equals($cleanText, $hash)) {
             return true;
         }
 
@@ -104,16 +91,10 @@ class Security
         }
 
         $salt = self::getSalt();
-        if (hash_equals(hash('sha256', $plainPinStr . $salt), $hash)) {
-            return true;
-        }
-        if (hash_equals(hash('sha256', $plainPinStr . 'hambaktech_salt_2026'), $hash)) {
+        if ($salt !== '' && hash_equals(hash('sha256', $plainPinStr . $salt), $hash)) {
             return true;
         }
         if (hash_equals(hash('sha256', $plainPinStr), $hash)) {
-            return true;
-        }
-        if (hash_equals($plainPinStr, $hash)) {
             return true;
         }
 

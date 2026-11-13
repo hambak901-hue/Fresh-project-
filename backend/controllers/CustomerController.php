@@ -389,41 +389,45 @@ class CustomerController
         $verifRef = null;
         $autoResult = null;
 
-        // Genuine live provider check only if auto_verify is requested AND an upstream identity provider is configured
         if ($autoVerify && ($nin || $bvn)) {
             try {
                 $veripine = new VeripineAdapter();
                 $twoSure = new TwoSureVerifyAdapter();
-                if ($veripine->hasCredentials()) {
+                $cfg = file_exists(__DIR__ . '/../config/config.php') ? require __DIR__ . '/../config/config.php' : [];
+                $hasTwoSureKey = !empty(getenv('TWOSUREVERIFY_API_KEY')) || !empty($cfg['providers']['2sureverify']['api_key']);
+                if (!$hasTwoSureKey) {
+                    $r = $this->db->fetchOne('SELECT api_key FROM providers WHERE id = "2sureverify"');
+                    $hasTwoSureKey = !empty($r['api_key']);
+                }
+
+                $actRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_verification_provider"');
+                $primary = strtolower(trim((string)($actRow['setting_value'] ?? '2sureverify')));
+                if ($primary === 'veripine' && !$veripine->hasCredentials() && $hasTwoSureKey) {
+                    $primary = '2sureverify';
+                } elseif ($primary === '2sureverify' && !$hasTwoSureKey && $veripine->hasCredentials()) {
+                    $primary = 'veripine';
+                }
+
+                if ($primary === 'veripine' && $veripine->hasCredentials()) {
                     $endpoint = $nin ? '/nin-verification' : '/bvn-verification';
                     $payload = $nin ? ['nin' => $nin] : ['bvn' => $bvn];
                     $res = $veripine->verify($endpoint, $payload);
-                    if (!empty($res['success'])) {
-                        $verifRef = $res['reference'] ?? null;
-                        $autoResult = $res['data'] ?? $res;
-                        if (is_array($autoResult)) {
-                            unset($autoResult['provider'], $autoResult['provider_id'], $autoResult['provider_cost'], $autoResult['raw_error']);
-                        }
-                        $status = 'verified';
-                        $instantVerified = true;
-                    } else {
-                        $autoResult = ['error' => $res['message'] ?? 'Automated verification check returned failure'];
-                    }
                 } else {
-                    $endpoint = $nin ? 'verify-nin' : 'verify-bvn';
-                    $payload = $nin ? ['nin' => $nin] : ['bvn' => $bvn];
+                    $endpoint = $nin ? 'api/v1/nin_v1.php' : 'api/v1/bvn_v1.php';
+                    $payload = $nin ? ['nin' => $nin, 'slip_type' => 'ninStandard'] : ['bvn' => $bvn, 'slip_type' => 'bvnBasic'];
                     $res = $twoSure->verify($endpoint, $payload);
-                    if (!empty($res['success']) && empty($res['is_simulated'])) {
-                        $verifRef = $res['reference'] ?? null;
-                        $autoResult = $res['data'] ?? $res;
-                        if (is_array($autoResult)) {
-                            unset($autoResult['provider'], $autoResult['provider_id'], $autoResult['provider_cost'], $autoResult['raw_error']);
-                        }
-                        $status = 'verified';
-                        $instantVerified = true;
-                    } else {
-                        $autoResult = ['error' => $res['message'] ?? 'Automated verification unavailable'];
+                }
+
+                if (!empty($res['success']) && empty($res['is_simulated'])) {
+                    $verifRef = $res['reference'] ?? null;
+                    $autoResult = $res['data'] ?? $res;
+                    if (is_array($autoResult)) {
+                        unset($autoResult['provider'], $autoResult['provider_id'], $autoResult['provider_cost'], $autoResult['raw_error']);
                     }
+                    $status = 'verified';
+                    $instantVerified = true;
+                } else {
+                    $autoResult = ['error' => $res['message'] ?? 'Automated verification unavailable'];
                 }
             } catch (Throwable $e) {
                 $autoResult = ['error' => $e->getMessage()];

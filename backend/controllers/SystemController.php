@@ -92,7 +92,7 @@ class SystemController
                 $verRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_verification_provider"');
                 $telRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_telecom_provider"');
                 $gwRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_payment_gateway"');
-                $settings['active_verification_provider'] = $verRow['setting_value'] ?? 'veripine';
+                $settings['active_verification_provider'] = $verRow['setting_value'] ?? '2sureverify';
                 $settings['active_telecom_provider'] = $telRow['setting_value'] ?? 'ulamadata';
                 $settings['active_payment_gateway'] = $gwRow['setting_value'] ?? 'paystack';
             }

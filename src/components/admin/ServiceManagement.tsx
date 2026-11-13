@@ -55,6 +55,8 @@ export function ServiceManagement() {
   const [savingPriceKey, setSavingPriceKey] = useState<string | null>(null);
 
   const [providerConfigs, setProviderConfigs] = useState<ProviderConfigItem[]>([]);
+  const [editingProvider, setEditingProvider] = useState<Partial<ProviderConfigItem> | null>(null);
+  const [savingProvider, setSavingProvider] = useState(false);
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, { success: boolean; message: string; latency_ms: number }>>({});
   const [providerLogs, setProviderLogs] = useState<ProviderLogItem[]>([]);
@@ -260,7 +262,7 @@ export function ServiceManagement() {
 
   const handleToggleProviderActive = async (provider: ProviderConfigItem) => {
     try {
-      const res = await api.updateAdminProvider(provider.id, {
+      await api.updateAdminProvider(provider.id, {
         is_active: !provider.is_active,
       });
       setProviderConfigs(prev =>
@@ -268,6 +270,55 @@ export function ServiceManagement() {
       );
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to update provider status');
+    }
+  };
+
+  const handleSetPrimaryProvider = async (provider: ProviderConfigItem) => {
+    setErrorMsg(null);
+    setSavingProvider(true);
+    try {
+      await api.updateAdminProvider(provider.id, {
+        is_default: true,
+        is_active: true,
+      });
+      await fetchServices();
+      setSuccessMsg(`${provider.name} is now set as Primary ${provider.provider_type === 'telecom' ? 'Telecom' : 'Identity'} Provider across routing & catalog.`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to set primary provider');
+    } finally {
+      setSavingProvider(false);
+    }
+  };
+
+  const handleSaveProviderConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProvider?.id) return;
+    setSavingProvider(true);
+    setErrorMsg(null);
+    try {
+      const payload: Partial<ProviderConfigItem> = {
+        name: editingProvider.name,
+        base_url: editingProvider.base_url,
+        timeout_seconds: Number(editingProvider.timeout_seconds || 30),
+        is_active: editingProvider.is_active,
+        is_default: editingProvider.is_default,
+      };
+      if (editingProvider.api_key && !editingProvider.api_key.includes('••••')) {
+        payload.api_key = editingProvider.api_key;
+      }
+      if (editingProvider.secret_key && !editingProvider.secret_key.includes('••••')) {
+        payload.secret_key = editingProvider.secret_key;
+      }
+      await api.updateAdminProvider(editingProvider.id, payload);
+      setEditingProvider(null);
+      await fetchServices();
+      setSuccessMsg(`Configuration for ${editingProvider.name || editingProvider.id} updated cleanly.`);
+      setTimeout(() => setSuccessMsg(null), 3500);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to save provider settings');
+    } finally {
+      setSavingProvider(false);
     }
   };
 
@@ -510,7 +561,7 @@ export function ServiceManagement() {
                   <span>42 Official Identity Services Pricing &amp; Margin Matrix</span>
                 </h2>
                 <p className="text-slate-400 mt-1">
-                  Manage customer selling prices, wholesale tariffs, and profit spreads for all 2SureVerify &amp; NIMC verification services.
+                  Manage customer selling prices, wholesale tariffs, and profit spreads across all 42 identity &amp; verification services.
                 </p>
               </div>
               <div className="flex items-center gap-2.5">
@@ -521,7 +572,7 @@ export function ServiceManagement() {
                   className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-xl font-semibold flex items-center gap-2 transition"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${syncingWholesale ? 'animate-spin' : ''}`} />
-                  <span>Sync 2SureVerify Wholesale</span>
+                  <span>Sync Wholesale Tariffs</span>
                 </button>
               </div>
             </div>
@@ -624,8 +675,16 @@ export function ServiceManagement() {
                               onChange={e => handleChangeServiceProvider(srv.key, e.target.value)}
                               className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-300 text-xs focus:outline-none focus:border-indigo-500"
                             >
-                              <option value="2sureverify">2SureVerify (Primary)</option>
-                              <option value="veripine">Veripine (Failover)</option>
+                              {(() => {
+                                const twoSureDef = providerConfigs.find(p => p.id === '2sureverify')?.is_default;
+                                const veripineDef = providerConfigs.find(p => p.id === 'veripine')?.is_default;
+                                return (
+                                  <>
+                                    <option value="2sureverify">2SureVerify ({twoSureDef || !veripineDef ? 'Primary' : 'Failover'})</option>
+                                    <option value="veripine">Veripine ({veripineDef ? 'Primary' : 'Failover'})</option>
+                                  </>
+                                );
+                              })()}
                             </select>
                           </td>
                           <td className="py-3.5 px-3 text-right font-mono text-slate-400">
@@ -1184,15 +1243,37 @@ export function ServiceManagement() {
                       </div>
                       <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
                         <span className="text-slate-500 text-[10px] uppercase font-mono">Auth Header</span>
-                        <p className="text-white font-mono font-semibold mt-0.5">{is2Sure ? 'X-Api-Key' : 'Bearer Token'}</p>
+                        <p className="text-white font-mono font-semibold mt-0.5">
+                          {is2Sure ? 'X-Api-Key' : provider.id === 'veripine' ? 'x-api-key' : 'Bearer Token'}
+                        </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Test Connection Button & Result */}
+                  {/* Test Connection, Edit & Set Primary Actions */}
                   <div className="pt-2 border-t border-slate-800 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400 text-xs">Verify roundtrip connectivity &amp; latency</span>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        {!provider.is_default && (provider.provider_type === 'identity' || provider.provider_type === 'verification' || provider.provider_type === 'telecom') && (
+                          <button
+                            type="button"
+                            onClick={() => handleSetPrimaryProvider(provider)}
+                            disabled={savingProvider}
+                            className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-xl font-semibold transition flex items-center gap-1.5"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Set as Primary</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setEditingProvider({ ...provider, api_key: '' })}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-semibold transition flex items-center gap-1.5"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span>Configure</span>
+                        </button>
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleTestProvider(provider.id)}
@@ -1243,6 +1324,89 @@ export function ServiceManagement() {
               );
             })}
           </div>
+
+          {editingProvider && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <h3 className="font-bold text-white text-sm">Configure {editingProvider.name || editingProvider.id}</h3>
+                  <button type="button" onClick={() => setEditingProvider(null)} className="text-slate-400 hover:text-white text-lg leading-none">&times;</button>
+                </div>
+                <form onSubmit={handleSaveProviderConfig} className="space-y-3.5 text-xs">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Display Name</label>
+                    <input
+                      type="text"
+                      value={editingProvider.name || ''}
+                      onChange={e => setEditingProvider({ ...editingProvider, name: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Gateway Base URL</label>
+                    <input
+                      type="url"
+                      value={editingProvider.base_url || ''}
+                      onChange={e => setEditingProvider({ ...editingProvider, base_url: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Update API Key (Leave blank to keep existing)</label>
+                    <input
+                      type="password"
+                      value={editingProvider.api_key || ''}
+                      onChange={e => setEditingProvider({ ...editingProvider, api_key: e.target.value })}
+                      placeholder={editingProvider.api_key_masked || 'Enter new API key only to rotate'}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Timeout (seconds)</label>
+                      <input
+                        type="number"
+                        min={5}
+                        max={120}
+                        value={editingProvider.timeout_seconds ?? 30}
+                        onChange={e => setEditingProvider({ ...editingProvider, timeout_seconds: Number(e.target.value) })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+                    <div className="flex flex-col justify-end gap-2 pb-1">
+                      <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(editingProvider.is_active)}
+                          onChange={e => setEditingProvider({ ...editingProvider, is_active: e.target.checked })}
+                          className="rounded border-slate-700"
+                        />
+                        <span>Active</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(editingProvider.is_default)}
+                          onChange={e => setEditingProvider({ ...editingProvider, is_default: e.target.checked })}
+                          className="rounded border-slate-700"
+                        />
+                        <span>Primary Engine</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button type="button" onClick={() => setEditingProvider(null)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-semibold">Cancel</button>
+                    <button type="submit" disabled={savingProvider} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold flex items-center gap-1.5">
+                      {savingProvider && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Save Config</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           {/* Provider Transaction & Request Logs */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">

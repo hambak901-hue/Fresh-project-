@@ -1547,7 +1547,53 @@ class AdminController
             );
         }
 
+        $primaryIdentity = strtolower(trim((string)($b['active_verification_provider'] ?? $b['primary_identity_provider'] ?? $b['primaryProviderId'] ?? '')));
+        if (in_array($primaryIdentity, ['2sureverify', 'veripine'], true)) {
+            $this->syncIdentityProviderState($primaryIdentity);
+        }
+
         Response::success(null, 'Provider routing configuration updated successfully');
+    }
+
+    private function syncIdentityProviderState(string $primaryId): void
+    {
+        $fallbackId = $primaryId === '2sureverify' ? 'veripine' : '2sureverify';
+        $this->db->execute(
+            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+             VALUES ("set_act_verif", "active_verification_provider", :v1, "providers", "Active Verification Provider")
+             ON DUPLICATE KEY UPDATE setting_value = :v2, updated_at = NOW()',
+            ['v1' => $primaryId, 'v2' => $primaryId]
+        );
+        $this->db->execute(
+            'UPDATE providers SET is_default = CASE WHEN id = :id1 THEN 1 ELSE 0 END, is_active = CASE WHEN id = :id2 THEN 1 ELSE is_active END WHERE provider_type IN ("identity", "verification")',
+            ['id1' => $primaryId, 'id2' => $primaryId]
+        );
+        $this->db->execute(
+            'UPDATE service_catalogue SET provider_id = :pid, updated_at = NOW() WHERE service_key LIKE "nin\_%" OR service_key LIKE "phone\_%" OR service_key LIKE "demo\_%" OR service_key LIKE "bvn\_%" OR service_key = "vnin_verification"',
+            ['pid' => $primaryId]
+        );
+
+        try {
+            $row = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "provider_integration_settings"');
+            $existing = ($row && !empty($row['setting_value'])) ? (json_decode((string)$row['setting_value'], true) ?: []) : [];
+            $merged = array_merge([
+                'primary_telecom_provider' => 'ulamadata',
+                'fallback_telecom_provider' => 'vtpass',
+                'auto_failover_enabled' => true,
+                'request_timeout_seconds' => 30,
+            ], $existing, [
+                'primary_identity_provider' => $primaryId,
+                'fallback_identity_provider' => $fallbackId,
+            ]);
+            $jsonVal = json_encode($merged, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $this->db->execute(
+                'INSERT INTO system_settings (id, setting_key, setting_value, category, description, updated_at)
+                 VALUES (:id, "provider_integration_settings", :v1, "provider_integration", "Configuration for provider_integration", NOW())
+                 ON DUPLICATE KEY UPDATE setting_value = :v2, updated_at = NOW()',
+                ['id' => Security::generateUuid(), 'v1' => $jsonVal, 'v2' => $jsonVal]
+            );
+        } catch (Throwable) {
+        }
     }
 
     public function verificationServices(Request $request): void
@@ -1680,10 +1726,10 @@ class AdminController
     public function providers(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        $providers = $this->db->fetchAll('SELECT * FROM providers ORDER BY provider_type ASC, name ASC');
-        $primaryId = 'veripine';
+        $providers = $this->db->fetchAll('SELECT * FROM providers ORDER BY provider_type ASC, is_default DESC, name ASC');
+        $primaryId = '2sureverify';
         foreach ($providers as &$p) {
-            if (!empty($p['is_default']) && ($p['provider_type'] ?? '') === 'identity') {
+            if (!empty($p['is_default']) && in_array($p['provider_type'] ?? '', ['identity', 'verification'], true)) {
                 $primaryId = $p['id'];
             }
             $p = $this->sanitizeProviderRow($p);
@@ -1747,12 +1793,7 @@ class AdminController
                     ['v1' => $id, 'v2' => $id]
                 );
             } elseif ($type === 'identity' || $type === 'verification') {
-                $this->db->execute(
-                    'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
-                     VALUES ("set_act_verif", "active_verification_provider", :v1, "providers", "Active Verification Provider")
-                     ON DUPLICATE KEY UPDATE setting_value = :v2',
-                    ['v1' => $id, 'v2' => $id]
-                );
+                $this->syncIdentityProviderState(strtolower($id));
             } elseif ($type === 'payment') {
                 $this->db->execute(
                     'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
@@ -3635,19 +3676,22 @@ class AdminController
         }
 
         $activeSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_verification_provider"');
-        $providerName = strtolower(trim((string)($activeSetting['setting_value'] ?? 'veripine')));
+        $providerName = strtolower(trim((string)($activeSetting['setting_value'] ?? '2sureverify')));
         $veripine = new VeripineAdapter();
         $twosure = new TwoSureVerifyAdapter();
 
-        if ($providerName === 'veripine' && !$veripine->hasCredentials() && !empty(getenv('TWOSUREVERIFY_API_KEY'))) {
+        $hasTwoSureKey = !empty(getenv('TWOSUREVERIFY_API_KEY'));
+        if ($providerName === 'veripine' && !$veripine->hasCredentials() && $hasTwoSureKey) {
             $providerName = '2sureverify';
+        } elseif ($providerName === '2sureverify' && !$hasTwoSureKey && $veripine->hasCredentials()) {
+            $providerName = 'veripine';
         }
 
         $endpoint = $nin !== '' ? '/nin-verification' : '/bvn-verification';
         $payload = $nin !== '' ? ['nin' => $nin] : ['bvn' => $bvn];
 
         $providerRes = ($providerName === '2sureverify')
-            ? $twosure->verify($nin !== '' ? 'api/v1/nin' : 'api/v1/bvn', $payload)
+            ? $twosure->verify($nin !== '' ? 'api/v1/nin_v1.php' : 'api/v1/bvn_v1.php', $nin !== '' ? ['nin' => $nin, 'slip_type' => 'ninStandard'] : ['bvn' => $bvn, 'slip_type' => 'bvnBasic'])
             : $veripine->verify($endpoint, $payload);
 
         $isOk = !empty($providerRes['success']) || (($providerRes['status'] ?? '') === 'success');

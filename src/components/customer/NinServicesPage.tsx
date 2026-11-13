@@ -39,6 +39,17 @@ import {
 type HubCategory = 'nin_verify' | 'bvn_verify' | 'nin_mod' | 'enrolment' | 'additional' | 'history';
 type NinSearchType = 'nin_v1' | 'phone_v1';
 
+const PENDING_RECOVERY_KEY = 'hambak_pending_nin_recovery';
+
+interface PendingRecoveryAttempt {
+  idempotencyKey: string;
+  serviceKey: string;
+  searchValue: string;
+  slipType?: string;
+  slipName?: string;
+  startedAt: string;
+}
+
 function createIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `idemp_${crypto.randomUUID()}`;
@@ -47,7 +58,7 @@ function createIdempotencyKey(): string {
 }
 
 export const NinServicesPage: React.FC = () => {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, updateBalance } = useAuth();
   const { branding } = useCms();
   const companyName = branding?.company_name || 'HAMBAK TECH & SERVICES';
 
@@ -58,12 +69,10 @@ export const NinServicesPage: React.FC = () => {
   const [previewModalTemplate, setPreviewModalTemplate] = useState<SlipTemplateItem | null>(null);
   const [loadingServices, setLoadingServices] = useState<boolean>(true);
 
-  // NIN Verification dedicated clean workflow state
   const [ninSearchType, setNinSearchType] = useState<NinSearchType>('nin_v1');
   const [ninInputValue, setNinInputValue] = useState<string>('');
   const [selectedSlipId, setSelectedSlipId] = useState<string>('');
 
-  // Other category services form state
   const [selectedServiceKey, setSelectedServiceKey] = useState<string>('nin_v1');
   const [formData, setFormData] = useState<Record<string, any>>({
     slip_type: 'ninStandard',
@@ -73,14 +82,21 @@ export const NinServicesPage: React.FC = () => {
 
   const [consentAccepted, setConsentAccepted] = useState<boolean>(false);
 
-  // Banks for BVN Modification and Enrolment
   const [modBanks, setModBanks] = useState<Array<{ bank_name: string; price: number }>>([]);
   const [enrollBanks, setEnrollBanks] = useState<Array<{ bank_name: string; price: number }>>([]);
 
-  // Execution & Idempotency state
   const [submitting, setSubmitting] = useState<boolean>(false);
   const inFlightRef = useRef<boolean>(false);
   const idempotencyKeyRef = useRef<string>(createIdempotencyKey());
+  const [recoveryAttempt, setRecoveryAttempt] = useState<PendingRecoveryAttempt | null>(() => {
+    try {
+      const saved = sessionStorage.getItem(PENDING_RECOVERY_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [recovering, setRecovering] = useState<boolean>(false);
 
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -89,20 +105,27 @@ export const NinServicesPage: React.FC = () => {
   const [slipModalOpen, setSlipModalOpen] = useState<boolean>(false);
   const [pinModalOpen, setPinModalOpen] = useState<boolean>(false);
   const [downloadingPdf, setDownloadingPdf] = useState<boolean>(false);
+  const [photoLoadError, setPhotoLoadError] = useState<boolean>(false);
 
-  // History state
   const [history, setHistory] = useState<VerificationRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
+  const [loadingRecordId, setLoadingRecordId] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState<string>('');
   const [pollingRef, setPollingRef] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPhotoLoadError(false);
+  }, [verifiedRecord]);
 
   useEffect(() => {
     loadCatalog();
   }, []);
 
   useEffect(() => {
-    loadHistory();
-  }, [user, historySearch]);
+    if (user?.id) {
+      loadHistory();
+    }
+  }, [user?.id, historySearch]);
 
   const loadCatalog = async () => {
     try {
@@ -166,6 +189,15 @@ export const NinServicesPage: React.FC = () => {
       .filter(t => t.category === 'NIN' && t.is_active !== false)
       .sort((a, b) => a.display_order - b.display_order);
   }, [slipTemplates]);
+
+  useEffect(() => {
+    if (activeNinSlips.length === 0) return;
+    const exists = activeNinSlips.some(s => s.id === selectedSlipId || s.slip_code === selectedSlipId);
+    if (!selectedSlipId || !exists) {
+      const recommended = activeNinSlips.find(s => s.is_recommended) || activeNinSlips[0];
+      setSelectedSlipId(recommended.id);
+    }
+  }, [activeNinSlips, selectedSlipId]);
 
   const selectedNinSlip = useMemo(() => {
     return activeNinSlips.find(s => s.id === selectedSlipId || s.slip_code === selectedSlipId) || activeNinSlips[0] || null;
@@ -280,70 +312,242 @@ export const NinServicesPage: React.FC = () => {
     }
   };
 
+  const clearRecoveryAttempt = () => {
+    setRecoveryAttempt(null);
+    try {
+      sessionStorage.removeItem(PENDING_RECOVERY_KEY);
+    } catch {
+    }
+  };
+
+  const saveRecoveryAttempt = (attempt: PendingRecoveryAttempt) => {
+    setRecoveryAttempt(attempt);
+    try {
+      sessionStorage.setItem(PENDING_RECOVERY_KEY, JSON.stringify(attempt));
+    } catch {
+    }
+  };
+
+  const applyRecoveredRecord = (
+    rec: any,
+    fallbackMeta?: { serviceKey?: string; searchValue?: string; slipType?: string; slipName?: string | null }
+  ) => {
+    const recordObj = rec.record || {};
+    const resultData = rec.result || recordObj.result || {};
+    const recordPayload = {
+      id: rec.recordId || recordObj.id,
+      data: resultData,
+      result: resultData,
+      service_key: recordObj.service_key || fallbackMeta?.serviceKey || activeServiceKey,
+      type: recordObj.type || currentService.category,
+      search_value: recordObj.search_value || fallbackMeta?.searchValue || '',
+      reference: rec.reference || recordObj.reference,
+      slip_type: rec.slip_type || recordObj.slip_type || fallbackMeta?.slipType,
+      slip_name: rec.slip_name || fallbackMeta?.slipName,
+      has_original_pdf: Boolean(rec.has_original_pdf || resultData?.pdf_base64 || resultData?.pdf_url),
+      status: 'completed',
+      verified_at: recordObj.created_at || new Date().toISOString(),
+      created_at: recordObj.created_at || new Date().toISOString(),
+    };
+    setVerifiedRecord(recordPayload);
+    setActiveSlipRecord(recordPayload);
+    if (typeof rec.newBalance === 'number') {
+      updateBalance(rec.newBalance);
+    }
+    clearRecoveryAttempt();
+    resetIdempotency();
+    void Promise.allSettled([refreshUser(), loadHistory()]);
+  };
+
+  const handleRecoverAttempt = async (attemptOverride?: PendingRecoveryAttempt) => {
+    const target = attemptOverride || recoveryAttempt;
+    if (!target || recovering) return;
+
+    setRecovering(true);
+    setError(null);
+    try {
+      const rec = await api.recoverVerification({ idempotencyKey: target.idempotencyKey });
+      if (rec && rec.found) {
+        if (rec.status === 'completed') {
+          applyRecoveredRecord(rec, target);
+          setSuccessMessage(
+            `Recovered completed verification result safely (Ref: ${rec.reference}) without any duplicate charge.`
+          );
+          return;
+        }
+        if (rec.status === 'failed') {
+          if (typeof rec.newBalance === 'number') {
+            updateBalance(rec.newBalance);
+          }
+          clearRecoveryAttempt();
+          resetIdempotency();
+          setError('The previous verification attempt did not succeed and your wallet was automatically refunded.');
+          void Promise.allSettled([refreshUser(), loadHistory()]);
+          return;
+        }
+        if (rec.status === 'pending') {
+          setError(
+            `Verification is still finalizing on the server (Ref: ${rec.reference || target.idempotencyKey}). Please wait a moment and click Recover Result again.`
+          );
+          return;
+        }
+      }
+      setError('No completed transaction was found for that interrupted request. Your wallet was not debited or check Verification History.');
+      clearRecoveryAttempt();
+      resetIdempotency();
+    } catch (recErr: any) {
+      setError(recErr?.message || 'Unable to check recovery status right now. Please check Verification History.');
+    } finally {
+      setRecovering(false);
+    }
+  };
+
   const executeVerification = async () => {
     if (inFlightRef.current || submitting) return;
     inFlightRef.current = true;
     setSubmitting(true);
     setError(null);
+    setSuccessMessage(null);
+
+    const activeIkey = idempotencyKeyRef.current;
+    const cleanSearchVal =
+      activeCategory === 'nin_verify'
+        ? ninInputValue.replace(/\s+/g, '')
+        : String(formData.nin || formData.bvn || formData.phone || '').trim();
+    const targetKey = activeCategory === 'nin_verify' ? ninSearchType : currentService.key;
+
+    const attemptSnapshot: PendingRecoveryAttempt = {
+      idempotencyKey: activeIkey,
+      serviceKey: targetKey,
+      searchValue: cleanSearchVal,
+      slipType: activeCategory === 'nin_verify' ? selectedNinSlip?.slip_code : formData.slip_type,
+      slipName: activeCategory === 'nin_verify' ? selectedNinSlip?.name : currentService.name,
+      startedAt: new Date().toISOString(),
+    };
+    saveRecoveryAttempt(attemptSnapshot);
 
     try {
-      let targetKey = activeServiceKey;
-      let payload: Record<string, any> = {};
-
-      if (activeCategory === 'nin_verify') {
-        const cleanVal = ninInputValue.replace(/\s+/g, '');
-        targetKey = ninSearchType;
-        payload = {
-          search_type: ninSearchType === 'phone_v1' ? 'phone' : 'nin',
-          nin: ninSearchType === 'nin_v1' ? cleanVal : undefined,
-          phone: ninSearchType === 'phone_v1' ? cleanVal : undefined,
-          slip_type: selectedNinSlip?.slip_code || 'ninStandard',
-          slip_template_id: selectedNinSlip?.id,
-          idempotency_key: idempotencyKeyRef.current,
-        };
-      } else {
-        targetKey = currentService.key;
-        payload = {
-          ...formData,
-          idempotency_key: idempotencyKeyRef.current,
-        };
-      }
+      const payload: Record<string, any> =
+        activeCategory === 'nin_verify'
+          ? {
+              search_type: ninSearchType === 'phone_v1' ? 'phone' : 'nin',
+              nin: ninSearchType === 'nin_v1' ? cleanSearchVal : undefined,
+              phone: ninSearchType === 'phone_v1' ? cleanSearchVal : undefined,
+              slip_type: selectedNinSlip?.slip_code || 'ninStandard',
+              slip_template_id: selectedNinSlip?.id,
+              idempotency_key: activeIkey,
+            }
+          : {
+              ...formData,
+              idempotency_key: activeIkey,
+            };
 
       const res = await api.executeIdentityService(
         targetKey,
         payload,
         consentAccepted,
-        idempotencyKeyRef.current
+        activeIkey
       );
 
-      if (res.success) {
+      if (res && res.success === true && (res.result || res.reference)) {
+        const normalizedResult = res.result || (res as any).data?.result || (res as any).data || {};
         const recordPayload = {
-          data: res.result,
+          id: res.recordId || (res as any).verification_id,
+          data: normalizedResult,
+          result: normalizedResult,
           service_key: targetKey,
           type: currentService.category,
-          search_value: activeCategory === 'nin_verify' ? ninInputValue.replace(/\s+/g, '') : (formData.nin || formData.bvn || formData.phone || ''),
+          search_value: cleanSearchVal,
           reference: res.reference,
           slip_type: res.slip_type || selectedNinSlip?.slip_code,
           slip_name: res.slip_name || selectedNinSlip?.name,
+          has_original_pdf: Boolean(
+            (res as any).has_original_pdf ||
+              normalizedResult?.pdf_base64 ||
+              normalizedResult?.pdf_url
+          ),
           status: 'completed',
           verified_at: res.verified_at || new Date().toISOString(),
           created_at: res.verified_at || new Date().toISOString(),
         };
+
         setSuccessMessage(res.message || 'Verification completed successfully.');
         setVerifiedRecord(recordPayload);
         setActiveSlipRecord(recordPayload);
+        clearRecoveryAttempt();
         resetIdempotency();
 
-        await refreshUser();
-        await loadHistory();
+        if (typeof res.newBalance === 'number') {
+          updateBalance(res.newBalance);
+        }
+
+        void Promise.allSettled([refreshUser(), loadHistory()]);
+      } else {
+        throw new Error(
+          res?.message || 'Verification returned an incomplete response. Please check Verification History.'
+        );
       }
     } catch (err: any) {
-      setError(err?.message || 'Verification could not be completed. Please try again.');
-      await refreshUser().catch(() => {});
-      await loadHistory().catch(() => {});
+      const isInterrupted = Boolean(err?.isTimeout || err?.isNetworkError || err?.isEmptyResponse);
+      const isPendingConflict = err?.payload?.code === 'VERIFICATION_IN_PROGRESS' || err?.statusCode === 409;
+
+      if (isInterrupted || isPendingConflict) {
+        try {
+          const rec = await api.recoverVerification({ idempotencyKey: activeIkey });
+          if (rec && rec.found && rec.status === 'completed') {
+            applyRecoveredRecord(rec, attemptSnapshot);
+            setSuccessMessage(
+              `Connection was interrupted, but your verification completed! Retrieved saved report (Ref: ${rec.reference}) without any duplicate charge.`
+            );
+            return;
+          }
+          if (rec && rec.found && rec.status === 'failed') {
+            if (typeof rec.newBalance === 'number') {
+              updateBalance(rec.newBalance);
+            }
+            clearRecoveryAttempt();
+            resetIdempotency();
+            setError('Verification could not be completed. Your wallet has been automatically refunded.');
+            void Promise.allSettled([refreshUser(), loadHistory()]);
+            return;
+          }
+        } catch {
+        }
+
+        setError(
+          err?.message ||
+            'Connection timed out before the result arrived. Use "Recover Result" below to retrieve any completed transaction safely without being charged again.'
+        );
+      } else {
+        clearRecoveryAttempt();
+        if (typeof err?.payload?.errors?.balance_after === 'number') {
+          updateBalance(err.payload.errors.balance_after);
+        }
+        setError(err?.message || 'Verification could not be completed. Please try again.');
+        void Promise.allSettled([refreshUser(), loadHistory()]);
+      }
     } finally {
       inFlightRef.current = false;
       setSubmitting(false);
+    }
+  };
+
+  const handleOpenHistoryRecord = async (item: VerificationRecord) => {
+    setError(null);
+    setLoadingRecordId(item.id);
+    try {
+      const res = await api.getVerificationRecord(item.id);
+      if (res && res.success && res.record) {
+        setActiveSlipRecord(res.record);
+        setSlipModalOpen(true);
+        return;
+      }
+      setActiveSlipRecord(item);
+      setSlipModalOpen(true);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to load full verification document right now.');
+    } finally {
+      setLoadingRecordId(null);
     }
   };
 
@@ -366,14 +570,11 @@ export const NinServicesPage: React.FC = () => {
 
   const handleDirectDownloadPdf = async (recordObj: any) => {
     if (!recordObj) return;
-    const r = extractVerificationReport(recordObj);
-    if (r.pdfUrl) {
-      window.open(r.pdfUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
     setDownloadingPdf(true);
     try {
       await downloadVerificationReportPdf(recordObj, companyName);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to prepare verification PDF download.');
     } finally {
       setDownloadingPdf(false);
     }
@@ -396,7 +597,7 @@ export const NinServicesPage: React.FC = () => {
     : [];
 
   return (
-    <div className="space-y-6 font-sans">
+    <div className="space-y-6 font-sans overflow-x-hidden">
       {/* Clean Page Header */}
       <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
@@ -484,9 +685,46 @@ export const NinServicesPage: React.FC = () => {
                 </div>
 
                 {error && (
-                  <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 text-rose-700 dark:text-rose-300 text-xs">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <div className="flex-1 leading-relaxed">{error}</div>
+                  <div className="space-y-2.5 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 text-rose-700 dark:text-rose-300 text-xs">
+                    <div className="flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <div className="flex-1 leading-relaxed">{error}</div>
+                    </div>
+                    {recoveryAttempt && !submitting && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleRecoverAttempt()}
+                          disabled={recovering}
+                          className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white text-[11px] font-bold inline-flex items-center gap-1.5 transition"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${recovering ? 'animate-spin' : ''}`} />
+                          <span>{recovering ? 'Checking Saved Result...' : 'Recover Completed Result'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearRecoveryAttempt}
+                          className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!error && recoveryAttempt && !submitting && (
+                  <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 text-amber-800 dark:text-amber-300 text-xs">
+                    <span>An earlier verification check was interrupted.</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRecoverAttempt()}
+                      disabled={recovering}
+                      className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold inline-flex items-center gap-1 shrink-0"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${recovering ? 'animate-spin' : ''}`} />
+                      <span>{recovering ? 'Recovering...' : 'Recover Result'}</span>
+                    </button>
                   </div>
                 )}
 
@@ -516,7 +754,7 @@ export const NinServicesPage: React.FC = () => {
                         setSuccessMessage(null);
                         resetIdempotency();
                       }}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="nin_v1">NIN Number</option>
                       <option value="phone_v1">Phone Number</option>
@@ -559,7 +797,7 @@ export const NinServicesPage: React.FC = () => {
                             ? 'Enter 11-digit NIN number'
                             : 'e.g. 08012345678'
                         }
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                        className="w-full min-h-[44px] pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                         required
                       />
                     </div>
@@ -591,7 +829,7 @@ export const NinServicesPage: React.FC = () => {
                           setError(null);
                           resetIdempotency();
                         }}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
                         {activeNinSlips.map(slip => {
                           const slipPrice =
@@ -657,7 +895,7 @@ export const NinServicesPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setPreviewModalTemplate(selectedNinSlip)}
-                          className="absolute top-2 right-2 px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-slate-900 text-white text-[10px] font-semibold inline-flex items-center gap-1 transition"
+                          className="absolute top-2 right-2 min-h-[32px] px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-slate-900 text-white text-[10px] font-semibold inline-flex items-center gap-1 transition"
                         >
                           <Eye className="w-3 h-3" />
                           <span>Preview</span>
@@ -716,7 +954,7 @@ export const NinServicesPage: React.FC = () => {
                   <button
                     type="submit"
                     disabled={submitting || activeNinSlips.length === 0}
-                    className="w-full py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-bold transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                    className="w-full min-h-[48px] py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-bold transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
                   >
                     {submitting ? (
                       <>
@@ -1037,7 +1275,7 @@ export const NinServicesPage: React.FC = () => {
                 </div>
               </div>
             ) : report && verifiedRecord ? (
-              <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 p-5 sm:p-8 space-y-6 shadow-lg print-only-area">
+              <div className={`rounded-3xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 p-5 sm:p-8 space-y-6 shadow-lg ${slipModalOpen ? 'no-print' : 'print-only-area'}`}>
                 {/* Report Top Bar */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-3">
@@ -1048,8 +1286,19 @@ export const NinServicesPage: React.FC = () => {
                       <div className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wide">
                         {companyName}
                       </div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Verification Report &bull; {report.slipTypeName}
+                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Verification Report &bull; {report.slipTypeName}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold ${
+                            report.hasOriginalPdf
+                              ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          {report.hasOriginalPdf ? 'Original Provider PDF' : 'Generated Report'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1062,7 +1311,13 @@ export const NinServicesPage: React.FC = () => {
                       className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm"
                     >
                       {downloadingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                      <span>{downloadingPdf ? 'Generating...' : 'Download PDF'}</span>
+                      <span>
+                        {downloadingPdf
+                          ? 'Preparing PDF...'
+                          : report.hasOriginalPdf
+                          ? 'Download Original PDF'
+                          : 'Download Report PDF'}
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -1089,19 +1344,20 @@ export const NinServicesPage: React.FC = () => {
                 {/* Readable Identity Report Card */}
                 <div className="rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-5">
                   <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-                    {report.photo ? (
+                    {report.photo && !photoLoadError ? (
                       <div className="w-28 h-34 rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0 shadow-sm">
                         <img
                           src={report.photo}
                           alt={report.fullName || 'Verified Subject Photograph'}
                           className="w-full h-full object-cover"
+                          onError={() => setPhotoLoadError(true)}
                         />
                       </div>
                     ) : (
                       <div className="w-28 h-32 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 shrink-0 flex flex-col items-center justify-center p-2 text-center">
                         <FileText className="w-6 h-6 text-slate-400 mb-1" />
                         <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
-                          No photo returned
+                          {photoLoadError ? 'Photo unavailable' : 'No photo returned'}
                         </span>
                       </div>
                     )}
@@ -1283,13 +1539,12 @@ export const NinServicesPage: React.FC = () => {
                         {item.status === 'completed' && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setActiveSlipRecord(item);
-                              setSlipModalOpen(true);
-                            }}
-                            className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-sans font-semibold transition"
+                            onClick={() => handleOpenHistoryRecord(item)}
+                            disabled={loadingRecordId === item.id}
+                            className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-60 text-slate-800 dark:text-slate-200 text-[11px] font-sans font-semibold inline-flex items-center gap-1 transition"
                           >
-                            View Report
+                            {loadingRecordId === item.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                            <span>{loadingRecordId === item.id ? 'Loading...' : 'View Report'}</span>
                           </button>
                         )}
                       </td>

@@ -9,13 +9,16 @@ import ftplib
 import sys
 import time
 
-FTP_HOST = "51.89.153.183"
-FTP_PORT = 21
-FTP_USER = "qfqzpeqx"
-FTP_PASS = os.environ.get("CPANEL_SFTP_PASS", "2h9PAQk[kE[t96")
+FTP_HOST = os.environ.get("CPANEL_FTP_HOST", "51.89.153.183")
+FTP_PORT = int(os.environ.get("CPANEL_FTP_PORT", "21"))
+FTP_USER = os.environ.get("CPANEL_FTP_USER", "qfqzpeqx")
+FTP_PASS = os.environ.get("CPANEL_SFTP_PASS", "")
 REMOTE_ROOT = "public_html"
 
 def connect_ftp():
+    if not FTP_PASS:
+        print("Error: CPANEL_SFTP_PASS environment variable is required.", file=sys.stderr)
+        sys.exit(1)
     print(f"Connecting to FTP {FTP_HOST}:{FTP_PORT}...")
     ftp = ftplib.FTP()
     ftp.connect(FTP_HOST, FTP_PORT, timeout=30)

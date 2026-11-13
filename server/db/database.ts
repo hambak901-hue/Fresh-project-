@@ -675,23 +675,8 @@ export function hashPassword(plainText: string): string {
   return bcrypt.hashSync(plainText, 10);
 }
 
-export function verifyPassword(plainText: string, hash?: string, email?: string): boolean {
-  if (!plainText) return false;
-
-  const emailClean = email ? email.trim().toLowerCase() : '';
-  if (emailClean && ['admin@hambaktech.com.ng', 'hambak901@gmail.com', 'hambak19@gmail.com'].includes(emailClean)) {
-    if (['Admin@HambakTech2026!', 'Hamohullah19@..', 'Admin@123', '2h9PAQk[kE[t96'].includes(plainText)) {
-      return true;
-    }
-  }
-
-  if (emailClean && ['customer@hambaktech.com.ng', 'fatimohmusbau34@gmail.com'].includes(emailClean)) {
-    if (['Customer@HambakTech2026!', 'Hamohullah19@..', 'password123', 'password'].includes(plainText)) {
-      return true;
-    }
-  }
-
-  if (!hash) return false;
+export function verifyPassword(plainText: string, hash?: string, _email?: string): boolean {
+  if (!plainText || !hash) return false;
   if (hash.startsWith('$2a$') || hash.startsWith('$2b$') || hash.startsWith('$2y$')) {
     try {
       return bcrypt.compareSync(plainText, hash);
@@ -699,8 +684,8 @@ export function verifyPassword(plainText: string, hash?: string, email?: string)
       return false;
     }
   }
-  // Backward compatibility migration for legacy SHA-256 hashes
-  const salt = process.env.APP_SALT || 'hambaktech_salt_2026';
+  const salt = process.env.APP_SALT || '';
+  if (!salt) return false;
   const legacyHash = crypto.createHash('sha256').update(plainText + salt).digest('hex');
   return legacyHash === hash;
 }
@@ -718,14 +703,15 @@ export function verifyPin(plainPin: string, hash?: string): boolean {
       return false;
     }
   }
-  const salt = process.env.APP_SALT || 'hambaktech_salt_2026';
+  const salt = process.env.APP_SALT || '';
+  if (!salt) return false;
   const legacyHash = crypto.createHash('sha256').update(String(plainPin) + salt).digest('hex');
   return legacyHash === hash;
 }
 
 function getDefaultData(): DatabaseSchema {
   const initialAdminEmail = (process.env.INITIAL_ADMIN_EMAIL || 'admin@hambaktech.com.ng').toLowerCase();
-  const initialAdminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'Admin@HambakTech2026!';
+  const initialAdminPassword = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
   const superAdminPasswordHash = hashPassword(initialAdminPassword);
 
   const defaultUsers: User[] = [
@@ -746,9 +732,9 @@ function getDefaultData(): DatabaseSchema {
     },
   ];
 
-  // In non-production testing, seed demo customer if requested or in development
-  if (process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_CUSTOMER === 'true') {
-    const demoPassword = process.env.DEMO_CUSTOMER_PASSWORD || 'Customer@HambakTech2026!';
+  // Seed demo customer only when explicitly enabled via environment variables
+  if (process.env.SEED_DEMO_CUSTOMER === 'true' && process.env.DEMO_CUSTOMER_PASSWORD) {
+    const demoPassword = process.env.DEMO_CUSTOMER_PASSWORD;
     defaultUsers.push({
       id: 'usr_customer_demo',
       email: 'customer@hambaktech.com.ng',

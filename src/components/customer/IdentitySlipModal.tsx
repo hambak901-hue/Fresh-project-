@@ -6,7 +6,7 @@
  * and clean A4 print layout.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Printer,
   Download,
@@ -35,21 +35,23 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
 }) => {
   const { branding } = useCms();
   const [downloading, setDownloading] = useState(false);
+  const [photoLoadError, setPhotoLoadError] = useState(false);
 
-  if (!isOpen || !record) return null;
+  const report = record ? extractVerificationReport(record) : null;
+
+  useEffect(() => {
+    setPhotoLoadError(false);
+  }, [isOpen, report?.photo, report?.reference]);
+
+  if (!isOpen || !record || !report) return null;
 
   const companyName = branding?.company_name || 'HAMBAK TECH & SERVICES';
-  const report = extractVerificationReport(record);
 
   const handlePrint = () => {
     window.print();
   };
 
   const handleDownloadPdf = async () => {
-    if (report.pdfUrl) {
-      window.open(report.pdfUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
     setDownloading(true);
     try {
       await downloadVerificationReportPdf(record, companyName);
@@ -72,17 +74,26 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
   ].filter(item => Boolean(item.value));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto">
-      <div className="relative w-full max-w-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-6 print-only-area">
+    <div className="print-modal-backdrop fixed inset-0 z-50 flex items-start sm:items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto">
+      <div className="relative w-full max-w-3xl max-h-[94dvh] sm:max-h-[90vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-auto print-only-area">
         {/* Top Control Bar */}
-        <div className="no-print flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-4 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-xs">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="no-print shrink-0 flex flex-wrap items-center justify-between gap-2 px-3.5 sm:px-6 py-3 sm:py-4 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-xs">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span className="font-bold text-slate-900 dark:text-white uppercase tracking-wide truncate">
               {report.slipTypeName}
             </span>
             <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-mono text-[10px] font-bold">
               {report.status}
+            </span>
+            <span
+              className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold ${
+                report.hasOriginalPdf
+                  ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20'
+                  : 'bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {report.hasOriginalPdf ? 'Original Document PDF' : 'Generated Report PDF'}
             </span>
           </div>
 
@@ -102,7 +113,13 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-bold transition shadow-sm"
             >
               {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-              <span>{downloading ? 'Generating PDF...' : 'Download PDF'}</span>
+              <span>
+                {downloading
+                  ? 'Preparing PDF...'
+                  : report.hasOriginalPdf
+                  ? 'Download Original PDF'
+                  : 'Download Report PDF'}
+              </span>
             </button>
             <button
               type="button"
@@ -116,7 +133,7 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
         </div>
 
         {/* Printable Verification Report Body */}
-        <div className="p-5 sm:p-8 space-y-6">
+        <div className="p-4 sm:p-8 space-y-6 overflow-y-auto flex-1">
           <div className="rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-6">
             {/* Report Brand Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200 dark:border-slate-800">
@@ -141,13 +158,14 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
 
             {/* Portrait + Key Identity Fields */}
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 items-start">
-              {report.photo ? (
+              {report.photo && !photoLoadError ? (
                 <div className="sm:col-span-4 flex flex-col items-center gap-3">
                   <div className="w-32 h-40 rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
                     <img
                       src={report.photo}
                       alt={report.fullName || 'Verified Subject Photograph'}
                       className="w-full h-full object-cover"
+                      onError={() => setPhotoLoadError(true)}
                     />
                   </div>
                   <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-bold">
@@ -158,7 +176,7 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
                 <div className="sm:col-span-4 flex flex-col items-center justify-center gap-2 p-5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-white/60 dark:bg-slate-900/50 text-center">
                   <FileText className="w-8 h-8 text-slate-400" />
                   <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    No portrait returned for this slip query
+                    {photoLoadError ? 'Returned portrait image unavailable' : 'No portrait returned for this slip query'}
                   </span>
                 </div>
               )}

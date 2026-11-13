@@ -19,14 +19,44 @@ export function clearStoredToken(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export class ApiError extends Error {
+  statusCode?: number;
+  isTimeout: boolean;
+  isNetworkError: boolean;
+  isEmptyResponse: boolean;
+  payload?: any;
+
+  constructor(
+    message: string,
+    opts?: {
+      statusCode?: number;
+      isTimeout?: boolean;
+      isNetworkError?: boolean;
+      isEmptyResponse?: boolean;
+      payload?: any;
+    }
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.statusCode = opts?.statusCode;
+    this.isTimeout = Boolean(opts?.isTimeout);
+    this.isNetworkError = Boolean(opts?.isNetworkError);
+    this.isEmptyResponse = Boolean(opts?.isEmptyResponse);
+    this.payload = opts?.payload;
+  }
+}
+
+type ApiRequestOptions = RequestInit & {
+  timeoutMs?: number;
+};
+
+async function request<T>(endpoint: string, options: ApiRequestOptions = {}): Promise<T> {
   const token = getStoredToken();
   const headers: Record<string, string> = {
     'X-Requested-With': 'XMLHttpRequest',
     ...(options.headers as Record<string, string>),
   };
 
-  // Only set application/json if body is not FormData
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
@@ -35,15 +65,78 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(endpoint, {
-    ...options,
-    headers,
-  });
+  const { timeoutMs = 30000, signal: externalSignal, ...fetchOptions } = options;
+  const controller = new AbortController();
+  let timedOut = false;
 
-  const data = await response.json().catch(() => ({}));
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
+
+  const timerId = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  let response: Response;
+  let rawText = '';
+
+  try {
+    response = await fetch(endpoint, {
+      ...fetchOptions,
+      headers,
+      signal: controller.signal,
+    });
+    rawText = await response.text();
+  } catch (err: any) {
+    if (timedOut || err?.name === 'AbortError') {
+      throw new ApiError(
+        'Request timed out while waiting for a response from the server. We will check your saved verification status before retrying.',
+        { isTimeout: true }
+      );
+    }
+    throw new ApiError(
+      err?.message || 'Network connection interrupted while contacting the server.',
+      { isNetworkError: true }
+    );
+  } finally {
+    window.clearTimeout(timerId);
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
+  }
+
+  if (!rawText.trim()) {
+    throw new ApiError(
+      response.ok
+        ? 'Empty response received from server. Checking saved verification status...'
+        : `Request failed with status ${response.status}`,
+      { statusCode: response.status, isEmptyResponse: true }
+    );
+  }
+
+  let data: any;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    throw new ApiError(
+      response.ok
+        ? 'Received a malformed response from the server. Checking saved verification status...'
+        : `Request failed with status ${response.status}`,
+      { statusCode: response.status }
+    );
+  }
 
   if (!response.ok) {
-    throw new Error(data.error || data.message || `Request failed with status ${response.status}`);
+    throw new ApiError(
+      data?.error || data?.message || `Request failed with status ${response.status}`,
+      { statusCode: response.status, payload: data }
+    );
   }
 
   // Handle both flat responses ({ token, user }) and wrapped responses ({ success: true, data: { token, user } })
@@ -425,6 +518,7 @@ export const api = {
   }> {
     return request('/api/verification/verify', {
       method: 'POST',
+      timeoutMs: 55000,
       body: JSON.stringify({
         serviceKey,
         payload,
@@ -434,9 +528,45 @@ export const api = {
     });
   },
 
+  async recoverVerification(params: {
+    idempotencyKey?: string;
+    reference?: string;
+  }): Promise<{
+    success: boolean;
+    found: boolean;
+    status: 'completed' | 'pending' | 'failed' | 'not_found';
+    record_status?: 'completed' | 'pending' | 'failed' | 'not_found';
+    recordId?: string;
+    reference?: string;
+    slip_type?: string;
+    slip_name?: string | null;
+    has_original_pdf?: boolean;
+    balance_after?: number;
+    newBalance?: number;
+    record: import('../types').VerificationRecord | null;
+    result: any;
+    message?: string;
+  }> {
+    const qs = new URLSearchParams();
+    if (params.idempotencyKey) qs.set('idempotency_key', params.idempotencyKey);
+    if (params.reference) qs.set('reference', params.reference);
+    const res = await request<any>(`/api/verification/recover?${qs.toString()}`, { timeoutMs: 20000 });
+    const resolvedStatus =
+      res?.record_status ||
+      res?.record?.status ||
+      res?.data?.record_status ||
+      res?.data?.status ||
+      (res?.found ? 'pending' : 'not_found');
+    return {
+      ...res,
+      status: resolvedStatus,
+    };
+  },
+
   async verifyIdentity(type: string, identifier: string): Promise<{ success: boolean; newBalance: number; result: any }> {
     return request('/api/verification/verify', {
       method: 'POST',
+      timeoutMs: 55000,
       body: JSON.stringify({ serviceKey: type === 'BVN' ? 'bvn_v1' : 'nin_v1', payload: { nin: identifier, bvn: identifier, slip_type: 'ninStandard' }, consent: true }),
     });
   },
@@ -461,8 +591,8 @@ export const api = {
     return request(`/api/verification/history${qs ? `?${qs}` : ''}`);
   },
 
-  async getVerificationRecord(id: string): Promise<{ success: boolean; record: import('../types').VerificationRecord }> {
-    return request(`/api/verification/record/${id}`);
+  async getVerificationRecord(id: string): Promise<{ success: boolean; has_original_pdf?: boolean; record: import('../types').VerificationRecord }> {
+    return request(`/api/verification/record/${encodeURIComponent(id)}`);
   },
 
   // Telecom (Phase 6 Complete Ulamadata Integration)

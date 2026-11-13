@@ -240,27 +240,27 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
   },
   // 13. Provider Integration (Admin Only)
   {
-    key: 'providers',
+    key: 'provider_integration',
     name: '13. Provider Integration & Routing',
     group: 'Integration',
     icon: Cpu,
     description: 'Administrative gateway assignment, primary vs fallback routing, and upstream health parameters.',
     fields: [
-      { key: 'active_verification_provider', label: 'Primary Verification Provider', type: 'select', options: [
-        { label: '2SureVerify (Official Partner)', value: '2sureverify' },
-        { label: 'Veripine Core API', value: 'veripine' },
-        { label: 'Internal Sandbox Engine', value: 'sandbox' }
+      { key: 'primary_identity_provider', label: 'Primary Verification Provider', type: 'select', options: [
+        { label: '2SureVerify Gateway (Primary)', value: '2sureverify' },
+        { label: 'Veripine Identity API', value: 'veripine' }
       ], helper: 'Root upstream gateway for NIN and BVN services' },
-      { key: 'fallback_verification_provider', label: 'Fallback Verification Provider', type: 'select', options: [
-        { label: 'None (Fail Fast)', value: 'none' },
+      { key: 'fallback_identity_provider', label: 'Fallback Verification Provider', type: 'select', options: [
         { label: 'Veripine Secondary Engine', value: 'veripine' },
-        { label: '2SureVerify Failover Engine', value: '2sureverify' }
-      ], helper: 'Automated failover gateway if primary returns HTTP 5xx' },
-      { key: 'active_telecom_provider', label: 'Active Telecom Provider', type: 'select', options: [
+        { label: '2SureVerify Failover Engine', value: '2sureverify' },
+        { label: 'None (Fail Fast)', value: 'none' }
+      ], helper: 'Automated failover gateway if primary lacks active credentials or is disabled' },
+      { key: 'primary_telecom_provider', label: 'Active Telecom Provider', type: 'select', options: [
         { label: 'UlamaData Core API', value: 'ulamadata' },
         { label: 'VTpass Live Gateway', value: 'vtpass' }
       ], helper: 'Provider for airtime, data bundles, and electricity tokens' },
-      { key: 'provider_timeout_seconds', label: 'Provider Request Timeout (Seconds)', type: 'number', helper: 'Maximum wait time before timeout error' },
+      { key: 'auto_failover_enabled', label: 'Enable Automated Provider Failover', type: 'boolean', helper: 'Allow fallback when primary provider credentials are inactive' },
+      { key: 'request_timeout_seconds', label: 'Provider Request Timeout (Seconds)', type: 'number', helper: 'Maximum wait time before timeout error' },
     ],
   },
   // 14. Service Pricing & Margins

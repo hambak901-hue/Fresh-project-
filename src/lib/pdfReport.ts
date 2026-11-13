@@ -24,6 +24,7 @@ export interface NormalizedIdentityReport {
   photo: string | null;
   pdfBase64: string | null;
   pdfUrl: string | null;
+  hasOriginalPdf: boolean;
   reference: string;
   verifiedAt: string;
   status: string;
@@ -87,8 +88,13 @@ export function extractVerificationReport(record: any): NormalizedIdentityReport
     }
   }
 
-  const pdfBase64 = cleanField(nested.pdf_base64 ?? record?.pdf_base64 ?? record?.result?.pdf_base64);
-  const pdfUrl = cleanField(nested.pdf_url ?? record?.pdf_url ?? record?.result?.pdf_url);
+  const pdfBase64 = cleanField(
+    nested.pdf_base64 ?? record?.pdf_base64 ?? record?.result?.pdf_base64 ?? record?.data?.pdf_base64
+  );
+  const pdfUrl = cleanField(
+    nested.pdf_url ?? record?.pdf_url ?? record?.result?.pdf_url ?? record?.data?.pdf_url
+  );
+  const hasOriginalPdf = Boolean(pdfBase64 || pdfUrl || record?.has_original_pdf);
 
   const reference = cleanField(record?.reference ?? nested.reference) || 'N/A';
   const rawDate = cleanField(record?.verified_at ?? record?.created_at ?? nested.verified_at);
@@ -122,6 +128,7 @@ export function extractVerificationReport(record: any): NormalizedIdentityReport
     photo,
     pdfBase64,
     pdfUrl,
+    hasOriginalPdf,
     reference,
     verifiedAt,
     status: status.toUpperCase(),
@@ -129,33 +136,71 @@ export function extractVerificationReport(record: any): NormalizedIdentityReport
   };
 }
 
+async function resolvePhotoForPdf(src: string | null): Promise<{ dataUrl: string; format: 'PNG' | 'JPEG' | 'WEBP' } | null> {
+  if (!src) return null;
+  if (src.startsWith('data:image/')) {
+    const fmt = src.includes('image/png') ? 'PNG' : src.includes('image/webp') ? 'WEBP' : 'JPEG';
+    return { dataUrl: src, format: fmt };
+  }
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4500);
+    const resp = await fetch(src, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Image read failed'));
+      reader.readAsDataURL(blob);
+    });
+    if (!dataUrl.startsWith('data:image/')) return null;
+    const fmt = dataUrl.includes('image/png') ? 'PNG' : dataUrl.includes('image/webp') ? 'WEBP' : 'JPEG';
+    return { dataUrl, format: fmt };
+  } catch {
+    return null;
+  }
+}
+
 export async function downloadVerificationReportPdf(
   record: any,
   companyName: string = 'HAMBAK TECH & SERVICES'
-): Promise<void> {
+): Promise<'original_provider_pdf' | 'generated_report_pdf'> {
   const report = extractVerificationReport(record);
 
-  // 1. Use provider-supplied Base64 PDF directly if returned
+  if (report.pdfUrl) {
+    const a = document.createElement('a');
+    a.href = report.pdfUrl;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.download = `HAMBAKTECH_ORIGINAL_SLIP_${report.nin || report.bvn || report.reference}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return 'original_provider_pdf';
+  }
+
   if (report.pdfBase64) {
     try {
-      const cleanBase64 = report.pdfBase64.replace(/^data:application\/pdf;base64,/, '');
+      const cleanBase64 = report.pdfBase64.replace(/^data:application\/pdf;base64,/i, '').replace(/\s+/g, '');
       const byteCharacters = atob(cleanBase64);
-      const byteNumbers = new Array(byteCharacters.length);
+      const byteArray = new Uint8Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
+        byteArray[i] = byteCharacters.charCodeAt(i);
       }
-      const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/pdf' });
+      const blob = new Blob([byteArray], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `HAMBAKTECH_VERIFICATION_${report.nin || report.bvn || report.reference}.pdf`;
+      a.download = `HAMBAKTECH_ORIGINAL_SLIP_${report.nin || report.bvn || report.reference}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      return;
+      window.setTimeout(() => URL.revokeObjectURL(url), 2500);
+      return 'original_provider_pdf';
     } catch (err) {
-      console.warn('Provider PDF decode failed, generating client PDF report:', err);
+      console.warn('Original PDF decode failed, falling back to generated HAMBAKTECH report:', err);
     }
   }
 
@@ -201,14 +246,14 @@ export async function downloadVerificationReportPdf(
 
   y += 26;
 
-  // Photograph (if returned as data URI or loadable image)
+  // Photograph (if returned as data URI or loadable URL)
   let textStartX = 15;
-  if (report.photo && report.photo.startsWith('data:image/')) {
+  const resolvedPhoto = await resolvePhotoForPdf(report.photo);
+  if (resolvedPhoto) {
     try {
-      const imgFormat = report.photo.includes('image/png') ? 'PNG' : 'JPEG';
       doc.setDrawColor(203, 213, 225);
       doc.roundedRect(15, y, 36, 44, 2, 2, 'S');
-      doc.addImage(report.photo, imgFormat, 16, y + 1, 34, 42);
+      doc.addImage(resolvedPhoto.dataUrl, resolvedPhoto.format, 16, y + 1, 34, 42);
       textStartX = 58;
     } catch (imgErr) {
       console.warn('Could not embed photo into PDF:', imgErr);
@@ -271,5 +316,6 @@ export async function downloadVerificationReportPdf(
   );
   doc.text(disclaimer, 15, footerY + 5);
 
-  doc.save(`HAMBAKTECH_NIN_REPORT_${report.nin || report.reference}.pdf`);
+  doc.save(`HAMBAKTECH_VERIFICATION_REPORT_${report.nin || report.bvn || report.reference}.pdf`);
+  return 'generated_report_pdf';
 }

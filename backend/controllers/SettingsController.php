@@ -160,14 +160,39 @@ class SettingsController
             ],
 
             // 13. Provider integration
-            'provider_integration' => $settingsMap['provider_integration_settings'] ?? [
-                'primary_identity_provider' => 'veripine',
-                'fallback_identity_provider' => '2sureverify',
-                'primary_telecom_provider' => 'ulamadata',
-                'fallback_telecom_provider' => 'vtpass',
-                'auto_failover_enabled' => true,
-                'request_timeout_seconds' => 30,
-            ],
+            'provider_integration' => (function () use ($settingsMap) {
+                $stored = is_array($settingsMap['provider_integration_settings'] ?? null)
+                    ? $settingsMap['provider_integration_settings']
+                    : [];
+                $liveActive = strtolower(trim((string)($settingsMap['active_verification_provider'] ?? '')));
+                $defaultRow = null;
+                try {
+                    $defaultRow = $this->db->fetchOne('SELECT id FROM providers WHERE provider_type IN ("identity", "verification") AND is_default = 1 AND is_active = 1 LIMIT 1');
+                } catch (\Throwable) {
+                }
+                $primaryIdentity = ($defaultRow && !empty($defaultRow['id']))
+                    ? strtolower((string)$defaultRow['id'])
+                    : (in_array($liveActive, ['2sureverify', 'veripine'], true)
+                        ? $liveActive
+                        : strtolower(trim((string)($stored['primary_identity_provider'] ?? '2sureverify'))));
+                if (!in_array($primaryIdentity, ['2sureverify', 'veripine'], true)) {
+                    $primaryIdentity = '2sureverify';
+                }
+                $fallbackIdentity = $primaryIdentity === '2sureverify' ? 'veripine' : '2sureverify';
+                $liveTelecom = strtolower(trim((string)($settingsMap['active_telecom_provider'] ?? ($stored['primary_telecom_provider'] ?? 'ulamadata'))));
+                return array_merge([
+                    'primary_identity_provider' => $primaryIdentity,
+                    'fallback_identity_provider' => $fallbackIdentity,
+                    'primary_telecom_provider' => $liveTelecom ?: 'ulamadata',
+                    'fallback_telecom_provider' => ($liveTelecom === 'vtpass' ? 'ulamadata' : 'vtpass'),
+                    'auto_failover_enabled' => true,
+                    'request_timeout_seconds' => 30,
+                ], $stored, [
+                    'primary_identity_provider' => $primaryIdentity,
+                    'fallback_identity_provider' => $stored['fallback_identity_provider'] ?? $fallbackIdentity,
+                    'primary_telecom_provider' => $liveTelecom ?: ($stored['primary_telecom_provider'] ?? 'ulamadata'),
+                ]);
+            })(),
 
             // 14. Service pricing
             'service_pricing' => $settingsMap['service_pricing_settings'] ?? [
@@ -296,12 +321,48 @@ class SettingsController
         if ($category === 'payment_gateways' && isset($settingsData['active_gateway'])) {
             $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "active_payment_gateway", :v, "payments", NOW())', ['v' => (string)$settingsData['active_gateway']]);
         }
+        if ($category === 'providers') {
+            $category = 'provider_integration';
+        }
         if ($category === 'provider_integration') {
-            if (!empty($settingsData['primary_telecom_provider'])) {
-                $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "active_telecom_provider", :v, "telecom", NOW())', ['v' => (string)$settingsData['primary_telecom_provider']]);
+            $primaryId = strtolower(trim((string)($settingsData['primary_identity_provider'] ?? $settingsData['active_verification_provider'] ?? '')));
+            if (in_array($primaryId, ['2sureverify', 'veripine'], true)) {
+                $settingsData['primary_identity_provider'] = $primaryId;
+                if (empty($settingsData['fallback_identity_provider']) || $settingsData['fallback_identity_provider'] === $primaryId) {
+                    $settingsData['fallback_identity_provider'] = $primaryId === '2sureverify' ? 'veripine' : '2sureverify';
+                }
+                $jsonValue = json_encode($settingsData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                $this->db->execute(
+                    'UPDATE system_settings SET setting_value = :v1, updated_at = NOW() WHERE setting_key = :k1',
+                    ['v1' => $jsonValue, 'k1' => 'provider_integration_settings']
+                );
+                $this->db->execute(
+                    'INSERT INTO system_settings (id, setting_key, setting_value, category, updated_at)
+                     VALUES ("set_act_verif", "active_verification_provider", :v1, "providers", NOW())
+                     ON DUPLICATE KEY UPDATE setting_value = :v2, updated_at = NOW()',
+                    ['v1' => $primaryId, 'v2' => $primaryId]
+                );
+                $this->db->execute(
+                    'UPDATE providers SET is_default = CASE WHEN id = :id1 THEN 1 ELSE 0 END, is_active = CASE WHEN id = :id2 THEN 1 ELSE is_active END WHERE provider_type IN ("identity", "verification")',
+                    ['id1' => $primaryId, 'id2' => $primaryId]
+                );
+                $this->db->execute(
+                    'UPDATE service_catalogue SET provider_id = :pid, updated_at = NOW() WHERE service_key LIKE "nin\_%" OR service_key LIKE "phone\_%" OR service_key LIKE "demo\_%" OR service_key LIKE "bvn\_%" OR service_key = "vnin_verification"',
+                    ['pid' => $primaryId]
+                );
             }
-            if (!empty($settingsData['primary_identity_provider'])) {
-                $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "active_verification_provider", :v, "identity", NOW())', ['v' => (string)$settingsData['primary_identity_provider']]);
+            $primaryTel = strtolower(trim((string)($settingsData['primary_telecom_provider'] ?? $settingsData['active_telecom_provider'] ?? '')));
+            if (in_array($primaryTel, ['ulamadata', 'vtpass'], true)) {
+                $this->db->execute(
+                    'INSERT INTO system_settings (id, setting_key, setting_value, category, updated_at)
+                     VALUES ("set_act_tel", "active_telecom_provider", :v1, "providers", NOW())
+                     ON DUPLICATE KEY UPDATE setting_value = :v2, updated_at = NOW()',
+                    ['v1' => $primaryTel, 'v2' => $primaryTel]
+                );
+                $this->db->execute(
+                    'UPDATE providers SET is_default = CASE WHEN id = :id THEN 1 ELSE 0 END WHERE provider_type = "telecom"',
+                    ['id' => $primaryTel]
+                );
             }
         }
 

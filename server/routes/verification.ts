@@ -187,7 +187,6 @@ verificationRouter.post('/verify', requireAuth, async (req: any, res) => {
   try {
     const serviceKey = req.body.serviceKey || req.body.service_key;
     const consent = Boolean(req.body.consent || req.body.ndpr_consent);
-    const testSandbox = Boolean(req.body.testSandbox);
     const payload = req.body.payload || { ...req.body };
     delete payload.serviceKey;
     delete payload.service_key;
@@ -259,7 +258,7 @@ verificationRouter.post('/verify', requireAuth, async (req: any, res) => {
       service.key,
       service.endpoint,
       payload,
-      Boolean(testSandbox)
+      false
     );
 
     // If provider rejected transaction (e.g. invalid NIN, format error, or upstream failure):

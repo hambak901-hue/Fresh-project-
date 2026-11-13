@@ -190,24 +190,27 @@ class VerificationController
 
     private function resolveActiveProviderId(?string $serviceProvider = null): string
     {
-        if (!empty($serviceProvider) && in_array(strtolower($serviceProvider), ['veripine', '2sureverify'], true)) {
-            return strtolower($serviceProvider);
-        }
         try {
             $setting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_verification_provider"');
             if ($setting && !empty($setting['setting_value'])) {
                 $val = strtolower(trim((string)$setting['setting_value']));
-                if (in_array($val, ['veripine', '2sureverify'], true)) {
-                    return $val;
+                if (in_array($val, ['2sureverify', 'veripine'], true)) {
+                    $provRow = $this->db->fetchOne('SELECT is_active FROM providers WHERE id = :id LIMIT 1', ['id' => $val]);
+                    if (!$provRow || (bool)$provRow['is_active']) {
+                        return $val;
+                    }
                 }
             }
-            $defaultRow = $this->db->fetchOne('SELECT id FROM providers WHERE provider_type = "identity" AND is_default = 1 AND is_active = 1 LIMIT 1');
+            $defaultRow = $this->db->fetchOne('SELECT id FROM providers WHERE provider_type IN ("identity", "verification") AND is_default = 1 AND is_active = 1 LIMIT 1');
             if ($defaultRow && !empty($defaultRow['id'])) {
                 return strtolower((string)$defaultRow['id']);
             }
         } catch (Throwable) {
         }
-        return 'veripine';
+        if (!empty($serviceProvider) && in_array(strtolower($serviceProvider), ['2sureverify', 'veripine'], true)) {
+            return strtolower($serviceProvider);
+        }
+        return '2sureverify';
     }
 
     private function mapCategoryKey(string $categoryName): string
@@ -538,10 +541,13 @@ class VerificationController
         if ($idempotencyKey !== '') {
             $idempKeyNorm = substr($idempotencyKey, 0, 120);
             try {
-                $existing = $this->db->fetchOne(
-                    'SELECT * FROM verification_records WHERE user_id = :uid AND idempotency_key = :ikey ORDER BY created_at DESC LIMIT 1',
+                $existingMeta = $this->db->fetchOne(
+                    'SELECT id FROM verification_records WHERE user_id = :uid AND idempotency_key = :ikey ORDER BY created_at DESC LIMIT 1',
                     ['uid' => $user['id'], 'ikey' => $idempKeyNorm]
                 );
+                $existing = $existingMeta
+                    ? $this->db->fetchOne('SELECT * FROM verification_records WHERE id = :id LIMIT 1', ['id' => $existingMeta['id']])
+                    : null;
                 if ($existing) {
                     if ($existing['status'] === 'completed') {
                         $decodedRes = json_decode((string)$existing['result_data'], true) ?: [];
@@ -550,6 +556,7 @@ class VerificationController
                         }
                         $wallet = $this->db->fetchOne('SELECT balance FROM wallets WHERE user_id = :uid', ['uid' => $user['id']]);
                         $bal = $wallet ? (float)$wallet['balance'] : (float)($user['wallet_balance'] ?? 0);
+                        $hasOriginalPdf = is_array($decodedRes) && (!empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']));
                         Response::success([
                             'duplicate' => true,
                             'verification_id' => $existing['id'],
@@ -560,7 +567,7 @@ class VerificationController
                             'newBalance' => $bal,
                             'slip_type' => $existing['slip_type'],
                             'slip_name' => $resolvedSlipName,
-                            'data' => $decodedRes,
+                            'has_original_pdf' => $hasOriginalPdf,
                             'result' => $decodedRes,
                             'verified_at' => $existing['created_at'],
                             'service' => [
@@ -572,9 +579,17 @@ class VerificationController
                         return;
                     }
                     if ($existing['status'] === 'pending') {
-                        Response::error('This verification request is already in progress. Please wait for completion.', 409);
+                        Response::error(
+                            'This verification request is still in progress. Please use Recover Result instead of submitting again.',
+                            409,
+                            [
+                                'pending' => true,
+                                'reference' => $existing['reference'],
+                                'idempotency_key' => $idempKeyNorm,
+                            ],
+                            'VERIFICATION_IN_PROGRESS'
+                        );
                     }
-                    // If failed recently (< 30s) with the exact same idempotency_key, guard against accidental double click
                     $createdTs = strtotime((string)($existing['created_at'] ?? '')) ?: 0;
                     if ($existing['status'] === 'failed' && (time() - $createdTs) < 30) {
                         Response::error('Duplicate submission detected. Please review and try again.', 409);
@@ -670,7 +685,6 @@ class VerificationController
                 'tier' => $tier,
                 'reference' => $reference,
             ]);
-            unset($payload['testSandbox']);
 
             $providerResult = $adapter->verify($endpoint, $payload);
 
@@ -692,13 +706,18 @@ class VerificationController
             }
 
             // 7. Update verification_records to completed
+            $encodedRecordResult = json_encode(
+                $resultData,
+                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+            ) ?: '{}';
+
             $this->db->execute(
                 'UPDATE verification_records
                  SET provider_cost = :pcost, status = "completed", has_slip = 1, result_data = :result
                  WHERE id = :id',
                 [
                     'pcost' => $actualProviderCost,
-                    'result' => json_encode($resultData),
+                    'result' => $encodedRecordResult,
                     'id' => $recordId,
                 ]
             );
@@ -721,6 +740,9 @@ class VerificationController
                 ],
             ]);
 
+            $hasOriginalPdf = is_array($customerSafeResult)
+                && (!empty($customerSafeResult['pdf_base64']) || !empty($customerSafeResult['pdf_url']));
+
             Response::success([
                 'verification_id' => $recordId,
                 'recordId' => $recordId,
@@ -730,8 +752,8 @@ class VerificationController
                 'newBalance' => $debitResult['balance_after'],
                 'slip_type' => $resolvedSlipCode,
                 'slip_name' => $resolvedSlipName,
+                'has_original_pdf' => $hasOriginalPdf,
                 'verified_at' => $verifiedAt,
-                'data' => $customerSafeResult,
                 'result' => $customerSafeResult,
                 'service' => [
                     'key' => $serviceKey,
@@ -800,36 +822,71 @@ class VerificationController
             ? 'id, user_id, type, service_key, search_value, provider, cost, provider_cost, status, reference, slip_type, has_slip, result_data as result, created_at'
             : 'id, user_id, type, service_key, search_value, cost, status, reference, slip_type, has_slip, result_data as result, created_at';
 
-        $sql = "SELECT {$selectCols} FROM verification_records WHERE user_id = :uid ";
+        $whereSql = 'WHERE user_id = :uid ';
         $params = ['uid' => $user['id']];
 
         if (!empty($category) && $category !== 'all') {
-            $sql .= 'AND (LOWER(type) = :cat OR LOWER(service_key) LIKE :catlike) ';
+            $whereSql .= 'AND (LOWER(type) = :cat OR LOWER(service_key) LIKE :catlike) ';
             $params['cat'] = strtolower($category);
             $params['catlike'] = '%' . strtolower($category) . '%';
         }
         if (!empty($search)) {
-            $sql .= 'AND (search_value LIKE :q1 OR reference LIKE :q2 OR service_key LIKE :q3) ';
+            $whereSql .= 'AND (search_value LIKE :q1 OR reference LIKE :q2 OR service_key LIKE :q3) ';
             $like = '%' . $search . '%';
             $params['q1'] = $like;
             $params['q2'] = $like;
             $params['q3'] = $like;
         }
-        $sql .= 'ORDER BY created_at DESC LIMIT ' . (int)$limit;
 
-        $rows = $this->db->fetchAll($sql, $params);
+        // Two-step deferred fetch avoids MySQL sort_buffer_size exhaustion (SQLSTATE HY001 1038) on large JSON result_data
+        $idRows = $this->db->fetchAll(
+            "SELECT id FROM verification_records {$whereSql} ORDER BY created_at DESC LIMIT " . (int)$limit,
+            $params
+        );
+
+        $rows = [];
+        if (!empty($idRows)) {
+            $ids = array_values(array_filter(array_column($idRows, 'id')));
+            if (!empty($ids)) {
+                $placeholders = [];
+                $idParams = [];
+                foreach ($ids as $idx => $vid) {
+                    $ph = ':vid_' . $idx;
+                    $placeholders[] = $ph;
+                    $idParams['vid_' . $idx] = $vid;
+                }
+                $rows = $this->db->fetchAll(
+                    "SELECT {$selectCols} FROM verification_records WHERE id IN (" . implode(', ', $placeholders) . ')',
+                    $idParams
+                );
+                $orderMap = array_flip($ids);
+                usort($rows, static function ($a, $b) use ($orderMap) {
+                    return ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX);
+                });
+            }
+        }
+
         foreach ($rows as &$r) {
             $r['cost'] = (float)$r['cost'];
             if (isset($r['provider_cost'])) {
                 $r['provider_cost'] = (float)$r['provider_cost'];
             }
             $r['has_slip'] = (bool)$r['has_slip'];
+            $r['has_original_pdf'] = false;
+            $r['has_photo'] = false;
             if (!empty($r['result']) && is_string($r['result'])) {
                 $decodedRes = json_decode($r['result'], true);
-                if (!$isAdmin && is_array($decodedRes)) {
-                    $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
+                if (is_array($decodedRes)) {
+                    if (!$isAdmin) {
+                        $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
+                    }
+                    $r['has_original_pdf'] = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+                    $r['has_photo'] = !empty($decodedRes['photo']);
+                    unset($decodedRes['pdf_base64'], $decodedRes['photo']);
+                    $r['result'] = $decodedRes;
+                } else {
+                    $r['result'] = null;
                 }
-                $r['result'] = $decodedRes;
             }
         }
 
@@ -924,21 +981,147 @@ class VerificationController
             Response::forbidden('Unauthorized access to verification record.');
         }
 
+        $record['cost'] = (float)($record['cost'] ?? 0);
+        $record['has_slip'] = (bool)($record['has_slip'] ?? false);
+        $record['has_original_pdf'] = false;
+
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
             $decodedRes = json_decode($record['result_data'], true);
             if (!$isAdmin && is_array($decodedRes)) {
                 $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
             }
+            if (is_array($decodedRes)) {
+                $record['has_original_pdf'] = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+            }
             $record['result'] = $decodedRes;
         }
+        unset($record['result_data']);
         if (!$isAdmin) {
-            unset($record['provider'], $record['provider_cost'], $record['result_data']);
+            unset($record['provider'], $record['provider_cost']);
+        } else {
+            $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
         }
 
         Response::success([
             'status' => $record['status'],
+            'record_status' => $record['status'],
+            'has_original_pdf' => $record['has_original_pdf'],
             'record' => $record,
         ]);
+    }
+
+    /**
+     * GET /api/verification/recover?idempotency_key=...&reference=...
+     */
+    public function recover(Request $request): void
+    {
+        $user = Auth::requireAuth($request);
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $ikey = trim((string)$request->query('idempotency_key', ''));
+        $ref = trim((string)$request->query('reference', ''));
+
+        if ($ikey === '' && $ref === '') {
+            Response::error('Please provide an idempotency_key or reference to check recovery.', 422);
+        }
+
+        $record = null;
+        if ($ikey !== '') {
+            $meta = $this->db->fetchOne(
+                'SELECT id FROM verification_records WHERE user_id = :uid AND idempotency_key = :ikey ORDER BY created_at DESC LIMIT 1',
+                ['uid' => $user['id'], 'ikey' => substr($ikey, 0, 120)]
+            );
+            if ($meta) {
+                $record = $this->db->fetchOne('SELECT * FROM verification_records WHERE id = :id LIMIT 1', ['id' => $meta['id']]);
+            }
+        }
+        if (!$record && $ref !== '') {
+            $meta = $this->db->fetchOne(
+                'SELECT id FROM verification_records WHERE user_id = :uid AND (reference = :ref OR id = :id) LIMIT 1',
+                ['uid' => $user['id'], 'ref' => $ref, 'id' => $ref]
+            );
+            if ($meta) {
+                $record = $this->db->fetchOne('SELECT * FROM verification_records WHERE id = :id LIMIT 1', ['id' => $meta['id']]);
+            }
+        }
+
+        $wallet = $this->db->fetchOne('SELECT balance FROM wallets WHERE user_id = :uid', ['uid' => $user['id']]);
+        $bal = $wallet ? (float)$wallet['balance'] : (float)($user['wallet_balance'] ?? 0);
+
+        if (!$record) {
+            Response::success([
+                'found' => false,
+                'status' => 'not_found',
+                'record_status' => 'not_found',
+                'balance_after' => $bal,
+                'newBalance' => $bal,
+                'record' => null,
+                'result' => null,
+            ], 'No matching verification transaction was recorded for this attempt.');
+            return;
+        }
+
+        $record['cost'] = (float)($record['cost'] ?? 0);
+        $record['has_slip'] = (bool)($record['has_slip'] ?? false);
+        $decodedRes = null;
+        if (!empty($record['result_data']) && is_string($record['result_data'])) {
+            $decodedRes = json_decode($record['result_data'], true);
+            if (!$isAdmin && is_array($decodedRes)) {
+                $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
+            }
+        }
+        $hasOriginalPdf = is_array($decodedRes) && (!empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']));
+        $record['has_original_pdf'] = $hasOriginalPdf;
+        $record['result'] = $decodedRes;
+        unset($record['result_data']);
+        if (!$isAdmin) {
+            unset($record['provider'], $record['provider_cost']);
+        } else {
+            $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
+        }
+
+        $slipName = null;
+        if (!empty($record['slip_type'])) {
+            try {
+                $tpl = $this->db->fetchOne(
+                    'SELECT name FROM slip_templates WHERE slip_code = :c OR id = :id LIMIT 1',
+                    ['c' => $record['slip_type'], 'id' => $record['slip_type']]
+                );
+                if ($tpl) {
+                    $slipName = (string)$tpl['name'];
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        $ledgerTx = [];
+        try {
+            $ledgerTx = $this->db->fetchAll(
+                'SELECT id, type, amount, balance_before, balance_after, category, reference, status, description, created_at
+                 FROM transactions WHERE user_id = :uid AND (reference = :ref1 OR reference = :ref2) ORDER BY created_at DESC',
+                [
+                    'uid' => $user['id'],
+                    'ref1' => $record['reference'],
+                    'ref2' => 'REFUND_' . $record['reference'],
+                ]
+            );
+        } catch (Throwable) {
+        }
+
+        Response::success([
+            'found' => true,
+            'status' => $record['status'],
+            'record_status' => $record['status'],
+            'recordId' => $record['id'],
+            'reference' => $record['reference'],
+            'slip_type' => $record['slip_type'],
+            'slip_name' => $slipName,
+            'has_original_pdf' => $hasOriginalPdf,
+            'balance_after' => $bal,
+            'newBalance' => $bal,
+            'record' => $record,
+            'result' => $decodedRes,
+            'ledger_transactions' => $ledgerTx,
+        ], 'Verification recovery status retrieved.');
     }
 
     /**
@@ -950,7 +1133,7 @@ class VerificationController
         $id = trim((string)($params['id'] ?? ''));
         $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
 
-        $record = $this->db->fetchOne('SELECT * FROM verification_records WHERE id = :id LIMIT 1', ['id' => $id]);
+        $record = $this->db->fetchOne('SELECT * FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1', ['id' => $id, 'ref' => $id]);
         if (!$record) {
             Response::notFound('Verification record not found.');
         }
@@ -960,20 +1143,66 @@ class VerificationController
 
         $record['cost'] = (float)$record['cost'];
         $record['has_slip'] = (bool)$record['has_slip'];
+        $record['has_original_pdf'] = false;
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
             $decodedRes = json_decode($record['result_data'], true);
             if (!$isAdmin && is_array($decodedRes)) {
                 $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
             }
+            if (is_array($decodedRes)) {
+                $record['has_original_pdf'] = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+            }
             $record['result'] = $decodedRes;
         }
+        unset($record['result_data']);
         if (!$isAdmin) {
-            unset($record['provider'], $record['provider_cost'], $record['result_data']);
+            unset($record['provider'], $record['provider_cost']);
         } else {
             $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
         }
 
-        Response::success(['record' => $record]);
+        Response::success([
+            'has_original_pdf' => $record['has_original_pdf'],
+            'record' => $record,
+        ]);
+    }
+
+    /**
+     * GET /api/verification/record/:id/pdf
+     */
+    public function downloadPdf(Request $request, array $params): void
+    {
+        $user = Auth::requireAuth($request);
+        $id = trim((string)($params['id'] ?? ''));
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+
+        $record = $this->db->fetchOne('SELECT id, user_id, reference, result_data FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1', ['id' => $id, 'ref' => $id]);
+        if (!$record) {
+            Response::notFound('Verification record not found.');
+        }
+        if (!$isAdmin && $record['user_id'] !== $user['id']) {
+            Response::forbidden('Unauthorized access to verification document.');
+        }
+
+        $decoded = !empty($record['result_data']) ? json_decode((string)$record['result_data'], true) : null;
+        $b64 = is_array($decoded) ? (string)($decoded['pdf_base64'] ?? '') : '';
+        if ($b64 === '') {
+            Response::notFound('Original provider PDF document is not attached to this record.');
+        }
+        $cleanB64 = preg_replace('/^data:application\/pdf;base64,/i', '', trim($b64)) ?? '';
+        $binary = base64_decode($cleanB64, true);
+        if ($binary === false || $binary === '') {
+            Response::error('Stored PDF document could not be decoded.', 500);
+        }
+
+        $safeRef = preg_replace('/[^A-Za-z0-9_-]/', '_', (string)($record['reference'] ?: $record['id']));
+        header('Access-Control-Allow-Origin: *');
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="HAMBAKTECH_VERIFICATION_' . $safeRef . '.pdf"');
+        header('Content-Length: ' . strlen($binary));
+        header('X-Content-Type-Options: nosniff');
+        echo $binary;
+        exit;
     }
 
     public function banks(Request $request): void

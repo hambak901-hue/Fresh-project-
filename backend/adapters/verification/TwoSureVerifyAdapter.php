@@ -19,7 +19,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
     private string $apiKey;
     private int $timeout;
 
-    public function __construct(?string $baseUrl = null, ?string $apiKey = null, int $timeout = 30)
+    public function __construct(?string $baseUrl = null, ?string $apiKey = null, ?int $timeout = null)
     {
         $configFile = __DIR__ . '/../../config/config.php';
         $config = file_exists($configFile) ? require $configFile : [];
@@ -39,7 +39,8 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         $resolvedUrl = $baseUrl ?: ($dbUrl ?: ($envUrl ?: ($cfg['base_url'] ?? 'https://2sureverify.com')));
         $this->baseUrl = rtrim($resolvedUrl, '/');
         $this->apiKey = $apiKey ?: ($dbKey ?: ($envKey ?: (string)($cfg['api_key'] ?? '')));
-        $this->timeout = $timeout ?: (int)($dbRow['timeout_seconds'] ?? ($cfg['timeout'] ?? 30));
+        $configuredTimeout = $timeout ?? (int)($dbRow['timeout_seconds'] ?? ($cfg['timeout'] ?? 35));
+        $this->timeout = max(15, min(40, $configuredTimeout > 0 ? $configuredTimeout : 35));
     }
 
     public function getName(): string
@@ -86,7 +87,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
 
         // Preserve full payload for modification / enrolment / additional endpoints (strip internal keys)
         $clean = $payload;
-        unset($clean['service_key'], $clean['search_value'], $clean['consent'], $clean['idempotency_key'], $clean['slip_template_id'], $clean['testSandbox']);
+        unset($clean['service_key'], $clean['search_value'], $clean['consent'], $clean['idempotency_key'], $clean['slip_template_id']);
         return $clean;
     }
 
@@ -137,12 +138,14 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                     'Authorization: Bearer ' . $this->apiKey,
                     'X-Api-Key: ' . $this->apiKey,
                 ],
+                CURLOPT_CONNECTTIMEOUT => 12,
                 CURLOPT_TIMEOUT => $this->timeout,
                 CURLOPT_SSL_VERIFYPEER => true,
             ]);
 
             $responseBody = curl_exec($ch);
-            $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErrno = curl_errno($ch);
             $curlError = curl_error($ch);
             curl_close($ch);
 
@@ -174,12 +177,14 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 }
             }
 
-            // Upstream provider returned an error or non-200 status
+            // Upstream provider returned an error, timeout, or non-JSON response
             $errorMsg = 'Provider verification request failed';
-            if ($responseBody) {
+            if ($curlErrno === CURLE_OPERATION_TIMEDOUT) {
+                $errorMsg = 'Verification gateway timed out while waiting for identity registry response.';
+            } elseif ($responseBody) {
                 $decodedErr = json_decode($responseBody, true);
                 if (is_array($decodedErr) && !empty($decodedErr['message'])) {
-                    $errorMsg = $decodedErr['message'];
+                    $errorMsg = (string)$decodedErr['message'];
                 }
             } elseif ($curlError) {
                 $errorMsg = 'Connection error: ' . $curlError;
@@ -188,7 +193,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             return [
                 'status' => 'failed',
                 'success' => false,
-                'code' => $statusCode ?: 502,
+                'code' => $curlErrno === CURLE_OPERATION_TIMEDOUT ? 504 : ($statusCode ?: 502),
                 'message' => $errorMsg,
                 'reference' => $reference,
                 'raw_error' => $responseBody ?: $curlError,
@@ -269,7 +274,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                     'ref' => $reference,
                 ]
             );
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             error_log('[2SureVerify Log Error]: ' . $e->getMessage());
         }
     }
