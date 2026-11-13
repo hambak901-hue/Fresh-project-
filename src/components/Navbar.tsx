@@ -6,7 +6,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useCms } from '../context/CmsContext';
-import { Shield, Wallet, Bell, UserCircle, LogOut, RefreshCw, Server, CheckCircle2, ChevronDown, Sparkles } from 'lucide-react';
+import { ThemeToggle } from './ThemeToggle';
+import { Wallet, LogOut, ChevronDown } from 'lucide-react';
 
 interface NavbarProps {
   onOpenWalletModal?: () => void;
@@ -17,69 +18,55 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, serverOnline 
   const { user, logout } = useAuth();
   const { branding } = useCms();
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const companyName = branding?.company_name || 'HambakTech';
+  const companyName = branding?.company_name || 'HAMBAK TECH & SERVICES';
 
   return (
-    <header className="sticky top-0 z-40 bg-slate-950/85 backdrop-blur-md border-b border-slate-800">
+    <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-950/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Brand */}
           <div className="flex items-center gap-3">
-            {branding?.logo_url ? (
-              <img
-                src={branding.logo_url}
-                alt={companyName}
-                className="h-8 w-auto object-contain"
-                onError={e => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-            ) : (
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 p-0.5 shadow-lg shadow-emerald-950/40 flex items-center justify-center">
-                <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-                  <span className="font-extrabold text-lg bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent font-mono">
-                    HT
-                  </span>
-                </div>
-              </div>
-            )}
+            <img
+              src={branding?.logo_url || '/logo.png'}
+              alt={companyName}
+              className="h-8 w-auto object-contain rounded"
+              onError={e => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base tracking-tight text-white">
+                <span className="font-extrabold text-base tracking-tight text-blue-900 dark:text-white">
                   {companyName}
                 </span>
-                <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] uppercase font-bold tracking-wider rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  Enterprise
-                </span>
               </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">Digital Identity &bull; Telecom &bull; Smart Utilities</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
+                {branding?.tagline || 'Where Technology Meets Services'}
+              </p>
             </div>
           </div>
 
           {/* Center: System Status */}
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs">
+          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
             <span className="relative flex h-2 w-2">
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${serverOnline ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
               <span className={`relative inline-flex rounded-full h-2 w-2 ${serverOnline ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
             </span>
-            <span className="font-medium text-slate-300">
-              System Status
+            <span className="text-blue-700 dark:text-emerald-400 font-semibold text-[11px]">
+              {serverOnline ? 'Connected' : 'Connecting'}
             </span>
-            <span className="text-slate-600">&bull;</span>
-            <span className="text-emerald-400 font-semibold text-[11px]">
-              {serverOnline ? 'Operational' : 'Connecting'}
-            </span>
-            <span className="text-slate-600">&bull;</span>
-            <span className="text-slate-400 text-[11px]">256-Bit SSL Encrypted</span>
           </div>
 
-          {/* Right Side: Wallet, Role & Profile */}
+          {/* Right Side: Theme Toggle, Wallet & Profile */}
           <div className="flex items-center gap-3">
+            <ThemeToggle compact />
+
             {/* Wallet Balance Pill */}
             {user && (
               <button
+                type="button"
                 onClick={onOpenWalletModal}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-850 border border-emerald-500/30 text-xs font-semibold text-white transition-all shadow-sm hover:border-emerald-500/60"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white transition-all"
               >
                 <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
                   <Wallet className="w-3.5 h-3.5" />

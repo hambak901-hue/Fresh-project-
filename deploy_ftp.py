@@ -49,15 +49,20 @@ def upload_file(ftp, local_path, remote_path):
         ftp.storbinary(f"STOR {filename}", f)
     print("DONE")
 
-def upload_directory_recursive(ftp, local_dir, remote_base_dir):
+def upload_directory_recursive(ftp, local_dir, remote_base_dir, skip_dirs=None, skip_files=None):
+    skip_dirs = set(skip_dirs or [])
+    skip_files = set(skip_files or [])
     for root, dirs, files in os.walk(local_dir):
+        dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith('.')]
         rel_dir = os.path.relpath(root, local_dir)
         if rel_dir == ".":
             target_remote_dir = remote_base_dir
         else:
             target_remote_dir = os.path.join(remote_base_dir, rel_dir).replace("\\", "/")
-        
+
         for file in files:
+            if file in skip_files or file.endswith('.log'):
+                continue
             local_file = os.path.join(root, file)
             remote_file = os.path.join(target_remote_dir, file).replace("\\", "/")
             upload_file(ftp, local_file, remote_file)
@@ -76,8 +81,12 @@ def main():
         print(f"Error navigating to /{REMOTE_ROOT}: {e}")
         sys.exit(1)
 
-    # 2. Backup existing index.html if present
+    # 2. Ensure upload directories exist
+    ensure_remote_dir(ftp, f"/{REMOTE_ROOT}/uploads/logos")
+
+    # 3. Backup existing index.html if present
     try:
+        ftp.cwd(f"/{REMOTE_ROOT}")
         filenames = ftp.nlst()
         if "index.html" in filenames:
             print("Backing up existing remote index.html to index.html.prev_backup...")
@@ -88,7 +97,7 @@ def main():
     except Exception as e:
         print("Notice checking existing files:", e)
 
-    # 3. Upload Vite build assets (dist/)
+    # 4. Upload Vite build assets (dist/)
     print("\n--- Deploying Frontend (dist/ -> public_html/) ---")
     dist_dir = "dist"
     if not os.path.exists(dist_dir):
@@ -97,15 +106,15 @@ def main():
     
     upload_directory_recursive(ftp, dist_dir, f"/{REMOTE_ROOT}")
 
-    # 4. Deploy PHP Backend (/backend/ -> public_html/backend/ and public_html/api/)
-    print("\n--- Deploying PHP Backend (backend/ -> public_html/backend/ and public_html/api/) ---")
+    # 5. Deploy PHP Backend (/backend/ -> public_html/backend/ and public_html/api/)
+    # Preserve live config/, storage/, logs on cPanel
+    print("\n--- Deploying PHP Backend (backend/ -> public_html/backend/ and public_html/api/, preserving config/) ---")
     backend_dir = "backend"
     if os.path.exists(backend_dir):
-        upload_directory_recursive(ftp, backend_dir, f"/{REMOTE_ROOT}/backend")
-        upload_directory_recursive(ftp, backend_dir, f"/{REMOTE_ROOT}/api")
-
-    # 5. Verify API bridge index.php
-    print("\n--- Verifying API Dispatch in public_html/api/ ---")
+        skip_d = ["config", "storage", "uploads"]
+        skip_f = ["error_log", ".env"]
+        upload_directory_recursive(ftp, backend_dir, f"/{REMOTE_ROOT}/backend", skip_dirs=skip_d, skip_files=skip_f)
+        upload_directory_recursive(ftp, backend_dir, f"/{REMOTE_ROOT}/api", skip_dirs=skip_d, skip_files=skip_f)
 
     # 6. Verify public_html contents
     ftp.cwd(f"/{REMOTE_ROOT}")

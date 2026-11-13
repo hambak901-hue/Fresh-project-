@@ -149,8 +149,8 @@ class TelecomController
         }
 
         Response::success([
-            'activeProvider' => $this->activeProviderId,
-            'active_provider' => $this->activeProviderId,
+            'activeProvider' => $isAdmin ? $this->activeProviderId : 'sovereign',
+            'active_provider' => $isAdmin ? $this->activeProviderId : 'sovereign',
             'plans' => $dataPlans,
             'cable_packages' => $cablePackages,
             'electricity_discos' => $electricityDiscos,
@@ -202,15 +202,20 @@ class TelecomController
         $reference = 'UD_DAT_' . strtoupper(bin2hex(random_bytes(6)));
 
         // 1. Atomic Wallet Debit
-        $debitResult = $this->walletService->debit(
-            $user['id'],
-            $price,
-            'data_purchase',
-            $reference,
-            "{$plan['network']} {$plan['size']} Data top-up to {$phone}",
-            'internal',
-            ['plan_id' => $plan['id'], 'phone' => $phone]
-        );
+        try {
+            $debitResult = $this->walletService->debit(
+                $user['id'],
+                $price,
+                'data_purchase',
+                $reference,
+                "{$plan['network']} {$plan['size']} Data top-up to {$phone}",
+                'internal',
+                ['plan_id' => $plan['id'], 'phone' => $phone]
+            );
+        } catch (Throwable $e) {
+            Response::error($e->getMessage(), 400);
+            return;
+        }
 
         // 2. Dispatch to Real Telecom Provider
         $orderId = Security::generateUuid();
@@ -240,7 +245,6 @@ class TelecomController
             $order = [
                 'id' => $orderId,
                 'reference' => $reference,
-                'provider_ref' => $dispatchRes['provider_reference'] ?? $reference,
                 'service' => 'data',
                 'service_type' => 'data',
                 'network' => $plan['network'],
@@ -248,7 +252,6 @@ class TelecomController
                 'phone' => $phone,
                 'plan' => "{$plan['network']} {$plan['size']} ({$plan['plan_type']})",
                 'amount' => $price,
-                'cost_price' => $wholesaleCost,
                 'status' => 'successful',
                 'created_at' => date('Y-m-d H:i:s'),
             ];
@@ -320,15 +323,20 @@ class TelecomController
         $wholesaleCost = round($amount * 0.97, 2);
         $reference = 'UD_AIR_' . strtoupper(bin2hex(random_bytes(6)));
 
-        $debitResult = $this->walletService->debit(
-            $user['id'],
-            $discountedPrice,
-            'airtime',
-            $reference,
-            "₦{$amount} {$network} Airtime recharge to {$phone} (2.5% discount)",
-            'internal',
-            ['network' => $network, 'phone' => $phone, 'face_value' => $amount]
-        );
+        try {
+            $debitResult = $this->walletService->debit(
+                $user['id'],
+                $discountedPrice,
+                'airtime',
+                $reference,
+                "₦{$amount} {$network} Airtime recharge to {$phone} (2.5% discount)",
+                'internal',
+                ['network' => $network, 'phone' => $phone, 'face_value' => $amount]
+            );
+        } catch (Throwable $e) {
+            Response::error($e->getMessage(), 400);
+            return;
+        }
 
         $orderId = Security::generateUuid();
         try {
@@ -357,7 +365,6 @@ class TelecomController
             $order = [
                 'id' => $orderId,
                 'reference' => $reference,
-                'provider_ref' => $dispatchRes['provider_reference'] ?? $reference,
                 'service' => 'airtime',
                 'service_type' => 'airtime',
                 'network' => $network,
@@ -365,7 +372,6 @@ class TelecomController
                 'phone' => $phone,
                 'plan' => "₦{$amount} VTU Airtime",
                 'amount' => $discountedPrice,
-                'cost_price' => $wholesaleCost,
                 'status' => 'successful',
                 'created_at' => date('Y-m-d H:i:s'),
             ];
@@ -427,17 +433,26 @@ class TelecomController
         $quantity = max(1, min(50, (int)$request->input('quantity', 1)));
         $businessName = (string)($request->input('businessName') ?? $request->input('business_name', 'HambakTech Enterprise'));
 
+        if (empty($network) || $denomination < 50) {
+            Response::error('Valid network and minimum ₦50 denomination are required.', 422);
+        }
+
         $totalPrice = round($denomination * $quantity * 0.98, 2);
         $reference = 'UD_PIN_' . strtoupper(bin2hex(random_bytes(6)));
 
-        $debitResult = $this->walletService->debit(
-            $user['id'],
-            $totalPrice,
-            'airtime',
-            $reference,
-            "{$quantity}x ₦{$denomination} {$network} Recharge PINs ({$businessName})",
-            'internal'
-        );
+        try {
+            $debitResult = $this->walletService->debit(
+                $user['id'],
+                $totalPrice,
+                'airtime',
+                $reference,
+                "{$quantity}x ₦{$denomination} {$network} Recharge PINs ({$businessName})",
+                'internal'
+            );
+        } catch (Throwable $e) {
+            Response::error($e->getMessage(), 400);
+            return;
+        }
 
         $orderId = Security::generateUuid();
         try {
@@ -465,7 +480,6 @@ class TelecomController
             $order = [
                 'id' => $orderId,
                 'reference' => $reference,
-                'provider_ref' => $dispatch['provider_reference'],
                 'service' => 'airtime_pin',
                 'service_type' => 'airtime_pin',
                 'network' => $network,
@@ -535,14 +549,19 @@ class TelecomController
         $totalPrice = round((float)$plan['price'] * $quantity, 2);
         $reference = 'UD_DPIN_' . strtoupper(bin2hex(random_bytes(6)));
 
-        $debitResult = $this->walletService->debit(
-            $user['id'],
-            $totalPrice,
-            'data_purchase',
-            $reference,
-            "{$quantity}x {$plan['network']} {$plan['size']} Data PINs",
-            'internal'
-        );
+        try {
+            $debitResult = $this->walletService->debit(
+                $user['id'],
+                $totalPrice,
+                'data_purchase',
+                $reference,
+                "{$quantity}x {$plan['network']} {$plan['size']} Data PINs",
+                'internal'
+            );
+        } catch (Throwable $e) {
+            Response::error($e->getMessage(), 400);
+            return;
+        }
 
         $orderId = Security::generateUuid();
         try {
@@ -570,7 +589,6 @@ class TelecomController
             $order = [
                 'id' => $orderId,
                 'reference' => $reference,
-                'provider_ref' => $dispatch['provider_reference'],
                 'service' => 'data_pin',
                 'service_type' => 'data_pin',
                 'network' => $network,
@@ -731,14 +749,19 @@ class TelecomController
         }
 
         $reference = 'UD_CAB_' . strtoupper(bin2hex(random_bytes(6)));
-        $debitResult = $this->walletService->debit(
-            $user['id'],
-            $amount,
-            'cable_tv',
-            $reference,
-            "Cable TV renewal for {$provider} (IUC: {$smartcard})",
-            'internal'
-        );
+        try {
+            $debitResult = $this->walletService->debit(
+                $user['id'],
+                $amount,
+                'cable_tv',
+                $reference,
+                "Cable TV renewal for {$provider} (IUC: {$smartcard})",
+                'internal'
+            );
+        } catch (Throwable $e) {
+            Response::error($e->getMessage(), 400);
+            return;
+        }
 
         $orderId = Security::generateUuid();
         try {
@@ -765,7 +788,6 @@ class TelecomController
             $order = [
                 'id' => $orderId,
                 'reference' => $reference,
-                'provider_ref' => $dispatch['provider_reference'],
                 'service' => 'cable',
                 'service_type' => 'cable',
                 'recipient' => $smartcard,
@@ -784,7 +806,6 @@ class TelecomController
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
                 'order' => $order,
-                'data' => $dispatch,
             ], 'Cable TV subscription renewed successfully!');
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $amount, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed cable subscription {$reference}");
@@ -857,14 +878,19 @@ class TelecomController
         }
 
         $reference = 'UD_ELE_' . strtoupper(bin2hex(random_bytes(6)));
-        $debitResult = $this->walletService->debit(
-            $user['id'],
-            $amount,
-            'cable_tv',
-            $reference,
-            "Electricity payment for {$discoCode} (Meter: {$meterNumber})",
-            'internal'
-        );
+        try {
+            $debitResult = $this->walletService->debit(
+                $user['id'],
+                $amount,
+                'cable_tv',
+                $reference,
+                "Electricity payment for {$discoCode} (Meter: {$meterNumber})",
+                'internal'
+            );
+        } catch (Throwable $e) {
+            Response::error($e->getMessage(), 400);
+            return;
+        }
 
         $orderId = Security::generateUuid();
         try {
@@ -894,7 +920,6 @@ class TelecomController
             $order = [
                 'id' => $orderId,
                 'reference' => $reference,
-                'provider_ref' => $dispatch['provider_reference'],
                 'service' => 'electricity',
                 'service_type' => 'electricity',
                 'recipient' => $meterNumber,
@@ -917,7 +942,6 @@ class TelecomController
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
                 'order' => $order,
-                'data' => $dispatch,
             ], 'Prepaid token generated successfully!');
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $amount, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed electricity token {$reference}");
@@ -962,14 +986,19 @@ class TelecomController
         $totalPrice = (float)$exam['price'] * $quantity;
         $reference = 'UD_EXM_' . strtoupper(bin2hex(random_bytes(6)));
 
-        $debitResult = $this->walletService->debit(
-            $user['id'],
-            $totalPrice,
-            'data_purchase',
-            $reference,
-            "{$quantity}x {$exam['exam_name']} Result Checker Tokens",
-            'internal'
-        );
+        try {
+            $debitResult = $this->walletService->debit(
+                $user['id'],
+                $totalPrice,
+                'data_purchase',
+                $reference,
+                "{$quantity}x {$exam['exam_name']} Result Checker Tokens",
+                'internal'
+            );
+        } catch (Throwable $e) {
+            Response::error($e->getMessage(), 400);
+            return;
+        }
 
         $orderId = Security::generateUuid();
         try {
@@ -996,7 +1025,6 @@ class TelecomController
             $order = [
                 'id' => $orderId,
                 'reference' => $reference,
-                'provider_ref' => $dispatch['provider_reference'],
                 'service' => 'exam',
                 'service_type' => 'exam',
                 'recipient' => 'CARD_PRINT',
@@ -1046,25 +1074,31 @@ class TelecomController
         $user = Auth::requireAuth($request);
         $senderId = trim((string)($request->input('senderId') ?? $request->input('sender_id', 'HAMBAK')));
         $recipientsInput = $request->input('recipients', []);
-        $recipients = is_string($recipientsInput) ? explode(',', $recipientsInput) : (array)$recipientsInput;
+        $rawList = is_string($recipientsInput) ? explode(',', $recipientsInput) : (array)$recipientsInput;
+        $recipients = array_values(array_filter(array_map('trim', $rawList), static fn($r) => $r !== ''));
         $message = trim((string)$request->input('message', ''));
 
         if (empty($recipients) || empty($message)) {
-            Response::error('Recipients and message content are required.', 422);
+            Response::error('Valid recipients and message content are required.', 422);
         }
 
         $units = count($recipients) * (int)ceil(strlen($message) / 160);
         $totalCost = $units * 3.50; // ₦3.50 per SMS unit
         $reference = 'UD_SMS_' . strtoupper(bin2hex(random_bytes(6)));
 
-        $debitResult = $this->walletService->debit(
-            $user['id'],
-            $totalCost,
-            'data_purchase',
-            $reference,
-            "Bulk SMS to " . count($recipients) . " recipients ({$units} units)",
-            'internal'
-        );
+        try {
+            $debitResult = $this->walletService->debit(
+                $user['id'],
+                $totalCost,
+                'data_purchase',
+                $reference,
+                "Bulk SMS to " . count($recipients) . " recipients ({$units} units)",
+                'internal'
+            );
+        } catch (Throwable $e) {
+            Response::error($e->getMessage(), 400);
+            return;
+        }
 
         $orderId = Security::generateUuid();
         try {
@@ -1092,7 +1126,6 @@ class TelecomController
             $order = [
                 'id' => $orderId,
                 'reference' => $reference,
-                'provider_ref' => $dispatch['provider_reference'],
                 'service' => 'bulksms',
                 'service_type' => 'bulksms',
                 'recipient' => substr(implode(',', $recipients), 0, 100),
@@ -1205,13 +1238,16 @@ class TelecomController
     public function orders(Request $request): void
     {
         $user = Auth::requireAuth($request);
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
         $limit = min(100, max(1, (int)$request->query('limit', 50)));
         $service = (string)$request->query('service', '');
         $search = (string)$request->query('search', '');
 
-        $sql = 'SELECT id, service_type, service_type as service, network, phone, phone as recipient, plan, amount, provider_id as provider, provider_ref, status, metadata, created_at
-             FROM telecom_orders
-             WHERE user_id = :uid ';
+        $selectCols = $isAdmin
+            ? 'id, service_type, service_type as service, network, phone, phone as recipient, plan, amount, provider_id as provider, provider_ref, status, metadata, created_at'
+            : 'id, service_type, service_type as service, network, phone, phone as recipient, plan, amount, status, metadata, created_at';
+
+        $sql = "SELECT {$selectCols} FROM telecom_orders WHERE user_id = :uid ";
         $params = ['uid' => $user['id']];
 
         if (!empty($service)) {
@@ -1219,7 +1255,7 @@ class TelecomController
             $params['srv'] = $service;
         }
         if (!empty($search)) {
-            $sql .= 'AND (phone LIKE :srch OR plan LIKE :srch2 OR provider_ref LIKE :srch3) ';
+            $sql .= 'AND (phone LIKE :srch OR plan LIKE :srch2 OR id LIKE :srch3) ';
             $params['srch'] = "%{$search}%";
             $params['srch2'] = "%{$search}%";
             $params['srch3'] = "%{$search}%";
@@ -1231,7 +1267,22 @@ class TelecomController
         foreach ($rows as &$r) {
             $r['amount'] = (float)$r['amount'];
             if (!empty($r['metadata'])) {
-                $r['metadata'] = is_string($r['metadata']) ? json_decode($r['metadata'], true) : $r['metadata'];
+                $meta = is_string($r['metadata']) ? json_decode($r['metadata'], true) : $r['metadata'];
+                if (!$isAdmin && is_array($meta)) {
+                    unset(
+                        $meta['raw'],
+                        $meta['raw_response'],
+                        $meta['provider'],
+                        $meta['provider_id'],
+                        $meta['provider_reference'],
+                        $meta['provider_ref'],
+                        $meta['wholesale_cost'],
+                        $meta['cost_price'],
+                        $meta['endpoint'],
+                        $meta['api_url']
+                    );
+                }
+                $r['metadata'] = $meta;
             }
         }
 
@@ -1246,11 +1297,18 @@ class TelecomController
      */
     public function cablePackages(Request $request): void
     {
+        $user = Auth::user($request);
+        $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+
         $rows = $this->db->fetchAll('SELECT * FROM cable_packages WHERE is_active = 1 ORDER BY provider ASC, price ASC');
         $grouped = [];
         foreach ($rows as &$r) {
             $r['price'] = (float)$r['price'];
-            $r['wholesale_cost'] = (float)$r['wholesale_cost'];
+            if ($isAdmin) {
+                $r['wholesale_cost'] = (float)$r['wholesale_cost'];
+            } else {
+                unset($r['wholesale_cost']);
+            }
             $prov = strtolower($r['provider']);
             if (!isset($grouped[$prov])) {
                 $grouped[$prov] = [];
@@ -1285,10 +1343,17 @@ class TelecomController
      */
     public function examPackages(Request $request): void
     {
+        $user = Auth::user($request);
+        $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+
         $rows = $this->db->fetchAll('SELECT * FROM exam_packages WHERE is_active = 1 ORDER BY price ASC');
         foreach ($rows as &$r) {
             $r['price'] = (float)$r['price'];
-            $r['wholesale_cost'] = (float)$r['wholesale_cost'];
+            if ($isAdmin) {
+                $r['wholesale_cost'] = (float)$r['wholesale_cost'];
+            } else {
+                unset($r['wholesale_cost']);
+            }
         }
 
         Response::success([
@@ -1383,11 +1448,29 @@ class TelecomController
     }
 
     /**
-     * 23. GET /api/telecom/providers (Admin only)
+     * 23. GET /api/telecom/providers
+     * Customers receive safe service/network availability; Admins receive live provider diagnostics.
      */
     public function providers(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        $user = Auth::requireAuth($request);
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+
+        if (!$isAdmin) {
+            Response::success([
+                'status' => 'operational',
+                'airtime_discount_percent' => 2.5,
+                'networks' => [
+                    ['code' => 'MTN', 'name' => 'MTN Nigeria', 'status' => 'operational'],
+                    ['code' => 'AIRTEL', 'name' => 'Airtel Nigeria', 'status' => 'operational'],
+                    ['code' => 'GLO', 'name' => 'Globacom', 'status' => 'operational'],
+                    ['code' => '9MOBILE', 'name' => '9mobile', 'status' => 'operational'],
+                ],
+                'services' => ['airtime', 'data', 'airtime_pin', 'data_pin', 'cable', 'electricity', 'exam', 'bulksms', 'airtime_swap'],
+            ]);
+            return;
+        }
+
         $activeProvider = $this->resolveActiveProviderId();
 
         $ulamaAdapter = new UlamaDataAdapter();

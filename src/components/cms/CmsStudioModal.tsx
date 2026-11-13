@@ -48,6 +48,7 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
     saveFaq,
     deleteFaq,
     updateNavigation,
+    refreshCms,
   } = useCms();
 
   const [activeTab, setActiveTab] = useState<'branding' | 'sections' | 'visibility' | 'announcements' | 'faqs' | 'navigation'>('branding');
@@ -92,6 +93,7 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
       setErrorMsg(null);
       const ok = await updateBranding(brandForm);
       if (ok) {
+        await refreshCms();
         setSavedSuccess(true);
         setTimeout(() => setSavedSuccess(false), 3000);
       } else {
@@ -110,6 +112,7 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
       setErrorMsg(null);
       const ok = await updateSections(sectionForm);
       if (ok) {
+        await refreshCms();
         setSavedSuccess(true);
         setTimeout(() => setSavedSuccess(false), 3000);
       } else {
@@ -127,6 +130,7 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
     const next = { ...visibilityForm, [key]: nextVal };
     setVisibilityForm(next);
     await updateVisibility({ [key]: nextVal } as any);
+    await refreshCms();
   };
 
   const handleSaveAnnouncementItem = async () => {
@@ -163,12 +167,13 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
 
   const handleSaveNavigation = async () => {
     setSaving(true);
-    const ok = await updateNavigation(navItems);
-    setSaving(false);
+    const ok = await updateNavigation(navItems.map(n => ({ ...n, page_key: (n as any).page_key || n.pageKey } as any)));
     if (ok) {
+      await refreshCms();
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2000);
     }
+    setSaving(false);
   };
 
   return (
@@ -372,16 +377,37 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
               {/* Contact Info */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Support Phone</label>
+                  <label className="block text-slate-300 font-medium mb-1">WhatsApp Desk (09155104724)</label>
+                  <input
+                    type="text"
+                    value={brandForm.whatsapp_number || ''}
+                    onChange={e => setBrandForm({ ...brandForm, whatsapp_number: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Business / Upline (08147837664)</label>
+                  <input
+                    type="text"
+                    value={brandForm.business_phone || ''}
+                    onChange={e => setBrandForm({ ...brandForm, business_phone: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Customer Service / Office (09127469686)</label>
                   <input
                     type="text"
                     value={brandForm.support_phone || ''}
                     onChange={e => setBrandForm({ ...brandForm, support_phone: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Support Email (Webmail)</label>
+                  <label className="block text-slate-300 font-medium mb-1">Support Email</label>
                   <input
                     type="email"
                     value={brandForm.support_email || ''}
@@ -390,12 +416,21 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">WhatsApp Number</label>
+                  <label className="block text-slate-300 font-medium mb-1">General Info Email</label>
+                  <input
+                    type="email"
+                    value={brandForm.info_email || ''}
+                    onChange={e => setBrandForm({ ...brandForm, info_email: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Business Reg. (BN)</label>
                   <input
                     type="text"
-                    value={brandForm.whatsapp_number || ''}
-                    onChange={e => setBrandForm({ ...brandForm, whatsapp_number: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                    value={brandForm.business_reg_number || ''}
+                    onChange={e => setBrandForm({ ...brandForm, business_reg_number: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
                   />
                 </div>
               </div>
@@ -410,38 +445,33 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
                 />
               </div>
 
-              {/* Social Links */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Twitter / X Link</label>
-                  <input
-                    type="text"
-                    value={brandForm.social_links?.twitter || ''}
-                    onChange={e =>
-                      setBrandForm({
-                        ...brandForm,
-                        social_links: { ...brandForm.social_links, twitter: e.target.value },
-                      })
-                    }
-                    placeholder="https://x.com/hambaktech"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">WhatsApp Community Link</label>
-                  <input
-                    type="text"
-                    value={brandForm.social_links?.whatsapp || ''}
-                    onChange={e =>
-                      setBrandForm({
-                        ...brandForm,
-                        social_links: { ...brandForm.social_links, whatsapp: e.target.value },
-                      })
-                    }
-                    placeholder="https://wa.me/2348030001122"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
-                  />
-                </div>
+              {/* Optional Social Links */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {[
+                  { key: 'tiktok', label: 'TikTok URL' },
+                  { key: 'facebook', label: 'Facebook URL' },
+                  { key: 'telegram', label: 'Telegram URL' },
+                  { key: 'x', label: 'X (Twitter) URL' },
+                  { key: 'linkedin', label: 'LinkedIn URL' },
+                  { key: 'youtube', label: 'YouTube URL' },
+                  { key: 'whatsapp_channel', label: 'WhatsApp Channel URL' },
+                ].map((soc) => (
+                  <div key={soc.key}>
+                    <label className="block text-slate-300 font-medium mb-1">{soc.label}</label>
+                    <input
+                      type="url"
+                      value={(brandForm.social_links as any)?.[soc.key] || ''}
+                      onChange={e =>
+                        setBrandForm({
+                          ...brandForm,
+                          social_links: { ...(brandForm.social_links || {}), [soc.key]: e.target.value },
+                        })
+                      }
+                      placeholder="https://... (optional)"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                    />
+                  </div>
+                ))}
               </div>
 
               {/* Footer text & Copyright */}
@@ -741,15 +771,18 @@ export const CmsStudioModal: React.FC<CmsStudioModalProps> = ({ isOpen, onClose 
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 {[
-                  { key: 'home', label: 'Landing / Home Page', desc: 'Main conversion page' },
-                  { key: 'about', label: 'About Us Page', desc: 'Company history & infrastructure' },
-                  { key: 'services', label: 'Services Catalog', desc: 'All 6 services in detail' },
-                  { key: 'ratesCalculator', label: 'Pricing Calculator', desc: 'Live wholesale rates tool' },
-                  { key: 'announcements', label: 'Official Announcements', desc: 'Advisory notice board' },
+                  { key: 'home', label: 'Landing / Home Page', desc: 'Main public showcase' },
+                  { key: 'about', label: 'About Us Page', desc: 'Company mission, vision & values' },
+                  { key: 'services', label: 'Services Catalog', desc: 'Digital & telecom services' },
+                  { key: 'howItWorks', label: 'How It Works', desc: 'Onboarding & workflow guide' },
+                  { key: 'ratesCalculator', label: 'Pricing Calculator', desc: 'Live service fee tool' },
+                  { key: 'academy', label: 'Digital Training Academy', desc: '12 courses & online admission' },
+                  { key: 'announcements', label: 'Official Announcements', desc: 'Public notice board' },
                   { key: 'faq', label: 'FAQ Page', desc: 'Categorized questions & answers' },
-                  { key: 'contact', label: 'Contact Us Page', desc: 'Validated support inquiry form' },
-                  { key: 'terms', label: 'Terms and Conditions', desc: 'Sovereign covenants & SLAs' },
-                  { key: 'privacy', label: 'Privacy Policy', desc: 'NDPA data protection policy' },
+                  { key: 'contact', label: 'Contact Us Page', desc: 'Support phones, emails & form' },
+                  { key: 'terms', label: 'Terms and Conditions', desc: 'Platform service agreement' },
+                  { key: 'privacy', label: 'Privacy Policy', desc: 'NDPR data protection policy' },
+                  { key: 'refundPolicy', label: 'Refund Policy', desc: 'Failed delivery & dispute rules' },
                 ].map(page => {
                   const isVisible = visibilityForm[page.key] !== false;
                   return (

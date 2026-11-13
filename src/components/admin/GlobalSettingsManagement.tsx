@@ -30,6 +30,7 @@ import {
   X
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { useCms } from '../../context/CmsContext';
 import { LogoUploader } from './LogoUploader';
 
 interface CategoryConfig {
@@ -74,11 +75,14 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     description: 'Corporate registration, legal business entity, CAC/RC registration numbers, and headquarters address.',
     fields: [
       { key: 'company_name', label: 'Registered Business Name', type: 'text', helper: 'Full corporate name as registered with CAC' },
-      { key: 'cac_registration_number', label: 'CAC / RC / BN Number', type: 'text', helper: 'Official corporate registration number' },
+      { key: 'cac_registration_number', label: 'CAC / RC / BN Number', type: 'text', helper: 'Official corporate registration number (BN 9284726)' },
       { key: 'headquarters_address', label: 'Headquarters Address', type: 'textarea', helper: 'Physical office address for receipts and footer' },
-      { key: 'operational_state', label: 'Operating State / Province', type: 'text', helper: 'State of registration (e.g. Lagos, Abuja)' },
-      { key: 'operating_country', label: 'Operating Country', type: 'text', helper: 'Country of incorporation (e.g. Nigeria)' },
-      { key: 'tax_identification_number', label: 'Tax Identification Number (TIN)', type: 'text', helper: 'FIRS TIN number for corporate filings' },
+      { key: 'official_email', label: 'General Information Email', type: 'text', helper: 'info@hambaktech.com.ng' },
+      { key: 'support_email', label: 'Support Email', type: 'text', helper: 'support@hambaktech.com.ng' },
+      { key: 'whatsapp_phone', label: 'WhatsApp Desk Number', type: 'text', helper: '09155104724' },
+      { key: 'business_phone', label: 'Business / Upline Contact', type: 'text', helper: '08147837664' },
+      { key: 'official_phone', label: 'Customer Service / Office Phone', type: 'text', helper: '09127469686' },
+      { key: 'founded_year', label: 'Founded Year', type: 'text', helper: '2024' },
     ],
   },
   // 3. Branding
@@ -89,12 +93,12 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     icon: Palette,
     description: 'Corporate logos, favicons, primary brand colors, typography, and visual assets.',
     fields: [
-      { key: 'logo_url', label: 'Primary Logo URL', type: 'text', helper: 'Main header logo image path or URL' },
-      { key: 'favicon_url', label: 'Favicon URL', type: 'text', helper: 'Browser tab icon path (e.g. /favicon.ico)' },
-      { key: 'primary_color', label: 'Primary Brand Color', type: 'text', helper: 'Hex code for primary buttons and accents (e.g. #4f46e5)' },
-      { key: 'secondary_color', label: 'Secondary Brand Color', type: 'text', helper: 'Hex code for secondary accents (e.g. #06b6d4)' },
-      { key: 'font_family', label: 'Website Typography', type: 'text', helper: 'Font stack (e.g. Inter, system-ui, sans-serif)' },
-      { key: 'watermark_text', label: 'Slip Watermark Text', type: 'text', helper: 'Security watermark applied to downloaded verification slips' },
+      { key: 'logo_url', label: 'Primary Logo URL', type: 'text', helper: 'Main header logo image path or URL (/logo.png)' },
+      { key: 'favicon_url', label: 'Favicon URL', type: 'text', helper: 'Browser tab icon path (e.g. /logo.png)' },
+      { key: 'primary_color', label: 'Primary Brand Color', type: 'text', helper: 'Hex code for primary buttons and accents (e.g. #1d4ed8)' },
+      { key: 'secondary_color', label: 'Secondary Brand Color', type: 'text', helper: 'Hex code for secondary accents (e.g. #0f172a)' },
+      { key: 'font_family', label: 'Website Typography', type: 'text', helper: 'Font stack (e.g. Plus Jakarta Sans, sans-serif)' },
+      { key: 'watermark_text', label: 'Slip Watermark Text', type: 'text', helper: 'Security watermark applied to verified slips' },
     ],
   },
   // 4. Website CMS
@@ -107,7 +111,7 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     fields: [
       { key: 'meta_title', label: 'Default Meta Title', type: 'text', helper: 'SEO title for search engine indexing' },
       { key: 'meta_description', label: 'Default Meta Description', type: 'textarea', helper: 'Summary snippet for Google & social sharing cards' },
-      { key: 'allow_public_registration', label: 'Allow Public Registration', type: 'boolean', helper: 'Allow new customers to create accounts online' },
+      { key: 'enable_registration', label: 'Allow Public Registration', type: 'boolean', helper: 'Allow new customers to create accounts online' },
       { key: 'public_portal_enabled', label: 'Public Website Enabled', type: 'boolean', helper: 'Toggle visibility of public website pages' },
       { key: 'social_facebook_url', label: 'Facebook URL', type: 'text' },
       { key: 'social_twitter_url', label: 'Twitter / X URL', type: 'text' },
@@ -122,10 +126,11 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     icon: Layout,
     description: 'Landing page hero section headings, banner visibility, service highlights, and CTA copy.',
     fields: [
-      { key: 'hero_title', label: 'Hero Section Title', type: 'text', helper: 'Primary high-impact heading on the homepage' },
-      { key: 'hero_subtitle', label: 'Hero Section Subtitle', type: 'textarea', helper: 'Descriptive narrative under the main hero title' },
-      { key: 'hero_cta_text', label: 'Hero CTA Button Text', type: 'text', helper: 'Call to action button label' },
-      { key: 'show_live_stats', label: 'Display Live Statistics Section', type: 'boolean', helper: 'Show transaction count and happy customer metrics' },
+      { key: 'hero_badge', label: 'Hero Badge Label', type: 'text', helper: 'Small top badge text above main headline' },
+      { key: 'hero_headline', label: 'Hero Section Title', type: 'text', helper: 'Primary high-impact heading on the homepage' },
+      { key: 'hero_subheadline', label: 'Hero Section Subtitle', type: 'textarea', helper: 'Descriptive narrative under the main hero title' },
+      { key: 'primary_cta_text', label: 'Primary CTA Button Text', type: 'text', helper: 'Primary call to action button label' },
+      { key: 'secondary_cta_text', label: 'Secondary CTA Button Text', type: 'text', helper: 'Secondary call to action button label' },
       { key: 'show_announcement_banner', label: 'Show Global Announcement Banner', type: 'boolean', helper: 'Display top marquee notification banner' },
     ],
   },
@@ -383,6 +388,7 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
 ];
 
 export const GlobalSettingsManagement: React.FC = () => {
+  const { branding, refreshCms, updateBranding } = useCms();
   const [selectedCategoryKey, setSelectedCategoryKey] = useState<string>('general');
   const [settingsValues, setSettingsValues] = useState<Record<string, Record<string, any>>>({});
   const [loading, setLoading] = useState(true);
@@ -428,9 +434,47 @@ export const GlobalSettingsManagement: React.FC = () => {
       const currentValues = settingsValues[activeCategory.key] || {};
       const res = await api.updateAdminSettingsCategory(activeCategory.key, currentValues);
       if (res && res.success) {
+        // Synchronize frontend-visible company/branding fields cleanly with live website_branding
+        if (activeCategory.key === 'company') {
+          await updateBranding({
+            ...(branding || {}),
+            company_name: currentValues.company_name || branding?.company_name,
+            business_reg_number: currentValues.cac_registration_number || currentValues.registration_number || branding?.business_reg_number,
+            office_address: currentValues.headquarters_address || branding?.office_address,
+            info_email: currentValues.official_email || branding?.info_email,
+            support_email: currentValues.support_email || branding?.support_email,
+            whatsapp_number: currentValues.whatsapp_phone || branding?.whatsapp_number,
+            business_phone: currentValues.business_phone || branding?.business_phone,
+            support_phone: currentValues.official_phone || branding?.support_phone,
+            founded_year: currentValues.founded_year || branding?.founded_year,
+          });
+        } else if (activeCategory.key === 'branding') {
+          await updateBranding({
+            ...(branding || {}),
+            logo_url: currentValues.logo_url || branding?.logo_url,
+            favicon_url: currentValues.favicon_url || branding?.favicon_url,
+            primary_color: currentValues.primary_color || branding?.primary_color,
+            secondary_color: currentValues.secondary_color || branding?.secondary_color,
+          });
+        } else if (activeCategory.key === 'general') {
+          await updateBranding({
+            ...(branding || {}),
+            short_brand_name: currentValues.site_name || branding?.short_brand_name,
+            tagline: currentValues.site_tagline || branding?.tagline,
+            support_email: currentValues.support_email || branding?.support_email,
+            support_phone: currentValues.support_phone || branding?.support_phone,
+          });
+        } else if (activeCategory.key === 'website') {
+          await updateBranding({
+            ...(branding || {}),
+            seo_title: currentValues.meta_title || branding?.seo_title,
+            seo_description: currentValues.meta_description || branding?.seo_description,
+          });
+        }
+        await refreshCms();
         setFeedback({
           type: 'success',
-          message: `${activeCategory.name} updated and saved to MySQL successfully.`
+          message: `${activeCategory.name} updated and synchronized across live system settings.`
         });
       }
     } catch (err: any) {
@@ -559,8 +603,11 @@ export const GlobalSettingsManagement: React.FC = () => {
               <form onSubmit={handleSaveCategory} className="space-y-5">
                 {activeCategory.key === 'branding' && (
                   <LogoUploader
-                    currentLogoUrl={String(settingsValues.branding?.logo_url || '/logo.svg')}
-                    onLogoUpdated={(newUrl) => handleFieldChange('logo_url', newUrl)}
+                    currentLogoUrl={String(settingsValues.branding?.logo_url || '/logo.png')}
+                    onLogoUpdated={(newUrl) => {
+                      handleFieldChange('logo_url', newUrl);
+                      refreshCms();
+                    }}
                   />
                 )}
 

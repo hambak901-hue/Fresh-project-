@@ -631,12 +631,33 @@ CREATE TABLE announcements (
     title VARCHAR(255) NOT NULL,
     content TEXT NOT NULL,
     category ENUM('update', 'maintenance', 'offer', 'security', 'general') NOT NULL DEFAULT 'general',
+    target_audience VARCHAR(64) NOT NULL DEFAULT 'all_customers',
+    target_user_id VARCHAR(36) NULL,
     is_pinned TINYINT(1) NOT NULL DEFAULT 0,
     status ENUM('published', 'draft') NOT NULL DEFAULT 'published',
     author VARCHAR(100) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_anc_status_pinned (status, is_pinned)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE announcement_email_deliveries (
+    id VARCHAR(36) PRIMARY KEY,
+    announcement_id VARCHAR(64) NOT NULL,
+    announcement_source VARCHAR(32) NOT NULL DEFAULT 'announcement',
+    user_id VARCHAR(36) NULL,
+    recipient_email VARCHAR(191) NOT NULL,
+    recipient_name VARCHAR(191) NULL,
+    status ENUM('pending', 'sent', 'failed', 'skipped') NOT NULL DEFAULT 'pending',
+    message_id VARCHAR(255) NULL,
+    error_message TEXT NULL,
+    attempts INT NOT NULL DEFAULT 1,
+    sent_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_ann_email (announcement_id, recipient_email),
+    INDEX idx_aed_ann_status (announcement_id, status),
+    INDEX idx_aed_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE faqs (

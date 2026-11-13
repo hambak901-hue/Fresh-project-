@@ -27,10 +27,17 @@ interface AnnouncementItem {
   title: string;
   message: string;
   type: string;
+  target_audience?: string;
   is_active: boolean | number;
   start_date?: string;
   end_date?: string;
   created_at: string;
+  email_stats?: {
+    sent_count: number;
+    failed_count: number;
+    total_logged: number;
+    last_sent_at?: string | null;
+  };
 }
 
 export const NotificationManagement: React.FC = () => {
@@ -53,8 +60,10 @@ export const NotificationManagement: React.FC = () => {
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementMessage, setAnnouncementMessage] = useState('');
   const [announcementType, setAnnouncementType] = useState('info');
+  const [announcementAudience, setAnnouncementAudience] = useState('all_customers');
   const [announcementActive, setAnnouncementActive] = useState(true);
   const [savingAnnouncement, setSavingAnnouncement] = useState(false);
+  const [retryingAnnouncementId, setRetryingAnnouncementId] = useState<string | number | null>(null);
 
   // Broadcast composer state
   const [broadcastTitle, setBroadcastTitle] = useState('');
@@ -108,24 +117,42 @@ export const NotificationManagement: React.FC = () => {
         title: announcementTitle.trim(),
         message: announcementMessage.trim(),
         type: announcementType,
+        target_audience: announcementAudience,
         is_active: announcementActive ? 1 : 0,
       };
       const res = await api.saveAdminAnnouncement(payload);
       if (res && res.success) {
         setFeedback({
           type: 'success',
-          message: editingAnnouncement ? 'Announcement updated successfully' : 'New announcement published'
+          message: res.message || (editingAnnouncement ? 'Announcement updated successfully' : 'New announcement published'),
         });
         setIsNewAnnouncementOpen(false);
         setEditingAnnouncement(null);
         setAnnouncementTitle('');
         setAnnouncementMessage('');
+        setAnnouncementAudience('all_customers');
         loadData();
       }
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || 'Failed to save announcement' });
     } finally {
       setSavingAnnouncement(false);
+    }
+  };
+
+  const handleRetryAnnouncementEmails = async (id: number | string) => {
+    setRetryingAnnouncementId(id);
+    setFeedback(null);
+    try {
+      const res = await api.retryAdminAnnouncementEmails(id);
+      if (res && res.success) {
+        setFeedback({ type: 'success', message: res.message });
+        loadData();
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to retry failed announcement emails' });
+    } finally {
+      setRetryingAnnouncementId(null);
     }
   };
 
@@ -204,6 +231,7 @@ export const NotificationManagement: React.FC = () => {
               setAnnouncementTitle('');
               setAnnouncementMessage('');
               setAnnouncementType('info');
+              setAnnouncementAudience('all_customers');
               setAnnouncementActive(true);
               setIsNewAnnouncementOpen(true);
             }}
@@ -334,6 +362,17 @@ export const NotificationManagement: React.FC = () => {
 
                       <h4 className="text-sm font-bold text-white">{ann.title}</h4>
                       <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">{ann.message}</p>
+                      <div className="flex flex-wrap items-center gap-2 mt-3 text-[10px] font-mono">
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                          Audience: {ann.target_audience || 'all_customers'}
+                        </span>
+                        {ann.email_stats && (
+                          <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                            Emails Sent: {ann.email_stats.sent_count}
+                            {ann.email_stats.failed_count > 0 ? ` • Failed: ${ann.email_stats.failed_count}` : ''}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
@@ -341,12 +380,24 @@ export const NotificationManagement: React.FC = () => {
                         {new Date(ann.created_at).toLocaleDateString()}
                       </span>
                       <div className="flex items-center gap-2">
+                        {!!ann.email_stats?.failed_count && (
+                          <button
+                            onClick={() => handleRetryAnnouncementEmails(ann.id)}
+                            disabled={retryingAnnouncementId === ann.id}
+                            className="px-2.5 py-1 text-amber-300 hover:text-white bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg text-xs transition flex items-center gap-1"
+                            title="Retry only failed recipients"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${retryingAnnouncementId === ann.id ? 'animate-spin' : ''}`} />
+                            <span>Retry Failed</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             setEditingAnnouncement(ann);
                             setAnnouncementTitle(ann.title);
                             setAnnouncementMessage(ann.message);
                             setAnnouncementType(ann.type || 'info');
+                            setAnnouncementAudience(ann.target_audience || 'all_customers');
                             setAnnouncementActive(!!ann.is_active);
                             setIsNewAnnouncementOpen(true);
                           }}
@@ -576,7 +627,7 @@ export const NotificationManagement: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Banner Style</label>
                   <select
@@ -591,17 +642,35 @@ export const NotificationManagement: React.FC = () => {
                   </select>
                 </div>
 
-                <div className="flex items-center pt-6">
-                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={announcementActive}
-                      onChange={e => setAnnouncementActive(e.target.checked)}
-                      className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 bg-slate-950"
-                    />
-                    <span>Active on site immediately</span>
-                  </label>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Target Audience</label>
+                  <select
+                    value={announcementAudience}
+                    onChange={e => setAnnouncementAudience(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="all_customers">All Active Customers</option>
+                    <option value="tier_1">Tier 1 Customers Only</option>
+                    <option value="tier_2">Tier 2 KYC Verified Only</option>
+                    <option value="tier_3">Tier 3 Enterprise Only</option>
+                    <option value="verified_kyc">All Verified KYC Customers</option>
+                    <option value="pending_kyc">Pending KYC Customers</option>
+                    <option value="all_users">All Users (Customers &amp; Staff)</option>
+                    <option value="admins">Admins &amp; Staff Only</option>
+                  </select>
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={announcementActive}
+                    onChange={e => setAnnouncementActive(e.target.checked)}
+                    className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 bg-slate-950"
+                  />
+                  <span>Active immediately (delivers to Dashboards &amp; Customer Emails)</span>
+                </label>
               </div>
 
               <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-2">

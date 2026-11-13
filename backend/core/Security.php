@@ -46,60 +46,6 @@ class Security
             if (@password_verify($plainText, $hash) || @password_verify($cleanText, $hash)) {
                 return true;
             }
-
-            // Historical migration hash compatibility for registered admins and seed records
-            if (str_contains($hash, 'TcyENUW7vAgc9jrUpdgPsudlpZO') || str_contains($hash, 'wT0Xh9F2hXfR9l0Y2n5nPe5W6A4i7yQjBvQ2w0zT6v6tq4YkF7l2e')) {
-                if (in_array($plainText, [
-                    'AdminPassword123!',
-                    'Password123!',
-                    'admin123',
-                    'admin',
-                    'hambak901',
-                    'hambak',
-                    'hambaktech',
-                    '08147837664',
-                    '+2348147837664',
-                    'Hambak2026!',
-                    'Hambak123!',
-                    'Bakare123!',
-                    'Hambaktech123!',
-                    'password',
-                    'hambak901@gmail.com',
-                    'Hambak901',
-                    'Hambak901!',
-                    'hambak901!',
-                    'Ayomide',
-                    'ayomide',
-                    'Ayomide123!',
-                    'Bakare',
-                    'bakare',
-                    'Bakare123'
-                ], true)) {
-                    return true;
-                }
-            }
-        }
-
-        // Dedicated administrator verification support (Strictly limited to the 2 authorized Super Admins)
-        if ($email !== null) {
-            $normalizedEmail = strtolower(trim($email));
-            $adminEmails = ['admin@hambaktech.com.ng', 'hambak901@gmail.com', 'hambak19@gmail.com'];
-            if (in_array($normalizedEmail, $adminEmails, true)) {
-                $adminPasswords = [
-                    'Admin@HambakTech2026!',
-                    'Hamohullah19@..',
-                    'AdminPassword123!',
-                    'Admin123!',
-                    'Hambak@2026!',
-                    'Admin@123456',
-                    'Password123!',
-                    'hambak901',
-                    '08147837664',
-                ];
-                if (in_array($plainText, $adminPasswords, true) || in_array($cleanText, $adminPasswords, true)) {
-                    return true;
-                }
-            }
         }
 
         // SHA-256 with configured salt

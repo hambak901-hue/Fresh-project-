@@ -16,6 +16,7 @@ use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
+use HambakTech\Services\AnnouncementEmailService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Verification\VeripineAdapter;
 
@@ -68,11 +69,18 @@ class CustomerController
             $n['read'] = (bool)$n['read'];
         }
 
-        $announcements = $this->db->fetchAll(
-            'SELECT id, title, content, category, is_pinned, created_at
+        $emailSvc = new AnnouncementEmailService($this->db);
+        $emailSvc->ensureSchema();
+        $rawAnnouncements = $this->db->fetchAll(
+            'SELECT id, title, content, category, target_audience, target_user_id, is_pinned, status, created_at
              FROM announcements
              WHERE status = "published"
-             ORDER BY is_pinned DESC, created_at DESC LIMIT 3'
+             ORDER BY is_pinned DESC, created_at DESC LIMIT 20'
+        );
+        $announcements = array_slice(
+            array_values(array_filter($rawAnnouncements, fn($a) => AnnouncementEmailService::isVisibleToUser($a, $user))),
+            0,
+            3
         );
 
         Response::success([
@@ -127,7 +135,7 @@ class CustomerController
         }
 
         $recentOrders = $this->db->fetchAll(
-            'SELECT id, service_type, service_type as service, network, phone, phone as recipient, plan, amount, provider_ref, status, created_at
+            'SELECT id, service_type, service_type as service, network, phone, phone as recipient, plan, amount, status, created_at
              FROM telecom_orders
              WHERE user_id = :uid
              ORDER BY created_at DESC LIMIT 8',
@@ -160,11 +168,18 @@ class CustomerController
             $n['read'] = (bool)$n['read'];
         }
 
-        $announcements = $this->db->fetchAll(
-            'SELECT id, title, content, category, is_pinned, status, created_at
+        $emailSvcSummary = new AnnouncementEmailService($this->db);
+        $emailSvcSummary->ensureSchema();
+        $rawAnnouncements = $this->db->fetchAll(
+            'SELECT id, title, content, category, target_audience, target_user_id, is_pinned, status, created_at
              FROM announcements
              WHERE status = "published"
-             ORDER BY is_pinned DESC, created_at DESC LIMIT 5'
+             ORDER BY is_pinned DESC, created_at DESC LIMIT 20'
+        );
+        $announcements = array_slice(
+            array_values(array_filter($rawAnnouncements, fn($a) => AnnouncementEmailService::isVisibleToUser($a, $user))),
+            0,
+            5
         );
 
         $bankName = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_bank"');
@@ -289,11 +304,16 @@ class CustomerController
             );
             if ($activeSubmission) {
                 if (!empty($activeSubmission['automated_verification_result']) && is_string($activeSubmission['automated_verification_result'])) {
-                    $activeSubmission['automated_verification_result'] = json_decode($activeSubmission['automated_verification_result'], true);
+                    $decodedAuto = json_decode($activeSubmission['automated_verification_result'], true);
+                    if (is_array($decodedAuto)) {
+                        unset($decodedAuto['provider'], $decodedAuto['provider_id'], $decodedAuto['provider_cost'], $decodedAuto['endpoint'], $decodedAuto['api_url'], $decodedAuto['raw_error']);
+                    }
+                    $activeSubmission['automated_verification_result'] = $decodedAuto;
                 }
                 if (!empty($activeSubmission['review_history']) && is_string($activeSubmission['review_history'])) {
                     $activeSubmission['review_history'] = json_decode($activeSubmission['review_history'], true);
                 }
+                unset($activeSubmission['provider'], $activeSubmission['provider_id']);
             }
         } catch (Throwable) {
         }
@@ -381,10 +401,13 @@ class CustomerController
                     if (!empty($res['success'])) {
                         $verifRef = $res['reference'] ?? null;
                         $autoResult = $res['data'] ?? $res;
+                        if (is_array($autoResult)) {
+                            unset($autoResult['provider'], $autoResult['provider_id'], $autoResult['provider_cost'], $autoResult['raw_error']);
+                        }
                         $status = 'verified';
                         $instantVerified = true;
                     } else {
-                        $autoResult = ['error' => $res['message'] ?? 'Automated check returned failure', 'provider' => 'veripine'];
+                        $autoResult = ['error' => $res['message'] ?? 'Automated verification check returned failure'];
                     }
                 } else {
                     $endpoint = $nin ? 'verify-nin' : 'verify-bvn';
@@ -393,10 +416,13 @@ class CustomerController
                     if (!empty($res['success']) && empty($res['is_simulated'])) {
                         $verifRef = $res['reference'] ?? null;
                         $autoResult = $res['data'] ?? $res;
+                        if (is_array($autoResult)) {
+                            unset($autoResult['provider'], $autoResult['provider_id'], $autoResult['provider_cost'], $autoResult['raw_error']);
+                        }
                         $status = 'verified';
                         $instantVerified = true;
                     } else {
-                        $autoResult = ['error' => $res['message'] ?? 'Automated verification unavailable', 'provider' => '2sureverify'];
+                        $autoResult = ['error' => $res['message'] ?? 'Automated verification unavailable'];
                     }
                 }
             } catch (Throwable $e) {
@@ -533,6 +559,13 @@ class CustomerController
         }
 
         $submission = $this->db->fetchOne('SELECT * FROM kyc_submissions WHERE id = :id', ['id' => $kycId]);
+        if ($submission && !empty($submission['automated_verification_result']) && is_string($submission['automated_verification_result'])) {
+            $decodedAuto = json_decode($submission['automated_verification_result'], true);
+            if (is_array($decodedAuto)) {
+                unset($decodedAuto['provider'], $decodedAuto['provider_id'], $decodedAuto['provider_cost'], $decodedAuto['raw_error']);
+            }
+            $submission['automated_verification_result'] = $decodedAuto;
+        }
         $refreshedUser = Auth::user($request);
 
         Response::success([
@@ -775,7 +808,8 @@ class CustomerController
                 'store_enabled' => true,
                 'shipping_fee' => 2500,
                 'free_shipping_threshold' => 100000,
-                'support_phone' => '0800-HAMBAK',
+                'support_phone' => '09127469686',
+                'whatsapp_number' => '09155104724',
                 'notice' => 'Hardware orders ship nationwide within 24–72 business hours.',
             ], $settings),
         ]);
@@ -786,29 +820,8 @@ class CustomerController
      */
     public function academyCourses(Request $request): void
     {
-        Auth::requireAuth($request);
-        $courses = [];
-        try {
-            $courses = $this->db->fetchAll('SELECT * FROM academy_courses WHERE status != "draft" ORDER BY created_at DESC');
-            foreach ($courses as &$course) {
-                $course['price'] = (float)$course['price'];
-                $course['modules_count'] = (int)$course['modules_count'];
-            }
-        } catch (Throwable) {
-        }
-
-        $settingRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "academy_settings"');
-        $settings = $settingRow ? (json_decode((string)$settingRow['setting_value'], true) ?: []) : [];
-
-        Response::success([
-            'courses' => $courses,
-            'settings' => array_merge([
-                'academy_enabled' => true,
-                'enrollment_open' => true,
-                'certificate_prefix' => 'HT-CERT-',
-                'mentor_email' => 'academy@hambaktech.com.ng',
-            ], $settings),
-        ]);
+        $ctrl = new \HambakTech\Controllers\AcademyController();
+        $ctrl->customerAcademy($request);
     }
 
     /**

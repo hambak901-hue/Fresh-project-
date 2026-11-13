@@ -15,7 +15,11 @@ class Auth
     private static function getSecret(): string
     {
         $config = require __DIR__ . '/../config/config.php';
-        return $config['security']['jwt_secret'];
+        $secret = (string)($config['security']['jwt_secret'] ?? '');
+        if ($secret === '') {
+            throw new \RuntimeException('JWT_SECRET is not configured in server environment.');
+        }
+        return $secret;
     }
 
     public static function generateToken(array $user): string

@@ -504,30 +504,35 @@ class WalletController
 
     /**
      * 7. POST /api/wallet/flutterwave/webhook
-     * Official Flutterwave Webhook Handler with verif-hash validation
+     * Official Flutterwave Webhook Handler with v4 (flutterwave-signature HMAC-SHA256) and v3 (verif-hash) validation
      */
     public function flutterwaveWebhook(Request $request): void
     {
         $rawBody = file_get_contents('php://input') ?: '';
-        $signature = $request->header('verif-hash') ?? ($request->header('Verif-Hash') ?? '');
+        $signature = $request->header('flutterwave-signature')
+            ?? $request->header('Flutterwave-Signature')
+            ?? $request->header('verif-hash')
+            ?? ($request->header('Verif-Hash') ?? '');
 
-        if (!$this->flutterwave->validateWebhookSignature($rawBody, $signature)) {
+        if (!$this->flutterwave->validateWebhookSignature($rawBody, (string)$signature)) {
             Response::error('Invalid Flutterwave webhook signature', 401);
             return;
         }
 
         $payload = json_decode($rawBody, true) ?: [];
-        $event = $payload['event'] ?? ($payload['event.type'] ?? '');
         $data = $payload['data'] ?? [];
+        $statusLower = strtolower((string)($data['status'] ?? ''));
 
-        if ($data && ($data['status'] ?? '') === 'successful') {
-            $reference = $data['tx_ref'] ?? '';
+        if ($data && in_array($statusLower, ['successful', 'succeeded', 'completed'], true)) {
+            $reference = (string)($data['tx_ref'] ?? ($data['reference'] ?? ''));
             $amount = (float)($data['amount'] ?? 0.0);
-            $currency = $data['currency'] ?? 'NGN';
-            $email = $data['customer']['email'] ?? '';
+            $currency = strtoupper((string)($data['currency'] ?? 'NGN'));
+            $email = (string)($data['customer']['email'] ?? '');
 
             if (!empty($reference) && $currency === 'NGN') {
-                $user = $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $email]);
+                $user = !empty($email)
+                    ? $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $email])
+                    : null;
                 if (!$user) {
                     $record = $this->db->fetchOne('SELECT user_id FROM payment_records WHERE reference = :ref', ['ref' => $reference]);
                     if ($record) {

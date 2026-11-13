@@ -57,19 +57,6 @@ export function ServiceManagement() {
   const [testResult, setTestResult] = useState<Record<string, { success: boolean; message: string; latency_ms: number }>>({});
   const [providerLogs, setProviderLogs] = useState<ProviderLogItem[]>([]);
   const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({});
-  const [editingProvider, setEditingProvider] = useState<{
-    id: string;
-    name: string;
-    provider_type: string;
-    base_url: string;
-    api_key: string;
-    secret_key: string;
-    public_key: string;
-    timeout_seconds: number;
-    is_active: boolean;
-    is_default: boolean;
-  } | null>(null);
-  const [savingProvider, setSavingProvider] = useState(false);
 
   // Slip Templates State (Stage 5)
   const [slipTemplates, setSlipTemplates] = useState<SlipTemplateItem[]>([]);
@@ -270,7 +257,7 @@ export function ServiceManagement() {
 
   const handleToggleProviderActive = async (provider: ProviderConfigItem) => {
     try {
-      await api.updateAdminProvider(provider.id, {
+      const res = await api.updateAdminProvider(provider.id, {
         is_active: !provider.is_active,
       });
       setProviderConfigs(prev =>
@@ -278,41 +265,6 @@ export function ServiceManagement() {
       );
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to update provider status');
-    }
-  };
-
-  const handleSaveProviderCredentials = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingProvider) return;
-    setSavingProvider(true);
-    setErrorMsg(null);
-    try {
-      const payload: Record<string, any> = {
-        name: editingProvider.name,
-        provider_type: editingProvider.provider_type,
-        base_url: editingProvider.base_url,
-        timeout_seconds: Number(editingProvider.timeout_seconds) || 30,
-        is_active: editingProvider.is_active,
-        is_default: editingProvider.is_default,
-      };
-      if (editingProvider.api_key && !editingProvider.api_key.includes('••••')) {
-        payload.api_key = editingProvider.api_key;
-      }
-      if (editingProvider.secret_key && !editingProvider.secret_key.includes('••••')) {
-        payload.secret_key = editingProvider.secret_key;
-      }
-      if (editingProvider.public_key && !editingProvider.public_key.includes('••••')) {
-        payload.public_key = editingProvider.public_key;
-      }
-      await api.updateAdminProvider(editingProvider.id, payload);
-      setEditingProvider(null);
-      await fetchServices();
-      setSuccessMsg(`Provider ${editingProvider.name} credentials saved.`);
-      setTimeout(() => setSuccessMsg(null), 3500);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to save provider credentials');
-    } finally {
-      setSavingProvider(false);
     }
   };
 
@@ -549,7 +501,7 @@ export function ServiceManagement() {
                 {[
                   { id: 'all', label: 'All (42)' },
                   { id: 'nin_verification', label: 'NIN' },
-                  { id: 'bvn_verification', label: 'BVN' },
+                  { id: 'bvn_services', label: 'BVN' },
                   { id: 'nin_modification', label: 'Modifications (16)' },
                   { id: 'enrolment', label: 'Enrolment' },
                   { id: 'additional_services', label: 'Additional' },
@@ -622,7 +574,7 @@ export function ServiceManagement() {
                           </td>
                           <td className="py-3.5 px-3">
                             <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] uppercase font-mono tracking-wider">
-                              {srv.category.replace('_', ' ')}
+                              {String(srv.category || 'general').replace(/_/g, ' ')}
                             </span>
                           </td>
                           <td className="py-3.5 px-3">
@@ -1149,49 +1101,26 @@ export function ServiceManagement() {
 
                   {/* Test Connection Button & Result */}
                   <div className="pt-2 border-t border-slate-800 space-y-3">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <span className="text-slate-400 text-xs">Verify roundtrip connectivity &amp; configure keys</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEditingProvider({
-                              id: provider.id,
-                              name: provider.name,
-                              provider_type: provider.provider_type || 'identity',
-                              base_url: provider.base_url || '',
-                              api_key: '',
-                              secret_key: '',
-                              public_key: '',
-                              timeout_seconds: provider.timeout_seconds || 30,
-                              is_active: provider.is_active,
-                              is_default: provider.is_default,
-                            })
-                          }
-                          className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-semibold flex items-center gap-1.5 transition"
-                        >
-                          <Sliders className="w-3.5 h-3.5" />
-                          <span>Configure Keys</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleTestProvider(provider.id)}
-                          disabled={isTesting}
-                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-2 transition"
-                        >
-                          {isTesting ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              <span>Pinging Gateway...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Activity className="w-3.5 h-3.5" />
-                              <span>Test Live Connection</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 text-xs">Verify roundtrip connectivity &amp; latency</span>
+                      <button
+                        type="button"
+                        onClick={() => handleTestProvider(provider.id)}
+                        disabled={isTesting}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-2 transition"
+                      >
+                        {isTesting ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Pinging Gateway...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Activity className="w-3.5 h-3.5" />
+                            <span>Test Live Connection</span>
+                          </>
+                        )}
+                      </button>
                     </div>
 
                     {result && (
@@ -1224,96 +1153,6 @@ export function ServiceManagement() {
               );
             })}
           </div>
-
-          {editingProvider && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-              <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <div>
-                    <h3 className="text-base font-bold text-white">Configure {editingProvider.name}</h3>
-                    <p className="text-xs text-slate-400">Leave secret fields blank to retain existing saved keys.</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setEditingProvider(null)}
-                    className="text-slate-400 hover:text-white text-sm"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <form onSubmit={handleSaveProviderCredentials} className="space-y-3 text-xs">
-                  <div>
-                    <label className="block text-slate-400 mb-1">Base URL</label>
-                    <input
-                      type="text"
-                      value={editingProvider.base_url}
-                      onChange={e => setEditingProvider({ ...editingProvider, base_url: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">API Key / Token</label>
-                    <input
-                      type="password"
-                      placeholder="Enter new API key (leave blank to keep current)"
-                      value={editingProvider.api_key}
-                      onChange={e => setEditingProvider({ ...editingProvider, api_key: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-slate-400 mb-1">Secret Key (if applicable)</label>
-                      <input
-                        type="password"
-                        placeholder="Optional secret key"
-                        value={editingProvider.secret_key}
-                        onChange={e => setEditingProvider({ ...editingProvider, secret_key: e.target.value })}
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Public Key (if applicable)</label>
-                      <input
-                        type="text"
-                        placeholder="Optional public key"
-                        value={editingProvider.public_key}
-                        onChange={e => setEditingProvider({ ...editingProvider, public_key: e.target.value })}
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between pt-2">
-                    <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editingProvider.is_default}
-                        onChange={e => setEditingProvider({ ...editingProvider, is_default: e.target.checked })}
-                        className="rounded border-slate-700"
-                      />
-                      <span>Set as Primary Default Engine</span>
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setEditingProvider(null)}
-                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={savingProvider}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold"
-                      >
-                        {savingProvider ? 'Saving...' : 'Save Credentials'}
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
 
           {/* Provider Transaction & Request Logs */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
@@ -1746,7 +1585,11 @@ export function ServiceManagement() {
                   <p className="text-slate-400 text-xs line-clamp-2">{course.description}</p>
                 </div>
                 <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
-                  <span className="text-white font-mono font-bold">₦{course.price.toLocaleString()}</span>
+                  <span className="text-white font-mono font-bold">
+                    {course.price === null || course.price === undefined
+                      ? 'Contact Academy'
+                      : `₦${course.price.toLocaleString()}`}
+                  </span>
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
@@ -1806,9 +1649,9 @@ export function ServiceManagement() {
               <p className="text-[11px] text-emerald-400 mt-1">NIMC margin: 30.0%</p>
             </div>
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
-              <p className="text-slate-400">Enterprise Ingress Cluster</p>
-              <p className="text-lg font-bold font-mono text-white mt-1">High-Availability Node</p>
-              <p className="text-[11px] text-indigo-400 mt-1">99.98% Gateway Uptime</p>
+              <p className="text-slate-400">Production API Ingress</p>
+              <p className="text-lg font-bold font-mono text-white mt-1">hambaktech.com.ng</p>
+              <p className="text-[11px] text-indigo-400 mt-1">TLS Gateway Active</p>
             </div>
           </div>
         </div>

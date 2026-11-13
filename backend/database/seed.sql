@@ -19,7 +19,7 @@ ON DUPLICATE KEY UPDATE name=VALUES(name);
 -- -----------------------------------------------------------------------------
 INSERT INTO providers (id, name, provider_type, base_url, api_key, is_active, is_default, timeout_seconds, balance, last_ping_status) VALUES
 ('2sureverify', '2SureVerify Gateway (Primary)', 'identity', 'https://2sureverify.com', '', 1, 1, 30, 48250.00, 'operational'),
-('veripine', 'Veripine Identity API (Secondary Failover)', 'identity', 'https://api.veripine.com/v1', '', 1, 0, 30, 15000.00, 'operational'),
+('veripine', 'Veripine Identity API (Secondary Failover)', 'identity', 'https://veripine.com/api', '', 1, 0, 30, 15000.00, 'operational'),
 ('ulamadata', 'UlamaData Telecom API (Primary)', 'telecom', 'https://www.ulamadata.ng', '', 1, 1, 30, 38920.00, 'operational'),
 ('vtpass', 'VTpass Gateway (Secondary Telecom)', 'telecom', 'https://api-service.vtpass.com/api', '', 1, 0, 30, 12500.00, 'operational'),
 ('paystack', 'Paystack Merchant Checkout', 'payment', 'https://api.paystack.co', '', 1, 1, 30, 0.00, 'operational'),

@@ -306,8 +306,8 @@ class EmailService
                 `passwordEncrypted`, `encryption`, `fromEmail`, `fromName`, `replyToEmail`,
                 `isVerified`, `lastTestedAt`, `lastTestStatus`, `lastTestError`, `updatedBy`, `updatedAt`
             ) VALUES (
-                'default', 0, 0, 'SMTP', '', 587, '', NULL, 'tls', 'notifications@hambaktech.com',
-                'HambakTech Services', NULL, 0, NULL, NULL, NULL, :updatedBy1, NOW(3)
+                'default', 0, 0, 'SMTP', '', 587, '', NULL, 'tls', 'support@hambaktech.com.ng',
+                'HAMBAK TECH & SERVICES', NULL, 0, NULL, NULL, NULL, :updatedBy1, NOW(3)
             )
             ON DUPLICATE KEY UPDATE
                 `enabled` = 0,
@@ -317,8 +317,8 @@ class EmailService
                 `username` = '',
                 `passwordEncrypted` = NULL,
                 `encryption` = 'tls',
-                `fromEmail` = 'notifications@hambaktech.com',
-                `fromName` = 'HambakTech Services',
+                `fromEmail` = 'support@hambaktech.com.ng',
+                `fromName` = 'HAMBAK TECH & SERVICES',
                 `replyToEmail` = NULL,
                 `isVerified` = 0,
                 `lastTestedAt` = NULL,
@@ -499,8 +499,8 @@ class EmailService
 
         // 4. Reliable cPanel MTA Fallback: If SMTP is unconfigured or failed, deliver via PHP native mail() / local Exim if available
         if (empty($result['success']) && function_exists('mail')) {
-            $fromEmail = !empty($cfg['fromEmail']) ? $cfg['fromEmail'] : 'notifications@hambaktech.com.ng';
-            $fromName = !empty($cfg['fromName']) ? $cfg['fromName'] : 'HambakTech';
+            $fromEmail = !empty($cfg['fromEmail']) ? $cfg['fromEmail'] : 'support@hambaktech.com.ng';
+            $fromName = !empty($cfg['fromName']) ? $cfg['fromName'] : 'HAMBAK TECH & SERVICES';
             $replyTo = !empty($cfg['replyToEmail']) ? $cfg['replyToEmail'] : 'support@hambaktech.com.ng';
             $serverName = $_SERVER['SERVER_NAME'] ?? 'hambaktech.com.ng';
             $msgId = '<ht-' . bin2hex(random_bytes(10)) . '@' . $serverName . '>';

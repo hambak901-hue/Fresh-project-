@@ -101,14 +101,80 @@ class SchemaSync
             'academy_courses' => 'CREATE TABLE IF NOT EXISTS academy_courses (
                 id VARCHAR(36) PRIMARY KEY,
                 title VARCHAR(191) NOT NULL,
+                category VARCHAR(100) NULL DEFAULT "Digital Skills",
                 level VARCHAR(50) NOT NULL,
                 duration VARCHAR(50) NOT NULL,
                 modules_count INT NOT NULL DEFAULT 1,
-                price DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                price DECIMAL(15, 2) NULL DEFAULT NULL,
                 description TEXT NULL,
+                curriculum_outline TEXT NULL,
+                is_available TINYINT(1) NOT NULL DEFAULT 1,
+                admission_start_date DATE NULL,
+                admission_end_date DATE NULL,
+                display_order INT NOT NULL DEFAULT 1,
                 status ENUM("draft", "enrolling", "active") NOT NULL DEFAULT "enrolling",
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'academy_applications' => 'CREATE TABLE IF NOT EXISTS academy_applications (
+                id VARCHAR(36) PRIMARY KEY,
+                application_ref VARCHAR(64) NOT NULL UNIQUE,
+                user_id VARCHAR(36) NULL,
+                course_id VARCHAR(36) NOT NULL,
+                full_name VARCHAR(191) NOT NULL,
+                email VARCHAR(191) NOT NULL,
+                phone VARCHAR(32) NOT NULL,
+                date_of_birth DATE NOT NULL,
+                age_at_submission INT NOT NULL DEFAULT 18,
+                gender VARCHAR(24) NOT NULL,
+                address TEXT NOT NULL,
+                state VARCHAR(64) NOT NULL,
+                lga VARCHAR(64) NOT NULL,
+                qualification VARCHAR(120) NULL,
+                study_mode VARCHAR(32) NOT NULL DEFAULT "physical",
+                preferred_schedule VARCHAR(32) NOT NULL DEFAULT "weekday",
+                guardian_name VARCHAR(191) NULL,
+                guardian_phone VARCHAR(32) NULL,
+                guardian_address TEXT NULL,
+                guardian_relationship VARCHAR(64) NULL,
+                emergency_contact_name VARCHAR(191) NULL,
+                emergency_contact_phone VARCHAR(32) NULL,
+                passport_url TEXT NULL,
+                status ENUM("pending", "approved", "rejected", "info_requested", "enrolled") NOT NULL DEFAULT "pending",
+                admin_notes TEXT NULL,
+                info_request_message TEXT NULL,
+                reviewed_by VARCHAR(191) NULL,
+                reviewed_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_aa_email (email),
+                INDEX idx_aa_user (user_id),
+                INDEX idx_aa_status (status),
+                INDEX idx_aa_course (course_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'academy_students' => 'CREATE TABLE IF NOT EXISTS academy_students (
+                id VARCHAR(36) PRIMARY KEY,
+                student_id VARCHAR(64) NOT NULL UNIQUE,
+                application_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NULL,
+                course_id VARCHAR(36) NOT NULL,
+                full_name VARCHAR(191) NOT NULL,
+                email VARCHAR(191) NOT NULL,
+                phone VARCHAR(32) NOT NULL,
+                photo_url TEXT NULL,
+                enrollment_date DATE NOT NULL,
+                completion_date DATE NULL,
+                academic_status ENUM("active", "graduated", "suspended", "withdrawn") NOT NULL DEFAULT "active",
+                id_card_issued_at DATETIME NULL,
+                qr_token VARCHAR(128) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_as_user (user_id),
+                INDEX idx_as_course (course_id),
+                INDEX idx_as_app (application_id),
+                INDEX idx_as_status (academic_status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
 
             'smtp_configs' => 'CREATE TABLE IF NOT EXISTS smtp_configs (
@@ -190,6 +256,25 @@ class SchemaSync
                 attachment_url VARCHAR(500) NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_sr_ticket (ticket_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'announcement_email_deliveries' => 'CREATE TABLE IF NOT EXISTS announcement_email_deliveries (
+                id VARCHAR(36) PRIMARY KEY,
+                announcement_id VARCHAR(64) NOT NULL,
+                announcement_source VARCHAR(32) NOT NULL DEFAULT "announcement",
+                user_id VARCHAR(36) NULL,
+                recipient_email VARCHAR(191) NOT NULL,
+                recipient_name VARCHAR(191) NULL,
+                status ENUM("pending", "sent", "failed", "skipped") NOT NULL DEFAULT "pending",
+                message_id VARCHAR(255) NULL,
+                error_message TEXT NULL,
+                attempts INT NOT NULL DEFAULT 1,
+                sent_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_ann_email (announcement_id, recipient_email),
+                INDEX idx_aed_ann_status (announcement_id, status),
+                INDEX idx_aed_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
         ];
 
@@ -274,6 +359,25 @@ class SchemaSync
             'telecom_plans' => [
                 'updated_at' => 'ADD COLUMN updated_at DATETIME NULL',
             ],
+            'website_branding' => [
+                'short_brand_name' => 'ADD COLUMN short_brand_name VARCHAR(100) NULL DEFAULT "HAMBAKTECH"',
+                'business_reg_number' => 'ADD COLUMN business_reg_number VARCHAR(100) NULL DEFAULT "BN 9284726"',
+                'founded_year' => 'ADD COLUMN founded_year VARCHAR(20) NULL DEFAULT "2024"',
+                'business_phone' => 'ADD COLUMN business_phone VARCHAR(50) NULL DEFAULT "08147837664"',
+                'info_email' => 'ADD COLUMN info_email VARCHAR(191) NULL DEFAULT "info@hambaktech.com.ng"',
+            ],
+            'academy_courses' => [
+                'category' => 'ADD COLUMN category VARCHAR(100) NULL DEFAULT "Digital Skills"',
+                'curriculum_outline' => 'ADD COLUMN curriculum_outline TEXT NULL',
+                'is_available' => 'ADD COLUMN is_available TINYINT(1) NOT NULL DEFAULT 1',
+                'admission_start_date' => 'ADD COLUMN admission_start_date DATE NULL',
+                'admission_end_date' => 'ADD COLUMN admission_end_date DATE NULL',
+                'display_order' => 'ADD COLUMN display_order INT NOT NULL DEFAULT 1',
+            ],
+            'announcements' => [
+                'target_audience' => 'ADD COLUMN target_audience VARCHAR(64) NOT NULL DEFAULT "all_customers"',
+                'target_user_id' => 'ADD COLUMN target_user_id VARCHAR(36) NULL',
+            ],
         ];
 
         foreach ($columnAlterations as $table => $cols) {
@@ -298,6 +402,7 @@ class SchemaSync
             'kyc_submissions.status' => 'ALTER TABLE kyc_submissions MODIFY COLUMN status ENUM("pending", "verified", "approved", "rejected", "info_requested") NOT NULL DEFAULT "pending"',
             'support_tickets.status' => 'ALTER TABLE support_tickets MODIFY COLUMN status ENUM("open", "pending", "in_progress", "waiting_customer", "resolved", "closed") NOT NULL DEFAULT "open"',
             'providers.last_ping_status' => 'ALTER TABLE providers MODIFY COLUMN last_ping_status ENUM("operational", "error", "untested", "unconfigured") NOT NULL DEFAULT "untested"',
+            'academy_courses.price' => 'ALTER TABLE academy_courses MODIFY COLUMN price DECIMAL(15, 2) NULL DEFAULT NULL',
         ];
         foreach ($enumUpdates as $key => $sql) {
             try {

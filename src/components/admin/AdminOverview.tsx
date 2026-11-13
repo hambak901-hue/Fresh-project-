@@ -37,6 +37,9 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('Bank deposit could not be verified on statement');
 
   const fetchOverview = async () => {
     if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
@@ -83,27 +86,29 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
     }
   };
 
-  const handleRejectFunding = async (id: string) => {
-    let reason = 'Bank deposit could not be verified on statement';
-    try {
-      const p = window.prompt('Enter reason for declining this manual payment proof:', reason);
-      if (p === null) return;
-      if (p) reason = p;
-    } catch {
-      // In iframe environments where window.prompt is disallowed, fallback gracefully
-    }
+  const openRejectModal = (id: string) => {
+    setRejectTargetId(id);
+    setRejectReason('Bank deposit could not be verified on statement');
+    setActionError(null);
+  };
 
+  const handleConfirmRejectFunding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rejectTargetId) return;
+    const id = rejectTargetId;
     setActionLoading(id);
     setActionSuccess(null);
+    setActionError(null);
     try {
-      const res = await api.rejectFunding(id, reason);
+      const res = await api.rejectFunding(id, rejectReason.trim() || 'Bank deposit could not be verified on statement');
       setActionSuccess(res.message);
+      setRejectTargetId(null);
       await fetchOverview();
     } catch (err: any) {
-      console.error(err);
+      setActionError(err?.message || 'Failed to reject funding request.');
     } finally {
       setActionLoading(null);
-      setTimeout(() => setActionSuccess(null), 3000);
+      setTimeout(() => setActionSuccess(null), 3500);
     }
   };
 
@@ -166,7 +171,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold rounded-full mb-3">
               <Shield className="w-3.5 h-3.5" />
-              <span>Executive Command Centre &bull; Enterprise Cloud</span>
+              <span>Executive Command Centre &bull; Live Production</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               Global Platform Overview
@@ -222,6 +227,13 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-xs text-emerald-300 flex items-center gap-2">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
           <span>{actionSuccess}</span>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 text-xs text-rose-300 flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+          <span>{actionError}</span>
         </div>
       )}
 
@@ -351,20 +363,20 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
 
               <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3.5 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-white">Enterprise SMTP Mail</span>
+                  <span className="font-semibold text-white">TrueHost SMTP Mail</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400" />
                 </div>
                 <p className="text-slate-400 text-[11px] font-mono">{data.providerStatus.smtpMail.status}</p>
-                <p className="text-[10px] text-slate-500 font-mono">Mail Gateway: Active</p>
+                <p className="text-[10px] text-slate-500 font-mono">{data.providerStatus.smtpMail.host}:{data.providerStatus.smtpMail.port}</p>
               </div>
 
               <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3.5 space-y-1 sm:col-span-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-white">Production Server Core</span>
+                  <span className="font-semibold text-white">Production Web Hosting</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400" />
                 </div>
                 <p className="text-slate-400 text-[11px] font-mono">{data.providerStatus.cpanel.status}</p>
-                <p className="text-[10px] text-slate-500 font-mono">Hosting Cluster: Operational</p>
+                <p className="text-[10px] text-slate-500 font-mono">Gateway: Active &bull; TLS Verified</p>
               </div>
             </>
           )}
@@ -434,7 +446,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
                     <button
                       type="button"
                       disabled={actionLoading === item.id}
-                      onClick={() => handleRejectFunding(item.id)}
+                      onClick={() => openRejectModal(item.id)}
                       className="px-3 py-1.5 bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-400 rounded-lg font-semibold flex items-center gap-1 transition"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -453,6 +465,11 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
               <Users className="w-4 h-4 text-indigo-400" />
               <span>Recent Registrations</span>
+              {(rawMetrics.today_registrations ?? 0) > 0 && (
+                <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono">
+                  {rawMetrics.today_registrations} today
+                </span>
+              )}
             </h2>
             <button
               onClick={() => onNavigateToTab('customers')}
@@ -464,34 +481,93 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
           </div>
 
           <div className="space-y-2.5">
-            {recentRegistrations.map((user: any) => (
-              <div
-                key={user.id}
-                className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 flex items-center justify-between text-xs hover:border-slate-700 transition"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-bold">
-                    {user.full_name?.charAt(0) || 'U'}
+            {recentRegistrations.map((regUser: any) => {
+              const createdMs = regUser.created_at ? new Date(regUser.created_at).getTime() : 0;
+              const isNew = Boolean(regUser.is_new) || (createdMs > 0 && Date.now() - createdMs <= 72 * 3600 * 1000);
+              return (
+                <div
+                  key={regUser.id}
+                  onClick={() => onNavigateToTab('customers')}
+                  className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 flex items-center justify-between text-xs hover:border-slate-700 cursor-pointer transition"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-bold shrink-0">
+                      {regUser.full_name?.charAt(0) || 'U'}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-white truncate">{regUser.full_name}</p>
+                        {isNew && (
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[9px] font-bold uppercase tracking-wider shrink-0">
+                            NEW
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-mono truncate">{regUser.email}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold text-white">{user.full_name}</p>
-                    <p className="text-[11px] text-slate-500 font-mono">{user.email}</p>
-                  </div>
-                </div>
 
-                <div className="text-right">
-                  <span className="font-mono text-emerald-400 font-bold">
-                    ₦{(Number(user.wallet_balance) || 0).toLocaleString()}
-                  </span>
-                  <p className="text-[10px] text-slate-500 font-mono capitalize">
-                    {user.status} &bull; Tier {user.tier}
-                  </p>
+                  <div className="text-right shrink-0 ml-2">
+                    <span className="font-mono text-emerald-400 font-bold">
+                      ₦{(Number(regUser.wallet_balance) || 0).toLocaleString()}
+                    </span>
+                    <p className="text-[10px] text-slate-500 font-mono capitalize">
+                      {regUser.status} &bull; Tier {regUser.tier}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
+
+      {/* Reject Manual Funding Reason Modal */}
+      {rejectTargetId && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white">Decline Manual Transfer Proof</h3>
+              <button
+                type="button"
+                onClick={() => setRejectTargetId(null)}
+                className="p-1 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmRejectFunding} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">Reason for Rejection (Sent to Customer)</label>
+                <textarea
+                  rows={3}
+                  required
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-rose-500"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRejectTargetId(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading === rejectTargetId}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {actionLoading === rejectTargetId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+                  <span>Confirm Reject</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

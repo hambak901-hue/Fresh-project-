@@ -152,15 +152,46 @@ class AuthController
         $email = strtolower(trim((string)$request->input('email', '')));
         $password = (string)$request->input('password', '');
         $fullName = trim((string)$request->input('full_name', ''));
-        $phoneNumber = trim((string)$request->input('phone_number', ''));
+        $phoneNumber = trim((string)($request->input('phone_number') ?? $request->input('phone', '')));
+
+        // Optional profile / KYC upgrade fields (not required for Level 1 registration)
+        $dateOfBirth = trim((string)($request->input('date_of_birth') ?? $request->input('dob', '')));
+        $residentialAddress = trim((string)($request->input('residential_address') ?? $request->input('address', '')));
+        $state = trim((string)$request->input('state', ''));
+        $lga = trim((string)$request->input('lga', ''));
+        $idTypeRaw = strtolower(trim((string)$request->input('id_type', '')));
+        $idNumber = trim((string)$request->input('id_number', ''));
+        $nin = preg_replace('/\D/', '', (string)$request->input('nin', ''));
+        $bvn = preg_replace('/\D/', '', (string)$request->input('bvn', ''));
 
         if (empty($email) || empty($password) || empty($fullName) || empty($phoneNumber)) {
             Response::error('Full name, email, phone number, and password are required.', 422);
         }
 
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            Response::error('Please enter a valid email address.', 422);
+        }
+
         if (strlen($password) < 8) {
             Response::error('Password must be at least 8 characters long.', 422);
         }
+
+        if (!empty($nin) && !preg_match('/^\d{11}$/', $nin)) {
+            Response::error('NIN must be exactly 11 numeric digits.', 422);
+        }
+        if (!empty($bvn) && !preg_match('/^\d{11}$/', $bvn)) {
+            Response::error('BVN must be exactly 11 numeric digits.', 422);
+        }
+
+        $allowedIdTypes = ['nin_slip', 'drivers_license', 'voters_card', 'international_passport', 'nin', 'bvn'];
+        $idType = in_array($idTypeRaw, $allowedIdTypes, true) ? $idTypeRaw : 'nin_slip';
+        if ($idType === 'nin') $idType = 'nin_slip';
+
+        $hasIdentitySubmission = !empty($nin) || !empty($bvn) || !empty($idNumber);
+        if (empty($idNumber) && ($nin || $bvn)) {
+            $idNumber = $nin ?: $bvn;
+        }
+        $initialKycStatus = $hasIdentitySubmission ? 'pending' : 'unverified';
 
         $existing = $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $email]);
         if ($existing) {
@@ -168,31 +199,116 @@ class AuthController
         }
 
         $userId = Security::generateUuid();
+        $kycId = Security::generateUuid();
         $referralCode = 'HAMBAK-' . strtoupper(substr(md5($email . microtime()), 0, 6));
         $passwordHash = Security::hashPassword($password);
 
-        $this->db->withTransaction(function (Database $db) use ($userId, $email, $passwordHash, $fullName, $phoneNumber, $referralCode) {
-            // 1. Create User
+        $this->db->withTransaction(function (Database $db) use (
+            $userId, $kycId, $email, $passwordHash, $fullName, $phoneNumber, $referralCode,
+            $dateOfBirth, $residentialAddress, $state, $lga, $nin, $bvn, $idType, $idNumber,
+            $hasIdentitySubmission, $initialKycStatus
+        ) {
+            // 1. Create User at KYC Level 1 (Tier 1 Basic Profile)
             $db->execute(
                 'INSERT INTO users (id, email, password_hash, full_name, phone_number, role, kyc_status, tier, referral_code, status, created_at)
-                 VALUES (:id, :email, :pass, :name, :phone, "customer", "unverified", 1, :ref, "active", NOW())',
+                 VALUES (:id, :email, :pass, :name, :phone, "customer", :ks, 1, :ref, "active", NOW())',
                 [
                     'id' => $userId,
                     'email' => $email,
                     'pass' => $passwordHash,
                     'name' => $fullName,
                     'phone' => $phoneNumber,
+                    'ks' => $initialKycStatus,
                     'ref' => $referralCode,
                 ]
             );
 
-            // 2. Create User Profile
-            $db->execute(
-                'INSERT INTO user_profiles (user_id, created_at) VALUES (:uid, NOW())',
-                ['uid' => $userId]
-            );
+            try {
+                $db->execute('UPDATE users SET kyc_level = 1 WHERE id = :id', ['id' => $userId]);
+            } catch (Throwable) {
+            }
 
-            // 3. Create Wallet
+            // 2. Create User Profile row (Level 1 starter profile; optional fields saved if supplied)
+            try {
+                $db->execute(
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, created_at, updated_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, NOW(), NOW())',
+                    [
+                        'uid' => $userId,
+                        'nin' => $nin ?: null,
+                        'bvn' => $bvn ?: null,
+                        'addr' => $residentialAddress ?: null,
+                        'st' => $state ?: null,
+                        'lga' => $lga ?: null,
+                        'dob' => $dateOfBirth ?: null,
+                    ]
+                );
+            } catch (Throwable) {
+                $db->execute(
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, created_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, NOW())',
+                    [
+                        'uid' => $userId,
+                        'nin' => $nin ?: null,
+                        'bvn' => $bvn ?: null,
+                        'addr' => $residentialAddress ?: null,
+                        'st' => $state ?: null,
+                        'lga' => $lga ?: null,
+                    ]
+                );
+            }
+
+            // 3. Only create a Level 2 KYC submission if optional identity documents were explicitly supplied
+            if ($hasIdentitySubmission) {
+                $historyEntry = [[
+                    'action' => 'submitted',
+                    'status' => 'pending',
+                    'by' => $fullName,
+                    'notes' => 'Optional identity details submitted during registration.',
+                    'timestamp' => date('c'),
+                ]];
+                try {
+                    $db->execute(
+                        'INSERT INTO kyc_submissions
+                         (id, user_id, target_level, verification_method, full_legal_name, date_of_birth,
+                          phone_number, email, residential_address, state, lga, nin, bvn, id_type, id_number,
+                          consent_obtained, consent_timestamp, status, review_history, submitted_at, created_at)
+                         VALUES
+                         (:id, :uid, 2, "manual", :fname, :dob,
+                          :phone, :email, :addr, :st, :lga, :nin, :bvn, :itype, :inum,
+                          1, NOW(), "pending", :hist, NOW(), NOW())',
+                        [
+                            'id' => $kycId,
+                            'uid' => $userId,
+                            'fname' => $fullName,
+                            'dob' => $dateOfBirth ?: null,
+                            'phone' => $phoneNumber,
+                            'email' => $email,
+                            'addr' => $residentialAddress ?: null,
+                            'st' => $state ?: null,
+                            'lga' => $lga ?: null,
+                            'nin' => $nin ?: null,
+                            'bvn' => $bvn ?: null,
+                            'itype' => strtoupper($idType),
+                            'inum' => $idNumber,
+                            'hist' => json_encode($historyEntry),
+                        ]
+                    );
+                } catch (Throwable) {
+                    $db->execute(
+                        'INSERT INTO kyc_submissions (id, user_id, id_type, id_number, status, created_at)
+                         VALUES (:id, :uid, :itype, :inum, "pending", NOW())',
+                        [
+                            'id' => $kycId,
+                            'uid' => $userId,
+                            'itype' => strtoupper($idType),
+                            'inum' => $idNumber,
+                        ]
+                    );
+                }
+            }
+
+            // 4. Create Wallet
             $walletId = Security::generateUuid();
             $db->execute(
                 'INSERT INTO wallets (id, user_id, balance, currency, ledger_version, status, created_at)
@@ -200,90 +316,122 @@ class AuthController
                 ['id' => $walletId, 'uid' => $userId]
             );
 
-            // 4. Welcome Notification
+            // 5. Welcome Notification
             $notifId = Security::generateUuid();
             $db->execute(
                 'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                 VALUES (:id, :uid, "Welcome to HambakTech Enterprise!", "Your digital wallet has been provisioned. You can now verify NIN/BVN slips and vend telecom data with 99.9% uptime.", "success", 0, NOW())',
+                 VALUES (:id, :uid, "Welcome to HAMBAKTECH!", "Your KYC Level 1 account and NGN digital wallet are ready. You can upgrade to Level 2 KYC anytime in Identity & KYC to unlock higher limits.", "success", 0, NOW())',
                 ['id' => $notifId, 'uid' => $userId]
             );
         });
 
-        // 5. Admin Registration Notification & Email Dispatch (Requirement 3)
+        // 6. Admin Registration Notification & Email Dispatch
+        $nowStr = date('Y-m-d H:i:s');
         try {
-            $nowStr = date('Y-m-d H:i:s');
-            // Check duplicate prevention: avoid duplicate admin notifications within 5 minutes
             $dupCheck = $this->db->fetchOne(
-                'SELECT id FROM notifications WHERE type = "new_customer_registration" AND message LIKE :m AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE) LIMIT 1',
+                'SELECT id FROM notifications WHERE title LIKE "New Customer Registration%" AND message LIKE :m AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE) LIMIT 1',
                 ['m' => "%{$email}%"]
             );
             if (!$dupCheck) {
-                $adminNotifId = Security::generateUuid();
-                $this->db->execute(
-                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                     VALUES (:id, NULL, :title, :msg, "new_customer_registration", 0, NOW())',
-                    [
-                        'id' => $adminNotifId,
-                        'title' => "New Customer Registration: {$fullName}",
-                        'msg' => "Customer {$fullName} ({$email}, {$phoneNumber}) registered at {$nowStr}. Status: Active (Tier 1).",
-                    ]
+                $superAdmins = $this->db->fetchAll(
+                    'SELECT id, email, full_name FROM users WHERE role IN ("superadmin", "admin") AND status = "active"'
                 );
-
-                // Fetch configurable administrator email from system_settings
-                $adminEmailSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "admin_notification_email"');
-                $adminEmail = $adminEmailSetting ? json_decode($adminEmailSetting['setting_value'], true) : null;
-                if (empty($adminEmail) || !filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
-                    $adminEmail = 'admin@hambaktech.com.ng';
+                foreach ($superAdmins as $sa) {
+                    $this->db->execute(
+                        'INSERT INTO notifications (id, user_id, title, message, type, is_read, action_link, created_at)
+                         VALUES (:id, :uid, :title, :msg, "alert", 0, "#admin", NOW())',
+                        [
+                            'id' => Security::generateUuid(),
+                            'uid' => $sa['id'],
+                            'title' => "New Customer Registration (KYC Level 1): {$fullName}",
+                            'msg' => "Customer {$fullName} ({$email}, {$phoneNumber}) registered on KYC Level 1 at {$nowStr}.",
+                        ]
+                    );
                 }
-
-                $mailService = new MailService();
-                $mailBody = "
-                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;'>
-                    <div style='background: #4f46e5; color: #ffffff; padding: 16px 20px; border-radius: 8px 8px 0 0;'>
-                        <h2 style='margin: 0; font-size: 18px;'>New Customer Registration Alert</h2>
-                    </div>
-                    <div style='padding: 20px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;'>
-                        <p>A new customer has registered on the HambakTech Enterprise Portal.</p>
-                        <table style='width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;'>
-                            <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Customer Name:</strong></td><td style='padding: 8px 0; font-weight: bold;'>{$fullName}</td></tr>
-                            <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Email Address:</strong></td><td style='padding: 8px 0;'>{$email}</td></tr>
-                            <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Phone Number:</strong></td><td style='padding: 8px 0;'>{$phoneNumber}</td></tr>
-                            <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Registration Time:</strong></td><td style='padding: 8px 0;'>{$nowStr} (WAT)</td></tr>
-                            <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Account Status:</strong></td><td style='padding: 8px 0;'><span style='color: #16a34a; font-weight: bold;'>Active (Tier 1)</span></td></tr>
-                            <tr><td style='padding: 8px 0; color: #64748b;'><strong>IP Address:</strong></td><td style='padding: 8px 0;'>{$request->getIp()}</td></tr>
-                        </table>
-                        <p><a href='https://hambaktech.com.ng/#admin' style='display: inline-block; padding: 10px 20px; background: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;'>Open Admin Console</a></p>
-                    </div>
-                </div>";
-                $mailService->send($adminEmail, 'Administrator', "[HambakTech Alert] New Customer Registration: {$fullName}", $mailBody);
             }
         } catch (Throwable $e) {
-            error_log('[Registration Admin Notification Error] ' . $e->getMessage());
+            error_log('[Registration Admin Notification DB Error] ' . $e->getMessage());
         }
 
-        // 6. Record Activity Footprint
+        try {
+            // Fetch configurable administrator email from system_settings
+            $adminEmailSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "admin_notification_email"');
+            $decodedSetting = $adminEmailSetting ? json_decode($adminEmailSetting['setting_value'], true) : null;
+            $adminEmail = is_string($decodedSetting) ? $decodedSetting : ($adminEmailSetting['setting_value'] ?? null);
+            if (empty($adminEmail) || !filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
+                $adminEmail = 'admin@hambaktech.com.ng';
+            }
+
+            $safeName = htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8');
+            $locationText = trim(implode(', ', array_filter([$residentialAddress, $lga, $state])));
+            $safeLocation = $locationText !== '' ? htmlspecialchars($locationText, ENT_QUOTES, 'UTF-8') : 'Not provided (KYC Level 1)';
+            $kycLabel = $hasIdentitySubmission ? 'Level 1 Registered (Level 2 Docs Pending Review)' : 'Level 1 — Basic Profile (No ID Docs Submitted Yet)';
+
+            $mailService = new MailService();
+            $mailBody = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;'>
+                <div style='background: #1d4ed8; color: #ffffff; padding: 16px 20px; border-radius: 8px 8px 0 0;'>
+                    <h2 style='margin: 0; font-size: 18px;'>New Customer Registration (KYC Level 1)</h2>
+                </div>
+                <div style='padding: 20px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;'>
+                    <p>A new customer has created an account on HAMBAKTECH starting at KYC Level 1.</p>
+                    <table style='width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;'>
+                        <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Customer Name:</strong></td><td style='padding: 8px 0; font-weight: bold;'>{$safeName}</td></tr>
+                        <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Email Address:</strong></td><td style='padding: 8px 0;'>{$email}</td></tr>
+                        <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Phone Number:</strong></td><td style='padding: 8px 0;'>{$phoneNumber}</td></tr>
+                        <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Location:</strong></td><td style='padding: 8px 0;'>{$safeLocation}</td></tr>
+                        <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>Registration Time:</strong></td><td style='padding: 8px 0;'>{$nowStr} (WAT)</td></tr>
+                        <tr style='border-bottom: 1px solid #f1f5f9;'><td style='padding: 8px 0; color: #64748b;'><strong>KYC Level / Status:</strong></td><td style='padding: 8px 0;'><span style='color: #1d4ed8; font-weight: bold;'>{$kycLabel}</span></td></tr>
+                        <tr><td style='padding: 8px 0; color: #64748b;'><strong>IP Address:</strong></td><td style='padding: 8px 0;'>{$request->getIp()}</td></tr>
+                    </table>
+                    <p><a href='https://hambaktech.com.ng/#admin' style='display: inline-block; padding: 10px 20px; background: #1d4ed8; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;'>View in Admin Console</a></p>
+                </div>
+            </div>";
+            $mailService->send($adminEmail, 'Administrator', "[HAMBAKTECH] New Customer Registration (KYC Level 1): {$fullName}", $mailBody);
+        } catch (Throwable $e) {
+            error_log('[Registration Admin Email Error] ' . $e->getMessage());
+        }
+
+        // 7. Record Activity Footprint
         FootprintService::record(
             'auth',
             'CUSTOMER_REGISTRATION',
             ['id' => $userId, 'email' => $email, 'full_name' => $fullName],
-            null,
-            null,
+            'kyc_level_1',
+            $userId,
             null,
             'successful',
             null,
             null,
-            ['phone' => $phoneNumber, 'referral_code' => $referralCode, 'status' => 'active'],
+            ['phone' => $phoneNumber, 'state' => $state ?: null, 'lga' => $lga ?: null, 'referral_code' => $referralCode, 'kyc_level' => 1, 'kyc_status' => $initialKycStatus],
             $request->getIp()
         );
 
-        $user = $this->db->fetchOne('SELECT * FROM users WHERE id = :id', ['id' => $userId]);
+        try {
+            $user = $this->db->fetchOne(
+                'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
+                        w.balance AS live_balance, p.nin, p.bvn, p.address, p.state, p.lga, p.bio, p.date_of_birth
+                 FROM users u
+                 LEFT JOIN wallets w ON w.user_id = u.id
+                 LEFT JOIN user_profiles p ON p.user_id = u.id
+                 WHERE u.id = :id',
+                ['id' => $userId]
+            );
+        } catch (Throwable) {
+            $user = $this->db->fetchOne('SELECT * FROM users WHERE id = :id', ['id' => $userId]);
+        }
+
         $token = Auth::generateToken($user);
-        unset($user['password_hash'], $user['transaction_pin_hash']);
+        $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
+        $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
+        $user['tier'] = (int)($user['tier'] ?? 1);
+        $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
 
         Response::success([
             'user' => $user,
             'token' => $token,
-        ], 'Registration successful. Welcome to HambakTech Enterprise!', 201);
+        ], 'Account created at KYC Level 1. Welcome to HAMBAKTECH!', 201);
     }
 
     public function me(Request $request): void

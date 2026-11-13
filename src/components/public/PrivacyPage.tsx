@@ -1,7 +1,6 @@
 /**
  * @file PrivacyPage.tsx
- * Privacy Policy page for HambakTech Enterprise.
- * Complies with the Nigeria Data Protection Act (NDPA) and NDPR standards for biometric and financial data handling.
+ * NDPA Privacy Policy page for HAMBAK TECH & SERVICES (BN 9284726).
  */
 
 import React from 'react';
@@ -10,88 +9,91 @@ import { Lock, ShieldCheck, Eye, Database } from 'lucide-react';
 
 export const PrivacyPage: React.FC = () => {
   const { branding } = useCms();
-  const companyName = branding?.company_name || 'HambakTech Enterprise';
+  const companyName = branding?.company_name || 'HAMBAK TECH & SERVICES';
+  const regNo = branding?.business_reg_number || 'BN 9284726';
+  const supportEmail = branding?.support_email || 'support@hambaktech.com.ng';
 
   return (
     <div className="space-y-10 py-4 max-w-4xl">
-      {/* Header */}
       <div className="space-y-3">
-        <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
-          <span>Data Protection &amp; Confidentiality</span>
-          <span className="text-slate-600">&bull;</span>
-          <span>NDPA 2023 Compliant</span>
+        <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 dark:text-amber-400">
+          <span>{companyName}</span>
+          <span className="text-slate-400">&bull;</span>
+          <span>NDPA Compliant ({regNo})</span>
         </div>
-        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
+        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
           Privacy Policy &amp; Data Safeguards
         </h1>
-        <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-          {companyName} is committed to protecting your personal data, biometric query privacy, and financial transaction records in accordance with the Nigeria Data Protection Act (NDPA 2023).
+        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+          {companyName} respects your privacy and handles personal, transactional, and Academy student records in accordance with the Nigeria Data Protection Act (NDPA).
         </p>
       </div>
 
-      <div className="space-y-8 text-xs sm:text-sm text-slate-300 leading-relaxed">
-        {/* Section 1 */}
-        <section className="rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-3">
-          <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider">
+      <div className="space-y-6 text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+        <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 space-y-3 shadow-sm">
+          <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 text-xs font-bold uppercase tracking-wider">
             <Database className="w-4 h-4" />
             <span>Information We Collect</span>
           </div>
-          <h2 className="text-base font-bold text-white">1. Data Categories Collected</h2>
-          <p>
-            When utilizing our platform, we collect information required to execute KYC verification, telecom vending, and wallet billing:
-          </p>
-          <ul className="list-disc pl-5 space-y-2 text-slate-400 text-xs">
-            <li><strong>Account Profile:</strong> Full legal name, verified email address, Nigerian telephone number, and hashed authentication credentials.</li>
-            <li><strong>Identity Verification Records:</strong> Search queries containing 11-digit National Identification Numbers (NIN) or Bank Verification Numbers (BVN), and the returned verification slips.</li>
-            <li><strong>Telecommunications Records:</strong> Recipient mobile MSISDNs, purchased data bundle volumes, network carrier, and delivery receipts.</li>
-            <li><strong>Financial &amp; Transactional Data:</strong> Flutterwave gateway references, virtual account transfer deposits, ledger credit/debit histories.</li>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">
+            1. Data Categories Collected
+          </h2>
+          <ul className="list-disc pl-5 space-y-2 text-slate-600 dark:text-slate-400 text-xs">
+            <li>
+              <strong>Account Profile:</strong> Full name, email address, phone number, residential location, and hashed authentication credentials.
+            </li>
+            <li>
+              <strong>Service &amp; Verification Records:</strong> Consent-based NIN/BVN verification parameters, recipient mobile numbers, utility meter/smartcard identifiers, and printable verification slips.
+            </li>
+            <li>
+              <strong>Academy Admissions &amp; Minor Protection:</strong> Applicant biodata, course selection, and Parent/Guardian authorization contact fields for students under 18 years old.
+            </li>
+            <li>
+              <strong>Financial Records:</strong> Nigerian Naira (₦) wallet credits, checkout references, and service order receipts.
+            </li>
           </ul>
         </section>
 
-        {/* Section 2 */}
-        <section className="rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-3">
-          <div className="flex items-center gap-2 text-sky-400 text-xs font-bold uppercase tracking-wider">
+        <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 space-y-3 shadow-sm">
+          <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 text-xs font-bold uppercase tracking-wider">
             <Lock className="w-4 h-4" />
-            <span>Sovereign Biometric Data Safeguards</span>
+            <span>Public Student Verification Privacy</span>
           </div>
-          <h2 className="text-base font-bold text-white">2. NIMC &amp; Central Bank BVN Processing Standards</h2>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">
+            2. Minimal Data Exposure
+          </h2>
           <p>
-            Biometric images, fingerprints, and sensitive sovereign identity records retrieved via authorized sovereign identity interfaces are encrypted in transit using TLS 1.3 encryption. We do not store raw unencrypted biometric templates. Verification records generated for slip printing are retained strictly for the user's documented audit trail and downloadable slip reproduction.
+            Public Student ID verification pages display only official Student ID number, Student Name, Enrolled Course, Academic Status, and Enrollment/Completion dates. Private personal phone numbers, residential addresses, emails, and parent/guardian details are never exposed publicly.
           </p>
         </section>
 
-        {/* Section 3 */}
-        <section className="rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-3">
-          <div className="flex items-center gap-2 text-purple-400 text-xs font-bold uppercase tracking-wider">
+        <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 space-y-3 shadow-sm">
+          <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 text-xs font-bold uppercase tracking-wider">
             <ShieldCheck className="w-4 h-4" />
-            <span>Information Sharing</span>
+            <span>Authorized Processing Partners</span>
           </div>
-          <h2 className="text-base font-bold text-white">3. Third-Party Disclosures &amp; Carrier Intermediaries</h2>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">
+            3. Service Delivery Disclosures
+          </h2>
           <p>
-            We only transmit data to licensed downstream infrastructure providers necessary to fulfill your requested transactions:
-          </p>
-          <ul className="list-disc pl-5 space-y-2 text-slate-400 text-xs">
-            <li><strong>Verification Gateways:</strong> Authorized identity resolution pipes for sovereign compliance.</li>
-            <li><strong>Telecom Operators:</strong> Licensed telecommunication carriers for automated airtime and data allocation.</li>
-            <li><strong>Payment Gateways:</strong> Licensed payment processors and central settlement banks for account clearing.</li>
-          </ul>
-          <p className="pt-1">
-            We never sell, rent, or monetize your contact information or query logs to marketing third parties.
+            We share only the minimum transaction parameters necessary with accredited identity verification, telecommunications, utility biller, and payment checkout partners to complete your requested transactions. We never sell personal data to marketers.
           </p>
         </section>
 
-        {/* Section 4 */}
-        <section className="rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-3">
-          <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-wider">
+        <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 sm:p-8 space-y-3 shadow-sm">
+          <div className="flex items-center gap-2 text-orange-700 dark:text-orange-400 text-xs font-bold uppercase tracking-wider">
             <Eye className="w-4 h-4" />
-            <span>Data Subject Rights</span>
+            <span>Your Privacy Rights</span>
           </div>
-          <h2 className="text-base font-bold text-white">4. Your Rights Under the NDPA</h2>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">
+            4. Access, Correction &amp; Contact
+          </h2>
           <p>
-            As a data subject under Nigerian law, you possess the right to request access to your personal information, request rectification of inaccurate profile records, request deletion of non-statutory records, and lodge complaints with the Nigeria Data Protection Commission (NDPC).
-          </p>
-          <p className="text-slate-400 text-xs">
-            To exercise your privacy rights, email our Data Protection Officer at: <a href={`mailto:${branding?.support_email || 'support@hambaktech.com.ng'}`} className="text-emerald-400 hover:underline">{branding?.support_email || 'support@hambaktech.com.ng'}</a>.
+            To request correction or review of your personal account records under the Nigeria Data Protection Act, email{' '}
+            <a href={`mailto:${supportEmail}`} className="text-blue-700 dark:text-blue-400 underline font-semibold">
+              {supportEmail}
+            </a>
+            .
           </p>
         </section>
       </div>

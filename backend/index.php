@@ -27,6 +27,7 @@ use HambakTech\Controllers\SystemController;
 use HambakTech\Controllers\SupportController;
 use HambakTech\Controllers\SettingsController;
 use HambakTech\Controllers\NotificationController;
+use HambakTech\Controllers\AcademyController;
 
 $request = new Request();
 $router = new Router();
@@ -187,10 +188,18 @@ $router->get('/api/customer/statement', [WalletController::class, 'statement']);
 $router->post('/api/customer/upload', [CustomerController::class, 'uploadDocument']);
 $router->get('/api/customer/document/:id', [CustomerController::class, 'getDocument']);
 $router->get('/api/customer/store', [CustomerController::class, 'storeItems']);
-$router->get('/api/customer/academy', [CustomerController::class, 'academyCourses']);
+$router->get('/api/customer/academy', [AcademyController::class, 'customerAcademy']);
+$router->post('/api/customer/academy/apply', [AcademyController::class, 'customerApply']);
 $router->get('/api/customer/reports', [CustomerController::class, 'reports']);
 $router->get('/api/customer/messages', [CustomerController::class, 'messages']);
 $router->put('/api/customer/messages/:id/read', [CustomerController::class, 'markMessageRead']);
+
+// Public Digital Training Academy & Student Verification Routes
+$router->get('/api/academy/public', [AcademyController::class, 'publicOverview']);
+$router->post('/api/academy/apply', [AcademyController::class, 'apply']);
+$router->get('/api/academy/application-status', [AcademyController::class, 'applicationStatus']);
+$router->get('/api/academy/verify', [AcademyController::class, 'verifyStudent']);
+$router->get('/api/academy/verify/:student_id', [AcademyController::class, 'verifyStudent']);
 
 // Customer KYC & Purchase Authorization
 $router->get('/api/kyc/status', [CustomerController::class, 'kycStatus']);
@@ -214,6 +223,7 @@ $router->post('/api/admin/customers/:id/kyc', [AdminController::class, 'reviewCu
 $router->post('/api/admin/customers/:id/notify', [AdminController::class, 'notifyCustomer']);
 $router->post('/api/admin/customers/adjust-balance', [AdminController::class, 'creditDebitUser']);
 $router->post('/api/admin/customers/create', [AdminController::class, 'createCustomer']);
+$router->delete('/api/admin/customers/:id', [AdminController::class, 'deleteCustomer']);
 
 // Funding Approvals
 $router->get('/api/admin/funding-requests', [AdminController::class, 'manualFundingRequests']);
@@ -282,13 +292,18 @@ $router->post('/api/admin/store/item', [AdminController::class, 'saveStoreItem']
 $router->put('/api/admin/store/item/:id', [AdminController::class, 'saveStoreItem']);
 $router->delete('/api/admin/store/item/:id', [AdminController::class, 'deleteStoreItem']);
 
-// Agency Academy & Settings
-$router->get('/api/admin/academy', [AdminController::class, 'academy']);
-$router->get('/api/admin/academy/settings', [AdminController::class, 'academySettings']);
-$router->put('/api/admin/academy/settings', [AdminController::class, 'updateAcademySettings']);
-$router->post('/api/admin/academy/course', [AdminController::class, 'saveAcademyCourse']);
-$router->put('/api/admin/academy/course/:id', [AdminController::class, 'saveAcademyCourse']);
-$router->delete('/api/admin/academy/course/:id', [AdminController::class, 'deleteAcademyCourse']);
+// Agency Academy & Settings (Stage 2 Complete Digital Training Academy)
+$router->get('/api/admin/academy', [AcademyController::class, 'adminOverview']);
+$router->get('/api/admin/academy/settings', [AcademyController::class, 'getSettings']);
+$router->put('/api/admin/academy/settings', [AcademyController::class, 'updateSettings']);
+$router->post('/api/admin/academy/course', [AcademyController::class, 'saveCourse']);
+$router->put('/api/admin/academy/course/:id', [AcademyController::class, 'saveCourse']);
+$router->delete('/api/admin/academy/course/:id', [AcademyController::class, 'deleteCourse']);
+$router->get('/api/admin/academy/applications', [AcademyController::class, 'applications']);
+$router->delete('/api/admin/academy/applications/:id', [AcademyController::class, 'deleteApplication']);
+$router->post('/api/admin/academy/applications/:id/review', [AcademyController::class, 'reviewApplication']);
+$router->get('/api/admin/academy/students', [AcademyController::class, 'students']);
+$router->put('/api/admin/academy/students/:id', [AcademyController::class, 'updateStudent']);
 
 // SMTP Server & Email Delivery
 $router->get('/api/admin/smtp', [AdminController::class, 'smtpConfig']);
@@ -348,6 +363,7 @@ $router->get('/api/admin/support/tickets/:id', [SupportController::class, 'getTi
 $router->post('/api/admin/support/tickets/:id/reply', [SupportController::class, 'replyTicket']);
 $router->post('/api/admin/support/tickets/:id/status', [SupportController::class, 'updateStatus']);
 $router->put('/api/admin/support/tickets/:id/status', [SupportController::class, 'updateStatus']);
+$router->delete('/api/admin/support/tickets/:id', [SupportController::class, 'deleteTicket']);
 
 // Global 22-Category Settings Routes
 $router->get('/api/admin/settings', [SettingsController::class, 'getAllSettings']);
@@ -365,6 +381,7 @@ $router->post('/api/admin/notifications/broadcast', [NotificationController::cla
 $router->get('/api/admin/announcements', [NotificationController::class, 'listAnnouncements']);
 $router->post('/api/admin/announcements', [NotificationController::class, 'saveAnnouncement']);
 $router->put('/api/admin/announcements/:id', [NotificationController::class, 'saveAnnouncement']);
+$router->post('/api/admin/announcements/:id/retry-emails', [NotificationController::class, 'retryAnnouncementEmails']);
 $router->delete('/api/admin/announcements/:id', [NotificationController::class, 'deleteAnnouncement']);
 
 // Dispatch Request

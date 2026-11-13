@@ -15,6 +15,7 @@ use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
 use HambakTech\Services\MailService;
+use HambakTech\Services\AnnouncementEmailService;
 
 class NotificationController
 {
@@ -129,7 +130,7 @@ class NotificationController
         $message = trim((string)$request->input('message', ''));
         $channel = strtolower(trim((string)$request->input('channel', 'in_app')));
         $type = trim((string)$request->input('type', 'info'));
-        $targetRole = trim((string)($request->input('target_role') ?? $request->input('target_tier', 'all')));
+        $targetRole = trim((string)($request->input('target_role') ?? $request->input('target_audience') ?? $request->input('target_tier', 'all')));
         $specificUserId = $request->input('user_id');
 
         if (empty($title) || empty($message)) {
@@ -137,24 +138,33 @@ class NotificationController
         }
 
         if (!empty($specificUserId)) {
-            $recipients = $this->db->fetchAll('SELECT id, email, full_name FROM users WHERE id = :id', ['id' => (string)$specificUserId]);
+            $recipients = $this->db->fetchAll('SELECT id, email, full_name FROM users WHERE id = :id AND status = "active"', ['id' => (string)$specificUserId]);
         } else {
             $sql = 'SELECT id, email, full_name FROM users WHERE status = "active"';
             $params = [];
-            if ($targetRole === 'customer' || $targetRole === 'admin' || $targetRole === 'superadmin') {
-                $sql .= ' AND role = :role';
-                $params['role'] = $targetRole;
-            } elseif (in_array($targetRole, ['1', '2', '3'], true)) {
-                $sql .= ' AND role = "customer" AND tier = :tier';
-                $params['tier'] = (int)$targetRole;
+            if ($targetRole === 'customer' || $targetRole === 'all_customers' || $targetRole === 'customers') {
+                $sql .= ' AND role IN ("customer", "agent")';
+            } elseif ($targetRole === 'admin' || $targetRole === 'admins' || $targetRole === 'superadmin') {
+                $sql .= ' AND role IN ("admin", "superadmin")';
+            } elseif (in_array($targetRole, ['1', '2', '3', 'tier_1', 'tier_2', 'tier_3'], true)) {
+                $tierNum = (int)preg_replace('/\D/', '', $targetRole);
+                $sql .= ' AND role IN ("customer", "agent") AND tier = :tier';
+                $params['tier'] = $tierNum;
+            } elseif ($targetRole === 'verified_kyc') {
+                $sql .= ' AND role IN ("customer", "agent") AND kyc_status = "verified"';
+            } elseif ($targetRole === 'all' || $targetRole === 'all_users') {
+                // Keep existing 'all' targeting customers by default unless all_users requested
+                if ($targetRole === 'all') {
+                    $sql .= ' AND role IN ("customer", "agent")';
+                }
             } else {
-                $sql .= ' AND role = "customer"';
+                $sql .= ' AND role IN ("customer", "agent")';
             }
             $recipients = $this->db->fetchAll($sql, $params);
         }
 
         $count = 0;
-        $mailService = str_contains($channel, 'email') ? new MailService() : null;
+        $broadcastId = Security::generateUuid();
 
         foreach ($recipients as $u) {
             $notifId = Security::generateUuid();
@@ -185,22 +195,37 @@ class NotificationController
             } catch (Throwable) {
             }
 
-            if ($mailService && !empty($u['email'])) {
-                try {
-                    $safeHtml = '<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;">'
-                        . '<h2 style="color:#0f172a;margin-top:0;">' . htmlspecialchars($title) . '</h2>'
-                        . '<p style="color:#334155;line-height:1.6;">' . nl2br(htmlspecialchars($message)) . '</p>'
-                        . '<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;"/>'
-                        . '<p style="font-size:12px;color:#64748b;">HambakTech Enterprise Portal Notification</p>'
-                        . '</div>';
-                    $mailService->send((string)$u['email'], (string)($u['full_name'] ?? 'Customer'), $title, $safeHtml);
-                } catch (Throwable) {
-                }
-            }
             $count++;
         }
 
-        $broadcastId = Security::generateUuid();
+        $emailDelivery = null;
+        if (str_contains($channel, 'email') || $channel === 'all') {
+            try {
+                $emailSvc = new AnnouncementEmailService($this->db);
+                $emailDelivery = $emailSvc->dispatchForAnnouncement([
+                    'id' => 'broadcast:' . $broadcastId,
+                    'title' => $title,
+                    'content' => $message,
+                    'category' => $type,
+                    'status' => 'published',
+                    'target_audience' => $specificUserId ? 'specific_user' : $targetRole,
+                    'target_user_id' => $specificUserId ? (string)$specificUserId : null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ], [
+                    'recipients' => $recipients,
+                    'source' => 'broadcast',
+                ]);
+            } catch (Throwable $e) {
+                $emailDelivery = [
+                    'triggered' => true,
+                    'sent' => 0,
+                    'failed' => count($recipients),
+                    'skipped_duplicates' => 0,
+                    'errors' => [$e->getMessage()],
+                ];
+            }
+        }
+
         try {
             $this->db->execute(
                 'INSERT INTO broadcasts (id, title, message, channel, type, target_role, user_id, recipient_count, sent_by, sent_by_name, status, created_at)
@@ -229,7 +254,13 @@ class NotificationController
                 'id' => Security::generateUuid(),
                 'uid' => $admin['id'],
                 'email' => $admin['email'],
-                'details' => json_encode(['title' => $title, 'channel' => $channel, 'recipient_count' => $count, 'target_role' => $targetRole]),
+                'details' => json_encode([
+                    'title' => $title,
+                    'channel' => $channel,
+                    'recipient_count' => $count,
+                    'target_role' => $targetRole,
+                    'email_delivery' => $emailDelivery,
+                ]),
                 'ip' => $request->getIp(),
             ]
         );
@@ -238,6 +269,7 @@ class NotificationController
             'id' => $broadcastId,
             'recipient_count' => $count,
             'dispatched_count' => $count,
+            'email_delivery' => $emailDelivery,
             'announcement' => [
                 'id' => $broadcastId,
                 'title' => $title,
@@ -255,14 +287,28 @@ class NotificationController
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
 
+        $emailSvc = new AnnouncementEmailService($this->db);
+        $emailSvc->ensureSchema();
+
         $announcements = $this->db->fetchAll(
             'SELECT * FROM announcements ORDER BY is_pinned DESC, created_at DESC'
         );
+
+        $ids = array_map(fn($row) => (string)$row['id'], $announcements);
+        $statsMap = $emailSvc->getDeliveryStatsMap($ids);
 
         foreach ($announcements as &$a) {
             $a['is_pinned'] = (bool)$a['is_pinned'];
             $a['is_active'] = ($a['status'] ?? 'published') === 'published';
             $a['message'] = $a['content'] ?? '';
+            $a['target_audience'] = $a['target_audience'] ?? 'all_customers';
+            $a['target_user_id'] = $a['target_user_id'] ?? null;
+            $a['email_stats'] = $statsMap[(string)$a['id']] ?? [
+                'sent_count' => 0,
+                'failed_count' => 0,
+                'total_logged' => 0,
+                'last_sent_at' => null,
+            ];
         }
 
         Response::success(['announcements' => $announcements]);
@@ -274,16 +320,37 @@ class NotificationController
     public function saveAnnouncement(Request $request, array $params = []): void
     {
         $admin = Auth::requireRole($request, ['admin', 'superadmin']);
-        $id = (string)($params['id'] ?? $request->input('id', ''));
+        $emailSvc = new AnnouncementEmailService($this->db);
+        $emailSvc->ensureSchema();
+
+        $id = trim((string)($params['id'] ?? $request->input('id', '')));
         $title = trim((string)$request->input('title', ''));
         $content = trim((string)($request->input('content') ?: $request->input('message') ?: ''));
-        $category = (string)($request->input('category') ?: $request->input('type') ?: 'general');
+        $category = strtolower(trim((string)($request->input('category') ?: $request->input('type') ?: 'general')));
         if (!in_array($category, ['update', 'maintenance', 'offer', 'security', 'general'], true)) {
-            $category = 'general';
+            $category = match ($category) {
+                'warning' => 'maintenance',
+                'alert' => 'security',
+                'success' => 'offer',
+                default => 'general',
+            };
         }
         $isPinned = (bool)$request->input('is_pinned', false);
         $isActive = $request->input('is_active');
-        $status = (string)$request->input('status', $isActive === false || $isActive === 0 ? 'draft' : 'published');
+        $rawStatus = $request->input('status');
+        if ($rawStatus !== null && $rawStatus !== '') {
+            $status = strtolower(trim((string)$rawStatus)) === 'draft' ? 'draft' : 'published';
+        } else {
+            $status = ($isActive === false || $isActive === 0 || $isActive === '0' || $isActive === 'false') ? 'draft' : 'published';
+        }
+
+        $targetAudience = AnnouncementEmailService::normalizeAudience(
+            (string)($request->input('target_audience') ?? $request->input('target_role') ?? 'all_customers')
+        );
+        $targetUserId = trim((string)($request->input('target_user_id') ?? $request->input('user_id') ?? ''));
+        if ($targetUserId !== '') {
+            $targetAudience = 'specific_user';
+        }
 
         if (empty($title) || empty($content)) {
             Response::error('Title and announcement content are required.', 422);
@@ -292,13 +359,15 @@ class NotificationController
         if (empty($id)) {
             $id = Security::generateUuid();
             $this->db->execute(
-                'INSERT INTO announcements (id, title, content, category, is_pinned, status, author, created_at, updated_at)
-                 VALUES (:id, :title, :content, :cat, :pinned, :st, :author, NOW(), NOW())',
+                'INSERT INTO announcements (id, title, content, category, target_audience, target_user_id, is_pinned, status, author, created_at, updated_at)
+                 VALUES (:id, :title, :content, :cat, :aud, :tuid, :pinned, :st, :author, NOW(), NOW())',
                 [
                     'id' => $id,
                     'title' => $title,
                     'content' => $content,
                     'cat' => $category,
+                    'aud' => $targetAudience,
+                    'tuid' => $targetUserId !== '' ? $targetUserId : null,
                     'pinned' => $isPinned ? 1 : 0,
                     'st' => $status,
                     'author' => $admin['full_name'] ?? 'Super Admin',
@@ -306,29 +375,133 @@ class NotificationController
             );
         } else {
             $this->db->execute(
-                'UPDATE announcements SET title = :title, content = :content, category = :cat, is_pinned = :pinned, status = :st, updated_at = NOW() WHERE id = :id',
+                'UPDATE announcements
+                 SET title = :title, content = :content, category = :cat, target_audience = :aud, target_user_id = :tuid, is_pinned = :pinned, status = :st, updated_at = NOW()
+                 WHERE id = :id',
                 [
                     'id' => $id,
                     'title' => $title,
                     'content' => $content,
                     'cat' => $category,
+                    'aud' => $targetAudience,
+                    'tuid' => $targetUserId !== '' ? $targetUserId : null,
                     'pinned' => $isPinned ? 1 : 0,
                     'st' => $status,
                 ]
             );
         }
 
-        Response::success(['id' => $id], 'Announcement saved successfully.');
+        $saved = $this->db->fetchOne('SELECT * FROM announcements WHERE id = :id', ['id' => $id]);
+        $emailDelivery = [
+            'triggered' => false,
+            'reason' => 'inactive_or_draft',
+            'total_targeted' => 0,
+            'sent' => 0,
+            'failed' => 0,
+            'skipped_duplicates' => 0,
+            'errors' => [],
+        ];
+        $inAppCreated = 0;
+
+        if ($saved && AnnouncementEmailService::isDeliverable($saved)) {
+            try {
+                $recipients = $emailSvc->resolveRecipients($targetAudience, $targetUserId !== '' ? $targetUserId : null);
+                $inAppCreated = $emailSvc->ensureInAppNotifications($saved, $recipients);
+                $emailDelivery = $emailSvc->dispatchForAnnouncement($saved, [
+                    'recipients' => $recipients,
+                    'source' => 'announcement',
+                ]);
+            } catch (Throwable $e) {
+                $emailDelivery = [
+                    'triggered' => true,
+                    'sent' => 0,
+                    'failed' => 0,
+                    'skipped_duplicates' => 0,
+                    'errors' => [$e->getMessage()],
+                ];
+            }
+        }
+
+        if ($saved) {
+            $saved['is_pinned'] = (bool)$saved['is_pinned'];
+            $saved['is_active'] = ($saved['status'] ?? 'published') === 'published';
+            $saved['message'] = $saved['content'] ?? '';
+        }
+
+        $msg = 'Announcement saved successfully.';
+        if ($status === 'published' && !empty($emailDelivery['triggered'])) {
+            $msg = sprintf(
+                'Announcement published to customer dashboards. Email delivery: %d sent, %d skipped (already sent), %d failed.',
+                (int)($emailDelivery['sent'] ?? 0),
+                (int)($emailDelivery['skipped_duplicates'] ?? 0),
+                (int)($emailDelivery['failed'] ?? 0)
+            );
+        } elseif ($status === 'draft') {
+            $msg = 'Announcement saved as draft (inactive — not delivered to dashboards or emails).';
+        }
+
+        Response::success([
+            'id' => $id,
+            'announcement' => $saved,
+            'in_app_notifications_created' => $inAppCreated,
+            'email_delivery' => $emailDelivery,
+        ], $msg);
     }
 
     /**
-     * 6. DELETE /api/admin/announcements/:id
+     * 6. POST /api/admin/announcements/:id/retry-emails
+     * Safely retries ONLY failed deliveries; never re-emails recipients already marked 'sent'.
+     */
+    public function retryAnnouncementEmails(Request $request, array $params): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $id = trim((string)($params['id'] ?? ''));
+        if ($id === '') {
+            Response::error('Announcement ID is required.', 422);
+        }
+
+        $announcement = $this->db->fetchOne('SELECT * FROM announcements WHERE id = :id', ['id' => $id]);
+        if (!$announcement) {
+            Response::error('Announcement not found.', 404);
+        }
+
+        if (!AnnouncementEmailService::isDeliverable($announcement)) {
+            Response::error('Only active/published announcements can dispatch emails.', 422);
+        }
+
+        $emailSvc = new AnnouncementEmailService($this->db);
+        $emailDelivery = $emailSvc->dispatchForAnnouncement($announcement, [
+            'source' => 'announcement',
+            'retry_failed' => true,
+        ]);
+
+        Response::success([
+            'id' => $id,
+            'email_delivery' => $emailDelivery,
+        ], sprintf(
+            'Email retry finished: %d sent, %d skipped (already delivered), %d failed.',
+            (int)($emailDelivery['sent'] ?? 0),
+            (int)($emailDelivery['skipped_duplicates'] ?? 0),
+            (int)($emailDelivery['failed'] ?? 0)
+        ));
+    }
+
+    /**
+     * 7. DELETE /api/admin/announcements/:id
      */
     public function deleteAnnouncement(Request $request, array $params): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
         $id = $params['id'] ?? '';
         $this->db->execute('DELETE FROM announcements WHERE id = :id', ['id' => $id]);
+        try {
+            $this->db->execute('DELETE FROM notifications WHERE action_link = :alink', ['alink' => '#announcement:' . $id]);
+        } catch (Throwable) {
+        }
+        try {
+            $this->db->execute('DELETE FROM announcement_email_deliveries WHERE announcement_id = :aid', ['aid' => $id]);
+        } catch (Throwable) {
+        }
         Response::success(['id' => $id], 'Announcement removed successfully.');
     }
 }

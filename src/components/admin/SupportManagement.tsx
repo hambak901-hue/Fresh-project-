@@ -23,21 +23,26 @@ import {
 import { api } from '../../lib/api';
 
 interface SupportTicket {
-  id: number;
+  id: string | number;
   ticket_number?: string;
   reference?: string;
-  user_id: number;
+  user_id: string | number;
   customer_name?: string;
   customer_email?: string;
-  subject: string;
-  category: string;
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'closed';
-  assigned_to?: number | null;
+  subject?: string | null;
+  category?: string | null;
+  priority?: 'low' | 'medium' | 'high' | 'urgent' | string | null;
+  status?: 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'closed' | string | null;
+  assigned_to?: number | string | null;
   assigned_staff_name?: string;
-  created_at: string;
-  updated_at: string;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
+
+const formatLabel = (value?: string | null, fallback: string = 'general'): string => {
+  const safe = typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+  return safe.replace(/_/g, ' ');
+};
 
 interface TicketReply {
   id: number;
@@ -156,7 +161,7 @@ export const SupportManagement: React.FC = () => {
       const res = await api.updateSupportTicketStatus(selectedTicket.id, { status: newStatus });
       if (res && res.success) {
         setSelectedTicket(prev => prev ? { ...prev, status: newStatus as any } : null);
-        setFeedback({ type: 'success', message: `Ticket status updated to ${newStatus.replace('_', ' ')}` });
+        setFeedback({ type: 'success', message: `Ticket status updated to ${formatLabel(newStatus, 'open')}` });
         fetchTickets();
       }
     } catch (err: any) {
@@ -178,8 +183,9 @@ export const SupportManagement: React.FC = () => {
     }
   };
 
-  const getPriorityBadge = (priority: string) => {
-    switch (priority) {
+  const getPriorityBadge = (priority?: string | null) => {
+    const p = String(priority || 'medium').toLowerCase();
+    switch (p) {
       case 'urgent':
         return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">URGENT</span>;
       case 'high':
@@ -191,8 +197,9 @@ export const SupportManagement: React.FC = () => {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (status?: string | null) => {
+    const s = String(status || 'open').toLowerCase();
+    switch (s) {
       case 'open':
         return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">OPEN</span>;
       case 'in_progress':
@@ -204,7 +211,7 @@ export const SupportManagement: React.FC = () => {
       case 'closed':
         return <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-700 text-slate-400">CLOSED</span>;
       default:
-        return <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300">{status}</span>;
+        return <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 uppercase">{formatLabel(s, 'open')}</span>;
     }
   };
 
@@ -385,20 +392,20 @@ export const SupportManagement: React.FC = () => {
                       </div>
                     </div>
 
-                    <h4 className="text-xs font-semibold text-white truncate">{ticket.subject}</h4>
+                    <h4 className="text-xs font-semibold text-white truncate">{ticket.subject || 'Untitled Support Request'}</h4>
 
                     <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2">
                       <span className="truncate max-w-[140px] text-slate-300">
                         {ticket.customer_name || ticket.customer_email || `User #${ticket.user_id}`}
                       </span>
                       <span className="text-[10px] text-slate-500">
-                        {new Date(ticket.created_at).toLocaleDateString()}
+                        {ticket.created_at ? new Date(ticket.created_at).toLocaleDateString() : '—'}
                       </span>
                     </div>
 
                     <div className="mt-2 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-400">
                       <span className="capitalize px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                        {ticket.category.replace('_', ' ')}
+                        {formatLabel(ticket.category, 'general')}
                       </span>
                       {ticket.assigned_staff_name ? (
                         <span className="text-indigo-400">Assigned: {ticket.assigned_staff_name}</span>
@@ -426,9 +433,9 @@ export const SupportManagement: React.FC = () => {
                         {selectedTicket.ticket_number || selectedTicket.reference || `#TKT-${selectedTicket.id}`}
                       </span>
                       <span className="text-[10px] text-slate-500">&bull;</span>
-                      <span className="text-xs text-slate-400 capitalize">{selectedTicket.category.replace('_', ' ')}</span>
+                      <span className="text-xs text-slate-400 capitalize">{formatLabel(selectedTicket.category, 'general')}</span>
                     </div>
-                    <h3 className="text-base font-bold text-white mt-1">{selectedTicket.subject}</h3>
+                    <h3 className="text-base font-bold text-white mt-1">{selectedTicket.subject || 'Untitled Support Request'}</h3>
                     <p className="text-xs text-slate-400 mt-0.5">
                       Submitted by: <span className="text-white font-medium">{selectedTicket.customer_name || 'Customer'}</span> ({selectedTicket.customer_email || `ID #${selectedTicket.user_id}`})
                     </p>
@@ -437,7 +444,7 @@ export const SupportManagement: React.FC = () => {
                   <div className="flex items-center gap-2">
                     {/* Status change dropdown */}
                     <select
-                      value={selectedTicket.status}
+                      value={selectedTicket.status || 'open'}
                       onChange={e => handleStatusChange(e.target.value)}
                       className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 border border-slate-700 focus:outline-none"
                     >
@@ -450,7 +457,7 @@ export const SupportManagement: React.FC = () => {
 
                     {/* Priority change dropdown */}
                     <select
-                      value={selectedTicket.priority}
+                      value={selectedTicket.priority || 'medium'}
                       onChange={e => handlePriorityChange(e.target.value)}
                       className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 border border-slate-700 focus:outline-none"
                     >

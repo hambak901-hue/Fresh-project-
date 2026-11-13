@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User as UserIcon, Mail, Phone, MapPin, Shield, Copy, Check, CheckCircle2, AlertCircle, Loader2, Sparkles, Camera } from 'lucide-react';
 import { api } from '../../lib/api';
 import { User } from '../../types';
+import { getInitialsAvatar } from '../../lib/avatar';
 
 interface ProfilePageProps {
   user: User;
@@ -9,21 +10,21 @@ interface ProfilePageProps {
 }
 
 const PRESET_AVATARS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=80',
+  getInitialsAvatar('HT', '#1d4ed8'),
+  getInitialsAvatar('HB', '#0f766e'),
+  getInitialsAvatar('AT', '#b45309'),
+  getInitialsAvatar('NG', '#334155'),
+  getInitialsAvatar('LK', '#7c3aed'),
 ];
 
 export function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
   const [fullName, setFullName] = useState(user.full_name || '');
   const [phoneNumber, setPhoneNumber] = useState(user.phone_number || '');
   const [address, setAddress] = useState(user.address || '');
-  const [state, setState] = useState(user.state || 'Kano');
-  const [lga, setLga] = useState(user.lga || 'Nassarawa');
-  const [bio, setBio] = useState(user.bio || 'HambakTech Enterprise Agent & Telecom Reseller');
-  const [avatarUrl, setAvatarUrl] = useState(user.avatar_url || PRESET_AVATARS[0]);
+  const [state, setState] = useState(user.state || 'Lagos');
+  const [lga, setLga] = useState(user.lga || 'Lekki LCDA');
+  const [bio, setBio] = useState(user.bio || 'HAMBAKTECH Customer & Verified Member');
+  const [avatarUrl, setAvatarUrl] = useState(user.avatar_url || getInitialsAvatar(user.full_name));
 
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -212,7 +213,7 @@ export function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
                 type="text"
                 value={lga}
                 onChange={e => setLga(e.target.value)}
-                placeholder="e.g. Nassarawa, Ikeja"
+                placeholder="e.g. Lekki LCDA, Lagos"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
               />
             </div>

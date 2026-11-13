@@ -37,8 +37,44 @@ interface CmsContextType {
 
 const CmsContext = createContext<CmsContextType | undefined>(undefined);
 
+const OFFICIAL_DEFAULT_BRANDING: BrandSettings = {
+  company_name: 'HAMBAK TECH & SERVICES',
+  short_brand_name: 'HAMBAKTECH',
+  tagline: 'Where Technology Meets Services',
+  logo_url: '/logo.png',
+  favicon_url: '/logo.png',
+  primary_color: '#1d4ed8',
+  secondary_color: '#0f172a',
+  font_family: 'Plus Jakarta Sans',
+  whatsapp_number: '09155104724',
+  business_phone: '08147837664',
+  support_phone: '09127469686',
+  support_email: 'support@hambaktech.com.ng',
+  info_email: 'info@hambaktech.com.ng',
+  office_address: 'Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria',
+  business_reg_number: 'BN 9284726',
+  founded_year: '2024',
+  social_links: {
+    tiktok: '',
+    facebook: '',
+    telegram: '',
+    x: '',
+    linkedin: '',
+    youtube: '',
+    whatsapp_channel: '',
+  },
+  footer_text:
+    'HAMBAK TECH & SERVICES provides digital identity verification, telecommunication VTU services, automated bill payments, and practical ICT & software skills training across Nigeria.',
+  copyright_text: `© ${new Date().getFullYear()} HAMBAK TECH & SERVICES (BN 9284726). All Rights Reserved.`,
+  seo_title: 'HAMBAKTECH | Digital Services, Telecom VTU & Digital Training Academy',
+  seo_description:
+    'HAMBAK TECH & SERVICES — Digital identity verification, telecom data & airtime VTU, bill payments, and HAMBAKTECH Digital Training Academy in Lekki, Lagos State, Nigeria.',
+  seo_keywords:
+    'HAMBAKTECH, HAMBAK TECH & SERVICES, NIN verification, BVN verification, Nigerian VTU, Digital Training Academy',
+};
+
 export const CmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [branding, setBranding] = useState<BrandSettings | null>(null);
+  const [branding, setBranding] = useState<BrandSettings | null>(OFFICIAL_DEFAULT_BRANDING);
   const [cmsSections, setCmsSections] = useState<CmsSections | null>(null);
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([]);
   const [faqs, setFaqs] = useState<FaqItem[]>([]);
@@ -53,7 +89,8 @@ export const CmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setError(null);
       const res = await api.getPublicCms();
       if (res.success) {
-        setBranding(res.branding);
+        const mergedBranding = { ...OFFICIAL_DEFAULT_BRANDING, ...(res.branding || {}) };
+        setBranding(mergedBranding);
         setCmsSections(res.cms_sections);
         setAnnouncements(res.announcements);
         setFaqs(res.faqs);
@@ -61,26 +98,26 @@ export const CmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setRates(res.rates);
 
         // Dynamically update document title & meta tags for SEO
-        if (res.branding?.seo_title) {
-          document.title = res.branding.seo_title;
-        } else if (res.branding?.company_name) {
-          document.title = `${res.branding.company_name} | Enterprise Portal`;
+        if (mergedBranding.seo_title) {
+          document.title = mergedBranding.seo_title;
+        } else if (mergedBranding.company_name) {
+          document.title = `${mergedBranding.company_name} | ${mergedBranding.short_brand_name || 'HAMBAKTECH'}`;
         }
 
         const metaDesc = document.querySelector('meta[name="description"]');
-        if (metaDesc && res.branding?.seo_description) {
-          metaDesc.setAttribute('content', res.branding.seo_description);
+        if (metaDesc && mergedBranding.seo_description) {
+          metaDesc.setAttribute('content', mergedBranding.seo_description);
         }
 
         // Apply dynamic CSS variables for branding colors
-        if (res.branding?.primary_color) {
-          document.documentElement.style.setProperty('--brand-primary', res.branding.primary_color);
+        if (mergedBranding.primary_color) {
+          document.documentElement.style.setProperty('--brand-primary', mergedBranding.primary_color);
         }
-        if (res.branding?.secondary_color) {
-          document.documentElement.style.setProperty('--brand-secondary', res.branding.secondary_color);
+        if (mergedBranding.secondary_color) {
+          document.documentElement.style.setProperty('--brand-secondary', mergedBranding.secondary_color);
         }
-        if (res.branding?.font_family) {
-          document.body.style.fontFamily = `"${res.branding.font_family}", system-ui, sans-serif`;
+        if (mergedBranding.font_family) {
+          document.body.style.fontFamily = `"${mergedBranding.font_family}", system-ui, sans-serif`;
         }
       }
     } catch (err: any) {
@@ -99,12 +136,13 @@ export const CmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const res = await api.updateBranding(updates);
       if (res.success) {
-        setBranding(res.branding);
-        if (res.branding.primary_color) {
-          document.documentElement.style.setProperty('--brand-primary', res.branding.primary_color);
+        const merged = { ...OFFICIAL_DEFAULT_BRANDING, ...(res.branding || {}) };
+        setBranding(merged);
+        if (merged.primary_color) {
+          document.documentElement.style.setProperty('--brand-primary', merged.primary_color);
         }
-        if (res.branding.seo_title) {
-          document.title = res.branding.seo_title;
+        if (merged.seo_title) {
+          document.title = merged.seo_title;
         }
         return true;
       }

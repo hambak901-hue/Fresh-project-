@@ -1,7 +1,7 @@
 /**
  * @file AuthModal.tsx
- * Customer Registration, Login, and Password Recovery modal dialog for HambakTech Enterprise.
- * Features full validation, password toggle, 6-digit OTP delivery, password reset, and automatic session setup.
+ * Customer Registration, Login, and Password Recovery modal for HAMBAK TECH & SERVICES.
+ * Full validation, 6-digit OTP password reset, and dual Light/Night theme.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -48,7 +48,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Form states
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -57,12 +56,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [referralCode, setReferralCode] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(false);
 
-  // Forgot Password / OTP States
   const [otpCode, setOtpCode] = useState('');
   const [resetToken, setResetToken] = useState('');
+  const [otpPreview, setOtpPreview] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
 
-  // Cooldown countdown timer
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const timer = setInterval(() => {
@@ -71,7 +69,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  // Sync mode if initialMode changes
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
@@ -82,7 +79,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  // --- Handlers ---
+  const brandLabel = branding?.company_name || 'HAMBAK TECH & SERVICES';
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,13 +91,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       setLoading(true);
       const loggedUser = await login(email.trim().toLowerCase(), password);
-      setSuccessMsg('Logged in successfully!');
+      setSuccessMsg('Signed in successfully!');
       setTimeout(() => {
         onClose();
         if (onSuccess) onSuccess(loggedUser);
-      }, 400);
+      }, 350);
     } catch (err: any) {
-      setError(err.message || 'Login failed. Please verify your credentials or use Forgot Password.');
+      setError(err.message || 'Sign in failed. Please check your credentials or reset your password.');
     } finally {
       setLoading(false);
     }
@@ -111,19 +108,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError(null);
 
     if (!fullName.trim()) {
-      setError('Full legal name is required.');
+      setError('Full name is required.');
       return;
     }
     if (!email.trim() || !email.includes('@')) {
       setError('Please enter a valid email address.');
       return;
     }
-    if (!phone.trim() || phone.length < 10) {
+    if (!phone.trim() || phone.trim().length < 10) {
       setError('Please enter a valid Nigerian phone number (e.g. 08031234567).');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long.');
       return;
     }
     if (password !== confirmPassword) {
@@ -142,14 +139,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         email: email.trim().toLowerCase(),
         phone_number: phone.trim(),
         password,
+        referral_code: referralCode.trim() || undefined,
+        agree_terms: true,
       });
-      setSuccessMsg('Account registered successfully! Welcome to HambakTech.');
+      setSuccessMsg(`Account created at KYC Level 1! Welcome to ${brandLabel}.`);
       setTimeout(() => {
         onClose();
         if (onSuccess) onSuccess(registeredUser);
-      }, 500);
+      }, 450);
     } catch (err: any) {
-      setError(err.message || 'Registration failed. Email may already be in use.');
+      setError(err.message || 'Registration failed. Email may already be registered.');
     } finally {
       setLoading(false);
     }
@@ -168,9 +167,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setLoading(true);
       const res = await api.forgotPassword(targetEmail);
       setResetToken(res.token || '');
+      if (res.otp_preview) {
+        setOtpPreview(res.otp_preview);
+      }
       setSuccessMsg(res.message || 'A 6-digit verification code has been dispatched to your email.');
       setMode('verify_otp');
-      setResendCooldown(45); // 45 seconds cooldown
+      setResendCooldown(45);
     } catch (err: any) {
       setError(err.message || 'Unable to send verification code. Please check your email.');
     } finally {
@@ -196,7 +198,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setSuccessMsg('Code verified successfully! Now choose your new password.');
       setMode('reset_password');
     } catch (err: any) {
-      setError(err.message || 'Invalid or expired verification code. Please check or request a new code.');
+      setError(err.message || 'Invalid or expired verification code.');
     } finally {
       setLoading(false);
     }
@@ -211,7 +213,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
     if (password !== confirmPassword) {
-      setError('New passwords do not match. Please verify.');
+      setError('New passwords do not match.');
       return;
     }
 
@@ -229,43 +231,40 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setTimeout(() => {
         onClose();
         if (onSuccess) onSuccess(res.user);
-      }, 700);
+      }, 650);
     } catch (err: any) {
-      setError(err.message || 'Failed to update password. Please request a new verification code.');
+      setError(err.message || 'Failed to update password. Request a new code and try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-      <div className="relative w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-6 sm:p-8 space-y-6 max-h-[92vh] overflow-y-auto">
-        {/* Close Button */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm">
+      <div className={`relative w-full ${mode === 'register' ? 'max-w-lg' : 'max-w-md'} rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 sm:p-8 space-y-5 max-h-[92vh] overflow-y-auto`}>
         <button
+          type="button"
           onClick={onClose}
-          className="absolute top-5 right-5 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          className="absolute top-5 right-5 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white"
           aria-label="Close modal"
         >
           <X className="w-5 h-5" />
         </button>
 
-        {/* Modal Header */}
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-emerald-400">
-              {branding?.company_name || 'HambakTech Enterprise'}
-            </span>
-            <span className="text-slate-600">&bull;</span>
-            <span className="text-xs text-slate-400">
-              {mode === 'login' && 'Account Gateway'}
-              {mode === 'register' && 'New Registration'}
-              {mode === 'forgot' && 'Account Recovery'}
-              {mode === 'verify_otp' && 'Security Verification'}
-              {mode === 'reset_password' && 'Password Reset'}
+        <div className="space-y-1 pr-6">
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 dark:text-amber-400">
+            <span>{brandLabel}</span>
+            <span className="text-slate-400">&bull;</span>
+            <span className="text-slate-500 dark:text-slate-400">
+              {mode === 'login' && 'Account Sign In'}
+              {mode === 'register' && 'Create Account'}
+              {mode === 'forgot' && 'Password Recovery'}
+              {mode === 'verify_otp' && 'Code Verification'}
+              {mode === 'reset_password' && 'Set New Password'}
             </span>
           </div>
 
-          <h2 className="text-2xl font-bold tracking-tight text-white">
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {mode === 'login' && 'Welcome Back'}
             {mode === 'register' && 'Create Customer Account'}
             {mode === 'forgot' && 'Reset Your Password'}
@@ -273,18 +272,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode === 'reset_password' && 'Create New Password'}
           </h2>
 
-          <p className="text-xs text-slate-400">
-            {mode === 'login' && 'Access your unified wallet, identity verification, and telecom services.'}
-            {mode === 'register' && 'Join thousands of Nigerian businesses and agents processing VTU and KYC.'}
-            {mode === 'forgot' && 'Enter your registered email address and we will dispatch a 6-digit OTP code.'}
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            {mode === 'login' && 'Access your Naira wallet, identity verification, telecom bundles, and Academy dashboard.'}
+            {mode === 'register' && 'Quickly create your KYC Level 1 starter account. No identity documents required to get started.'}
+            {mode === 'forgot' && 'Enter your registered email to receive a 6-digit password recovery code.'}
             {mode === 'verify_otp' && `Enter the 6-digit OTP dispatched to ${email || 'your email'}.`}
-            {mode === 'reset_password' && 'Choose a strong password with at least 8 characters to secure your account.'}
+            {mode === 'reset_password' && 'Choose a strong password of at least 8 characters.'}
           </p>
         </div>
 
-        {/* Mode Switcher Tabs (Only for Login & Register) */}
         {(mode === 'login' || mode === 'register') && (
-          <div className="grid grid-cols-2 p-1 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold">
+          <div className="grid grid-cols-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-semibold">
             <button
               type="button"
               onClick={() => {
@@ -293,7 +291,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 setSuccessMsg(null);
               }}
               className={`py-2 rounded-lg transition-colors ${
-                mode === 'login' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                mode === 'login'
+                  ? 'bg-blue-700 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               Sign In
@@ -306,7 +306,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 setSuccessMsg(null);
               }}
               className={`py-2 rounded-lg transition-colors ${
-                mode === 'register' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                mode === 'register'
+                  ? 'bg-blue-700 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
               Register
@@ -314,7 +316,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        {/* Back Link for Recovery Modes */}
         {(mode === 'forgot' || mode === 'verify_otp' || mode === 'reset_password') && (
           <button
             type="button"
@@ -323,45 +324,56 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               setError(null);
               setSuccessMsg(null);
             }}
-            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-emerald-400 transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-blue-700 dark:hover:text-blue-400 transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Back to Sign In</span>
           </button>
         )}
 
-        {/* Status Alerts */}
         {error && (
-          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-400 text-xs">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="flex-1">{error}</div>
           </div>
         )}
 
         {successMsg && (
-          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs">
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="flex-1">{successMsg}</div>
           </div>
         )}
 
+        {otpPreview && (mode === 'verify_otp' || mode === 'forgot') && (
+          <div className="p-3 rounded-xl bg-blue-50 dark:bg-cyan-500/10 border border-blue-200 dark:border-cyan-500/30 text-blue-900 dark:text-cyan-300 text-xs space-y-1">
+            <div className="font-semibold flex items-center gap-1.5">
+              <KeyRound className="w-4 h-4 text-blue-700 dark:text-cyan-400" />
+              <span>Recovery Code Generated</span>
+            </div>
+            <p className="text-[11px]">
+              Code:{' '}
+              <span className="font-mono font-bold px-2 py-0.5 rounded bg-white dark:bg-cyan-950/60 border border-blue-300 dark:border-cyan-500/40 tracking-wider">
+                {otpPreview}
+              </span>
+            </p>
+          </div>
+        )}
 
-
-        {/* ---------------------------------------------------- */}
-        {/* 1. LOGIN FORM */}
-        {/* ---------------------------------------------------- */}
         {mode === 'login' && (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">Email Address</label>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Email Address
+              </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="e.g. hambak901@gmail.com"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  placeholder="you@example.com"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-600"
                   required
                 />
               </div>
@@ -369,7 +381,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-medium text-slate-300">Password</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Password
+                </label>
                 <button
                   type="button"
                   onClick={() => {
@@ -377,25 +391,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     setError(null);
                     setSuccessMsg(null);
                   }}
-                  className="text-[11px] text-emerald-400 hover:text-emerald-300 hover:underline cursor-pointer transition-colors"
+                  className="text-[11px] text-blue-700 dark:text-amber-400 hover:underline font-medium"
                 >
                   Forgot password?
                 </button>
               </div>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
-                  className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-600"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
+                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -405,10 +419,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 text-xs font-bold transition-colors shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+              className="w-full py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-600 disabled:opacity-60 text-white text-xs font-bold transition-colors shadow-md flex items-center justify-center gap-2"
             >
               {loading ? (
-                <span>Authenticating...</span>
+                <span>Signing In...</span>
               ) : (
                 <>
                   <span>Sign In to Portal</span>
@@ -419,21 +433,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </form>
         )}
 
-        {/* ---------------------------------------------------- */}
-        {/* 2. REGISTRATION FORM */}
-        {/* ---------------------------------------------------- */}
         {mode === 'register' && (
           <form onSubmit={handleRegister} className="space-y-3.5">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Full Legal Name</label>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Full Legal Name
+              </label>
               <div className="relative">
-                <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="e.g. Babatunde Adeleke"
-                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  placeholder="Full Legal Name"
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-600"
                   required
                 />
               </div>
@@ -441,29 +454,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Email Address</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Email Address
+                </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="user@example.com"
-                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    placeholder="user@email.com"
+                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-600"
                     required
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Phone Number</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Phone Number
+                </label>
                 <div className="relative">
-                  <Phone className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                  <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="08031234567"
-                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    placeholder="08012345678"
+                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-600"
                     required
                   />
                 </div>
@@ -472,42 +489,46 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Password</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Password
+                </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Min. 6 chars"
-                    className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    placeholder="Min. 8 characters"
+                    className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-600"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2.5 top-2.5 text-slate-500 hover:text-slate-300"
+                    className="absolute right-2.5 top-2.5 text-slate-400"
                   >
                     {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Confirm Password</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Confirm Password
+                </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type={showConfirmPassword ? 'text' : 'password'}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Repeat password"
-                    className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    className="w-full pl-9 pr-8 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-600"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-2.5 top-2.5 text-slate-500 hover:text-slate-300"
+                    className="absolute right-2.5 top-2.5 text-slate-400"
                   >
                     {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
@@ -515,16 +536,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             </div>
 
+            <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-slate-950 border border-blue-200 dark:border-slate-800 flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
+              <div className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                <strong className="text-blue-800 dark:text-blue-300">Starts at KYC Level 1 (Basic Profile):</strong> No NIN, BVN, or ID upload is needed right now. You can upgrade to Level 2 anytime in your portal to unlock higher limits &amp; virtual accounts.
+              </div>
+            </div>
+
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Referral Code <span className="text-slate-500 font-normal">(Optional)</span>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Referral Code <span className="text-slate-400 font-normal">(Optional)</span>
               </label>
               <input
                 type="text"
                 value={referralCode}
                 onChange={(e) => setReferralCode(e.target.value)}
-                placeholder="e.g. HAMBAK-SUPER"
-                className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white uppercase placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+                placeholder="Optional referral code"
+                className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white uppercase font-mono"
               />
             </div>
 
@@ -534,23 +562,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 id="termsCheck"
                 checked={agreeTerms}
                 onChange={(e) => setAgreeTerms(e.target.checked)}
-                className="mt-0.5 rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
+                className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700"
               />
-              <label htmlFor="termsCheck" className="text-[11px] text-slate-400">
-                I agree to the HambakTech Terms of Service, KYC verification policies, and NDPR Privacy Policy.
+              <label htmlFor="termsCheck" className="text-[11px] text-slate-600 dark:text-slate-400">
+                I agree to the {brandLabel} Terms of Service &amp; Privacy Policy.
               </label>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 text-xs font-bold transition-colors shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+              className="w-full py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-600 disabled:opacity-60 text-white text-xs font-bold transition-colors shadow-md flex items-center justify-center gap-2"
             >
               {loading ? (
-                <span>Registering Account...</span>
+                <span>Creating Account...</span>
               ) : (
                 <>
-                  <span>Create Free Account</span>
+                  <span>Create Account</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -558,37 +586,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </form>
         )}
 
-        {/* ---------------------------------------------------- */}
-        {/* 3. FORGOT PASSWORD (STEP 1: REQUEST OTP) */}
-        {/* ---------------------------------------------------- */}
         {mode === 'forgot' && (
           <form onSubmit={handleSendOtp} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">Registered Email Address</label>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Registered Email Address
+              </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="e.g. hambak901@gmail.com"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  placeholder="you@example.com"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-600"
                   required
                   autoFocus
                 />
               </div>
-              <p className="text-[11px] text-slate-400 mt-1.5">
-                We will dispatch a secure 6-digit OTP code to this email with a 15-minute validity window.
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
+                We will send a 6-digit recovery code valid for 15 minutes.
               </p>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 text-xs font-bold transition-colors shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+              className="w-full py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-600 disabled:opacity-60 text-white text-xs font-bold transition-colors flex items-center justify-center gap-2"
             >
               {loading ? (
-                <span>Dispatching Code...</span>
+                <span>Sending Code...</span>
               ) : (
                 <>
                   <Send className="w-4 h-4" />
@@ -596,76 +623,54 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </>
               )}
             </button>
-
-            <div className="text-center pt-2">
-              <button
-                type="button"
-                onClick={() => setMode('login')}
-                className="text-xs text-slate-400 hover:text-white transition-colors"
-              >
-                Remembered your password? <span className="text-emerald-400 underline">Sign In</span>
-              </button>
-            </div>
           </form>
         )}
 
-        {/* ---------------------------------------------------- */}
-        {/* 4. VERIFY OTP (STEP 2: VALIDATE CODE) */}
-        {/* ---------------------------------------------------- */}
         {mode === 'verify_otp' && (
           <form onSubmit={handleVerifyOtp} className="space-y-4">
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-medium text-slate-300">6-Digit Security Code</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  6-Digit Security Code
+                </label>
                 <button
                   type="button"
                   onClick={() => setMode('forgot')}
-                  className="text-[11px] text-emerald-400 hover:underline"
+                  className="text-[11px] text-blue-700 dark:text-amber-400 hover:underline"
                 >
                   Change Email
                 </button>
               </div>
               <div className="relative">
-                <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="text"
                   maxLength={10}
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value.trim())}
-                  placeholder="e.g. 529184"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono tracking-widest text-emerald-400 placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-bold"
+                  placeholder="123456"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm font-mono tracking-widest text-blue-700 dark:text-amber-400 font-bold focus:outline-none focus:border-blue-600"
                   required
                   autoFocus
                 />
               </div>
-              <p className="text-[11px] text-slate-400 mt-1.5">
-                Dispatched to <span className="text-white font-medium">{email}</span>. Valid for 15 minutes.
-              </p>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 text-xs font-bold transition-colors shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+              className="w-full py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-600 disabled:opacity-60 text-white text-xs font-bold transition-colors flex items-center justify-center gap-2"
             >
-              {loading ? (
-                <span>Validating Code...</span>
-              ) : (
-                <>
-                  <span>Verify Code & Continue</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
+              {loading ? <span>Validating Code...</span> : <span>Verify Code &amp; Continue</span>}
             </button>
 
-            {/* Resend Code Trigger */}
-            <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/80">
-              <span>Didn't receive the email?</span>
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <span>Didn&apos;t receive the code?</span>
               <button
                 type="button"
                 disabled={loading || resendCooldown > 0}
                 onClick={() => handleSendOtp()}
-                className="text-emerald-400 hover:text-emerald-300 disabled:text-slate-500 disabled:cursor-not-allowed flex items-center gap-1 font-medium transition-colors"
+                className="text-blue-700 dark:text-amber-400 disabled:text-slate-400 flex items-center gap-1 font-medium"
               >
                 <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
                 {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}
@@ -674,28 +679,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </form>
         )}
 
-        {/* ---------------------------------------------------- */}
-        {/* 5. RESET PASSWORD (STEP 3: NEW PASSWORD) */}
-        {/* ---------------------------------------------------- */}
         {mode === 'reset_password' && (
           <form onSubmit={handleResetPassword} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">New Password</label>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                New Password
+              </label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Minimum 8 characters"
-                  className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-600"
                   required
                   autoFocus
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
+                  className="absolute right-3 top-3 text-slate-400"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -703,61 +707,42 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">Confirm New Password</label>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Confirm New Password
+              </label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Repeat new password"
-                  className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-600"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-3 text-slate-500 hover:text-slate-300"
+                  className="absolute right-3 top-3 text-slate-400"
                 >
                   {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 space-y-1">
-              <div className="flex items-center gap-1.5 text-slate-300 font-medium">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Password Requirements:</span>
-              </div>
-              <ul className="list-disc list-inside space-y-0.5 text-slate-400 pl-1">
-                <li className={password.length >= 8 ? 'text-emerald-400' : ''}>At least 8 characters long</li>
-                <li className={password && password === confirmPassword ? 'text-emerald-400' : ''}>
-                  Both passwords match exactly
-                </li>
-              </ul>
-            </div>
-
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 text-xs font-bold transition-colors shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+              className="w-full py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-600 disabled:opacity-60 text-white text-xs font-bold transition-colors flex items-center justify-center gap-2"
             >
-              {loading ? (
-                <span>Updating Password...</span>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Reset Password & Sign In</span>
-                </>
-              )}
+              {loading ? <span>Updating Password...</span> : <span>Reset Password &amp; Sign In</span>}
             </button>
           </form>
         )}
 
-        {/* Trust marker */}
-        <div className="flex items-center justify-center gap-2 text-[10px] text-slate-500 pt-2 border-t border-slate-800/60">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-          <span>256-Bit SSL Encryption &bull; Official Digital Verification Standards</span>
+        <div className="flex items-center justify-center gap-2 text-[10px] text-slate-500 pt-2 border-t border-slate-200 dark:border-slate-800/60">
+          <ShieldCheck className="w-3.5 h-3.5 text-blue-700 dark:text-emerald-400" />
+          <span>{brandLabel} &bull; Encrypted Authentication</span>
         </div>
       </div>
     </div>

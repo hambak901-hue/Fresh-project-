@@ -49,6 +49,10 @@ export interface User {
   dob?: string;
   date_of_birth?: string;
   kyc_level?: 0 | 1 | 2 | 3;
+  is_new?: boolean;
+  tx_count?: number;
+  orders_count?: number;
+  verifications_count?: number;
   virtual_account?: {
     status: 'unassigned' | 'pending_kyc' | 'active' | 'suspended';
     account_number?: string;
@@ -378,21 +382,31 @@ export interface PhaseInfo {
 
 export interface BrandSettings {
   company_name: string;
+  short_brand_name?: string;
   tagline: string;
   logo_url: string;
   favicon_url: string;
   primary_color: string;
   secondary_color: string;
   font_family: string;
+  whatsapp_number: string;
+  business_phone?: string;
   support_phone: string;
   support_email: string;
+  info_email?: string;
   office_address: string;
-  whatsapp_number: string;
+  business_reg_number?: string;
+  founded_year?: string;
   social_links: {
-    twitter?: string;
+    tiktok?: string;
     facebook?: string;
-    instagram?: string;
+    telegram?: string;
+    x?: string;
+    twitter?: string;
     linkedin?: string;
+    youtube?: string;
+    whatsapp_channel?: string;
+    instagram?: string;
     whatsapp?: string;
   };
   footer_text: string;
@@ -407,10 +421,18 @@ export interface AnnouncementItem {
   title: string;
   content: string;
   category: 'update' | 'maintenance' | 'offer' | 'security' | 'general';
+  target_audience?: string;
+  target_user_id?: string | null;
   is_pinned: boolean;
   status: 'published' | 'draft';
   created_at: string;
   author: string;
+  email_stats?: {
+    sent_count: number;
+    failed_count: number;
+    total_logged: number;
+    last_sent_at?: string | null;
+  };
 }
 
 export interface FaqItem {
@@ -449,6 +471,27 @@ export interface CmsSections {
     infrastructure: string;
     stats: Array<{ label: string; value: string }>;
   };
+  aboutOverview?: {
+    title: string;
+    content: string;
+  };
+  mission?: {
+    title: string;
+    content: string;
+  };
+  vision?: {
+    title: string;
+    content: string;
+  };
+  coreValues?: Array<{
+    title: string;
+    description: string;
+  }>;
+  businessObjectives?: string[];
+  whyChooseUs?: Array<{
+    title: string;
+    description: string;
+  }>;
   howItWorks: Array<{
     step: string;
     title: string;
@@ -460,15 +503,34 @@ export interface CmsSections {
     description: string;
     icon: string;
   }>;
+  customerServiceInfo?: {
+    officeHours?: string;
+    whatsappLabel?: string;
+    businessLabel?: string;
+    officeLabel?: string;
+  };
+  refundPolicy?: {
+    title?: string;
+    summary?: string;
+    sections?: Array<{ heading: string; body: string }>;
+  };
+  academyOverview?: {
+    title?: string;
+    subtitle?: string;
+    admissionNote?: string;
+  };
   pageVisibility: {
     home: boolean;
     about: boolean;
     services: boolean;
+    howItWorks?: boolean;
+    academy?: boolean;
     contact: boolean;
     faq: boolean;
     announcements: boolean;
     terms: boolean;
     privacy: boolean;
+    refundPolicy?: boolean;
     ratesCalculator: boolean;
   };
 }
@@ -530,13 +592,97 @@ export interface StoreItem {
 export interface AcademyCourse {
   id: string;
   title: string;
+  category?: string;
   level: string;
   duration: string;
   modules_count: number;
-  price: number;
+  price: number | null;
   description: string;
+  curriculum_outline?: string | null;
+  is_available?: boolean;
+  admission_start_date?: string | null;
+  admission_end_date?: string | null;
+  display_order?: number;
   status: 'draft' | 'enrolling' | 'active';
   created_at: string;
+}
+
+export interface AcademyApplication {
+  id: string;
+  application_ref: string;
+  user_id?: string | null;
+  course_id: string;
+  course_title?: string;
+  course_duration?: string;
+  course_category?: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  date_of_birth: string;
+  age_at_submission: number;
+  gender: string;
+  address: string;
+  state: string;
+  lga: string;
+  qualification?: string | null;
+  study_mode: string;
+  preferred_schedule: string;
+  guardian_name?: string | null;
+  guardian_phone?: string | null;
+  guardian_address?: string | null;
+  guardian_relationship?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  passport_url?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'info_requested' | 'enrolled';
+  admin_notes?: string | null;
+  info_request_message?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  student_id?: string | null;
+  academic_status?: string | null;
+  created_at: string;
+}
+
+export interface AcademyStudent {
+  id: string;
+  student_id: string;
+  application_id: string;
+  user_id?: string | null;
+  course_id: string;
+  course_title?: string;
+  course_duration?: string;
+  course_category?: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  photo_url?: string | null;
+  enrollment_date: string;
+  completion_date?: string | null;
+  academic_status: 'active' | 'graduated' | 'suspended' | 'withdrawn';
+  id_card_issued_at?: string | null;
+  created_at?: string;
+}
+
+export interface StudentVerificationResult {
+  success: boolean;
+  valid: boolean;
+  student_id: string;
+  full_name?: string;
+  course_title?: string;
+  course_duration?: string;
+  academic_status?: string;
+  enrollment_date?: string;
+  completion_date?: string | null;
+  id_card_issued_at?: string | null;
+  message?: string;
+  academy?: {
+    name: string;
+    email: string;
+    address: string;
+    business_reg_number: string;
+    motto: string;
+  };
 }
 
 export interface AuditLogItem {
@@ -664,11 +810,29 @@ export interface StoreSettings {
 
 export interface AcademySettings {
   academy_name: string;
+  short_name?: string;
+  email?: string;
+  contact_email?: string;
+  mentor_email?: string;
+  address?: string;
+  business_reg_number?: string;
+  motto?: string;
+  student_id_prefix?: string;
+  certificate_prefix?: string;
   status: 'coming_soon' | 'active' | 'maintenance';
-  coming_soon_message: string;
+  coming_soon?: boolean;
+  coming_soon_message?: string;
+  admission_open?: boolean;
+  enrollment_open?: boolean;
+  admission_start_date?: string;
+  admission_end_date?: string;
   instructor_lead: string;
   certificate_issuer: string;
-  allow_waitlist: boolean;
+  allow_waitlist?: boolean;
+  whatsapp_number?: string;
+  business_phone?: string;
+  office_phone?: string;
+  banner_url?: string;
 }
 
 export interface ReportsSettings {
@@ -842,6 +1006,16 @@ export interface AdminCreateCustomerPayload {
   password?: string;
   initial_balance?: number;
   notify_customer?: boolean;
+  date_of_birth?: string;
+  residential_address?: string;
+  state?: string;
+  lga?: string;
+  id_type?: 'nin_slip' | 'drivers_license' | 'voters_card' | 'international_passport' | string;
+  id_number?: string;
+  nin?: string;
+  bvn?: string;
+  kyc_consent?: boolean;
+  consent_obtained?: boolean;
 }
 
 

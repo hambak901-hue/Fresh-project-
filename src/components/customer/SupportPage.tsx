@@ -162,7 +162,7 @@ export function SupportPage({ user }: SupportPageProps) {
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 text-xs">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Direct Support Channels</span>
+              <span>Official Support Channels</span>
             </h3>
 
             <div className="space-y-3">
@@ -173,7 +173,7 @@ export function SupportPage({ user }: SupportPageProps) {
                 <div className="flex items-center gap-3">
                   <Mail className="w-4 h-4 text-indigo-400" />
                   <div>
-                    <p className="font-semibold text-white">Email Help Desk</p>
+                    <p className="font-semibold text-white">Support Email</p>
                     <p className="text-[11px] text-slate-400 font-mono">support@hambaktech.com.ng</p>
                   </div>
                 </div>
@@ -181,7 +181,7 @@ export function SupportPage({ user }: SupportPageProps) {
               </a>
 
               <a
-                href="https://wa.me/2348039284719?text=Hello%20HambakTech%20Support,%20I%20need%20assistance%20with%20my%20account"
+                href="https://wa.me/2349155104724?text=Hello%20HAMBAKTECH%20Support,%20I%20need%20assistance%20with%20my%20account"
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition"
@@ -189,8 +189,36 @@ export function SupportPage({ user }: SupportPageProps) {
                 <div className="flex items-center gap-3">
                   <Phone className="w-4 h-4 text-emerald-400" />
                   <div>
-                    <p className="font-semibold text-white">WhatsApp Agent Desk</p>
-                    <p className="text-[11px] text-slate-400 font-mono">+234 803 928 4719</p>
+                    <p className="font-semibold text-white">WhatsApp Desk</p>
+                    <p className="text-[11px] text-slate-400 font-mono">09155104724</p>
+                  </div>
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+              </a>
+
+              <a
+                href="tel:08147837664"
+                className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition"
+              >
+                <div className="flex items-center gap-3">
+                  <Phone className="w-4 h-4 text-amber-400" />
+                  <div>
+                    <p className="font-semibold text-white">Business / Upline Contact</p>
+                    <p className="text-[11px] text-slate-400 font-mono">08147837664</p>
+                  </div>
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+              </a>
+
+              <a
+                href="tel:09127469686"
+                className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition"
+              >
+                <div className="flex items-center gap-3">
+                  <Phone className="w-4 h-4 text-sky-400" />
+                  <div>
+                    <p className="font-semibold text-white">Customer Service / Office</p>
+                    <p className="text-[11px] text-slate-400 font-mono">09127469686</p>
                   </div>
                 </div>
                 <ExternalLink className="w-3.5 h-3.5 text-slate-500" />

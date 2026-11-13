@@ -54,7 +54,7 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
     email: user.email || '',
     residential_address: user.address || '',
     state: user.state || 'Lagos',
-    lga: user.lga || 'Ikeja',
+    lga: user.lga || 'Lekki LCDA',
     nin: user.nin || '',
     bvn: user.bvn || '',
     id_type: 'nin_slip' as 'nin_slip' | 'drivers_license' | 'voters_card' | 'international_passport',

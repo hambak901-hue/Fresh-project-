@@ -24,7 +24,7 @@ interface LogoUploaderProps {
 
 export const LogoUploader: React.FC<LogoUploaderProps> = ({ currentLogoUrl, onLogoUpdated }) => {
   const [sourceMode, setSourceMode] = useState<'device' | 'url'>('device');
-  const [previewUrl, setPreviewUrl] = useState<string>(currentLogoUrl || '/logo.svg');
+  const [previewUrl, setPreviewUrl] = useState<string>(currentLogoUrl || '/logo.png');
   const [directUrl, setDirectUrl] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<{
     base64: string;
@@ -149,11 +149,11 @@ export const LogoUploader: React.FC<LogoUploaderProps> = ({ currentLogoUrl, onLo
     try {
       const res = await api.removeLogo();
       if (res.success) {
-        setPreviewUrl('/logo.svg');
+        setPreviewUrl('/logo.png');
         setSelectedFile(null);
         setDirectUrl('');
         setSuccessMessage('Logo restored to default branding!');
-        onLogoUpdated('/logo.svg');
+        onLogoUpdated('/logo.png');
         setConfirmRemoveOpen(false);
         setTimeout(() => setSuccessMessage(null), 4000);
       }
@@ -300,7 +300,7 @@ export const LogoUploader: React.FC<LogoUploaderProps> = ({ currentLogoUrl, onLo
                     type="button"
                     onClick={() => {
                       setSelectedFile(null);
-                      setPreviewUrl(currentLogoUrl || '/logo.svg');
+                      setPreviewUrl(currentLogoUrl || '/logo.png');
                     }}
                     className="text-slate-400 hover:text-rose-400 transition"
                   >
@@ -369,7 +369,7 @@ export const LogoUploader: React.FC<LogoUploaderProps> = ({ currentLogoUrl, onLo
               </div>
               <div>
                 <h4 className="font-bold text-white text-sm">Reset Logo to Default?</h4>
-                <p className="text-xs text-slate-400">This will remove custom branding and restore /logo.svg.</p>
+                <p className="text-xs text-slate-400">This will remove custom branding and restore /logo.png.</p>
               </div>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">

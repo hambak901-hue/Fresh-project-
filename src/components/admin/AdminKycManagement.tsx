@@ -393,7 +393,7 @@ export function AdminKycManagement() {
                           )}
                         </td>
                         <td className="py-3.5 px-4 font-mono text-[11px]">
-                          <div>{sub.id_type.toUpperCase().replace('_', ' ')}</div>
+                          <div>{String(sub.id_type || 'NIN_SLIP').toUpperCase().replace(/_/g, ' ')}</div>
                           <div className="text-slate-400">{sub.id_number}</div>
                           {sub.nin && <div className="text-[10px] text-slate-500">NIN: {sub.nin.slice(0, 3)}****{sub.nin.slice(-2)}</div>}
                         </td>

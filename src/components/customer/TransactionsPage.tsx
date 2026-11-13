@@ -195,7 +195,7 @@ export function TransactionsPage() {
                       </td>
                       <td className="py-3.5 px-4">
                         <span className="capitalize px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-medium">
-                          {txn.category.replace('_', ' ')}
+                          {String(txn.category || 'general').replace(/_/g, ' ')}
                         </span>
                       </td>
                       <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px]">
@@ -288,7 +288,7 @@ export function TransactionsPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Category</span>
-                <span className="capitalize text-white">{selectedTxn.category.replace('_', ' ')}</span>
+                <span className="capitalize text-white">{String(selectedTxn.category || 'general').replace(/_/g, ' ')}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Payment Gateway</span>

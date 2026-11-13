@@ -81,7 +81,7 @@ export const StoreManagement: React.FC = () => {
       price: 45000,
       stock: 15,
       description: '',
-      image_url: 'https://images.unsplash.com/photo-1588702547923-7093a6c3ba33?w=500&auto=format&fit=crop&q=60',
+      image_url: '',
       status: 'active'
     });
     setIsModalOpen(true);

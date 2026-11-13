@@ -299,7 +299,7 @@ export const ReportsManagement: React.FC = () => {
                   <tbody className="divide-y divide-slate-800 text-slate-300">
                     {(reportsData.transaction_report?.categories || []).map((cat: any, idx: number) => (
                       <tr key={idx} className="hover:bg-slate-800/40">
-                        <td className="py-3 px-4 font-semibold text-white capitalize">{cat.category.replace('_', ' ')}</td>
+                        <td className="py-3 px-4 font-semibold text-white capitalize">{String(cat.category || 'general').replace(/_/g, ' ')}</td>
                         <td className="py-3 px-4 font-mono">{cat.count}</td>
                         <td className="py-3 px-4 font-mono text-emerald-400">₦{parseFloat(cat.volume || 0).toLocaleString()}</td>
                       </tr>

@@ -75,7 +75,24 @@ export const api = {
     return { success: true, token, user };
   },
 
-  async register(data: { email: string; password: string; full_name: string; phone_number: string }): Promise<{ success: boolean; token: string; user: User }> {
+  async register(data: {
+    email: string;
+    password: string;
+    full_name: string;
+    phone_number: string;
+    date_of_birth?: string;
+    residential_address?: string;
+    state?: string;
+    lga?: string;
+    id_type?: string;
+    id_number?: string;
+    nin?: string;
+    bvn?: string;
+    consent_obtained?: boolean;
+    agree_terms?: boolean;
+    referral_code?: string;
+    [key: string]: any;
+  }): Promise<{ success: boolean; token: string; user: User }> {
     const res = await request<any>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -682,14 +699,14 @@ export const api = {
     });
   },
 
-  async createAnnouncement(data: { title: string; content: string; category?: string; is_pinned?: boolean; status?: string; author?: string }): Promise<{ success: boolean; announcement: import('../types').AnnouncementItem }> {
+  async createAnnouncement(data: { title: string; content: string; category?: string; target_audience?: string; target_user_id?: string; is_pinned?: boolean; status?: string; author?: string }): Promise<{ success: boolean; announcement: import('../types').AnnouncementItem; email_delivery?: any }> {
     return request('/api/cms/announcements', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
-  async updateAnnouncement(id: string, updates: Partial<import('../types').AnnouncementItem>): Promise<{ success: boolean; announcement: import('../types').AnnouncementItem }> {
+  async updateAnnouncement(id: string, updates: Partial<import('../types').AnnouncementItem>): Promise<{ success: boolean; announcement: import('../types').AnnouncementItem; email_delivery?: any }> {
     return request(`/api/cms/announcements/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
@@ -860,8 +877,35 @@ export const api = {
     return request('/api/admin/overview');
   },
 
-  async getAdminCustomers(params?: { search?: string; status?: string; tier?: string; role?: string }): Promise<{ success: boolean; count: number; customers: User[] }> {
-    const query = new URLSearchParams(params as any).toString();
+  async getAdminCustomers(params?: {
+    search?: string;
+    status?: string;
+    tier?: string;
+    role?: string;
+    kyc_status?: string;
+    filter?: string;
+  }): Promise<{
+    success: boolean;
+    count: number;
+    customers: User[];
+    summary?: {
+      total: number;
+      active: number;
+      suspended: number;
+      pending_kyc: number;
+      verified_kyc: number;
+      new_registrations: number;
+    };
+  }> {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          cleanParams[k] = String(v);
+        }
+      });
+    }
+    const query = new URLSearchParams(cleanParams).toString();
     return request(`/api/admin/customers${query ? `?${query}` : ''}`);
   },
 
@@ -872,14 +916,38 @@ export const api = {
     orders: TelecomOrder[];
     verifications: VerificationRecord[];
     auditLogs: any[];
+    kyc?: any;
+    kyc_submissions?: any[];
+    support_tickets?: any[];
+    stats?: {
+      total_funded: number;
+      total_spent: number;
+      tx_count: number;
+      orders_count: number;
+      verifications_count: number;
+      tickets_count: number;
+    };
   }> {
     return request(`/api/admin/customers/${id}`);
   },
 
-  async updateAdminCustomer(id: string, updates: Partial<User>): Promise<{ success: boolean; message: string; customer: User }> {
+  async updateAdminCustomer(
+    id: string,
+    updates: Partial<User> & {
+      new_password?: string;
+      residential_address?: string;
+      date_of_birth?: string;
+    }
+  ): Promise<{ success: boolean; message: string; customer: User }> {
     return request(`/api/admin/customers/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
+    });
+  },
+
+  async deleteAdminCustomer(id: string, force: boolean = false): Promise<{ success: boolean; message: string; deleted_id: string }> {
+    return request(`/api/admin/customers/${id}${force ? '?force=true' : ''}`, {
+      method: 'DELETE',
     });
   },
 
@@ -1003,21 +1071,21 @@ export const api = {
   },
 
   async createAcademyCourse(course: any): Promise<{ success: boolean; message: string; course: import('../types').AcademyCourse }> {
-    return request('/api/admin/services/academy', {
+    return request('/api/admin/academy/course', {
       method: 'POST',
       body: JSON.stringify(course),
     });
   },
 
   async updateAcademyCourse(id: string, updates: any): Promise<{ success: boolean; message: string; course: import('../types').AcademyCourse }> {
-    return request(`/api/admin/services/academy/${id}`, {
+    return request(`/api/admin/academy/course/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
     });
   },
 
   async deleteAcademyCourse(id: string): Promise<{ success: boolean; message: string }> {
-    return request(`/api/admin/services/academy/${id}`, { method: 'DELETE' });
+    return request(`/api/admin/academy/course/${id}`, { method: 'DELETE' });
   },
 
   async getPendingFundingApprovals(): Promise<{ success: boolean; pending: Transaction[] }> {
@@ -1282,9 +1350,48 @@ export const api = {
   },
 
   // -------------------------------------------------------------
-  // PHASE 8: ACADEMY ADMINISTRATION & CUSTOMER ACADEMY
+  // STAGE 2: DIGITAL TRAINING ACADEMY (PUBLIC, CUSTOMER, ADMIN, VERIFY)
   // -------------------------------------------------------------
-  async getAdminAcademy(): Promise<{ success: boolean; courses: import('../types').AcademyCourse[]; settings: import('../types').AcademySettings }> {
+  async getPublicAcademy(): Promise<{
+    success: boolean;
+    courses: import('../types').AcademyCourse[];
+    settings: import('../types').AcademySettings;
+  }> {
+    return request('/api/academy/public');
+  },
+
+  async submitAcademyApplication(payload: Record<string, any>): Promise<{
+    success: boolean;
+    message: string;
+    application: import('../types').AcademyApplication;
+    application_ref: string;
+  }> {
+    return request('/api/academy/apply', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async checkAcademyApplicationStatus(ref: string, email: string): Promise<{
+    success: boolean;
+    application: import('../types').AcademyApplication;
+  }> {
+    const q = new URLSearchParams({ ref, email }).toString();
+    return request(`/api/academy/application-status?${q}`);
+  },
+
+  async verifyStudentById(studentId: string): Promise<import('../types').StudentVerificationResult> {
+    const q = new URLSearchParams({ student_id: studentId }).toString();
+    return request(`/api/academy/verify?${q}`);
+  },
+
+  async getAdminAcademy(): Promise<{
+    success: boolean;
+    courses: import('../types').AcademyCourse[];
+    settings: import('../types').AcademySettings;
+    applications?: import('../types').AcademyApplication[];
+    students?: import('../types').AcademyStudent[];
+  }> {
     return request('/api/admin/academy');
   },
 
@@ -1295,7 +1402,7 @@ export const api = {
     });
   },
 
-  async createAdminAcademyCourse(data: Omit<import('../types').AcademyCourse, 'id' | 'created_at'>): Promise<{ success: boolean; message: string; course: import('../types').AcademyCourse }> {
+  async createAdminAcademyCourse(data: Partial<import('../types').AcademyCourse>): Promise<{ success: boolean; message: string; course: import('../types').AcademyCourse }> {
     return request('/api/admin/academy/course', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -1315,8 +1422,54 @@ export const api = {
     });
   },
 
-  async getCustomerAcademy(): Promise<{ success: boolean; courses: import('../types').AcademyCourse[]; settings: import('../types').AcademySettings }> {
+  async getAdminAcademyApplications(): Promise<{ success: boolean; applications: import('../types').AcademyApplication[] }> {
+    return request('/api/admin/academy/applications');
+  },
+
+  async reviewAcademyApplication(
+    id: string,
+    data: { action: 'approve' | 'reject' | 'request_info'; admin_notes?: string; info_request_message?: string }
+  ): Promise<{ success: boolean; message: string; status: string; student?: import('../types').AcademyStudent }> {
+    return request(`/api/admin/academy/applications/${id}/review`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getAdminAcademyStudents(): Promise<{ success: boolean; students: import('../types').AcademyStudent[] }> {
+    return request('/api/admin/academy/students');
+  },
+
+  async updateAcademyStudent(
+    id: string,
+    data: { academic_status?: string; completion_date?: string | null; course_id?: string }
+  ): Promise<{ success: boolean; message: string; student: import('../types').AcademyStudent }> {
+    return request(`/api/admin/academy/students/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getCustomerAcademy(): Promise<{
+    success: boolean;
+    courses: import('../types').AcademyCourse[];
+    settings: import('../types').AcademySettings;
+    applications?: import('../types').AcademyApplication[];
+    students?: import('../types').AcademyStudent[];
+  }> {
     return request('/api/customer/academy');
+  },
+
+  async submitCustomerAcademyApplication(payload: Record<string, any>): Promise<{
+    success: boolean;
+    message: string;
+    application: import('../types').AcademyApplication;
+    application_ref: string;
+  }> {
+    return request('/api/customer/academy/apply', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 
   // -------------------------------------------------------------
@@ -1654,6 +1807,12 @@ export const api = {
     });
   },
 
+  async deleteAdminSupportTicket(id: string | number): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/support/tickets/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
   // ─── Stage 8 Global Settings Reconciliation (22 Categories) ───────────────
   async getAdminAllSettings(): Promise<{
     success: boolean;
@@ -1726,18 +1885,50 @@ export const api = {
   async saveAdminAnnouncement(data: {
     id?: number | string;
     title: string;
-    message: string;
+    message?: string;
+    content?: string;
     type?: string;
+    category?: string;
+    target_audience?: string;
+    target_user_id?: string;
+    status?: 'published' | 'draft';
     is_active?: boolean | number;
+    is_pinned?: boolean;
     start_date?: string;
     end_date?: string;
   }): Promise<{
     success: boolean;
+    id?: string;
     message: string;
+    announcement?: any;
+    email_delivery?: {
+      triggered: boolean;
+      reason?: string;
+      total_targeted: number;
+      sent: number;
+      failed: number;
+      skipped_duplicates: number;
+      errors?: string[];
+    };
   }> {
     return request('/api/admin/announcements', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  },
+
+  async retryAdminAnnouncementEmails(id: string | number): Promise<{
+    success: boolean;
+    message: string;
+    email_delivery?: {
+      total_targeted: number;
+      sent: number;
+      failed: number;
+      skipped_duplicates: number;
+    };
+  }> {
+    return request(`/api/admin/announcements/${id}/retry-emails`, {
+      method: 'POST',
     });
   },
 
@@ -1838,20 +2029,6 @@ export const api = {
     return request('/api/admin/customers/create', {
       method: 'POST',
       body: JSON.stringify(payload),
-    });
-  },
-
-  async cleanDemoData(): Promise<{
-    success: boolean;
-    message: string;
-    backup_file: string;
-    deleted_test_users: number;
-    deleted_counts: Record<string, number>;
-    preserved_genuine_count: number;
-    preserved_emails: string[];
-  }> {
-    return request('/api/admin/maintenance/clean-demo-data', {
-      method: 'POST',
     });
   },
 

@@ -38,6 +38,7 @@ export function WebsiteManagement() {
     saveFaq,
     deleteFaq,
     updateNavigation,
+    refreshCms,
   } = useCms();
 
   const [activeTab, setActiveTab] = useState<'branding' | 'landing' | 'visibility' | 'announcements' | 'faqs' | 'navigation'>('branding');
@@ -70,6 +71,7 @@ export function WebsiteManagement() {
     try {
       const ok = await updateBranding(brandForm);
       if (ok) {
+        await refreshCms();
         setSaveSuccess('Branding and SEO configurations updated live!');
         setTimeout(() => setSaveSuccess(null), 3500);
       } else {
@@ -86,6 +88,7 @@ export function WebsiteManagement() {
     try {
       const ok = await updateSections(sectionForm);
       if (ok) {
+        await refreshCms();
         setSaveSuccess('Landing page content & banners updated live!');
         setTimeout(() => setSaveSuccess(null), 3500);
       } else {
@@ -104,6 +107,7 @@ export function WebsiteManagement() {
     try {
       const ok = await updateVisibility({ [key]: next } as any);
       if (ok) {
+        await refreshCms();
         setSaveSuccess(`Page visibility for "${key}" updated.`);
         setTimeout(() => setSaveSuccess(null), 2500);
       } else {
@@ -241,13 +245,16 @@ export function WebsiteManagement() {
           </div>
 
           <LogoUploader
-            currentLogoUrl={brandForm.logo_url || '/logo.svg'}
-            onLogoUpdated={(newUrl) => setBrandForm(prev => ({ ...prev, logo_url: newUrl }))}
+            currentLogoUrl={brandForm.logo_url || '/logo.png'}
+            onLogoUpdated={(newUrl) => {
+              setBrandForm(prev => ({ ...prev, logo_url: newUrl }));
+              refreshCms();
+            }}
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="space-y-1">
-              <label className="text-slate-400 font-medium">Company Name</label>
+              <label className="text-slate-400 font-medium">Registered Company Name</label>
               <input
                 type="text"
                 value={brandForm.company_name || ''}
@@ -257,7 +264,18 @@ export function WebsiteManagement() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-slate-400 font-medium">Tagline / Motto</label>
+              <label className="text-slate-400 font-medium">Brand Display Name</label>
+              <input
+                type="text"
+                value={brandForm.short_brand_name || ''}
+                onChange={e => setBrandForm({ ...brandForm, short_brand_name: e.target.value })}
+                placeholder="HAMBAKTECH"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-slate-400 font-medium">Tagline / Slogan</label>
               <input
                 type="text"
                 value={brandForm.tagline || ''}
@@ -267,12 +285,34 @@ export function WebsiteManagement() {
             </div>
 
             <div className="space-y-1">
+              <label className="text-slate-400 font-medium">Business Reg. Number (BN)</label>
+              <input
+                type="text"
+                value={brandForm.business_reg_number || ''}
+                onChange={e => setBrandForm({ ...brandForm, business_reg_number: e.target.value })}
+                placeholder="BN 9284726"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-slate-400 font-medium">Founded Year</label>
+              <input
+                type="text"
+                value={brandForm.founded_year || ''}
+                onChange={e => setBrandForm({ ...brandForm, founded_year: e.target.value })}
+                placeholder="2024"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+              />
+            </div>
+
+            <div className="space-y-1">
               <label className="text-slate-400 font-medium">Logo URL</label>
               <input
                 type="text"
                 value={brandForm.logo_url || ''}
                 onChange={e => setBrandForm({ ...brandForm, logo_url: e.target.value })}
-                placeholder="https://... (leave blank for wordmark)"
+                placeholder="/logo.png"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
               />
             </div>
@@ -282,13 +322,13 @@ export function WebsiteManagement() {
               <div className="flex gap-2">
                 <input
                   type="color"
-                  value={brandForm.primary_color || '#10b981'}
+                  value={brandForm.primary_color || '#1d4ed8'}
                   onChange={e => setBrandForm({ ...brandForm, primary_color: e.target.value })}
                   className="w-10 h-8 rounded-lg bg-transparent cursor-pointer border border-slate-800"
                 />
                 <input
                   type="text"
-                  value={brandForm.primary_color || '#10b981'}
+                  value={brandForm.primary_color || '#1d4ed8'}
                   onChange={e => setBrandForm({ ...brandForm, primary_color: e.target.value })}
                   className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
                 />
@@ -306,13 +346,84 @@ export function WebsiteManagement() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-slate-400 font-medium">Support Phone</label>
+              <label className="text-slate-400 font-medium">General Info Email</label>
+              <input
+                type="email"
+                value={brandForm.info_email || ''}
+                onChange={e => setBrandForm({ ...brandForm, info_email: e.target.value })}
+                placeholder="info@hambaktech.com.ng"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-slate-400 font-medium">WhatsApp Line (09155104724)</label>
+              <input
+                type="text"
+                value={brandForm.whatsapp_number || ''}
+                onChange={e => setBrandForm({ ...brandForm, whatsapp_number: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-slate-400 font-medium">Business / Upline Contact (08147837664)</label>
+              <input
+                type="text"
+                value={brandForm.business_phone || ''}
+                onChange={e => setBrandForm({ ...brandForm, business_phone: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-slate-400 font-medium">Customer Service / Office (09127469686)</label>
               <input
                 type="text"
                 value={brandForm.support_phone || ''}
                 onChange={e => setBrandForm({ ...brandForm, support_phone: e.target.value })}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
               />
+            </div>
+          </div>
+
+          {/* Optional Social Media Links (Displayed in Footer only when configured) */}
+          <div className="space-y-3 pt-4 border-t border-slate-800">
+            <div>
+              <h3 className="font-bold text-white text-xs">Official Social Media Links (Optional)</h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Leave any field blank to hide its icon from the public footer.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                { key: 'tiktok', label: 'TikTok URL' },
+                { key: 'facebook', label: 'Facebook URL' },
+                { key: 'telegram', label: 'Telegram URL' },
+                { key: 'x', label: 'X (Twitter) URL' },
+                { key: 'linkedin', label: 'LinkedIn URL' },
+                { key: 'youtube', label: 'YouTube URL' },
+                { key: 'whatsapp_channel', label: 'WhatsApp Channel URL' },
+              ].map((soc) => (
+                <div key={soc.key} className="space-y-1">
+                  <label className="text-slate-400 text-[11px]">{soc.label}</label>
+                  <input
+                    type="url"
+                    value={(brandForm.social_links as any)?.[soc.key] || ''}
+                    onChange={e =>
+                      setBrandForm({
+                        ...brandForm,
+                        social_links: {
+                          ...(brandForm.social_links || {}),
+                          [soc.key]: e.target.value,
+                        },
+                      })
+                    }
+                    placeholder="https://..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+              ))}
             </div>
           </div>
 
@@ -511,14 +622,17 @@ export function WebsiteManagement() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             {[
               { key: 'home', label: 'Landing / Home Page', path: '/' },
-              { key: 'about', label: 'About Us Page', path: '/about' },
-              { key: 'services', label: 'Services Catalogue', path: '/services' },
-              { key: 'ratesCalculator', label: 'Pricing Calculator', path: '/rates' },
-              { key: 'announcements', label: 'Announcements Feed', path: '/announcements' },
-              { key: 'faq', label: 'Frequently Asked Questions', path: '/faq' },
-              { key: 'contact', label: 'Contact Us', path: '/contact' },
-              { key: 'terms', label: 'Terms and Conditions', path: '/terms' },
-              { key: 'privacy', label: 'Privacy Policy', path: '/privacy' },
+              { key: 'about', label: 'About Us Page', path: '/#about' },
+              { key: 'services', label: 'Services Catalogue', path: '/#services' },
+              { key: 'howItWorks', label: 'How It Works', path: '/#how-it-works' },
+              { key: 'ratesCalculator', label: 'Pricing Calculator', path: '/#rates' },
+              { key: 'academy', label: 'Digital Training Academy', path: '/#academy' },
+              { key: 'announcements', label: 'Announcements Feed', path: '/#announcements' },
+              { key: 'faq', label: 'Frequently Asked Questions', path: '/#faq' },
+              { key: 'contact', label: 'Contact Us', path: '/#contact' },
+              { key: 'terms', label: 'Terms and Conditions', path: '/#terms' },
+              { key: 'privacy', label: 'Privacy Policy', path: '/#privacy' },
+              { key: 'refundPolicy', label: 'Refund Policy', path: '/#refund-policy' },
             ].map(p => {
               const isVisible = visibilityForm[p.key] !== false;
               return (
@@ -574,7 +688,7 @@ export function WebsiteManagement() {
               <h3 className="font-bold text-white text-sm">
                 {editingAnnouncement.id ? 'Edit Announcement' : 'Create New Announcement'}
               </h3>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-slate-400">Title</label>
                   <input
@@ -597,6 +711,32 @@ export function WebsiteManagement() {
                     <option value="maintenance">Maintenance Notice</option>
                     <option value="offer">Promo / Offer</option>
                     <option value="security">Security Alert</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400">Target Audience</label>
+                  <select
+                    value={editingAnnouncement.target_audience || 'all_customers'}
+                    onChange={e => setEditingAnnouncement({ ...editingAnnouncement, target_audience: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  >
+                    <option value="all_customers">All Active Customers</option>
+                    <option value="tier_1">Tier 1 Customers Only</option>
+                    <option value="tier_2">Tier 2 KYC Verified Only</option>
+                    <option value="tier_3">Tier 3 Enterprise Only</option>
+                    <option value="verified_kyc">Verified KYC Customers</option>
+                    <option value="all_users">All Users</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400">Status</label>
+                  <select
+                    value={editingAnnouncement.status || 'published'}
+                    onChange={e => setEditingAnnouncement({ ...editingAnnouncement, status: e.target.value as any })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  >
+                    <option value="published">Published (Active — Dashboard &amp; Email)</option>
+                    <option value="draft">Draft (Inactive — No Delivery)</option>
                   </select>
                 </div>
               </div>
@@ -817,10 +957,11 @@ export function WebsiteManagement() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       const updated = navItems.map(n => n.id === item.id ? { ...n, enabled: !n.enabled } : n);
                       setNavItems(updated);
-                      updateNavigation(updated);
+                      await updateNavigation(updated.map(n => ({ ...n, page_key: (n as any).page_key || n.pageKey } as any)));
+                      await refreshCms();
                     }}
                     className={`px-3 py-1 rounded-lg font-semibold transition ${
                       item.enabled

@@ -7,6 +7,9 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useCms } from '../../context/CmsContext';
+import { api } from '../../lib/api';
+import { ThemeToggle } from '../ThemeToggle';
 import {
   LayoutDashboard,
   Users,
@@ -44,6 +47,10 @@ import {
   Eye,
   EyeOff,
   Activity,
+  KeyRound,
+  Send,
+  CheckCircle2,
+  ArrowLeft,
 } from 'lucide-react';
 
 // Admin child views
@@ -160,7 +167,10 @@ export function SuperAdminDashboard({
   onSwitchToCustomerPortal,
   onSwitchToPublic,
 }: SuperAdminDashboardProps) {
-  const { user, login, logout } = useAuth();
+  const { user, loading: sessionLoading, login, logout, refreshUser } = useAuth();
+  const { branding } = useCms();
+  const brandName = branding?.short_brand_name || 'HAMBAKTECH';
+  const logoSrc = branding?.logo_url || '/logo.png';
   const [activeTab, setActiveTab] = useState<AdminTabKey>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [adminEmail, setAdminEmail] = useState('');
@@ -168,13 +178,35 @@ export function SuperAdminDashboard({
   const [showPassword, setShowPassword] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authMode, setAuthMode] = useState<'login' | 'forgot' | 'verify_otp' | 'reset_password'>('login');
+  const [otpCode, setOtpCode] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [recoveryMsg, setRecoveryMsg] = useState<string | null>(null);
+
+  const handleAdminLogout = () => {
+    setActiveTab('overview');
+    setAdminPassword('');
+    setAuthError(null);
+    setRecoveryMsg(null);
+    setAuthMode('login');
+    logout();
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', '#admin');
+    }
+  };
 
   const handleAdminLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setAuthLoading(true);
     setAuthError(null);
+    setRecoveryMsg(null);
     try {
-      await login(adminEmail.trim().toLowerCase(), adminPassword);
+      const logged = await login(adminEmail.trim().toLowerCase(), adminPassword);
+      if (logged && logged.role !== 'admin' && logged.role !== 'superadmin') {
+        setAuthError('This account does not have Administrator privileges.');
+      }
     } catch (err: any) {
       setAuthError(err?.message || 'Administrative authentication failed. Check credentials.');
     } finally {
@@ -182,33 +214,122 @@ export function SuperAdminDashboard({
     }
   };
 
+  const handleAdminSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+    setRecoveryMsg(null);
+    try {
+      const res = await api.forgotPassword(adminEmail.trim().toLowerCase());
+      setResetToken(res.token || '');
+      setRecoveryMsg(res.message || 'Recovery OTP sent to administrator email.');
+      setAuthMode('verify_otp');
+    } catch (err: any) {
+      setAuthError(err?.message || 'Unable to send administrator recovery code.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleAdminVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+    setRecoveryMsg(null);
+    try {
+      const res = await api.verifyOtp(adminEmail.trim().toLowerCase(), otpCode.trim());
+      if (res.token) setResetToken(res.token);
+      setRecoveryMsg('Verification code confirmed. Set your new administrator password.');
+      setAuthMode('reset_password');
+    } catch (err: any) {
+      setAuthError(err?.message || 'Invalid or expired OTP code.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleAdminResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setRecoveryMsg(null);
+    if (newPassword.length < 8) {
+      setAuthError('New password must be at least 8 characters long.');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setAuthError('Passwords do not match.');
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      await api.resetPassword({
+        email: adminEmail.trim().toLowerCase(),
+        otp_code: otpCode.trim(),
+        token: resetToken,
+        new_password: newPassword,
+      });
+      await refreshUser();
+      setAuthMode('login');
+      setAdminPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setOtpCode('');
+    } catch (err: any) {
+      setAuthError(err?.message || 'Failed to update administrator password.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  if (sessionLoading && !user) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-slate-600 dark:text-slate-300 gap-3">
+        <Loader2 className="w-7 h-7 animate-spin text-blue-600" />
+        <p className="text-xs font-medium">Verifying administrator session...</p>
+      </div>
+    );
+  }
+
   if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl shadow-slate-950/80 space-y-6">
-          <div className="text-center space-y-2">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30 mx-auto text-white">
-              <Shield className="w-7 h-7 text-white" />
-            </div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono font-bold tracking-wider uppercase">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-700 selection:text-white transition-colors">
+        <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl space-y-6">
+          <div className="flex items-center justify-between">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-[10px] font-mono font-bold tracking-wider uppercase">
               Restricted &bull; Root Authorization
+            </span>
+            <ThemeToggle compact />
+          </div>
+
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-blue-700 flex items-center justify-center shadow-lg shadow-blue-700/25 mx-auto text-white overflow-hidden p-1.5">
+              <img
+                src={logoSrc}
+                alt={brandName}
+                className="w-full h-full object-contain rounded-lg bg-white"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                }}
+              />
             </div>
-            <h2 className="text-xl font-bold text-white tracking-tight">Super Admin Console</h2>
-            <p className="text-xs text-slate-400">
-              Sign in with authorized administrative credentials to access enterprise telemetry, revenue charts, user registries, and provider gateways.
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+              {brandName} Super Admin Console
+            </h2>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Sign in with authorized administrative credentials to manage platform services, academy admissions, CMS content, and system settings.
             </p>
           </div>
 
           {user && (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-300 flex items-center justify-between">
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-center justify-between">
               <div>
-                <p className="font-semibold text-white truncate max-w-[220px]">{user.email}</p>
-                <p className="text-[10px] text-amber-400/90 capitalize font-mono">Role: {user.role} (Non-Admin)</p>
+                <p className="font-semibold text-slate-900 dark:text-white truncate max-w-[220px]">{user.email}</p>
+                <p className="text-[10px] text-amber-700 dark:text-amber-400/90 capitalize font-mono">Role: {user.role} (Non-Admin)</p>
               </div>
               <button
                 type="button"
                 onClick={logout}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[10px] font-medium transition"
+                className="px-2.5 py-1 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-[10px] font-medium transition"
               >
                 Sign Out
               </button>
@@ -216,100 +337,207 @@ export function SuperAdminDashboard({
           )}
 
           {authError && (
-            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 flex items-center gap-2">
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-600 dark:text-red-400 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{authError}</span>
             </div>
           )}
 
-          <form onSubmit={handleAdminLogin} className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-[11px] font-medium text-slate-300">Admin Email Address</label>
-                <div className="flex items-center gap-1.5">
+          {recoveryMsg && (
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{recoveryMsg}</span>
+            </div>
+          )}
+
+          {authMode !== 'login' && (
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('login');
+                setAuthError(null);
+                setRecoveryMsg(null);
+              }}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-blue-700 dark:hover:text-blue-400 transition"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Admin Login</span>
+            </button>
+          )}
+
+          {authMode === 'login' && (
+            <form onSubmit={handleAdminLogin} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Admin Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="admin@hambaktech.com.ng"
+                  value={adminEmail}
+                  onChange={e => setAdminEmail(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 font-mono"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                    Password
+                  </label>
                   <button
                     type="button"
                     onClick={() => {
-                      setAdminEmail('admin@hambaktech.com.ng');
-                      setAdminPassword('Admin@HambakTech2026!');
+                      setAuthMode('forgot');
+                      setAuthError(null);
+                      setRecoveryMsg(null);
                     }}
-                    className="text-[10px] text-indigo-400 hover:text-indigo-300 font-mono underline"
+                    className="text-[11px] text-blue-700 dark:text-amber-400 hover:underline font-medium"
                   >
-                    admin@...
+                    Forgot password?
                   </button>
-                  <span className="text-slate-600 text-[10px]">&bull;</span>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    placeholder="••••••••••••"
+                    value={adminPassword}
+                    onChange={e => setAdminPassword(e.target.value)}
+                    className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 font-mono"
+                  />
                   <button
                     type="button"
-                    onClick={() => {
-                      setAdminEmail('hambak901@gmail.com');
-                      setAdminPassword('Admin@HambakTech2026!');
-                    }}
-                    className="text-[10px] text-amber-400 hover:text-amber-300 font-mono underline"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white transition"
+                    tabIndex={-1}
                   >
-                    hambak901@...
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
-              <input
-                type="email"
-                required
-                placeholder="admin@hambaktech.com.ng"
-                value={adminEmail}
-                onChange={e => setAdminEmail(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
-              />
-            </div>
 
-            <div>
-              <label className="block text-[11px] font-medium text-slate-300 mb-1">Password</label>
-              <div className="relative">
+              <button
+                type="submit"
+                disabled={authLoading || !adminEmail || !adminPassword}
+                className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-blue-700/25"
+              >
+                {authLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Lock className="w-4 h-4" />
+                    <span>Authenticate to Console</span>
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          {authMode === 'forgot' && (
+            <form onSubmit={handleAdminSendOtp} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Administrator Email
+                </label>
                 <input
-                  type={showPassword ? 'text' : 'password'}
+                  type="email"
                   required
-                  placeholder="••••••••••••"
-                  value={adminPassword}
-                  onChange={e => setAdminPassword(e.target.value)}
-                  className="w-full pl-3.5 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
+                  placeholder="admin@hambaktech.com.ng"
+                  value={adminEmail}
+                  onChange={e => setAdminEmail(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 font-mono"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition"
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
               </div>
-            </div>
+              <button
+                type="submit"
+                disabled={authLoading || !adminEmail}
+                className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition"
+              >
+                {authLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                <span>Send Recovery OTP</span>
+              </button>
+            </form>
+          )}
 
-            <button
-              type="submit"
-              disabled={authLoading || !adminEmail || !adminPassword}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-indigo-600/30"
-            >
-              {authLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <>
-                  <Lock className="w-4 h-4" />
-                  <span>Authenticate to Console</span>
-                </>
-              )}
-            </button>
-          </form>
+          {authMode === 'verify_otp' && (
+            <form onSubmit={handleAdminVerifyOtp} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  6-Digit Verification Code
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    required
+                    maxLength={10}
+                    value={otpCode}
+                    onChange={e => setOtpCode(e.target.value.trim())}
+                    placeholder="123456"
+                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-xs font-mono tracking-widest text-slate-900 dark:text-white focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={authLoading || !otpCode}
+                className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition"
+              >
+                {authLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Verify OTP</span>}
+              </button>
+            </form>
+          )}
 
-          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+          {authMode === 'reset_password' && (
+            <form onSubmit={handleAdminResetPassword} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  New Password (min 8 chars)
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-600"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={confirmNewPassword}
+                  onChange={e => setConfirmNewPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-600"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition"
+              >
+                {authLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Update Password &amp; Sign In</span>}
+              </button>
+            </form>
+          )}
+
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <button
               type="button"
               onClick={onSwitchToCustomerPortal}
-              className="hover:text-indigo-400 transition"
+              className="hover:text-blue-700 dark:hover:text-blue-400 transition"
             >
               &larr; Customer Portal
             </button>
             <button
               type="button"
               onClick={onSwitchToPublic}
-              className="hover:text-emerald-400 transition"
+              className="hover:text-amber-600 dark:hover:text-amber-400 transition"
             >
               Public Website &rarr;
             </button>
@@ -335,8 +563,8 @@ export function SuperAdminDashboard({
       items: [
         { id: 'services', label: 'Core Services & Pricing', icon: Cpu },
         { id: 'digital_services', label: 'Digital Utilities (Cable & Disco)', icon: Tv, badge: 'Phase 8' },
-        { id: 'store_admin', label: 'Hardware Store', icon: ShoppingBag, badge: 'Coming Soon' },
-        { id: 'academy_admin', label: 'Agency Academy', icon: GraduationCap, badge: 'Coming Soon' },
+        { id: 'store_admin', label: 'Hardware Store', icon: ShoppingBag, badge: 'Catalog' },
+        { id: 'academy_admin', label: 'Digital Training Academy', icon: GraduationCap, badge: '12 Courses' },
       ],
     },
     {
@@ -383,41 +611,48 @@ export function SuperAdminDashboard({
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex font-sans selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex font-sans selection:bg-blue-700 selection:text-white transition-colors">
       {/* Mobile Drawer Backdrop */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-40 bg-slate-950/80 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm lg:hidden"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
 
       {/* Sidebar Navigation */}
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-50 h-screen w-72 bg-slate-900 border-r border-slate-800 flex flex-col justify-between transition-transform duration-200 ease-in-out ${
+        className={`fixed lg:sticky top-0 left-0 z-50 h-screen w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between transition-transform duration-200 ease-in-out ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
         <div className="flex flex-col h-full">
           {/* Header Brand */}
-          <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
+          <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950/50">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-600/30 font-bold text-white text-base">
-                <Shield className="w-5 h-5 text-white" />
+              <div className="w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden p-1 shadow-sm">
+                <img
+                  src={logoSrc}
+                  alt={brandName}
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                  }}
+                />
               </div>
               <div>
-                <span className="font-extrabold text-sm text-white tracking-tight flex items-center gap-1.5">
-                  <span>HambakTech</span>
-                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
+                <span className="font-extrabold text-sm text-slate-900 dark:text-white tracking-tight flex items-center gap-1.5">
+                  <span>{brandName}</span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30">
                     ROOT
                   </span>
                 </span>
-                <p className="text-[11px] text-slate-400">Super Admin Console</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Super Admin Console</p>
               </div>
             </div>
             <button
               onClick={() => setMobileMenuOpen(false)}
-              className="lg:hidden p-1.5 text-slate-400 hover:text-white"
+              className="lg:hidden p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
             >
               <X className="w-5 h-5" />
             </button>
@@ -441,16 +676,20 @@ export function SuperAdminDashboard({
                         onClick={() => handleSelectTab(item.id)}
                         className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition ${
                           isActive
-                            ? 'bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-600/20'
-                            : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                            ? 'bg-blue-700 text-white font-semibold shadow-md shadow-blue-700/20'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 truncate">
-                          <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                          <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-500 dark:text-slate-400'}`} />
                           <span className="truncate">{item.label}</span>
                         </div>
                         {item.badge && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                          <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                            isActive
+                              ? 'bg-blue-800 text-blue-100'
+                              : 'bg-blue-500/10 text-blue-700 dark:bg-indigo-500/20 dark:text-indigo-300'
+                          }`}>
                             {item.badge}
                           </span>
                         )}
@@ -463,43 +702,43 @@ export function SuperAdminDashboard({
           </nav>
 
           {/* Quick Switchers & User Session Card */}
-          <div className="p-3 border-t border-slate-800 space-y-2 bg-slate-900/60">
+          <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-2 bg-slate-50 dark:bg-slate-900/60">
             {/* Switch to Customer Portal */}
             <button
               type="button"
               onClick={onSwitchToCustomerPortal}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-indigo-300 hover:text-white hover:bg-indigo-950/30 border border-indigo-500/20 transition"
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-blue-700 dark:text-indigo-300 hover:text-blue-900 dark:hover:text-white bg-blue-50 dark:bg-transparent hover:bg-blue-100 dark:hover:bg-indigo-950/30 border border-blue-200 dark:border-indigo-500/20 transition"
             >
               <div className="flex items-center gap-2">
-                <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                <Layers className="w-3.5 h-3.5 text-blue-700 dark:text-indigo-400" />
                 <span>Customer Portal View</span>
               </div>
-              <ChevronRight className="w-3 h-3 text-slate-500" />
+              <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-500" />
             </button>
 
             {/* Switch to Public Website */}
             <button
               type="button"
               onClick={onSwitchToPublic}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-slate-300 hover:text-white hover:bg-slate-800 transition"
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/70 dark:hover:bg-slate-800 transition"
             >
               <div className="flex items-center gap-2">
-                <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
+                <ExternalLink className="w-3.5 h-3.5 text-amber-600 dark:text-emerald-400" />
                 <span>Back to Public Website</span>
               </div>
-              <ChevronRight className="w-3 h-3 text-slate-500" />
+              <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-500" />
             </button>
 
             {/* Admin User info & logout */}
-            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between px-2 text-xs">
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between px-2 text-xs">
               <div className="truncate">
-                <p className="font-semibold text-white truncate">{user?.full_name || 'Super Admin'}</p>
-                <p className="text-[10px] text-amber-400 font-mono capitalize">Role: {user?.role || 'superadmin'}</p>
+                <p className="font-semibold text-slate-900 dark:text-white truncate">{user?.full_name || 'Super Admin'}</p>
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-mono capitalize">Role: {user?.role || 'superadmin'}</p>
               </div>
               <button
                 type="button"
-                onClick={logout}
-                className="p-1.5 text-slate-400 hover:text-red-400 rounded-lg transition"
+                onClick={handleAdminLogout}
+                className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg transition"
                 title="Sign Out"
               >
                 <LogOut className="w-4 h-4" />
@@ -512,28 +751,31 @@ export function SuperAdminDashboard({
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between">
+        <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 text-slate-400 hover:text-white rounded-xl bg-slate-800"
+              className="lg:hidden p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-xl bg-slate-100 dark:bg-slate-800"
             >
               <Menu className="w-5 h-5" />
             </button>
             <div>
-              <p className="text-[11px] text-slate-400 font-mono hidden sm:block">Root Administration &bull; Primary Node</p>
-              <h1 className="text-base sm:text-lg font-bold text-white tracking-tight">{currentTitle}</h1>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">
+                HAMBAK TECH &amp; SERVICES &bull; Root Administration
+              </p>
+              <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{currentTitle}</h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            <ThemeToggle compact />
 
             {/* Quick Customer Portal Button */}
             <button
               type="button"
               onClick={onSwitchToCustomerPortal}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm"
+              className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm"
             >
               <Layers className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Customer Portal</span>

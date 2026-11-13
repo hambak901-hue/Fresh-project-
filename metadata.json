@@ -1,6 +1,6 @@
 {
-  "name": "HambakTech Enterprise Portal",
-  "description": "All-in-one Nigerian VTU, identity verification (NIN/BVN), telecom, payments, academy, and digital services platform for HambakTech.",
+  "name": "HAMBAKTECH — HAMBAK TECH & SERVICES",
+  "description": "Where Technology Meets Services — Digital identity verification, telecom VTU services, automated bill payments, and HAMBAK TECH & SERVICES Digital Training Academy.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

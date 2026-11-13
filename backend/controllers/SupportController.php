@@ -25,6 +25,25 @@ class SupportController
         $this->db = Database::getInstance();
     }
 
+    private function normalizeTicketRow(array $ticket): array
+    {
+        $rawCat = trim((string)($ticket['category'] ?? ''));
+        if ($rawCat === '') {
+            $rawDept = strtolower(trim((string)($ticket['department'] ?? '')));
+            if ($rawDept !== '' && $rawDept !== 'general support') {
+                $rawCat = preg_replace('/[^a-z0-9]+/', '_', $rawDept) ?: 'general';
+            } else {
+                $rawCat = 'general';
+            }
+        }
+        $ticket['category'] = $rawCat;
+        $ticket['department'] = trim((string)($ticket['department'] ?? '')) ?: 'General Support';
+        $ticket['priority'] = strtolower(trim((string)($ticket['priority'] ?? ''))) ?: 'medium';
+        $ticket['status'] = strtolower(trim((string)($ticket['status'] ?? ''))) ?: 'open';
+        $ticket['subject'] = trim((string)($ticket['subject'] ?? '')) ?: 'Support Inquiry';
+        return $ticket;
+    }
+
     /**
      * 1. GET /api/support/tickets (Customer tickets)
      */
@@ -40,6 +59,10 @@ class SupportController
              ORDER BY t.updated_at DESC',
             ['uid' => $user['id']]
         );
+
+        foreach ($tickets as &$t) {
+            $t = $this->normalizeTicketRow($t);
+        }
 
         Response::success(['tickets' => $tickets]);
     }
@@ -123,6 +146,9 @@ class SupportController
         );
 
         $ticket = $this->db->fetchOne('SELECT * FROM support_tickets WHERE id = :id', ['id' => $ticketId]);
+        if ($ticket) {
+            $ticket = $this->normalizeTicketRow($ticket);
+        }
         Response::success([
             'ticket' => $ticket,
             'ticket_id' => $ticketId,
@@ -183,6 +209,8 @@ class SupportController
             $r['is_staff'] = (bool)$r['is_staff'];
             $r['is_internal_note'] = (bool)($r['is_internal_note'] ?? false);
         }
+
+        $ticket = $this->normalizeTicketRow($ticket);
 
         Response::success([
             'ticket' => $ticket,
@@ -352,6 +380,9 @@ class SupportController
         $sql .= 'ORDER BY FIELD(t.priority, "urgent", "high", "medium", "low"), t.updated_at DESC LIMIT 100';
 
         $tickets = $this->db->fetchAll($sql, $params);
+        foreach ($tickets as &$t) {
+            $t = $this->normalizeTicketRow($t);
+        }
 
         // Metrics
         $counts = $this->db->fetchOne(
@@ -440,5 +471,24 @@ class SupportController
             'status' => $sqlParams['st'] ?? null,
             'priority' => $sqlParams['prio'] ?? null,
         ], "Ticket {$ticketId} updated successfully.");
+    }
+
+    /**
+     * 7. DELETE /api/admin/support/tickets/:id (Delete support ticket & replies)
+     */
+    public function deleteTicket(Request $request, array $params): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+        $ticketId = trim((string)($params['id'] ?? ''));
+
+        $ticket = $this->db->fetchOne('SELECT id, subject FROM support_tickets WHERE id = :tid', ['tid' => $ticketId]);
+        if (!$ticket) {
+            Response::error('Support ticket not found.', 404);
+        }
+
+        $this->db->execute('DELETE FROM support_replies WHERE ticket_id = :tid', ['tid' => $ticketId]);
+        $this->db->execute('DELETE FROM support_tickets WHERE id = :tid', ['tid' => $ticketId]);
+
+        Response::success(['deleted_id' => $ticketId], "Support ticket {$ticketId} removed.");
     }
 }

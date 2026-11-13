@@ -45,8 +45,8 @@ class SettingsController
         $fullSettings = [
             // 1. General settings
             'general' => $settingsMap['general_settings'] ?? [
-                'site_name' => 'HambakTech Enterprise Portal',
-                'site_tagline' => 'Automated Identity Verification & Digital Utilities',
+                'site_name' => 'HAMBAKTECH',
+                'site_tagline' => 'Where Technology Meets Services',
                 'maintenance_mode' => false,
                 'default_currency' => 'NGN',
                 'currency_symbol' => '₦',
@@ -55,22 +55,25 @@ class SettingsController
 
             // 2. Company settings
             'company' => $settingsMap['company_settings'] ?? [
-                'company_name' => 'Hambak Technologies Enterprise',
-                'registration_number' => 'RC-1928472',
-                'tax_id' => 'TIN-98210492',
-                'official_email' => 'support@hambaktech.com.ng',
-                'official_phone' => '+234 803 000 1122',
-                'headquarters_address' => 'Plot 14 Commercial Avenue, Ikeja, Lagos, Nigeria',
+                'company_name' => 'HAMBAK TECH & SERVICES',
+                'registration_number' => 'BN 9284726',
+                'founded_year' => '2024',
+                'official_email' => 'info@hambaktech.com.ng',
+                'support_email' => 'support@hambaktech.com.ng',
+                'whatsapp_phone' => '09155104724',
+                'business_phone' => '08147837664',
+                'official_phone' => '09127469686',
+                'headquarters_address' => 'Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria',
             ],
 
             // 3. Branding
             'branding' => $settingsMap['branding_settings'] ?? [
-                'primary_color' => '#10b981',
-                'secondary_color' => '#6366f1',
-                'accent_color' => '#f59e0b',
-                'logo_url' => '',
-                'favicon_url' => '',
-                'typography' => 'Inter, sans-serif',
+                'primary_color' => '#1d4ed8',
+                'secondary_color' => '#0f172a',
+                'accent_color' => '#d97706',
+                'logo_url' => '/logo.png',
+                'favicon_url' => '/logo.png',
+                'typography' => 'Plus Jakarta Sans, sans-serif',
             ],
 
             // 4. Website settings
@@ -78,17 +81,17 @@ class SettingsController
                 'enable_registration' => true,
                 'enable_guest_rates_calculator' => true,
                 'enable_announcements_ticker' => true,
-                'meta_title' => 'HambakTech Enterprise | NIN Slip, BVN & Telecom Infrastructure',
-                'meta_description' => 'Automate NIMC sovereign identity slip generation, Central Bank BVN verification, MTN SME data vending, and utility bill clearing.',
+                'meta_title' => 'HAMBAKTECH | Digital Services, Telecom VTU & Digital Training Academy',
+                'meta_description' => 'HAMBAK TECH & SERVICES — Digital identity verification, telecom data & airtime VTU, bill payments, and HAMBAKTECH Digital Training Academy.',
             ],
 
             // 5. Landing page
             'landing_page' => $settingsMap['landing_page_settings'] ?? [
-                'hero_badge' => "Nigeria's Leading Digital Services Infrastructure",
-                'hero_headline' => 'Instant Identity Verification, Telecom Bundles & Digital Payments',
-                'hero_subheadline' => 'Automate NIMC NIN slips, BVN lookups, MTN & Airtel SME data vending, and utility bill clearing with enterprise 99.98% uptime.',
-                'primary_cta_text' => 'Get Started Free',
-                'secondary_cta_text' => 'Explore Solutions',
+                'hero_badge' => 'HAMBAK TECH & SERVICES • BN 9284726',
+                'hero_headline' => 'Where Technology Meets Practical Digital Services & Training',
+                'hero_subheadline' => 'Instant identity verification support, telecom data & airtime VTU, utility bill payments, and hands-on ICT & software training from Lekki, Lagos State.',
+                'primary_cta_text' => 'Create Free Account',
+                'secondary_cta_text' => 'Explore Digital Academy',
             ],
 
             // 6. Customer dashboard settings

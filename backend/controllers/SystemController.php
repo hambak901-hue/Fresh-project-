@@ -37,7 +37,7 @@ class SystemController
         }
 
         Response::success([
-            'service' => 'HambakTech Enterprise Production Backend',
+            'service' => 'HAMBAK TECH & SERVICES API',
             'engine' => 'PHP ' . PHP_VERSION,
             'database' => [
                 'status' => $dbStatus,
@@ -45,19 +45,14 @@ class SystemController
                 'driver' => 'pdo_mysql',
             ],
             'server_time' => date('c'),
-            'uptime' => '99.98%',
-            'deployment' => 'Enterprise Cloud Native',
         ]);
     }
 
     public function status(Request $request): void
     {
         Response::success([
-            'service' => 'HambakTech Enterprise Production Backend',
+            'service' => 'HAMBAK TECH & SERVICES API',
             'status' => 'ONLINE',
-            'uptime' => '99.98%',
-            'deployment' => 'Enterprise Cloud Native',
-            'engine' => 'PHP ' . PHP_VERSION,
             'timestamp' => date('c'),
         ]);
     }
@@ -80,9 +75,15 @@ class SystemController
             'bank_transfer_account_name' => $accNameRow['setting_value'] ?? 'Hambaktech_Services',
             'bank_transfer_bank' => $bankRow['setting_value'] ?? 'Moniepoint MFB',
             'bank_transfer_account_number' => $accNumRow['setting_value'] ?? '5210471634',
-            'company_name' => 'HambakTech Technologies',
-            'support_phone' => '+234 803 000 1122',
+            'company_name' => 'HAMBAK TECH & SERVICES',
+            'brand_name' => 'HAMBAKTECH',
+            'business_reg_number' => 'BN 9284726',
+            'whatsapp_number' => '09155104724',
+            'business_phone' => '08147837664',
+            'support_phone' => '09127469686',
             'support_email' => 'support@hambaktech.com.ng',
+            'info_email' => 'info@hambaktech.com.ng',
+            'office_address' => 'Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria',
         ];
 
         try {

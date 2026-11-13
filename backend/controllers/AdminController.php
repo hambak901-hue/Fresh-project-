@@ -37,6 +37,76 @@ class AdminController
         $this->walletService = new WalletService();
     }
 
+    private function hydrateCustomerRow(string $customerId): ?array
+    {
+        try {
+            $row = $this->db->fetchOne(
+                'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.wallet_balance,
+                        u.kyc_status, u.tier, u.kyc_level, u.referral_code, u.status, u.avatar_url, u.email_verified,
+                        u.created_at, u.updated_at,
+                        w.balance as live_balance,
+                        p.nin, p.bvn, p.address, p.state, p.lga, p.bio, p.date_of_birth
+                 FROM users u
+                 LEFT JOIN wallets w ON w.user_id = u.id
+                 LEFT JOIN user_profiles p ON p.user_id = u.id
+                 WHERE u.id = :id',
+                ['id' => $customerId]
+            );
+        } catch (Throwable) {
+            $row = $this->db->fetchOne(
+                'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.wallet_balance,
+                        u.kyc_status, u.tier, u.referral_code, u.status, u.avatar_url, u.email_verified,
+                        u.created_at, u.updated_at,
+                        w.balance as live_balance,
+                        p.nin, p.bvn, p.address, p.state, p.lga, p.bio
+                 FROM users u
+                 LEFT JOIN wallets w ON w.user_id = u.id
+                 LEFT JOIN user_profiles p ON p.user_id = u.id
+                 WHERE u.id = :id',
+                ['id' => $customerId]
+            );
+        }
+
+        if (!$row) {
+            return null;
+        }
+
+        $row['wallet_balance'] = (float)($row['live_balance'] ?? $row['wallet_balance'] ?? 0);
+        $row['tier'] = (int)($row['tier'] ?? 1);
+        $row['kyc_level'] = (int)($row['kyc_level'] ?? $row['tier']);
+        $row['email_verified'] = (bool)($row['email_verified'] ?? false);
+        $createdTs = !empty($row['created_at']) ? strtotime((string)$row['created_at']) : false;
+        $row['is_new'] = $createdTs !== false && $createdTs >= (time() - 72 * 3600);
+        unset($row['live_balance']);
+
+        $kycRows = $this->db->fetchAll(
+            'SELECT * FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC',
+            ['uid' => $customerId]
+        );
+        $row['kyc_documents'] = array_map(function ($k) {
+            return [
+                'id' => $k['id'],
+                'id_type' => $k['id_type'] ?? 'NIN',
+                'id_number' => $k['id_number'] ?? ($k['nin'] ?: ($k['bvn'] ?: 'N/A')),
+                'doc_url' => $k['id_document_url'] ?? $k['doc_url'] ?? null,
+                'selfie_url' => $k['selfie_url'] ?? null,
+                'proof_of_address_url' => $k['proof_of_address_url'] ?? null,
+                'nin' => $k['nin'] ?? null,
+                'bvn' => $k['bvn'] ?? null,
+                'residential_address' => $k['residential_address'] ?? null,
+                'state' => $k['state'] ?? null,
+                'lga' => $k['lga'] ?? null,
+                'date_of_birth' => $k['date_of_birth'] ?? null,
+                'target_level' => (int)($k['target_level'] ?? 2),
+                'submitted_at' => $k['submitted_at'] ?? $k['created_at'],
+                'status' => $k['status'] ?? 'pending',
+                'review_notes' => $k['review_notes'] ?? null,
+            ];
+        }, $kycRows);
+
+        return $row;
+    }
+
     public function overview(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
@@ -44,12 +114,19 @@ class AdminController
         // 1. User Metrics
         $userStats = $this->db->fetchOne(
             'SELECT 
-                COUNT(*) as total_customers,
+                SUM(CASE WHEN role = "customer" THEN 1 ELSE 0 END) as total_customers,
                 SUM(CASE WHEN status = "active" AND role = "customer" THEN 1 ELSE 0 END) as active_customers,
-                SUM(CASE WHEN status = "suspended" THEN 1 ELSE 0 END) as suspended_customers,
-                SUM(CASE WHEN role = "customer" AND DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_registrations
+                SUM(CASE WHEN status = "suspended" AND role = "customer" THEN 1 ELSE 0 END) as suspended_customers,
+                SUM(CASE WHEN role IN ("admin", "superadmin", "staff") THEN 1 ELSE 0 END) as total_staff,
+                SUM(CASE WHEN role = "customer" AND DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_registrations,
+                SUM(CASE WHEN role = "customer" AND kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc_users
              FROM users'
         );
+
+        $pendingKycSubRow = $this->db->fetchOne(
+            'SELECT COUNT(*) as count FROM kyc_submissions WHERE status = "pending"'
+        );
+        $pendingKycCount = max((int)($pendingKycSubRow['count'] ?? 0), (int)($userStats['pending_kyc_users'] ?? 0));
 
         // 2. Financial Metrics
         $walletStats = $this->db->fetchOne(
@@ -90,13 +167,29 @@ class AdminController
             'SELECT COUNT(*) as count FROM manual_funding_requests WHERE status = "pending"'
         )['count'];
 
+        $pendingFundings = $this->db->fetchAll(
+            'SELECT m.*, u.full_name, u.email, m.payment_reference as reference
+             FROM manual_funding_requests m
+             LEFT JOIN users u ON u.id = m.user_id
+             WHERE m.status = "pending"
+             ORDER BY m.created_at DESC LIMIT 5'
+        );
+
         // 5. Recent Registrations & Orders
         $recentUsers = $this->db->fetchAll(
-            'SELECT id, full_name, email, phone_number, role, wallet_balance, kyc_status, status, created_at 
-             FROM users 
-             WHERE role = "customer" 
-             ORDER BY created_at DESC LIMIT 5'
+            'SELECT u.id, u.full_name, u.email, u.phone_number, u.role, COALESCE(w.balance, u.wallet_balance, 0) as wallet_balance,
+                    u.kyc_status, u.tier, u.status, u.created_at 
+             FROM users u
+             LEFT JOIN wallets w ON w.user_id = u.id
+             WHERE u.role = "customer" 
+             ORDER BY u.created_at DESC LIMIT 8'
         );
+        foreach ($recentUsers as &$ru) {
+            $ru['wallet_balance'] = (float)$ru['wallet_balance'];
+            $ru['tier'] = (int)($ru['tier'] ?? 1);
+            $ts = !empty($ru['created_at']) ? strtotime((string)$ru['created_at']) : false;
+            $ru['is_new'] = $ts !== false && $ts >= (time() - 72 * 3600);
+        }
 
         $recentOrders = $this->db->fetchAll(
             'SELECT o.id, u.full_name as customer_name, o.service_type, o.plan, o.amount, o.status, o.created_at
@@ -123,6 +216,12 @@ class AdminController
             'activeCustomers' => (int)($userStats['active_customers'] ?? 0),
             'suspended_customers' => (int)($userStats['suspended_customers'] ?? 0),
             'suspendedCustomers' => (int)($userStats['suspended_customers'] ?? 0),
+            'total_staff' => (int)($userStats['total_staff'] ?? 0),
+            'totalStaff' => (int)($userStats['total_staff'] ?? 0),
+            'today_registrations' => (int)($userStats['today_registrations'] ?? 0),
+            'todayRegistrations' => (int)($userStats['today_registrations'] ?? 0),
+            'pending_kyc_count' => $pendingKycCount,
+            'pendingKycCount' => $pendingKycCount,
             'total_wallet_balances' => (float)($walletStats['total_wallet_balances'] ?? 0),
             'totalWalletBalances' => (float)($walletStats['total_wallet_balances'] ?? 0),
             'total_wallet_funding' => (float)($txStats['total_wallet_funding'] ?? 0),
@@ -147,6 +246,9 @@ class AdminController
             'metrics' => $metrics,
             'stats' => $metrics,
             'recent_registrations' => $recentUsers,
+            'recentRegistrations' => $recentUsers,
+            'pending_fundings' => $pendingFundings,
+            'pendingFundings' => $pendingFundings,
             'recent_orders' => $recentOrders,
             'providers' => $providers,
         ]);
@@ -157,52 +259,126 @@ class AdminController
         Auth::requireRole($request, ['admin', 'superadmin']);
 
         $search = trim((string)$request->query('search', ''));
-        $status = (string)$request->query('status', '');
-        $limit = min(100, max(1, (int)$request->query('limit', 50)));
+        $status = trim((string)$request->query('status', ''));
+        $tier = trim((string)$request->query('tier', ''));
+        $kycStatus = trim((string)$request->query('kyc_status', ''));
+        $filter = trim((string)$request->query('filter', ''));
+        $limit = min(250, max(1, (int)$request->query('limit', 150)));
 
-        $sql = 'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.wallet_balance, 
-                       u.kyc_status, u.tier, u.status, u.created_at,
-                       w.balance as live_balance,
-                       p.nin, p.bvn, p.state
-                FROM users u
-                LEFT JOIN wallets w ON w.user_id = u.id
-                LEFT JOIN user_profiles p ON p.user_id = u.id
-                WHERE u.role = "customer" ';
+        $where = 'WHERE u.role = "customer" ';
         $params = [];
 
         if (!empty($search)) {
-            $sql .= 'AND (u.full_name LIKE :s1 OR u.email LIKE :s2 OR u.phone_number LIKE :s3) ';
-            $params['s1'] = "%{$search}%";
-            $params['s2'] = "%{$search}%";
-            $params['s3'] = "%{$search}%";
+            $where .= 'AND (u.full_name LIKE :s1 OR u.email LIKE :s2 OR u.phone_number LIKE :s3 OR COALESCE(u.referral_code, "") LIKE :s4 OR COALESCE(p.nin, "") LIKE :s5 OR COALESCE(p.bvn, "") LIKE :s6) ';
+            $like = "%{$search}%";
+            $params['s1'] = $like;
+            $params['s2'] = $like;
+            $params['s3'] = $like;
+            $params['s4'] = $like;
+            $params['s5'] = $like;
+            $params['s6'] = $like;
         }
 
-        if (!empty($status)) {
-            $sql .= 'AND u.status = :st ';
+        if (!empty($status) && $status !== 'all') {
+            $where .= 'AND u.status = :st ';
             $params['st'] = $status;
         }
 
-        $sql .= 'ORDER BY u.created_at DESC LIMIT ' . (int)$limit;
+        if (!empty($tier) && $tier !== 'all' && is_numeric($tier)) {
+            $where .= 'AND u.tier = :tr ';
+            $params['tr'] = (int)$tier;
+        }
 
-        $rows = $this->db->fetchAll($sql, $params);
+        if (!empty($kycStatus) && $kycStatus !== 'all') {
+            $where .= 'AND u.kyc_status = :ks ';
+            $params['ks'] = $kycStatus;
+        }
+
+        if ($filter === 'new') {
+            $where .= 'AND u.created_at >= DATE_SUB(NOW(), INTERVAL 72 HOUR) ';
+        }
+
+        try {
+            $sql = 'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.wallet_balance, 
+                           u.kyc_status, u.tier, u.kyc_level, u.referral_code, u.status, u.avatar_url, u.email_verified,
+                           u.created_at, u.updated_at,
+                           w.balance as live_balance,
+                           p.nin, p.bvn, p.address, p.state, p.lga, p.date_of_birth,
+                           (SELECT COUNT(*) FROM transactions tx WHERE tx.user_id = u.id) as tx_count,
+                           (SELECT COUNT(*) FROM telecom_orders ord WHERE ord.user_id = u.id) as orders_count,
+                           (SELECT COUNT(*) FROM verification_records vr WHERE vr.user_id = u.id) as verifications_count
+                    FROM users u
+                    LEFT JOIN wallets w ON w.user_id = u.id
+                    LEFT JOIN user_profiles p ON p.user_id = u.id ' . $where . 'ORDER BY u.created_at DESC LIMIT ' . (int)$limit;
+            $rows = $this->db->fetchAll($sql, $params);
+        } catch (Throwable) {
+            $sql = 'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.wallet_balance, 
+                           u.kyc_status, u.tier, u.referral_code, u.status, u.avatar_url, u.email_verified,
+                           u.created_at, u.updated_at,
+                           w.balance as live_balance,
+                           p.nin, p.bvn, p.address, p.state, p.lga
+                    FROM users u
+                    LEFT JOIN wallets w ON w.user_id = u.id
+                    LEFT JOIN user_profiles p ON p.user_id = u.id ' . $where . 'ORDER BY u.created_at DESC LIMIT ' . (int)$limit;
+            $rows = $this->db->fetchAll($sql, $params);
+        }
+
+        $nowCutoff = time() - (72 * 3600);
         foreach ($rows as &$r) {
             $r['wallet_balance'] = (float)($r['live_balance'] ?? $r['wallet_balance'] ?? 0);
+            $r['tier'] = (int)($r['tier'] ?? 1);
+            $r['kyc_level'] = (int)($r['kyc_level'] ?? $r['tier']);
+            $r['tx_count'] = (int)($r['tx_count'] ?? 0);
+            $r['orders_count'] = (int)($r['orders_count'] ?? 0);
+            $r['verifications_count'] = (int)($r['verifications_count'] ?? 0);
+            $createdTs = !empty($r['created_at']) ? strtotime((string)$r['created_at']) : false;
+            $r['is_new'] = $createdTs !== false && $createdTs >= $nowCutoff;
             unset($r['live_balance']);
         }
 
-        Response::success(['customers' => $rows]);
+        $summary = $this->db->fetchOne(
+            'SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN status = "active" THEN 1 ELSE 0 END) as active,
+                SUM(CASE WHEN status = "suspended" THEN 1 ELSE 0 END) as suspended,
+                SUM(CASE WHEN kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc,
+                SUM(CASE WHEN kyc_status = "verified" THEN 1 ELSE 0 END) as verified_kyc,
+                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 72 HOUR) THEN 1 ELSE 0 END) as new_registrations
+             FROM users WHERE role = "customer"'
+        );
+
+        Response::success([
+            'customers' => $rows,
+            'count' => count($rows),
+            'summary' => [
+                'total' => (int)($summary['total'] ?? count($rows)),
+                'active' => (int)($summary['active'] ?? 0),
+                'suspended' => (int)($summary['suspended'] ?? 0),
+                'pending_kyc' => (int)($summary['pending_kyc'] ?? 0),
+                'verified_kyc' => (int)($summary['verified_kyc'] ?? 0),
+                'new_registrations' => (int)($summary['new_registrations'] ?? 0),
+            ],
+        ]);
     }
 
     public function updateCustomerStatus(Request $request, array $params): void
     {
         $admin = Auth::requireRole($request, ['admin', 'superadmin']);
         $customerId = $params['id'] ?? '';
-        $newStatus = (string)$request->input('status', 'active');
-        $newTier = (int)$request->input('tier', 1);
+        $newStatus = strtolower(trim((string)$request->input('status', 'active')));
+        $reason = trim((string)$request->input('reason', ''));
 
         if (!in_array($newStatus, ['active', 'suspended'], true)) {
             Response::error('Invalid customer status.', 422);
         }
+
+        $existing = $this->db->fetchOne('SELECT id, email, full_name, role, tier FROM users WHERE id = :id', ['id' => $customerId]);
+        if (!$existing) {
+            Response::error('Customer account not found.', 404);
+        }
+
+        $explicitTier = $request->input('tier');
+        $newTier = ($explicitTier !== null && $explicitTier !== '') ? max(1, min(3, (int)$explicitTier)) : (int)($existing['tier'] ?? 1);
 
         $this->db->execute(
             'UPDATE users SET status = :st, tier = :tier, updated_at = NOW() WHERE id = :id',
@@ -216,12 +392,27 @@ class AdminController
                 'id' => Security::generateUuid(),
                 'uid' => $admin['id'],
                 'email' => $admin['email'],
-                'meta' => json_encode(['customer_id' => $customerId, 'status' => $newStatus, 'tier' => $newTier]),
+                'meta' => json_encode(['customer_id' => $customerId, 'customer_email' => $existing['email'], 'status' => $newStatus, 'tier' => $newTier, 'reason' => $reason]),
                 'ip' => $request->getIp(),
             ]
         );
 
-        Response::success(null, "Customer account updated to {$newStatus}");
+        FootprintService::record(
+            'admin',
+            'CUSTOMER_STATUS_UPDATED',
+            $admin,
+            'customer_management',
+            $customerId,
+            null,
+            'successful',
+            null,
+            null,
+            ['customer_email' => $existing['email'], 'status' => $newStatus, 'reason' => $reason],
+            $request->getIp()
+        );
+
+        $updated = $this->hydrateCustomerRow($customerId);
+        Response::success(['customer' => $updated], "Customer account updated to {$newStatus}");
     }
 
     public function creditDebitUser(Request $request): void
@@ -809,15 +1000,7 @@ class AdminController
         Auth::requireRole($request, ['admin', 'superadmin']);
         $customerId = $params['id'] ?? '';
 
-        $user = $this->db->fetchOne(
-            'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.wallet_balance, 
-                    u.kyc_status, u.tier, u.status, u.avatar_url, u.email_verified, u.created_at, u.updated_at,
-                    p.nin, p.bvn, p.address, p.state, p.lga, p.bio
-             FROM users u
-             LEFT JOIN user_profiles p ON p.user_id = u.id
-             WHERE u.id = :id',
-            ['id' => $customerId]
-        );
+        $user = $this->hydrateCustomerRow($customerId);
 
         if (!$user) {
             Response::error('Customer not found.', 404);
@@ -833,18 +1016,21 @@ class AdminController
             'SELECT id, type, amount, balance_before, balance_after, category, reference, gateway, status, description, created_at 
              FROM transactions 
              WHERE user_id = :uid 
-             ORDER BY created_at DESC LIMIT 20',
+             ORDER BY created_at DESC LIMIT 50',
             ['uid' => $customerId]
         );
         foreach ($txns as &$t) {
             $t['amount'] = (float)$t['amount'];
+            $t['balance_before'] = (float)($t['balance_before'] ?? 0);
+            $t['balance_after'] = (float)($t['balance_after'] ?? 0);
+            $t['category'] = $t['category'] ?: 'general';
         }
 
         $verifications = $this->db->fetchAll(
             'SELECT id, type, service_key, search_value, provider, cost, status, reference, slip_type, has_slip, created_at 
              FROM verification_records 
              WHERE user_id = :uid 
-             ORDER BY created_at DESC LIMIT 10',
+             ORDER BY created_at DESC LIMIT 30',
             ['uid' => $customerId]
         );
 
@@ -852,12 +1038,38 @@ class AdminController
             'SELECT id, service_type, network, phone, plan, amount, status, provider_id, provider_ref, created_at 
              FROM telecom_orders 
              WHERE user_id = :uid 
-             ORDER BY created_at DESC LIMIT 10',
+             ORDER BY created_at DESC LIMIT 30',
             ['uid' => $customerId]
         );
 
-        $kyc = $this->db->fetchOne(
-            'SELECT * FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1',
+        $kycSubmissions = $this->db->fetchAll(
+            'SELECT * FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC',
+            ['uid' => $customerId]
+        );
+        $kyc = $kycSubmissions[0] ?? null;
+
+        $supportTickets = $this->db->fetchAll(
+            'SELECT id, ticket_number, subject, COALESCE(NULLIF(category, ""), "general") as category, priority, status, created_at, updated_at
+             FROM support_tickets
+             WHERE user_id = :uid
+             ORDER BY updated_at DESC LIMIT 20',
+            ['uid' => $customerId]
+        );
+
+        $auditLogs = $this->db->fetchAll(
+            'SELECT id, user_id, user_email, action, details, ip_address, created_at
+             FROM audit_logs
+             WHERE user_id = :uid OR details LIKE :uidLike
+             ORDER BY created_at DESC LIMIT 25',
+            ['uid' => $customerId, 'uidLike' => "%{$customerId}%"]
+        );
+
+        $statTotals = $this->db->fetchOne(
+            'SELECT
+                COALESCE(SUM(CASE WHEN type = "credit" AND status = "successful" THEN amount ELSE 0 END), 0) as total_funded,
+                COALESCE(SUM(CASE WHEN type = "debit" AND status = "successful" THEN amount ELSE 0 END), 0) as total_spent,
+                COUNT(*) as tx_count
+             FROM transactions WHERE user_id = :uid',
             ['uid' => $customerId]
         );
 
@@ -869,6 +1081,17 @@ class AdminController
             'verifications' => $verifications,
             'orders' => $orders,
             'kyc' => $kyc,
+            'kyc_submissions' => $kycSubmissions,
+            'support_tickets' => $supportTickets,
+            'auditLogs' => $auditLogs,
+            'stats' => [
+                'total_funded' => (float)($statTotals['total_funded'] ?? 0),
+                'total_spent' => (float)($statTotals['total_spent'] ?? 0),
+                'tx_count' => (int)($statTotals['tx_count'] ?? count($txns)),
+                'orders_count' => count($orders),
+                'verifications_count' => count($verifications),
+                'tickets_count' => count($supportTickets),
+            ],
         ]);
     }
 
@@ -878,19 +1101,47 @@ class AdminController
         $customerId = $params['id'] ?? '';
         $body = $request->getBody();
 
-        $fullName = trim((string)($body['full_name'] ?? ''));
-        $phoneNumber = trim((string)($body['phone_number'] ?? ''));
-        $tier = isset($body['tier']) ? (int)$body['tier'] : null;
-        $status = isset($body['status']) ? (string)$body['status'] : null;
+        $existing = $this->db->fetchOne('SELECT * FROM users WHERE id = :id', ['id' => $customerId]);
+        if (!$existing) {
+            Response::error('Customer not found.', 404);
+            return;
+        }
+
+        $fullName = isset($body['full_name']) ? trim((string)$body['full_name']) : null;
+        $email = isset($body['email']) ? strtolower(trim((string)$body['email'])) : null;
+        $phoneNumber = isset($body['phone_number']) ? trim((string)$body['phone_number']) : null;
+        $tier = isset($body['tier']) ? max(1, min(3, (int)$body['tier'])) : null;
+        $kycStatus = isset($body['kyc_status']) ? strtolower(trim((string)$body['kyc_status'])) : null;
+        $status = isset($body['status']) ? strtolower(trim((string)$body['status'])) : null;
+        $newPassword = isset($body['new_password']) ? (string)$body['new_password'] : '';
+
+        $address = $body['address'] ?? $body['residential_address'] ?? null;
+        $state = $body['state'] ?? null;
+        $lga = $body['lga'] ?? null;
+        $dob = $body['date_of_birth'] ?? $body['dob'] ?? null;
+        $nin = isset($body['nin']) ? preg_replace('/\D/', '', (string)$body['nin']) : null;
+        $bvn = isset($body['bvn']) ? preg_replace('/\D/', '', (string)$body['bvn']) : null;
+        $bio = $body['bio'] ?? null;
 
         $updates = [];
         $paramsDb = ['id' => $customerId];
 
-        if (!empty($fullName)) {
+        if ($fullName !== null && $fullName !== '') {
             $updates[] = 'full_name = :fn';
             $paramsDb['fn'] = $fullName;
         }
-        if (!empty($phoneNumber)) {
+        if ($email !== null && $email !== '' && $email !== strtolower((string)$existing['email'])) {
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                Response::error('Invalid email address format.', 422);
+            }
+            $dup = $this->db->fetchOne('SELECT id FROM users WHERE LOWER(email) = :e AND id != :id', ['e' => $email, 'id' => $customerId]);
+            if ($dup) {
+                Response::error('Another account already uses this email address.', 409);
+            }
+            $updates[] = 'email = :em';
+            $paramsDb['em'] = $email;
+        }
+        if ($phoneNumber !== null && $phoneNumber !== '') {
             $updates[] = 'phone_number = :pn';
             $paramsDb['pn'] = $phoneNumber;
         }
@@ -898,23 +1149,169 @@ class AdminController
             $updates[] = 'tier = :tr';
             $paramsDb['tr'] = $tier;
         }
+        if ($kycStatus !== null && in_array($kycStatus, ['unverified', 'pending', 'verified', 'rejected'], true)) {
+            $updates[] = 'kyc_status = :ks';
+            $paramsDb['ks'] = $kycStatus;
+        }
         if ($status !== null && in_array($status, ['active', 'suspended'], true)) {
             $updates[] = 'status = :st';
             $paramsDb['st'] = $status;
         }
-
-        if (empty($updates)) {
-            Response::error('No valid fields provided for update.', 422);
-            return;
+        if ($newPassword !== '') {
+            if (strlen($newPassword) < 8) {
+                Response::error('New password must be at least 8 characters long.', 422);
+            }
+            $updates[] = 'password_hash = :ph';
+            $paramsDb['ph'] = Security::hashPassword($newPassword);
         }
 
-        $updates[] = 'updated_at = NOW()';
-        $sql = 'UPDATE users SET ' . implode(', ', $updates) . ' WHERE id = :id';
-        $this->db->execute($sql, $paramsDb);
+        if ($nin !== null && $nin !== '' && !preg_match('/^\d{11}$/', $nin)) {
+            Response::error('NIN must be exactly 11 numeric digits.', 422);
+        }
+        if ($bvn !== null && $bvn !== '' && !preg_match('/^\d{11}$/', $bvn)) {
+            Response::error('BVN must be exactly 11 numeric digits.', 422);
+        }
 
-        $updated = $this->db->fetchOne('SELECT id, full_name, email, phone_number, role, wallet_balance, kyc_status, tier, status FROM users WHERE id = :id', ['id' => $customerId]);
+        if (!empty($updates)) {
+            $updates[] = 'updated_at = NOW()';
+            $sql = 'UPDATE users SET ' . implode(', ', $updates) . ' WHERE id = :id';
+            $this->db->execute($sql, $paramsDb);
+            if ($tier !== null) {
+                try {
+                    $this->db->execute('UPDATE users SET kyc_level = :kl WHERE id = :id', ['kl' => $tier, 'id' => $customerId]);
+                } catch (Throwable) {
+                }
+            }
+        }
 
+        // Update user_profiles if any profile/KYC fields provided
+        if ($address !== null || $state !== null || $lga !== null || $dob !== null || $nin !== null || $bvn !== null || $bio !== null) {
+            $existingProfile = $this->db->fetchOne('SELECT * FROM user_profiles WHERE user_id = :uid', ['uid' => $customerId]);
+            $pAddr = $address !== null ? trim((string)$address) : ($existingProfile['address'] ?? null);
+            $pState = $state !== null ? trim((string)$state) : ($existingProfile['state'] ?? null);
+            $pLga = $lga !== null ? trim((string)$lga) : ($existingProfile['lga'] ?? null);
+            $pDob = $dob !== null ? (trim((string)$dob) ?: null) : ($existingProfile['date_of_birth'] ?? null);
+            $pNin = $nin !== null ? ($nin ?: null) : ($existingProfile['nin'] ?? null);
+            $pBvn = $bvn !== null ? ($bvn ?: null) : ($existingProfile['bvn'] ?? null);
+            $pBio = $bio !== null ? trim((string)$bio) : ($existingProfile['bio'] ?? null);
+
+            try {
+                $this->db->execute(
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, bio, date_of_birth, created_at, updated_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :bio, :dob, NOW(), NOW())
+                     ON DUPLICATE KEY UPDATE nin = :nin2, bvn = :bvn2, address = :addr2, state = :st2, lga = :lga2, bio = :bio2, date_of_birth = :dob2, updated_at = NOW()',
+                    [
+                        'uid' => $customerId,
+                        'nin' => $pNin, 'bvn' => $pBvn, 'addr' => $pAddr, 'st' => $pState, 'lga' => $pLga, 'bio' => $pBio, 'dob' => $pDob,
+                        'nin2' => $pNin, 'bvn2' => $pBvn, 'addr2' => $pAddr, 'st2' => $pState, 'lga2' => $pLga, 'bio2' => $pBio, 'dob2' => $pDob,
+                    ]
+                );
+            } catch (Throwable) {
+                $this->db->execute(
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, bio, created_at, updated_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :bio, NOW(), NOW())
+                     ON DUPLICATE KEY UPDATE nin = :nin2, bvn = :bvn2, address = :addr2, state = :st2, lga = :lga2, bio = :bio2, updated_at = NOW()',
+                    [
+                        'uid' => $customerId,
+                        'nin' => $pNin, 'bvn' => $pBvn, 'addr' => $pAddr, 'st' => $pState, 'lga' => $pLga, 'bio' => $pBio,
+                        'nin2' => $pNin, 'bvn2' => $pBvn, 'addr2' => $pAddr, 'st2' => $pState, 'lga2' => $pLga, 'bio2' => $pBio,
+                    ]
+                );
+            }
+        }
+
+        $this->db->execute(
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, :uid, :email, "CUSTOMER_UPDATED", :meta, :ip, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $admin['id'],
+                'email' => $admin['email'],
+                'meta' => json_encode(['customer_id' => $customerId, 'password_changed' => ($newPassword !== ''), 'fields' => array_keys($body)]),
+                'ip' => $request->getIp(),
+            ]
+        );
+
+        $updated = $this->hydrateCustomerRow($customerId);
         Response::success(['customer' => $updated], 'Customer account updated successfully');
+    }
+
+    public function deleteCustomer(Request $request, array $params): void
+    {
+        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $customerId = trim((string)($params['id'] ?? ''));
+        $force = (bool)($request->input('force', false) || $request->query('force', '') === 'true' || $request->query('force', '') === '1');
+
+        if (empty($customerId)) {
+            Response::error('Customer ID is required.', 422);
+        }
+
+        if ($customerId === $admin['id']) {
+            Response::error('You cannot delete your own active administrator session account.', 403);
+        }
+
+        $target = $this->db->fetchOne('SELECT u.*, COALESCE(w.balance, u.wallet_balance, 0) as live_balance FROM users u LEFT JOIN wallets w ON w.user_id = u.id WHERE u.id = :id', ['id' => $customerId]);
+        if (!$target) {
+            Response::error('Customer account not found.', 404);
+        }
+
+        if (in_array(strtolower((string)$target['role']), ['superadmin', 'admin'], true)) {
+            Response::error('Administrator accounts cannot be deleted from Customer Management.', 403);
+        }
+
+        $balance = (float)($target['live_balance'] ?? 0);
+        if ($balance > 0 && !$force) {
+            Response::error('Customer has a positive wallet balance of ₦' . number_format($balance, 2) . '. Debit the wallet first or confirm forced deletion.', 409);
+        }
+
+        $this->db->withTransaction(function (Database $db) use ($customerId, $target) {
+            $ticketRows = $db->fetchAll('SELECT id FROM support_tickets WHERE user_id = :uid', ['uid' => $customerId]);
+            foreach ($ticketRows as $tr) {
+                $db->execute('DELETE FROM support_replies WHERE ticket_id = :tid', ['tid' => $tr['id']]);
+            }
+            $db->execute('DELETE FROM support_replies WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM support_tickets WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM manual_funding_requests WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM telecom_orders WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM verification_records WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM kyc_submissions WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM transactions WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM wallets WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM user_profiles WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM notifications WHERE user_id = :uid', ['uid' => $customerId]);
+            if (!empty($target['email'])) {
+                $db->execute('DELETE FROM password_resets WHERE email = :em', ['em' => strtolower((string)$target['email'])]);
+            }
+            $db->execute('DELETE FROM users WHERE id = :uid', ['uid' => $customerId]);
+        });
+
+        $this->db->execute(
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, :uid, :email, "CUSTOMER_DELETED", :meta, :ip, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $admin['id'],
+                'email' => $admin['email'],
+                'meta' => json_encode(['deleted_id' => $customerId, 'deleted_email' => $target['email'], 'deleted_name' => $target['full_name'], 'balance_at_delete' => $balance]),
+                'ip' => $request->getIp(),
+            ]
+        );
+
+        FootprintService::record(
+            'admin',
+            'CUSTOMER_DELETED',
+            $admin,
+            'customer_management',
+            $customerId,
+            null,
+            'successful',
+            $balance,
+            null,
+            ['deleted_email' => $target['email'], 'deleted_name' => $target['full_name']],
+            $request->getIp()
+        );
+
+        Response::success(['deleted_id' => $customerId], "Customer account {$target['email']} permanently deleted.");
     }
 
     public function customerWalletAdjust(Request $request, array $params): void
@@ -965,21 +1362,49 @@ class AdminController
     {
         $admin = Auth::requireRole($request, ['admin', 'superadmin']);
         $customerId = $params['id'] ?? '';
-        $status = strtolower((string)$request->input('status', 'verified'));
-        $tier = (int)$request->input('tier', 2);
-        $notes = trim((string)$request->input('notes', 'Reviewed by compliance administrator'));
+        $status = strtolower(trim((string)$request->input('status', 'verified')));
+        $tier = max(1, min(3, (int)$request->input('tier', $status === 'verified' ? 2 : 1)));
+        $notes = trim((string)($request->input('review_notes') ?? $request->input('notes', 'Reviewed by compliance administrator')));
+
+        if (!in_array($status, ['verified', 'rejected', 'pending'], true)) {
+            Response::error('Invalid KYC decision status.', 422);
+        }
+
+        $existing = $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE id = :id', ['id' => $customerId]);
+        if (!$existing) {
+            Response::error('Customer account not found.', 404);
+        }
 
         $this->db->execute(
             'UPDATE users SET kyc_status = :ks, tier = :tier, updated_at = NOW() WHERE id = :id',
             ['ks' => $status, 'tier' => $tier, 'id' => $customerId]
         );
+        try {
+            $this->db->execute('UPDATE users SET kyc_level = :kl WHERE id = :id', ['kl' => $tier, 'id' => $customerId]);
+        } catch (Throwable) {
+        }
 
         $this->db->execute(
             'UPDATE kyc_submissions SET status = :ks, review_notes = :notes, reviewed_by = :adm, reviewed_at = NOW() WHERE user_id = :id',
             ['ks' => $status, 'notes' => $notes, 'adm' => $admin['email'], 'id' => $customerId]
         );
 
-        Response::success(null, "Customer KYC status updated to {$status}");
+        $this->db->execute(
+            'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+             VALUES (:id, :uid, :title, :msg, :type, 0, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $customerId,
+                'title' => $status === 'verified' ? 'Identity & KYC Approved' : 'KYC Verification Update',
+                'msg' => $status === 'verified'
+                    ? "Your Level {$tier} KYC verification has been approved. Notes: {$notes}"
+                    : "Your KYC status was updated to {$status}. Notes: {$notes}",
+                'type' => $status === 'verified' ? 'success' : 'warning',
+            ]
+        );
+
+        $updated = $this->hydrateCustomerRow($customerId);
+        Response::success(['customer' => $updated], "Customer KYC status updated to {$status}");
     }
 
     public function notifyCustomer(Request $request, array $params): void
@@ -1045,10 +1470,12 @@ class AdminController
             $si['stock'] = (int)$si['stock'];
         }
 
-        $academyCourses = $this->db->fetchAll('SELECT * FROM academy_courses ORDER BY created_at DESC');
+        \HambakTech\Services\AcademyService::ensureSeeded($this->db);
+        $academyCourses = $this->db->fetchAll('SELECT * FROM academy_courses ORDER BY display_order ASC, created_at DESC');
         foreach ($academyCourses as &$ac) {
-            $ac['price'] = (float)$ac['price'];
+            $ac['price'] = $ac['price'] !== null ? (float)$ac['price'] : null;
             $ac['modules_count'] = (int)$ac['modules_count'];
+            $ac['is_available'] = isset($ac['is_available']) ? (bool)$ac['is_available'] : true;
         }
 
         Response::success([
@@ -1129,7 +1556,7 @@ class AdminController
         $rows = $this->db->fetchAll(
             'SELECT s.service_key as `key`, s.name, s.selling_price as price, s.wholesale_cost, 
                     s.provider_id as provider, s.endpoint as endpoint, s.is_active,
-                    COALESCE(c.slug, c.name, "nin_verification") as category, c.name as category_name
+                    COALESCE(c.code, c.name, "nin_verification") as category, c.name as category_name
              FROM service_catalogue s
              LEFT JOIN service_categories c ON c.id = s.category_id
              ORDER BY s.selling_price ASC'
@@ -1451,32 +1878,16 @@ class AdminController
                 }
                 $message = "Paystack API authenticated successfully ({$latency}ms).";
             } elseif ($id === 'flutterwave') {
-                $cfg = file_exists(__DIR__ . '/../config/config.php') ? require __DIR__ . '/../config/config.php' : [];
-                $secret = getenv('FLUTTERWAVE_SECRET_KEY') ?: (!empty($prov['secret_key']) ? (string)$prov['secret_key'] : (!empty($prov['api_key']) ? (string)$prov['api_key'] : (string)($cfg['providers']['flutterwave']['secret_key'] ?? '')));
-                if ($secret === '') {
-                    throw new Exception('Flutterwave Secret Key is not configured.');
-                }
                 $start = microtime(true);
-                $ch = curl_init(rtrim((string)($prov['base_url'] ?: 'https://api.flutterwave.com/v3'), '/') . '/balances/NGN');
-                curl_setopt_array($ch, [
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $secret, 'Accept: application/json'],
-                    CURLOPT_TIMEOUT => 12,
-                    CURLOPT_SSL_VERIFYPEER => true,
-                ]);
-                $raw = curl_exec($ch);
-                $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                $err = curl_error($ch);
-                curl_close($ch);
-                $latency = (int)round((microtime(true) - $start) * 1000);
-                $decoded = is_string($raw) ? json_decode($raw, true) : null;
-                if ($raw === false || $code >= 400 || ($decoded['status'] ?? '') !== 'success') {
-                    $errMsg = is_array($decoded) ? ($decoded['message'] ?? "HTTP {$code}") : ($err ?: "HTTP {$code}");
-                    throw new Exception("Flutterwave error: {$errMsg}");
+                $adapter = new \HambakTech\Adapters\Payment\FlutterwaveAdapter();
+                $testRes = $adapter->testConnection();
+                $latency = (int)($testRes['latency_ms'] ?? round((microtime(true) - $start) * 1000));
+                if (empty($testRes['operational'])) {
+                    throw new Exception((string)($testRes['message'] ?? 'Flutterwave authentication failed.'));
                 }
                 $operational = true;
-                $balance = isset($decoded['data']['available_balance']) ? (float)$decoded['data']['available_balance'] : null;
-                $message = "Flutterwave API authenticated successfully ({$latency}ms).";
+                $balance = isset($testRes['balance']) ? (float)$testRes['balance'] : null;
+                $message = (string)($testRes['message'] ?? "Flutterwave API authenticated successfully ({$latency}ms).");
             } else {
                 $message = "Unknown provider '{$id}'";
             }
@@ -1785,7 +2196,7 @@ class AdminController
         $settings = $storeSettingsSetting ? json_decode($storeSettingsSetting['setting_value'], true) : [
             'coming_soon' => true,
             'store_banner_url' => '',
-            'contact_whatsapp' => '+2348030001122',
+            'contact_whatsapp' => '09155104724',
             'minimum_order_amount' => 5000,
         ];
 
@@ -1802,7 +2213,7 @@ class AdminController
         $settings = $storeSettingsSetting ? json_decode($storeSettingsSetting['setting_value'], true) : [
             'coming_soon' => true,
             'store_banner_url' => '',
-            'contact_whatsapp' => '+2348030001122',
+            'contact_whatsapp' => '09155104724',
             'minimum_order_amount' => 5000,
         ];
         Response::success(['settings' => $settings]);
@@ -1907,7 +2318,7 @@ class AdminController
             'coming_soon' => true,
             'banner_url' => '',
             'enrollment_open' => true,
-            'contact_email' => 'academy@hambaktech.com.ng',
+            'contact_email' => 'hambak901@gmail.com',
         ];
 
         Response::success([
@@ -1924,7 +2335,7 @@ class AdminController
             'coming_soon' => true,
             'banner_url' => '',
             'enrollment_open' => true,
-            'contact_email' => 'academy@hambaktech.com.ng',
+            'contact_email' => 'hambak901@gmail.com',
         ];
         Response::success(['settings' => $settings]);
     }
@@ -2688,7 +3099,7 @@ class AdminController
                 ['wallet', 'wallet', 'My Wallet', 'Instant funding via Card, USSD, Moniepoint & Ledger History', 'Wallet', 'active', 1, null, 3],
                 ['store', 'store', 'Commercial Hardware Store', 'Certified biometric scanners, POS terminals and thermal printers', 'ShoppingBag', 'active', 1, 'Hardware devices catalogue open for pre-orders.', 4],
                 ['digital', 'digital', 'Digital Services', 'Cable TV renewal, electricity token vending and scratch cards', 'Tv', 'active', 1, null, 5],
-                ['academy', 'academy', 'Agency Academy', 'Video training courses and business certification for VTU & NIN agents', 'GraduationCap', 'active', 1, 'Professional agent curriculum in certification.', 6],
+                ['academy', 'academy', 'Digital Training Academy', 'Practical ICT, design, data analysis & software development training courses', 'GraduationCap', 'active', 1, 'Online admissions and student ID verification available.', 6],
                 ['reports', 'reports', 'Reports & Analytics', 'Exportable transaction statements, audit trails, and financial analytics', 'BarChart3', 'active', 1, null, 7],
                 ['transactions', 'transactions', 'Transactions Ledger', 'Real-time immutable double-entry ledger records', 'Clock', 'active', 1, null, 8],
                 ['orders', 'orders', 'Orders & History', 'Live status updates and vendor reference tracking', 'Layers', 'active', 1, null, 9],
@@ -3405,6 +3816,7 @@ class AdminController
 
         // 2. Genuine users whitelist - strictly protected
         $genuineEmails = [
+            'okamaldeen832@gmail.com',
             'ifedayophilip@gmail.com',
             'dakomajid123@gmail.com',
             'uche4039@gmail.com',
@@ -3414,38 +3826,64 @@ class AdminController
             'earr.music@gmaill.com',
             'adebisiabdul96@gmail.com',
             'fatimohmusbau34@gmail.com',
+            'hamohullahaamoda@gmail.com',
+            'fatimohmusbau@gmail.com',
+            'oyemi19@gmail.com',
+            'hambak19@gmail.com',
             'admin@hambaktech.com.ng',
             'hambak901@gmail.com',
         ];
 
+        // Also protect any user with real gateway funding/financial history
+        $gatewayRows = $this->db->fetchAll(
+            'SELECT DISTINCT user_id FROM transactions WHERE gateway IN ("paystack", "flutterwave") AND status = "successful"'
+        );
+        $gatewayUserIds = array_column($gatewayRows, 'user_id');
+
         // 3. Classify users
         $allUsers = $this->db->fetchAll('SELECT id, email, full_name, role FROM users');
         $testUserIds = [];
+        $testEmails = [];
         $deletedList = [];
         $keptList = [];
 
         foreach ($allUsers as $u) {
             $e = strtolower(trim((string)$u['email']));
-            $isGenuine = in_array($e, $genuineEmails, true);
+            $role = strtolower((string)($u['role'] ?? 'customer'));
+            $isWhitelisted = in_array($e, $genuineEmails, true) || $role === 'superadmin' || in_array($u['id'], $gatewayUserIds, true);
 
-            if (!$isGenuine) {
-                $isTestPattern = (
-                    str_contains($e, '@test.hambaktech.com.ng') ||
-                    str_contains($e, '@hambaktest.com') ||
-                    $e === 'customer@hambaktech.com.ng' ||
-                    str_starts_with($e, 'live_vtu_') ||
-                    str_starts_with($e, 'customer_phase6_') ||
-                    str_starts_with($e, 'vtpass_test_')
-                );
-                if (!$isTestPattern && !empty($e)) {
-                    $isGenuine = true;
-                }
-            }
+            $isTestPattern = (
+                str_contains($e, '@test.hambaktech.com.ng') ||
+                str_contains($e, '@hambaktest.com') ||
+                str_ends_with($e, '@example.com') ||
+                $e === 'customer@hambaktech.com.ng' ||
+                $e === 'amina.yusuf.test@gmail.com' ||
+                str_starts_with($e, 'live_vtu_') ||
+                str_starts_with($e, 'customer_phase6_') ||
+                str_starts_with($e, 'vtpass_test_') ||
+                str_starts_with($e, 'audit_cust_') ||
+                str_starts_with($e, 'audit_staff_') ||
+                str_starts_with($e, 'agent.verified.') ||
+                str_starts_with($e, 'vtpass.customer.') ||
+                str_starts_with($e, 'vtpass_live_') ||
+                str_starts_with($e, 'test_bal_') ||
+                str_starts_with($e, 'debug_') ||
+                str_starts_with($e, 'cust_live_') ||
+                str_starts_with($e, 'cust_test_') ||
+                str_starts_with($e, 'check_dash_') ||
+                str_starts_with($e, 'test_cust_') ||
+                str_starts_with($e, 'testcust_')
+            );
+
+            $isGenuine = $isWhitelisted || (!$isTestPattern && !empty($e));
 
             if ($isGenuine) {
                 $keptList[] = ['id' => $u['id'], 'email' => $e, 'name' => $u['full_name']];
             } else {
                 $testUserIds[] = $u['id'];
+                if ($e !== '') {
+                    $testEmails[] = $e;
+                }
                 $deletedList[] = ['id' => $u['id'], 'email' => $e, 'name' => $u['full_name']];
             }
         }
@@ -3453,17 +3891,40 @@ class AdminController
         // 4. Safely delete test users' records from dependent tables
         if (!empty($testUserIds)) {
             $placeholders = implode(',', array_fill(0, count($testUserIds), '?'));
+            $ticketRows = $this->db->fetchAll("SELECT id FROM support_tickets WHERE user_id IN ($placeholders)", $testUserIds);
+            foreach ($ticketRows as $tr) {
+                $this->db->execute('DELETE FROM support_replies WHERE ticket_id = :tid', ['tid' => $tr['id']]);
+            }
+            $this->db->execute("DELETE FROM support_replies WHERE user_id IN ($placeholders)", $testUserIds);
+            $this->db->execute("DELETE FROM support_tickets WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM transactions WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM wallets WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM manual_funding_requests WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM telecom_orders WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM verification_records WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM kyc_submissions WHERE user_id IN ($placeholders)", $testUserIds);
-            $this->db->execute("DELETE FROM support_replies WHERE user_id IN ($placeholders)", $testUserIds);
-            $this->db->execute("DELETE FROM support_tickets WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM user_profiles WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM notifications WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM users WHERE id IN ($placeholders)", $testUserIds);
+        }
+
+        if (!empty($testEmails)) {
+            $emPlaceholders = implode(',', array_fill(0, count($testEmails), '?'));
+            $this->db->execute("DELETE FROM password_resets WHERE LOWER(email) IN ($emPlaceholders)", $testEmails);
+        }
+
+        // Clean up synthetic/audit support tickets left over from prior automated audits
+        $syntheticTickets = $this->db->fetchAll(
+            'SELECT id FROM support_tickets
+             WHERE subject LIKE "%E2E Automated Audit%"
+                OR subject LIKE "Audit Support%"
+                OR (subject = "Inquiry regarding bulk verification API" AND (category IS NULL OR category = ""))'
+        );
+        $deletedTicketCount = 0;
+        foreach ($syntheticTickets as $st) {
+            $this->db->execute('DELETE FROM support_replies WHERE ticket_id = :tid', ['tid' => $st['id']]);
+            $this->db->execute('DELETE FROM support_tickets WHERE id = :tid', ['tid' => $st['id']]);
+            $deletedTicketCount++;
         }
 
         FootprintService::record(
@@ -3479,6 +3940,7 @@ class AdminController
             [
                 'backup_file' => $backupFilename,
                 'deleted_count' => count($testUserIds),
+                'deleted_test_tickets' => $deletedTicketCount,
                 'preserved_count' => count($keptList),
             ],
             $request->getIp()
@@ -3488,6 +3950,7 @@ class AdminController
             'backup_file' => $backupFilename,
             'deleted_count' => count($testUserIds),
             'deleted_test_users' => count($testUserIds),
+            'deleted_test_tickets' => $deletedTicketCount,
             'deleted_accounts' => $deletedList,
             'preserved_count' => count($keptList),
             'preserved_genuine_count' => count($keptList),
@@ -3652,7 +4115,7 @@ class AdminController
 
     /**
      * POST /api/admin/customers/create
-     * Administrator Create Customer Account with wallet provisioning
+     * Administrator Create Customer Account with mandatory Level 2 KYC & wallet provisioning
      */
     public function createCustomer(Request $request): void
     {
@@ -3660,13 +4123,23 @@ class AdminController
 
         $fullName = trim((string)$request->input('full_name', ''));
         $email = strtolower(trim((string)$request->input('email', '')));
-        $phone = trim((string)$request->input('phone_number', ''));
+        $phone = trim((string)($request->input('phone_number') ?? $request->input('phone', '')));
         $role = strtolower(trim((string)$request->input('role', 'customer')));
         $status = strtolower(trim((string)$request->input('status', 'active')));
         $tier = max(1, min(3, (int)$request->input('tier', 1)));
         $password = (string)$request->input('password', '');
         $initialBalance = max(0, (float)$request->input('initial_balance', 0));
         $notifyCustomer = (bool)$request->input('notify_customer', true);
+
+        // Optional KYC / Profile fields (not required for Level 1 onboarding; required only if Tier 2+ chosen)
+        $dateOfBirth = trim((string)($request->input('date_of_birth') ?? $request->input('dob', '')));
+        $residentialAddress = trim((string)($request->input('residential_address') ?? $request->input('address', '')));
+        $state = trim((string)$request->input('state', ''));
+        $lga = trim((string)$request->input('lga', ''));
+        $idTypeRaw = strtolower(trim((string)$request->input('id_type', 'nin_slip')));
+        $idNumber = trim((string)$request->input('id_number', ''));
+        $nin = preg_replace('/\D/', '', (string)$request->input('nin', ''));
+        $bvn = preg_replace('/\D/', '', (string)$request->input('bvn', ''));
 
         if (empty($fullName) || empty($email) || empty($phone)) {
             Response::error('Full name, email address, and phone number are required.', 422);
@@ -3682,6 +4155,32 @@ class AdminController
 
         if (!in_array($status, ['active', 'pending', 'suspended'], true)) {
             $status = 'active';
+        }
+
+        if (!empty($nin) && !preg_match('/^\d{11}$/', $nin)) {
+            Response::error('NIN must be exactly 11 numeric digits.', 422);
+        }
+        if (!empty($bvn) && !preg_match('/^\d{11}$/', $bvn)) {
+            Response::error('BVN must be exactly 11 numeric digits.', 422);
+        }
+
+        $allowedIdTypes = ['nin_slip', 'drivers_license', 'voters_card', 'international_passport', 'nin', 'bvn'];
+        $idType = in_array($idTypeRaw, $allowedIdTypes, true) ? $idTypeRaw : 'nin_slip';
+        if ($idType === 'nin') $idType = 'nin_slip';
+
+        if (($idType === 'nin_slip' || $idType === 'nin') && empty($nin) && preg_match('/^\d{11}$/', preg_replace('/\D/', '', $idNumber))) {
+            $nin = preg_replace('/\D/', '', $idNumber);
+        }
+        if ($idType === 'bvn' && empty($bvn) && preg_match('/^\d{11}$/', preg_replace('/\D/', '', $idNumber))) {
+            $bvn = preg_replace('/\D/', '', $idNumber);
+        }
+        if (empty($idNumber)) {
+            $idNumber = $nin ?: $bvn;
+        }
+
+        $hasIdentityDocs = !empty($nin) || !empty($bvn) || !empty($idNumber);
+        if (($role === 'customer' || $role === 'agent') && $tier >= 2 && !$hasIdentityDocs) {
+            Response::error('Providing Tier 2+ verified status requires an 11-digit NIN/BVN or official ID number.', 422);
         }
 
         // Duplicate checks
@@ -3700,17 +4199,23 @@ class AdminController
         }
 
         $userId = Security::generateUuid();
+        $kycId = Security::generateUuid();
         $dbRole = in_array($role, ['admin', 'superadmin'], true) ? $role : 'customer';
         $dbStatus = ($status === 'suspended') ? 'suspended' : 'active';
         $emailVerified = ($status === 'active') ? 1 : 0;
+        $kycStatus = ($tier >= 2) ? 'verified' : ($hasIdentityDocs ? 'pending' : 'unverified');
         $passwordHash = Security::hashPassword($password);
         $referralCode = 'HAMBAK-' . strtoupper(substr(md5($email . microtime()), 0, 6));
 
-        $this->db->withTransaction(function (Database $db) use ($userId, $email, $passwordHash, $fullName, $phone, $dbRole, $dbStatus, $tier, $referralCode, $emailVerified, $initialBalance) {
+        $this->db->withTransaction(function (Database $db) use (
+            $userId, $kycId, $email, $passwordHash, $fullName, $phone, $dbRole, $dbStatus, $tier, $kycStatus,
+            $referralCode, $emailVerified, $initialBalance, $admin,
+            $dateOfBirth, $residentialAddress, $state, $lga, $nin, $bvn, $idType, $idNumber
+        ) {
             // 1. Create User
             $db->execute(
                 'INSERT INTO users (id, email, password_hash, full_name, phone_number, role, kyc_status, tier, referral_code, status, email_verified, created_at)
-                 VALUES (:id, :email, :pass, :name, :phone, :role, "unverified", :tier, :ref, :st, :ev, NOW())',
+                 VALUES (:id, :email, :pass, :name, :phone, :role, :ks, :tier, :ref, :st, :ev, NOW())',
                 [
                     'id' => $userId,
                     'email' => $email,
@@ -3718,17 +4223,103 @@ class AdminController
                     'name' => $fullName,
                     'phone' => $phone,
                     'role' => $dbRole,
+                    'ks' => $kycStatus,
                     'tier' => $tier,
                     'ref' => $referralCode,
                     'st' => $dbStatus,
                     'ev' => $emailVerified,
                 ]
             );
+            try {
+                $db->execute('UPDATE users SET kyc_level = :kl WHERE id = :id', ['kl' => $tier, 'id' => $userId]);
+            } catch (Throwable) {
+            }
 
-            // 2. Profile
-            $db->execute('INSERT INTO user_profiles (user_id, created_at) VALUES (:uid, NOW())', ['uid' => $userId]);
+            // 2. Profile with Level 2 KYC data
+            try {
+                $db->execute(
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, created_at, updated_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, NOW(), NOW())',
+                    [
+                        'uid' => $userId,
+                        'nin' => $nin ?: null,
+                        'bvn' => $bvn ?: null,
+                        'addr' => $residentialAddress ?: null,
+                        'st' => $state ?: null,
+                        'lga' => $lga ?: null,
+                        'dob' => $dateOfBirth ?: null,
+                    ]
+                );
+            } catch (Throwable) {
+                $db->execute(
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, created_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, NOW())',
+                    [
+                        'uid' => $userId,
+                        'nin' => $nin ?: null,
+                        'bvn' => $bvn ?: null,
+                        'addr' => $residentialAddress ?: null,
+                        'st' => $state ?: null,
+                        'lga' => $lga ?: null,
+                    ]
+                );
+            }
 
-            // 3. Wallet
+            // 3. Level 2 KYC Submission Record
+            if (!empty($nin) || !empty($bvn) || !empty($idNumber)) {
+                $historyEntry = [[
+                    'action' => $kycStatus === 'verified' ? 'approved' : 'submitted',
+                    'status' => $kycStatus,
+                    'by' => $admin['email'],
+                    'notes' => 'Level 2 KYC recorded during administrator onboarding.',
+                    'timestamp' => date('c'),
+                ]];
+                try {
+                    $db->execute(
+                        'INSERT INTO kyc_submissions
+                         (id, user_id, target_level, verification_method, full_legal_name, date_of_birth,
+                          phone_number, email, residential_address, state, lga, nin, bvn, id_type, id_number,
+                          consent_obtained, consent_timestamp, status, review_notes, reviewed_by, reviewed_at, review_history, submitted_at, created_at)
+                         VALUES
+                         (:id, :uid, 2, "manual", :fname, :dob,
+                          :phone, :email, :addr, :st, :lga, :nin, :bvn, :itype, :inum,
+                          1, NOW(), :ks, :notes, :rby, NOW(), :hist, NOW(), NOW())',
+                        [
+                            'id' => $kycId,
+                            'uid' => $userId,
+                            'fname' => $fullName,
+                            'dob' => $dateOfBirth ?: null,
+                            'phone' => $phone,
+                            'email' => $email,
+                            'addr' => $residentialAddress,
+                            'st' => $state,
+                            'lga' => $lga,
+                            'nin' => $nin ?: null,
+                            'bvn' => $bvn ?: null,
+                            'itype' => strtoupper($idType),
+                            'inum' => $idNumber ?: ($nin ?: $bvn),
+                            'ks' => $kycStatus,
+                            'notes' => 'Level 2 KYC recorded during administrator onboarding.',
+                            'rby' => $kycStatus === 'verified' ? $admin['email'] : null,
+                            'hist' => json_encode($historyEntry),
+                        ]
+                    );
+                } catch (Throwable) {
+                    $db->execute(
+                        'INSERT INTO kyc_submissions (id, user_id, id_type, id_number, status, created_at)
+                         VALUES (:id, :uid, :itype, :inum, :ks, NOW())',
+                        [
+                            'id' => $kycId,
+                            'uid' => $userId,
+                            'itype' => strtoupper($idType),
+                            'inum' => $idNumber ?: ($nin ?: $bvn),
+                            'ks' => $kycStatus,
+                        ]
+                    );
+                }
+            }
+
+            // 4. Wallet
             $walletId = Security::generateUuid();
             $db->execute(
                 'INSERT INTO wallets (id, user_id, balance, currency, ledger_version, status, created_at)
@@ -3736,7 +4327,7 @@ class AdminController
                 ['id' => $walletId, 'uid' => $userId, 'bal' => $initialBalance]
             );
 
-            // 4. Initial balance ledger entry if > 0
+            // 5. Initial balance ledger entry if > 0
             if ($initialBalance > 0) {
                 $ref = 'ADM-ALLOC-' . strtoupper(substr(md5(uniqid()), 0, 10));
                 $db->execute(
@@ -3752,32 +4343,94 @@ class AdminController
                 );
             }
 
-            // 5. Welcome notification
+            // 6. Welcome notification
             $db->execute(
                 'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                 VALUES (:id, :uid, "Account Provisioned by Administrator", "Your HambakTech Enterprise portal account is ready. Log in to access automated identity slips and digital utilities.", "success", 0, NOW())',
-                ['id' => Security::generateUuid(), 'uid' => $userId]
+                 VALUES (:id, :uid, "Account Provisioned by Administrator", :msg, "success", 0, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $userId,
+                    'msg' => $tier >= 2
+                        ? 'Your HAMBAKTECH Enterprise portal account is ready with Level 2 KYC active.'
+                        : 'Your HAMBAKTECH Enterprise portal account is ready at KYC Level 1. Complete Level 2 KYC anytime in Identity & KYC to unlock higher limits.',
+                ]
             );
         });
+
+        // 7. Admin notification & email alert for new registration
+        $nowStr = date('Y-m-d H:i:s');
+        try {
+            $superAdmins = $this->db->fetchAll(
+                'SELECT id FROM users WHERE role IN ("superadmin", "admin") AND status = "active"'
+            );
+            foreach ($superAdmins as $sa) {
+                $this->db->execute(
+                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, action_link, created_at)
+                     VALUES (:id, :uid, :title, :msg, "alert", 0, "#admin", NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'uid' => $sa['id'],
+                        'title' => "New Customer Provisioned (KYC Level {$tier}): {$fullName}",
+                        'msg' => "Customer {$fullName} ({$email}, {$phone}) was registered by {$admin['email']} at {$nowStr}. KYC Status: {$kycStatus}.",
+                    ]
+                );
+            }
+        } catch (Throwable $e) {
+            error_log('[createCustomer Admin Notification DB Error] ' . $e->getMessage());
+        }
+
+        try {
+            $adminEmailSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "admin_notification_email"');
+            $decodedSetting = $adminEmailSetting ? json_decode($adminEmailSetting['setting_value'], true) : null;
+            $adminEmail = is_string($decodedSetting) ? $decodedSetting : ($adminEmailSetting['setting_value'] ?? null);
+            if (empty($adminEmail) || !filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
+                $adminEmail = 'admin@hambaktech.com.ng';
+            }
+
+            $mailService = new MailService();
+            $safeName = htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8');
+            $locationText = trim(implode(', ', array_filter([$residentialAddress, $lga, $state])));
+            $safeLocation = $locationText !== '' ? htmlspecialchars($locationText, ENT_QUOTES, 'UTF-8') : 'Not provided (KYC Level 1)';
+            $adminAlertHtml = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;'>
+                <div style='background: #1d4ed8; color: #ffffff; padding: 16px 20px; border-radius: 8px 8px 0 0;'>
+                    <h2 style='margin: 0; font-size: 18px;'>New Customer Account Provisioned (KYC Level {$tier})</h2>
+                </div>
+                <div style='padding: 20px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;'>
+                    <p>A new customer account (KYC Level {$tier}) was created by <strong>{$admin['email']}</strong>.</p>
+                    <table style='width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px;'>
+                        <tr><td style='padding: 6px 0; color: #64748b;'><strong>Name:</strong></td><td>{$safeName}</td></tr>
+                        <tr><td style='padding: 6px 0; color: #64748b;'><strong>Email:</strong></td><td>{$email}</td></tr>
+                        <tr><td style='padding: 6px 0; color: #64748b;'><strong>Phone:</strong></td><td>{$phone}</td></tr>
+                        <tr><td style='padding: 6px 0; color: #64748b;'><strong>Location:</strong></td><td>{$safeLocation}</td></tr>
+                        <tr><td style='padding: 6px 0; color: #64748b;'><strong>Tier / KYC:</strong></td><td>Level {$tier} ({$kycStatus})</td></tr>
+                        <tr><td style='padding: 6px 0; color: #64748b;'><strong>Timestamp:</strong></td><td>{$nowStr} (WAT)</td></tr>
+                    </table>
+                </div>
+            </div>";
+            $mailService->send($adminEmail, 'Administrator', "[HAMBAKTECH] New Customer Provisioned (KYC Level {$tier}): {$fullName}", $adminAlertHtml);
+        } catch (Throwable $e) {
+            error_log('[createCustomer Admin Email Error] ' . $e->getMessage());
+        }
 
         if ($notifyCustomer) {
             try {
                 $mailService = new MailService();
                 $body = "
                 <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;'>
-                    <h2 style='color: #4f46e5;'>Welcome to HambakTech Enterprise</h2>
+                    <h2 style='color: #1d4ed8;'>Welcome to HAMBAKTECH Enterprise</h2>
                     <p>Dear <strong>{$fullName}</strong>,</p>
                     <p>Your enterprise customer account has been created by our administration team.</p>
                     <div style='background: #f8fafc; padding: 16px; border-radius: 8px; margin: 20px 0;'>
                         <p style='margin: 4px 0;'><strong>Login Email:</strong> {$email}</p>
                         <p style='margin: 4px 0;'><strong>Temporary Password:</strong> <code style='background: #e2e8f0; padding: 2px 6px; border-radius: 4px;'>{$password}</code></p>
-                        <p style='margin: 4px 0;'><strong>Account Tier:</strong> Tier {$tier}</p>
+                        <p style='margin: 4px 0;'><strong>Account Tier:</strong> KYC Level {$tier} ({$kycStatus})</p>
                         <p style='margin: 4px 0;'><strong>Initial Wallet Balance:</strong> ₦" . number_format($initialBalance, 2) . "</p>
                     </div>
-                    <p><a href='https://hambaktech.com.ng/' style='display: inline-block; padding: 10px 20px; background: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;'>Login to Portal</a></p>
+                    <p><a href='https://hambaktech.com.ng/#login' style='display: inline-block; padding: 10px 20px; background: #1d4ed8; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;'>Login to Portal</a></p>
                     <p style='font-size: 12px; color: #64748b; margin-top: 24px;'>Please change your password immediately after your first sign in.</p>
                 </div>";
-                $mailService->send($email, $fullName, 'Your HambakTech Portal Account Credentials', $body);
+                $mailService->send($email, $fullName, 'Your HAMBAKTECH Portal Account Credentials', $body);
             } catch (Throwable $e) {
                 error_log('[createCustomer Mail Error] ' . $e->getMessage());
             }
@@ -3793,19 +4446,20 @@ class AdminController
             'successful',
             $initialBalance,
             null,
-            ['created_email' => $email, 'role' => $dbRole, 'tier' => $tier],
+            ['created_email' => $email, 'role' => $dbRole, 'tier' => $tier, 'kyc_status' => $kycStatus],
             $request->getIp()
         );
 
-        $created = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, status, tier, created_at FROM users WHERE id = :id', ['id' => $userId]);
-        $created['wallet_balance'] = $initialBalance;
-        $created['generated_password'] = $password;
+        $created = $this->hydrateCustomerRow($userId);
+        if ($created) {
+            $created['generated_password'] = $password;
+        }
 
         Response::success([
             'customer' => $created,
             'user' => $created,
             'wallet' => ['balance' => $initialBalance],
-        ], 'Customer account created successfully.', 201);
+        ], "Customer account created successfully at KYC Level {$tier}.", 201);
     }
 
     /**
@@ -3858,10 +4512,10 @@ class AdminController
             }
 
             $ext = $allowedMimes[$mime];
-            $uploadDir = HAMBAKTECH_ROOT . '/../uploads/logos';
-            if (!is_dir($uploadDir)) {
-                $uploadDir = HAMBAKTECH_ROOT . '/uploads/logos';
-            }
+            $parentUploads = dirname(HAMBAKTECH_ROOT) . '/uploads';
+            $uploadDir = is_dir($parentUploads)
+                ? ($parentUploads . '/logos')
+                : (HAMBAKTECH_ROOT . '/uploads/logos');
             if (!is_dir($uploadDir)) {
                 mkdir($uploadDir, 0755, true);
             }
@@ -3883,7 +4537,7 @@ class AdminController
         $existing = $this->db->fetchOne('SELECT id FROM website_branding LIMIT 1');
         if (!$existing) {
             $this->db->execute(
-                'INSERT INTO website_branding (id, company_name, logo_url, updated_at) VALUES (:id, "HambakTech Enterprise", :url, NOW())',
+                'INSERT INTO website_branding (id, company_name, logo_url, updated_at) VALUES (:id, "HAMBAK TECH & SERVICES", :url, NOW())',
                 ['id' => Security::generateUuid(), 'url' => $finalUrl]
             );
         } else {
@@ -3929,12 +4583,12 @@ class AdminController
     {
         $admin = Auth::requireRole($request, ['admin', 'superadmin']);
 
-        $defaultLogo = '/logo.svg';
+        $defaultLogo = '/logo.png';
 
         $existing = $this->db->fetchOne('SELECT id FROM website_branding LIMIT 1');
         if (!$existing) {
             $this->db->execute(
-                'INSERT INTO website_branding (id, company_name, logo_url, updated_at) VALUES (:id, "HambakTech Enterprise", :url, NOW())',
+                'INSERT INTO website_branding (id, company_name, logo_url, updated_at) VALUES (:id, "HAMBAK TECH & SERVICES", :url, NOW())',
                 ['id' => Security::generateUuid(), 'url' => $defaultLogo]
             );
         } else {

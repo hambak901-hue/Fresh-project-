@@ -55,7 +55,8 @@ class SmtpTransport
         string $subject,
         string $htmlBody,
         string $textBody = '',
-        ?string $replyTo = null
+        ?string $replyTo = null,
+        ?string $envelopeFrom = null
     ): array {
         $this->transcript = [];
         $socket = null;
@@ -119,7 +120,7 @@ class SmtpTransport
                 // Fallback to HELO
                 $helo = $this->sendCommand($socket, "HELO {$clientHost}");
                 if ($helo['code'] !== 250) {
-                    throw new RuntimeException("SMTP handshake failed: {$ehlo['text']}");
+                    throw new RuntimeException("SMTP handshake failed: {$helo['text']}");
                 }
             }
 
@@ -176,10 +177,25 @@ class SmtpTransport
                 }
             }
 
-            // 6. MAIL FROM
-            $mailFromResp = $this->sendCommand($socket, "MAIL FROM:<{$fromEmail}>");
+            // 6. MAIL FROM (with authenticated-user envelope fallback if server restricts MAIL FROM)
+            $envelopeSender = (!empty($envelopeFrom) && filter_var($envelopeFrom, FILTER_VALIDATE_EMAIL))
+                ? $envelopeFrom
+                : $fromEmail;
+            $mailFromResp = $this->sendCommand($socket, "MAIL FROM:<{$envelopeSender}>");
             if ($mailFromResp['code'] !== 250) {
-                throw new RuntimeException("SMTP MAIL FROM failed: {$mailFromResp['text']}");
+                if (
+                    !empty($this->username)
+                    && filter_var($this->username, FILTER_VALIDATE_EMAIL)
+                    && strtolower($this->username) !== strtolower($envelopeSender)
+                ) {
+                    $this->sendCommand($socket, 'RSET');
+                    $fallbackResp = $this->sendCommand($socket, "MAIL FROM:<{$this->username}>");
+                    if ($fallbackResp['code'] !== 250) {
+                        throw new RuntimeException("SMTP MAIL FROM failed: {$fallbackResp['text']}");
+                    }
+                } else {
+                    throw new RuntimeException("SMTP MAIL FROM failed: {$mailFromResp['text']}");
+                }
             }
 
             // 7. RCPT TO
@@ -300,8 +316,18 @@ class SmtpTransport
     ): string {
         $boundary = '=_hambak_' . md5(uniqid((string)microtime(true), true));
         $date = date('r');
-        $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
-        $encodedFromName = !empty($fromName) ? '=?UTF-8?B?' . base64_encode($fromName) . '?= ' : '';
+        $encodedSubject = preg_match('/^[\x20-\x7E]+$/', $subject)
+            ? str_replace(["\r", "\n"], '', $subject)
+            : ('=?UTF-8?B?' . base64_encode($subject) . '?=');
+
+        $cleanFromName = trim(str_replace(["\r", "\n", '"'], ['', '', "'"], $fromName));
+        if ($cleanFromName === '') {
+            $fromHeader = "<{$fromEmail}>";
+        } elseif (preg_match('/^[\x20-\x7E]+$/', $cleanFromName)) {
+            $fromHeader = "\"{$cleanFromName}\" <{$fromEmail}>";
+        } else {
+            $fromHeader = '=?UTF-8?B?' . base64_encode($cleanFromName) . '?= ' . "<{$fromEmail}>";
+        }
 
         if (empty($textBody)) {
             $textBody = strip_tags(preg_replace('/<br\s*\/?>/i', "\n", $htmlBody));
@@ -309,7 +335,7 @@ class SmtpTransport
 
         $headers = [];
         $headers[] = "Date: {$date}";
-        $headers[] = "From: {$encodedFromName}<{$fromEmail}>";
+        $headers[] = "From: {$fromHeader}";
         $headers[] = "To: <{$toEmail}>";
         if (!empty($replyTo) && filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
             $headers[] = "Reply-To: <{$replyTo}>";

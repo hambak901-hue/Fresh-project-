@@ -252,6 +252,11 @@ class VerificationController
 
             $resultData = $providerResult['data'] ?? $providerResult;
             $actualProviderCost = (float)($providerResult['provider_cost'] ?? $wholesaleCost);
+            $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+            $customerSafeResult = $resultData;
+            if (!$isAdmin && is_array($customerSafeResult)) {
+                unset($customerSafeResult['provider'], $customerSafeResult['provider_id'], $customerSafeResult['provider_cost'], $customerSafeResult['wholesale_cost'], $customerSafeResult['raw_error'], $customerSafeResult['endpoint'], $customerSafeResult['api_url']);
+            }
 
             // 4. Save to verification_records
             $this->db->execute(
@@ -299,8 +304,8 @@ class VerificationController
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
                 'slip_type' => $slipType,
-                'data' => $resultData,
-                'result' => $resultData,
+                'data' => $customerSafeResult,
+                'result' => $customerSafeResult,
                 'service' => [
                     'key' => $serviceKey,
                     'name' => $service['name'],
@@ -392,7 +397,11 @@ class VerificationController
             }
             $r['has_slip'] = (bool)$r['has_slip'];
             if (!empty($r['result']) && is_string($r['result'])) {
-                $r['result'] = json_decode($r['result'], true);
+                $decodedRes = json_decode($r['result'], true);
+                if (!$isAdmin && is_array($decodedRes)) {
+                    unset($decodedRes['provider'], $decodedRes['provider_id'], $decodedRes['provider_cost'], $decodedRes['wholesale_cost'], $decodedRes['raw_error'], $decodedRes['endpoint'], $decodedRes['api_url']);
+                }
+                $r['result'] = $decodedRes;
             }
         }
 
@@ -487,10 +496,14 @@ class VerificationController
         }
 
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
-            $record['result'] = json_decode($record['result_data'], true);
+            $decodedRes = json_decode($record['result_data'], true);
+            if (!$isAdmin && is_array($decodedRes)) {
+                unset($decodedRes['provider'], $decodedRes['provider_id'], $decodedRes['provider_cost'], $decodedRes['wholesale_cost'], $decodedRes['raw_error'], $decodedRes['endpoint'], $decodedRes['api_url']);
+            }
+            $record['result'] = $decodedRes;
         }
         if (!$isAdmin) {
-            unset($record['provider'], $record['provider_cost']);
+            unset($record['provider'], $record['provider_cost'], $record['result_data']);
         }
 
         Response::success([
@@ -519,10 +532,14 @@ class VerificationController
         $record['cost'] = (float)$record['cost'];
         $record['has_slip'] = (bool)$record['has_slip'];
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
-            $record['result'] = json_decode($record['result_data'], true);
+            $decodedRes = json_decode($record['result_data'], true);
+            if (!$isAdmin && is_array($decodedRes)) {
+                unset($decodedRes['provider'], $decodedRes['provider_id'], $decodedRes['provider_cost'], $decodedRes['wholesale_cost'], $decodedRes['raw_error'], $decodedRes['endpoint'], $decodedRes['api_url']);
+            }
+            $record['result'] = $decodedRes;
         }
         if (!$isAdmin) {
-            unset($record['provider'], $record['provider_cost']);
+            unset($record['provider'], $record['provider_cost'], $record['result_data']);
         } else {
             $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
         }

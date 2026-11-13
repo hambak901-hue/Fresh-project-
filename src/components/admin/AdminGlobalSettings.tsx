@@ -40,25 +40,25 @@ export const AdminGlobalSettings: React.FC = () => {
   // Settings State grouped by category
   const [settings, setSettings] = useState<Record<string, any>>({
     general: {
-      site_name: 'HambakTech Enterprise',
+      site_name: 'HAMBAKTECH',
       support_email: 'support@hambaktech.com.ng',
-      support_phone: '+234 803 000 1122',
+      support_phone: '09127469686',
       timezone: 'Africa/Lagos',
       currency: 'NGN (₦)',
     },
     company: {
-      company_name: 'Hambak Technologies Enterprise',
-      cac_rc_number: 'RC-1849204',
-      head_office_address: 'Plot 14 Commercial Avenue, Ikeja, Lagos State, Nigeria',
+      company_name: 'HAMBAK TECH & SERVICES',
+      cac_rc_number: 'BN 9284726',
+      head_office_address: 'Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria',
       official_email: 'info@hambaktech.com.ng',
-      managing_director: 'Bakar Hambak',
+      managing_director: 'HAMBAK TECH & SERVICES Leadership',
     },
     branding: {
-      brand_color_primary: '#10b981',
-      brand_color_secondary: '#06b6d4',
-      portal_tagline: "Nigeria's Foremost Identity Verification & Telecom Engine",
-      logo_text: 'HambakTech',
-      theme_default: 'dark',
+      brand_color_primary: '#1d4ed8',
+      brand_color_secondary: '#d97706',
+      portal_tagline: 'Where Technology Meets Services',
+      logo_text: 'HAMBAKTECH',
+      theme_default: 'light',
     },
     wallet: {
       min_wallet_funding: 500,

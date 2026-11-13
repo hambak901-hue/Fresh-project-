@@ -34,7 +34,10 @@ class VeripineAdapter implements VerificationAdapterInterface
 
         $envUrl = getenv('VERIPINE_BASE_URL') ?: '';
         $envKey = getenv('VERIPINE_API_KEY') ?: '';
-        $dbUrl = !empty($dbRow['base_url']) && $dbRow['base_url'] !== 'https://api.example.com' ? (string)$dbRow['base_url'] : '';
+        $rawDbUrl = !empty($dbRow['base_url']) ? trim((string)$dbRow['base_url']) : '';
+        $dbUrl = ($rawDbUrl !== '' && !str_contains($rawDbUrl, 'api.example.com') && !str_contains($rawDbUrl, 'api.veripine.com'))
+            ? $rawDbUrl
+            : '';
         $dbKey = !empty($dbRow['api_key']) ? (string)$dbRow['api_key'] : '';
 
         $resolvedUrl = $baseUrl ?: ($dbUrl ?: ($envUrl ?: ($cfg['base_url'] ?? 'https://veripine.com/api')));
