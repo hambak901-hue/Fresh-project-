@@ -1,19 +1,19 @@
 /**
  * @file NinServicesPage.tsx
- * Phase 5 Complete Sovereign Identity Hub.
- * Integrates 2SureVerify as primary provider with official endpoint paths,
- * complete service coverage (NIN V1/V2/V3, Phone V1/V2/V3, Demo V1/V2/V3, VNIN, BVN V1/V2/V3, BVN Retrieval,
- * all 16 NIN modifications, Personalisation 1&2, Adult/Child Enrolment, and 8 Additional Services),
- * printable slips, status polling, and wallet transaction safety with NDPR consent.
+ * Customer NIN & Identity Services Workspace.
+ * Clean, responsive, Light/Dark-mode workflow for NIN Verification (Search Type + Slip Type +
+ * Dynamic Specimen Preview & Pricing + Consent + Verify & Debit Wallet + Authentic Report & PDF/Print),
+ * alongside BVN, Modification, Enrolment, Additional Services, and Verification History.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { useCms } from '../../context/CmsContext';
 import { VerificationRecord, IdentityService, SlipTemplateItem } from '../../types';
 import { IdentitySlipModal } from './IdentitySlipModal';
 import { TransactionPinModal } from './TransactionPinModal';
-import { getInitialsAvatar } from '../../lib/avatar';
+import { downloadVerificationReportPdf, extractVerificationReport } from '../../lib/pdfReport';
 import {
   ShieldCheck,
   Search,
@@ -21,70 +21,79 @@ import {
   AlertCircle,
   Download,
   Printer,
-  User,
-  QrCode,
   ArrowRight,
   RefreshCw,
   FileText,
-  Clock,
-  ChevronRight,
-  ExternalLink,
-  Layers,
-  Sparkles,
   Phone,
-  Calendar,
-  Lock,
-  Building,
   Edit3,
   UserCheck,
   GraduationCap,
   Briefcase,
-  AlertTriangle,
-  RotateCcw,
   Eye,
-  Check,
+  Star,
+  Wallet,
+  Loader2,
+  Lock,
 } from 'lucide-react';
 
 type HubCategory = 'nin_verify' | 'bvn_verify' | 'nin_mod' | 'enrolment' | 'additional' | 'history';
+type NinSearchType = 'nin_v1' | 'phone_v1';
+
+function createIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `idemp_${crypto.randomUUID()}`;
+  }
+  return `idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export const NinServicesPage: React.FC = () => {
   const { user, refreshUser } = useAuth();
+  const { branding } = useCms();
+  const companyName = branding?.company_name || 'HAMBAK TECH & SERVICES';
+
   const [activeCategory, setActiveCategory] = useState<HubCategory>('nin_verify');
   const [services, setServices] = useState<IdentityService[]>([]);
   const [categories, setCategories] = useState<Record<string, IdentityService[]>>({});
-  const [slipTypes, setSlipTypes] = useState<Array<{ id: string; name: string; description: string }>>([]);
   const [slipTemplates, setSlipTemplates] = useState<SlipTemplateItem[]>([]);
   const [previewModalTemplate, setPreviewModalTemplate] = useState<SlipTemplateItem | null>(null);
   const [loadingServices, setLoadingServices] = useState<boolean>(true);
 
-  // Selected Service & Form state
+  // NIN Verification dedicated clean workflow state
+  const [ninSearchType, setNinSearchType] = useState<NinSearchType>('nin_v1');
+  const [ninInputValue, setNinInputValue] = useState<string>('');
+  const [selectedSlipId, setSelectedSlipId] = useState<string>('');
+
+  // Other category services form state
   const [selectedServiceKey, setSelectedServiceKey] = useState<string>('nin_v1');
   const [formData, setFormData] = useState<Record<string, any>>({
     slip_type: 'ninStandard',
     tier: 'basic',
-    gender: 'Female',
+    gender: 'F',
   });
-  const [consentAccepted, setConsentAccepted] = useState<boolean>(true);
-  const [useTestSandbox, setUseTestSandbox] = useState<boolean>(false);
+
+  const [consentAccepted, setConsentAccepted] = useState<boolean>(false);
 
   // Banks for BVN Modification and Enrolment
   const [modBanks, setModBanks] = useState<Array<{ bank_name: string; price: number }>>([]);
   const [enrollBanks, setEnrollBanks] = useState<Array<{ bank_name: string; price: number }>>([]);
 
-  // Execution state
+  // Execution & Idempotency state
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const inFlightRef = useRef<boolean>(false);
+  const idempotencyKeyRef = useRef<string>(createIdempotencyKey());
+
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [verifiedResult, setVerifiedResult] = useState<any | null>(null);
+  const [verifiedRecord, setVerifiedRecord] = useState<any | null>(null);
   const [activeSlipRecord, setActiveSlipRecord] = useState<any | null>(null);
   const [slipModalOpen, setSlipModalOpen] = useState<boolean>(false);
   const [pinModalOpen, setPinModalOpen] = useState<boolean>(false);
+  const [downloadingPdf, setDownloadingPdf] = useState<boolean>(false);
 
   // History state
   const [history, setHistory] = useState<VerificationRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
   const [historySearch, setHistorySearch] = useState<string>('');
-  const [historyCategory, setHistoryCategory] = useState<string>('all');
   const [pollingRef, setPollingRef] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,7 +102,7 @@ export const NinServicesPage: React.FC = () => {
 
   useEffect(() => {
     loadHistory();
-  }, [user, historyCategory, historySearch]);
+  }, [user, historySearch]);
 
   const loadCatalog = async () => {
     try {
@@ -102,13 +111,20 @@ export const NinServicesPage: React.FC = () => {
       if (res.success) {
         setServices(res.services || []);
         setCategories(res.categories || {});
-        setSlipTypes(res.slipTypes || []);
-        if ((res as any).slipTemplates) {
-          setSlipTemplates((res as any).slipTemplates);
-        } else {
-          api.getSlipTemplates().then(st => {
-            if (st?.templates) setSlipTemplates(st.templates);
-          }).catch(() => {});
+        let templates: SlipTemplateItem[] = res.slipTemplates || [];
+        if (templates.length === 0) {
+          const st = await api.getSlipTemplates().catch(() => null);
+          if (st?.templates) templates = st.templates;
+        }
+        setSlipTemplates(templates);
+
+        const activeNinSlips = templates
+          .filter(t => t.category === 'NIN' && t.is_active !== false)
+          .sort((a, b) => a.display_order - b.display_order);
+
+        if (activeNinSlips.length > 0 && !selectedSlipId) {
+          const recommended = activeNinSlips.find(s => s.is_recommended) || activeNinSlips[0];
+          setSelectedSlipId(recommended.id);
         }
       }
     } catch (e) {
@@ -121,15 +137,11 @@ export const NinServicesPage: React.FC = () => {
   const loadHistory = async () => {
     try {
       setHistoryLoading(true);
-      const res = await api.getVerificationHistory(
-        historyCategory === 'all' ? undefined : historyCategory,
-        historySearch.trim() || undefined
-      );
+      const res = await api.getVerificationHistory(undefined, historySearch.trim() || undefined);
       if (res && res.success) {
         setHistory(res.verifications || []);
       }
-    } catch (e) {
-      // Graceful fallback for history loading
+    } catch {
       setHistory([]);
     } finally {
       setHistoryLoading(false);
@@ -140,111 +152,197 @@ export const NinServicesPage: React.FC = () => {
     if (selectedServiceKey === 'bvn_modification' && modBanks.length === 0) {
       api.getBvnModificationBanks().then(res => {
         if (res.success) setModBanks(res.data);
-      });
+      }).catch(() => {});
     }
     if ((selectedServiceKey === 'bvn_enroll_adult' || selectedServiceKey === 'bvn_enroll_child') && enrollBanks.length === 0) {
       api.getBvnEnrollmentBanks().then(res => {
         if (res.success) setEnrollBanks(res.data);
-      });
+      }).catch(() => {});
     }
   }, [selectedServiceKey]);
 
-  // Current selected service object
-  const currentService = services.find(s => s.key === selectedServiceKey) || services[0] || {
-    key: 'nin_v1',
-    name: 'NIN Verification (V1 Standard)',
-    category: 'NIN Verification',
-    price: 200,
-    required_fields: ['nin', 'slip_type'],
-    description: 'Direct NIMC lookup with slip style selection.',
-    slip_type_supported: true,
+  const activeNinSlips = useMemo(() => {
+    return slipTemplates
+      .filter(t => t.category === 'NIN' && t.is_active !== false)
+      .sort((a, b) => a.display_order - b.display_order);
+  }, [slipTemplates]);
+
+  const selectedNinSlip = useMemo(() => {
+    return activeNinSlips.find(s => s.id === selectedSlipId || s.slip_code === selectedSlipId) || activeNinSlips[0] || null;
+  }, [activeNinSlips, selectedSlipId]);
+
+  const activeServiceKey = activeCategory === 'nin_verify' ? ninSearchType : selectedServiceKey;
+
+  const currentService = useMemo(() => {
+    return (
+      services.find(s => s.key === activeServiceKey) ||
+      services[0] || {
+        key: activeServiceKey,
+        name: activeServiceKey === 'phone_v1' ? 'NIN Search via Phone Number' : 'NIN Verification',
+        category: 'nin_verification',
+        price: 200,
+        required_fields: activeServiceKey === 'phone_v1' ? ['phone', 'slip_type'] : ['nin', 'slip_type'],
+        description: 'Verify National Identification Number details.',
+        slip_type_supported: true,
+      }
+    );
+  }, [services, activeServiceKey]);
+
+  const finalCharge = useMemo(() => {
+    if (activeCategory === 'nin_verify') {
+      if (selectedNinSlip?.price !== null && selectedNinSlip?.price !== undefined && Number(selectedNinSlip.price) > 0) {
+        return Number(selectedNinSlip.price);
+      }
+    }
+    return Number((currentService as any).price ?? (currentService as any).selling_price ?? 0);
+  }, [activeCategory, selectedNinSlip, currentService]);
+
+  const walletBalance = Number(user?.wallet_balance ?? 0);
+  const insufficientBalance = walletBalance < finalCharge;
+
+  const resetIdempotency = () => {
+    idempotencyKeyRef.current = createIdempotencyKey();
   };
 
   const handleFieldChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setError(null);
+    resetIdempotency();
   };
 
   const handleSwitchCategory = (cat: HubCategory) => {
     setActiveCategory(cat);
     setError(null);
     setSuccessMessage(null);
+    resetIdempotency();
 
-    // Pick first service in new category
-    if (cat === 'nin_verify') setSelectedServiceKey('nin_v1');
+    if (cat === 'nin_verify') setSelectedServiceKey(ninSearchType);
     if (cat === 'bvn_verify') setSelectedServiceKey('bvn_v1');
     if (cat === 'nin_mod') setSelectedServiceKey('nin_mod_name');
     if (cat === 'enrolment') setSelectedServiceKey('bvn_enroll_adult');
     if (cat === 'additional') setSelectedServiceKey('npc_attestation');
   };
 
-  const handleExecuteService = (e: React.FormEvent) => {
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting || inFlightRef.current) return;
+
     setError(null);
     setSuccessMessage(null);
 
     if (!consentAccepted) {
-      setError('Regulatory compliance: You must confirm that you have obtained authorization from the individual before proceeding.');
+      setError('Please confirm that you have obtained authorization from the individual before submitting.');
       return;
     }
 
-    if (!currentService) return;
-
-    // Client-side field validations
-    for (const field of currentService.required_fields) {
-      if (!formData[field] || String(formData[field]).trim() === '') {
-        setError(`Please enter the required field: "${field.replace(/_/g, ' ').toUpperCase()}"`);
+    if (activeCategory === 'nin_verify') {
+      if (!selectedNinSlip) {
+        setError('No active slip format is currently available. Please contact support.');
+        return;
+      }
+      const digitsOnly = ninInputValue.replace(/\s+/g, '');
+      if (ninSearchType === 'nin_v1') {
+        if (!/^\d{11}$/.test(digitsOnly)) {
+          setError('Please enter a valid 11-digit National Identification Number (NIN).');
+          return;
+        }
+      } else {
+        if (!/^\d{11}$/.test(digitsOnly)) {
+          setError('Please enter a valid 11-digit Nigerian Phone Number (e.g. 08012345678).');
+          return;
+        }
+      }
+      if (insufficientBalance) {
+        setError(`Insufficient wallet balance. Available: ₦${walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}, Required: ₦${finalCharge.toLocaleString('en-NG', { minimumFractionDigits: 2 })}. Please fund your wallet.`);
+        return;
+      }
+    } else {
+      for (const field of currentService.required_fields || []) {
+        if (!formData[field] || String(formData[field]).trim() === '') {
+          setError(`Please complete the required field: ${field.replace(/_/g, ' ').toUpperCase()}.`);
+          return;
+        }
+      }
+      if (formData.nin && !/^\d{11}$/.test(String(formData.nin).trim()) && currentService.key !== 'vnin_verification') {
+        setError('National Identification Number (NIN) must be exactly 11 digits.');
+        return;
+      }
+      if (formData.bvn && !/^\d{11}$/.test(String(formData.bvn).trim())) {
+        setError('Bank Verification Number (BVN) must be exactly 11 digits.');
         return;
       }
     }
 
-    // Numeric length checks for NIN/BVN
-    if (formData.nin && (!/^\d{11}$/.test(formData.nin.trim()) && currentService.key !== 'vnin_verification')) {
-      setError('National Identification Number (NIN) must be exactly 11 numeric digits.');
-      return;
+    if (user?.has_transaction_pin) {
+      setPinModalOpen(true);
+    } else {
+      executeVerification();
     }
-    if (formData.bvn && !/^\d{11}$/.test(formData.bvn.trim())) {
-      setError('Bank Verification Number (BVN) must be exactly 11 numeric digits.');
-      return;
-    }
-
-    // Prompt for 4-digit Transaction PIN before debiting wallet
-    setPinModalOpen(true);
   };
 
-  const executeVerificationWithPin = async () => {
-    if (!currentService) return;
+  const executeVerification = async () => {
+    if (inFlightRef.current || submitting) return;
+    inFlightRef.current = true;
+    setSubmitting(true);
+    setError(null);
+
     try {
-      setSubmitting(true);
+      let targetKey = activeServiceKey;
+      let payload: Record<string, any> = {};
+
+      if (activeCategory === 'nin_verify') {
+        const cleanVal = ninInputValue.replace(/\s+/g, '');
+        targetKey = ninSearchType;
+        payload = {
+          search_type: ninSearchType === 'phone_v1' ? 'phone' : 'nin',
+          nin: ninSearchType === 'nin_v1' ? cleanVal : undefined,
+          phone: ninSearchType === 'phone_v1' ? cleanVal : undefined,
+          slip_type: selectedNinSlip?.slip_code || 'ninStandard',
+          slip_template_id: selectedNinSlip?.id,
+          idempotency_key: idempotencyKeyRef.current,
+        };
+      } else {
+        targetKey = currentService.key;
+        payload = {
+          ...formData,
+          idempotency_key: idempotencyKeyRef.current,
+        };
+      }
+
       const res = await api.executeIdentityService(
-        currentService.key,
-        formData,
+        targetKey,
+        payload,
         consentAccepted,
-        useTestSandbox
+        idempotencyKeyRef.current
       );
 
       if (res.success) {
-        setSuccessMessage(res.message || 'Verification processed successfully.');
-        setVerifiedResult(res.result);
-        setActiveSlipRecord({
+        const recordPayload = {
           data: res.result,
-          service_key: currentService.key,
+          service_key: targetKey,
           type: currentService.category,
-          search_value: formData.nin || formData.bvn || formData.phone || 'Result',
-          created_at: new Date().toISOString(),
-        });
-
-        // Trigger slip modal if slip returned
-        if (currentService.slip_type_supported || res.result?.pdf_base64 || res.result?.has_pdf_slip) {
-          setSlipModalOpen(true);
-        }
+          search_value: activeCategory === 'nin_verify' ? ninInputValue.replace(/\s+/g, '') : (formData.nin || formData.bvn || formData.phone || ''),
+          reference: res.reference,
+          slip_type: res.slip_type || selectedNinSlip?.slip_code,
+          slip_name: res.slip_name || selectedNinSlip?.name,
+          status: 'completed',
+          verified_at: res.verified_at || new Date().toISOString(),
+          created_at: res.verified_at || new Date().toISOString(),
+        };
+        setSuccessMessage(res.message || 'Verification completed successfully.');
+        setVerifiedRecord(recordPayload);
+        setActiveSlipRecord(recordPayload);
+        resetIdempotency();
 
         await refreshUser();
         await loadHistory();
       }
     } catch (err: any) {
-      setError(err.message || 'Verification failed. Please check parameters or available wallet balance.');
+      setError(err?.message || 'Verification could not be completed. Please try again.');
+      await refreshUser().catch(() => {});
+      await loadHistory().catch(() => {});
     } finally {
+      inFlightRef.current = false;
       setSubmitting(false);
     }
   };
@@ -260,75 +358,110 @@ export const NinServicesPage: React.FC = () => {
         setError(res.message || 'Status check returned no update');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to poll reference status');
+      setError(err.message || 'Failed to check verification status');
     } finally {
       setPollingRef(null);
     }
   };
 
+  const handleDirectDownloadPdf = async (recordObj: any) => {
+    if (!recordObj) return;
+    const r = extractVerificationReport(recordObj);
+    if (r.pdfUrl) {
+      window.open(r.pdfUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    setDownloadingPdf(true);
+    try {
+      await downloadVerificationReportPdf(recordObj, companyName);
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const report = verifiedRecord ? extractVerificationReport(verifiedRecord) : null;
+  const reportFields = report
+    ? [
+        { label: 'First Name', value: report.firstName },
+        { label: 'Middle Name', value: report.middleName },
+        { label: 'Surname', value: report.surname },
+        { label: 'NIN Number', value: report.nin, mono: true },
+        { label: 'BVN Number', value: report.bvn, mono: true },
+        { label: 'Date of Birth', value: report.dateOfBirth, mono: true },
+        { label: 'Gender', value: report.gender },
+        { label: 'Phone Number', value: report.phoneNumber, mono: true },
+        { label: 'Residential Address', value: [report.address, report.lga, report.state].filter(Boolean).join(', ') || null },
+        { label: 'Tracking Reference', value: report.trackingId, mono: true },
+      ].filter(item => Boolean(item.value))
+    : [];
+
   return (
-    <div className="space-y-8 font-sans">
-      {/* Page Title & Sovereign Badge */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800">
+    <div className="space-y-6 font-sans">
+      {/* Clean Page Header */}
+      <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+          <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-emerald-400">
             <ShieldCheck className="w-4 h-4" />
-            <span>Sovereign Identity Pipeline (Phase 5)</span>
-            <span className="text-slate-600">&bull;</span>
-            <span className="text-slate-300">Identity Gateway: Verified Direct Pipeline</span>
-            <span className="text-slate-600">&bull;</span>
-            <span className="text-slate-400">High-Availability Failover</span>
+            <span>Identity &amp; Verification Services</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mt-1">
-            NIN &amp; BVN Verification Desk
+          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight mt-1">
+            NIN &amp; Identity Services
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-2xl">
-            Complete integration for National Identity (NIN V1/V2/V3), BVN validation, 16 official modifications, biometrics enrolment, and CAC/NPC digital certificates.
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1 max-w-2xl">
+            Verify National Identification Numbers quickly, select your preferred slip layout, and download or print your verification report.
           </p>
         </div>
 
-        {/* Live Wallet & Sandbox Badge */}
-        <div className="flex items-center gap-3 self-start md:self-auto">
-          <div className="p-3 rounded-2xl bg-slate-900 border border-slate-800 text-right">
-            <span className="text-[10px] text-slate-400 uppercase font-mono block">Available Wallet</span>
-            <span className="text-base font-extrabold font-mono text-emerald-400">
-              ₦{user?.wallet_balance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+        {/* Available Wallet Balance */}
+        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm self-start sm:self-auto">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+            <Wallet className="w-4 h-4" />
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold tracking-wider block">
+              Available Wallet Balance
+            </span>
+            <span className="text-base sm:text-lg font-extrabold font-mono text-emerald-700 dark:text-emerald-400 tabular-nums">
+              ₦{walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
             </span>
           </div>
         </div>
       </div>
 
       {/* Category Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-slate-800 text-xs">
+      <div className="no-print flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-200 dark:border-slate-800 text-xs">
         {[
-          { id: 'nin_verify', label: '1. NIN Verification', icon: ShieldCheck, badge: 'V1/V2/V3' },
-          { id: 'bvn_verify', label: '2. BVN Verification', icon: UserCheck, badge: 'Retrieval' },
-          { id: 'nin_mod', label: '3. NIN Modification', icon: Edit3, badge: '16 Services' },
-          { id: 'enrolment', label: '4. Enrolment & Personalisation', icon: GraduationCap },
-          { id: 'additional', label: '5. Additional Digital Services', icon: Briefcase, badge: 'NPC/CAC/TIN' },
-          { id: 'history', label: '6. Records & Slip Vault', icon: FileText, badge: `${history.length}` },
+          { id: 'nin_verify', label: 'NIN Verification', icon: ShieldCheck },
+          { id: 'bvn_verify', label: 'BVN Verification', icon: UserCheck },
+          { id: 'nin_mod', label: 'NIN Modification', icon: Edit3 },
+          { id: 'enrolment', label: 'Enrolment', icon: GraduationCap },
+          { id: 'additional', label: 'Additional Services', icon: Briefcase },
+          { id: 'history', label: 'Verification History', icon: FileText, count: history.length },
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeCategory === tab.id;
           return (
             <button
               key={tab.id}
+              type="button"
               onClick={() => handleSwitchCategory(tab.id as HubCategory)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold whitespace-nowrap transition-all ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold whitespace-nowrap transition-all shrink-0 ${
                 isActive
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-bold'
-                  : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                  : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
               }`}
             >
               <Icon className="w-4 h-4" />
               <span>{tab.label}</span>
-              {tab.badge && (
+              {typeof tab.count === 'number' && (
                 <span
-                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${
-                    isActive ? 'bg-slate-950 text-emerald-300' : 'bg-slate-800 text-slate-400'
+                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                    isActive
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                   }`}
                 >
-                  {tab.badge}
+                  {tab.count}
                 </span>
               )}
             </button>
@@ -336,711 +469,723 @@ export const NinServicesPage: React.FC = () => {
         })}
       </div>
 
-      {/* Main Category Workspace */}
+      {/* Main Workspace */}
       {activeCategory !== 'history' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left Column: Service Selector & Form */}
-          <div className="lg:col-span-5 rounded-3xl bg-slate-900 border border-slate-800 p-6 space-y-6">
-            <div>
-              <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold">
-                {currentService.category}
-              </span>
-              <h2 className="text-lg font-bold text-white mt-0.5">{currentService.name}</h2>
-              <p className="text-xs text-slate-400 mt-1">{currentService.description}</p>
-            </div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
+          {/* Left Column: Clean Form */}
+          <div className="no-print lg:col-span-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-5 shadow-sm">
+            {activeCategory === 'nin_verify' ? (
+              <>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">NIN Verification</h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Choose a search method, select your slip format, review the charge, and verify immediately.
+                  </p>
+                </div>
 
-            {/* Service Sub-Pills in Current Category */}
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-300">Select Specific Workflow</label>
-              <div className="grid grid-cols-1 gap-1.5 max-h-56 overflow-y-auto pr-1">
-                {((categories as any)[
-                  activeCategory === 'nin_verify'
-                    ? 'nin_verification'
-                    : activeCategory === 'bvn_verify'
-                    ? 'bvn_verification'
-                    : activeCategory === 'nin_mod'
-                    ? 'nin_modification'
-                    : activeCategory === 'enrolment'
-                    ? 'enrolment'
-                    : 'additional_services'
-                ] || []).map((srv: IdentityService) => {
-                  const isSelected = selectedServiceKey === srv.key;
-                  return (
-                    <button
-                      key={srv.key}
-                      type="button"
-                      onClick={() => {
-                        setSelectedServiceKey(srv.key);
+                {error && (
+                  <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 text-rose-700 dark:text-rose-300 text-xs">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1 leading-relaxed">{error}</div>
+                  </div>
+                )}
+
+                {successMessage && (
+                  <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/25 text-emerald-800 dark:text-emerald-300 text-xs">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1 leading-relaxed">{successMessage}</div>
+                  </div>
+                )}
+
+                <form onSubmit={handleFormSubmit} className="space-y-4">
+                  {/* 1. Select Search Type Dropdown */}
+                  <div>
+                    <label
+                      htmlFor="nin-search-type"
+                      className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5"
+                    >
+                      Select Search Type
+                    </label>
+                    <select
+                      id="nin-search-type"
+                      value={ninSearchType}
+                      onChange={e => {
+                        setNinSearchType(e.target.value as NinSearchType);
+                        setNinInputValue('');
                         setError(null);
                         setSuccessMessage(null);
+                        resetIdempotency();
                       }}
-                      className={`flex items-center justify-between p-2.5 rounded-xl border text-xs text-left transition ${
-                        isSelected
-                          ? 'bg-emerald-500/10 border-emerald-500/60 text-white font-semibold'
-                          : 'bg-slate-950 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-850'
-                      }`}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <span className="truncate pr-2">{srv.name}</span>
-                      <span className="font-mono font-bold text-emerald-400 shrink-0">
-                        ₦{(srv.price ?? (srv as any).selling_price ?? 0).toLocaleString()}
+                      <option value="nin_v1">NIN Number</option>
+                      <option value="phone_v1">Phone Number</option>
+                    </select>
+                  </div>
+
+                  {/* 2. Dynamic Search Input Field */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label
+                        htmlFor="nin-search-value"
+                        className="block text-xs font-bold text-slate-700 dark:text-slate-200"
+                      >
+                        {ninSearchType === 'nin_v1' ? 'NIN Number (11 Digits)' : 'Phone Number (11 Digits)'}
+                      </label>
+                      <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                        {ninInputValue.replace(/\D/g, '').length}/11 digits
                       </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Error & Success Messages */}
-            {error && (
-              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <div className="flex-1 leading-relaxed">{error}</div>
-              </div>
-            )}
-
-            {successMessage && (
-              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
-                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                <div className="flex-1 leading-relaxed">{successMessage}</div>
-              </div>
-            )}
-
-            {/* Dynamic Form */}
-            <form onSubmit={handleExecuteService} className="space-y-4">
-              {/* Field: nin */}
-              {currentService.required_fields.includes('nin') && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    National Identification Number (NIN)
-                  </label>
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                    <input
-                      type="text"
-                      maxLength={16}
-                      value={formData.nin || ''}
-                      onChange={e => handleFieldChange('nin', e.target.value)}
-                      placeholder="e.g. 35359517922 (11 Digits)"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
-                      required
-                    />
+                    </div>
+                    <div className="relative">
+                      {ninSearchType === 'nin_v1' ? (
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                      ) : (
+                        <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                      )}
+                      <input
+                        id="nin-search-value"
+                        type={ninSearchType === 'nin_v1' ? 'text' : 'tel'}
+                        inputMode="numeric"
+                        maxLength={11}
+                        value={ninInputValue}
+                        onChange={e => {
+                          const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
+                          setNinInputValue(digits);
+                          setError(null);
+                          resetIdempotency();
+                        }}
+                        placeholder={
+                          ninSearchType === 'nin_v1'
+                            ? 'Enter 11-digit NIN number'
+                            : 'e.g. 08012345678'
+                        }
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                        required
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
 
-              {/* Field: bvn */}
-              {currentService.required_fields.includes('bvn') && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Bank Verification Number (BVN)
-                  </label>
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                    <input
-                      type="text"
-                      maxLength={11}
-                      value={formData.bvn || ''}
-                      onChange={e => handleFieldChange('bvn', e.target.value)}
-                      placeholder="e.g. 22334455667 (11 Digits)"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
-                      required
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Field: phone */}
-              {currentService.required_fields.includes('phone') && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Registered Telephone Number
-                  </label>
-                  <div className="relative">
-                    <Phone className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                    <input
-                      type="tel"
-                      value={formData.phone || ''}
-                      onChange={e => handleFieldChange('phone', e.target.value)}
-                      placeholder="e.g. 08032503238"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
-                      required
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Field: slip_type with Administrator-Uploaded Demonstration Previews */}
-              {currentService.slip_type_supported && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-semibold text-slate-300">
-                      Select Certificate Format
+                  {/* 3. Select Slip Type Dropdown */}
+                  <div>
+                    <label
+                      htmlFor="nin-slip-type"
+                      className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5"
+                    >
+                      Select Slip Type
                     </label>
-                    <span className="text-[10px] text-amber-400 font-mono flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" />
-                      <span>Visual Previews</span>
-                    </span>
+                    {loadingServices ? (
+                      <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Loading slip options...</span>
+                      </div>
+                    ) : activeNinSlips.length === 0 ? (
+                      <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 text-xs text-amber-800 dark:text-amber-300">
+                        No active NIN slip types are currently available. Please contact support.
+                      </div>
+                    ) : (
+                      <select
+                        id="nin-slip-type"
+                        value={selectedNinSlip?.id || ''}
+                        onChange={e => {
+                          setSelectedSlipId(e.target.value);
+                          setError(null);
+                          resetIdempotency();
+                        }}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {activeNinSlips.map(slip => {
+                          const slipPrice =
+                            slip.price !== null && slip.price !== undefined
+                              ? Number(slip.price)
+                              : Number((currentService as any).price ?? (currentService as any).selling_price ?? 0);
+                          return (
+                            <option key={slip.id} value={slip.id}>
+                              {slip.name} — ₦{slipPrice.toLocaleString('en-NG')}
+                              {slip.is_recommended ? ' (Recommended)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    )}
                   </div>
 
-                  {/* Demonstration Previews Selection Cards */}
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {(slipTemplates.length > 0 ? slipTemplates : [
-                      {
-                        id: 'ninStandard',
-                        name: 'NIMC Long Slip',
-                        category: 'NIN',
-                        demo_image_url: '/assets/aistudio/IMG_0483_23e1a1e1.png',
-                        description: 'Official NIMC certified slip format with barcode and QR seal.',
-                        badge: 'Recommended',
-                        watermark_text: 'SAMPLE SPECIMEN',
-                      },
-                      {
-                        id: 'ninPremium',
-                        name: 'NIMC Plastic Card',
-                        category: 'NIN',
-                        demo_image_url: '/assets/aistudio/IMG_0484_0fb633df.png',
-                        description: 'Plastic biometric card layout optimized for wallet carrying.',
-                        badge: 'Plastic Card',
-                        watermark_text: 'SAMPLE SPECIMEN',
-                      },
-                    ])
-                      .filter(t => (t as any).is_active !== false && (
-                        currentService.category.includes('BVN') ? t.category === 'BVN' : t.category === 'NIN'
-                      ))
-                      .map(tpl => {
-                        const isSelected = formData.slip_type === tpl.id || (
-                          formData.slip_type === 'ninStandard' && tpl.id === 'tpl_nin_long'
-                        ) || (
-                          formData.slip_type === 'ninPremium' && tpl.id === 'tpl_nin_plastic'
-                        );
-                        return (
-                          <div
-                            key={tpl.id}
-                            onClick={() => handleFieldChange('slip_type', tpl.id)}
-                            className={`relative rounded-xl border p-2 cursor-pointer transition flex flex-col justify-between overflow-hidden bg-slate-950 ${
-                              isSelected
-                                ? 'border-emerald-500 bg-emerald-950/20 shadow-md ring-1 ring-emerald-500/50'
-                                : 'border-slate-800 hover:border-slate-700'
-                            }`}
-                          >
-                            {/* Specimen Thumbnail with Watermark Badge */}
-                            <div className="relative h-20 w-full rounded-lg bg-slate-900 overflow-hidden flex items-center justify-center border border-slate-800/80 mb-2">
-                              <img
-                                src={tpl.demo_image_url}
-                                alt={tpl.name}
-                                className="w-full h-full object-cover opacity-85"
-                                onError={e => {
-                                  (e.target as any).src = '/assets/aistudio/IMG_0483_23e1a1e1.png';
-                                }}
-                              />
-                              {/* Watermark Label */}
-                              <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[1px] flex items-center justify-center p-1">
-                                <span className="bg-amber-950/90 border border-amber-400/50 text-amber-300 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded tracking-wider shadow">
-                                  SAMPLE SPECIMEN
-                                </span>
-                              </div>
-
-                              {/* Zoom button */}
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setPreviewModalTemplate(tpl as any);
-                                }}
-                                className="absolute top-1 right-1 p-1 rounded-md bg-slate-950/80 text-slate-300 hover:text-white border border-slate-700 transition"
-                                title="Zoom Specimen Preview"
-                              >
-                                <Eye className="w-3 h-3" />
-                              </button>
-                            </div>
-
-                            {/* Info */}
-                            <div>
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="text-[11px] font-bold text-white leading-tight line-clamp-1">{tpl.name}</span>
-                                {isSelected && (
-                                  <div className="w-4 h-4 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shrink-0">
-                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                  </div>
-                                )}
-                              </div>
-                              <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">{tpl.description}</p>
-                            </div>
-
-                            {tpl.badge && (
-                              <div className="mt-1.5">
-                                <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                                  {tpl.badge}
-                                </span>
-                              </div>
+                  {/* 4. Selected Slip Specimen Preview, Description & Price */}
+                  {selectedNinSlip && (
+                    <div className="rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-slate-900 dark:text-white">
+                              {selectedNinSlip.name}
+                            </span>
+                            {(selectedNinSlip.is_recommended || selectedNinSlip.badge) && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25 text-[10px] font-bold">
+                                {selectedNinSlip.is_recommended && <Star className="w-2.5 h-2.5 fill-current" />}
+                                <span>{selectedNinSlip.badge || 'Recommended'}</span>
+                              </span>
                             )}
                           </div>
-                        );
-                      })}
+                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
+                            {selectedNinSlip.description}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
+                            Price
+                          </span>
+                          <span className="text-sm font-extrabold font-mono text-blue-700 dark:text-emerald-400">
+                            ₦{finalCharge.toLocaleString('en-NG')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Specimen Image with Watermark & Zoom */}
+                      <div className="relative h-36 w-full rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                        <img
+                          src={selectedNinSlip.demo_image_url}
+                          alt={`${selectedNinSlip.name} Specimen`}
+                          className="w-full h-full object-cover"
+                          onError={e => {
+                            (e.target as HTMLImageElement).src = '/assets/aistudio/IMG_0483_23e1a1e1.png';
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-slate-950/30 flex items-center justify-center pointer-events-none">
+                          <span className="px-2.5 py-1 rounded-md bg-amber-950/85 border border-amber-400/60 text-amber-200 font-mono text-[10px] font-bold tracking-wider rotate-[-4deg]">
+                            {selectedNinSlip.watermark_text || 'SAMPLE SPECIMEN'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewModalTemplate(selectedNinSlip)}
+                          className="absolute top-2 right-2 px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-slate-900 text-white text-[10px] font-semibold inline-flex items-center gap-1 transition"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>Preview</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 5. Wallet & Final Charge Breakdown */}
+                  <div className="rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-4 space-y-2 text-xs">
+                    <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                      <span>Available Wallet Balance</span>
+                      <span className="font-mono font-bold text-slate-900 dark:text-white">
+                        ₦{walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+                      <span>Final Customer Charge</span>
+                      <span className="font-mono font-extrabold text-blue-700 dark:text-emerald-400">
+                        ₦{finalCharge.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between font-semibold">
+                      <span className="text-slate-700 dark:text-slate-300">Balance After Verification</span>
+                      <span
+                        className={`font-mono ${
+                          insufficientBalance
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-emerald-700 dark:text-emerald-400'
+                        }`}
+                      >
+                        {insufficientBalance
+                          ? 'Insufficient Balance'
+                          : `₦${(walletBalance - finalCharge).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`}
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Informational Callout */}
-                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-[10px] text-slate-400 leading-relaxed flex items-start gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" />
-                    <span>
-                      <strong className="text-slate-300">Specimen Guidance:</strong> Previews above illustrate certified layout dimensions. Real government documents with authentic sovereign tracking seals and official registry QR codes are delivered upon transaction confirmation.
+                  {/* 6. Legal Authorization / Consent Checkbox */}
+                  <label className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={consentAccepted}
+                      onChange={e => {
+                        setConsentAccepted(e.target.checked);
+                        setError(null);
+                      }}
+                      className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      <strong className="text-slate-900 dark:text-white">Authorization Consent:</strong> I confirm that I have received explicit legal consent from the NIN holder to perform this verification under applicable Nigerian data protection laws (NDPR).
                     </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Field: tier (for V2 & V3 endpoints) */}
-              {currentService.required_fields.includes('tier') && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Upstream Verification Tier / Data Version
                   </label>
-                  {currentService.key.endsWith('_v3') ? (
-                    <select
-                      value={formData.tier || 'v1'}
-                      onChange={e => handleFieldChange('tier', e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-                    >
-                      <option value="v1">Version 1 (High Reliability)</option>
-                      <option value="v2">Version 2 (Instant Route)</option>
-                      <option value="v3">Version 3 (Direct Telecom Sync)</option>
-                      <option value="v4">Version 4 (NIMC Secondary)</option>
-                      <option value="v5">Version 5 (Bank Gateway)</option>
-                    </select>
-                  ) : (
-                    <select
-                      value={formData.tier || 'basic'}
-                      onChange={e => handleFieldChange('tier', e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500 capitalize"
-                    >
-                      <option value="basic">Basic Tier (Name + Photo)</option>
-                      <option value="standard">Standard Tier (Full Biodata)</option>
-                      <option value="premium">Premium Tier (Enriched Address &amp; Origin)</option>
-                      <option value="regular">Regular Tier</option>
-                      <option value="vnin">Virtual NIN (VNIN) Tier</option>
-                      <option value="vip">VIP Tier (Highest Priority)</option>
-                    </select>
-                  )}
-                </div>
-              )}
 
-              {/* Fields: firstname, lastname, dob, gender (Demographics) */}
-              {currentService.required_fields.includes('firstname') && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">First Name</label>
-                    <input
-                      type="text"
-                      value={formData.firstname || ''}
-                      onChange={e => handleFieldChange('firstname', e.target.value)}
-                      placeholder="e.g. CHIOMA"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white uppercase focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Last Name / Surname</label>
-                    <input
-                      type="text"
-                      value={formData.lastname || ''}
-                      onChange={e => handleFieldChange('lastname', e.target.value)}
-                      placeholder="e.g. OBIAGWU"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white uppercase focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                </div>
-              )}
-
-              {currentService.required_fields.includes('dob') && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Date of Birth</label>
-                    <input
-                      type="date"
-                      value={formData.dob || '1995-08-14'}
-                      onChange={e => handleFieldChange('dob', e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Gender</label>
-                    <select
-                      value={formData.gender || 'F'}
-                      onChange={e => handleFieldChange('gender', e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500"
-                    >
-                      <option value="F">Female (F)</option>
-                      <option value="M">Male (M)</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {/* Fields: first_name & last_name for modifications */}
-              {currentService.required_fields.includes('first_name') && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Correct First Name</label>
-                    <input
-                      type="text"
-                      value={formData.first_name || ''}
-                      onChange={e => handleFieldChange('first_name', e.target.value)}
-                      placeholder="e.g. FATIMOH"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white uppercase focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Correct Last Name</label>
-                    <input
-                      type="text"
-                      value={formData.last_name || ''}
-                      onChange={e => handleFieldChange('last_name', e.target.value)}
-                      placeholder="e.g. MUSBAU"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white uppercase focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Field: address, state, lga */}
-              {currentService.required_fields.includes('address') && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Residential Address</label>
-                    <input
-                      type="text"
-                      value={formData.address || ''}
-                      onChange={e => handleFieldChange('address', e.target.value)}
-                      placeholder="e.g. Origanrigan, Cele Area, Lekki LCDA"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1.5">State</label>
-                      <input
-                        type="text"
-                        value={formData.state || 'Lagos'}
-                        onChange={e => handleFieldChange('state', e.target.value)}
-                        placeholder="e.g. Lagos"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1.5">LGA</label>
-                      <input
-                        type="text"
-                        value={formData.lga || 'Lekki LCDA'}
-                        onChange={e => handleFieldChange('lga', e.target.value)}
-                        placeholder="e.g. Lekki LCDA"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500"
-                        required
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Field: age_range (Over-Age modification) */}
-              {currentService.required_fields.includes('age_range') && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Age Bracket Range</label>
-                  <select
-                    value={formData.age_range || '5-9'}
-                    onChange={e => handleFieldChange('age_range', e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-                  >
-                    <option value="5-9">5 to 9 Years Bracket</option>
-                    <option value="10-15">10 to 15 Years Bracket</option>
-                    <option value="15-20">15 to 20 Years Bracket</option>
-                  </select>
-                </div>
-              )}
-
-              {/* Field: bank_name (BVN Modification) */}
-              {currentService.required_fields.includes('bank_name') && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Associated Bank</label>
-                  <select
-                    value={formData.bank_name || (modBanks[0]?.bank_name || 'ACCESS BANK')}
-                    onChange={e => handleFieldChange('bank_name', e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  >
-                    {(modBanks.length > 0 ? modBanks : [
-                      { bank_name: 'ACCESS BANK', price: 18000 },
-                      { bank_name: 'FIRST BANK', price: 18000 },
-                      { bank_name: 'GT BANK', price: 18000 },
-                      { bank_name: 'ZENITH BANK', price: 18000 },
-                      { bank_name: 'UBA', price: 18000 },
-                    ]).map(b => (
-                      <option key={b.bank_name} value={b.bank_name}>
-                        {b.bank_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Field: portal credentials for self-service modifications */}
-              {currentService.required_fields.includes('portal_email') && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">NIMC Self-Service Email</label>
-                    <input
-                      type="email"
-                      value={formData.portal_email || ''}
-                      onChange={e => handleFieldChange('portal_email', e.target.value)}
-                      placeholder="user@example.com"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Portal Password</label>
-                    <input
-                      type="password"
-                      value={formData.portal_password || ''}
-                      onChange={e => handleFieldChange('portal_password', e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Field: business_name & proprietor for CAC/TIN */}
-              {currentService.required_fields.includes('business_name') && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Proposed Business / Enterprise Name</label>
-                    <input
-                      type="text"
-                      value={formData.business_name || ''}
-                      onChange={e => handleFieldChange('business_name', e.target.value)}
-                      placeholder="e.g. Hambak Global Logistics"
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500 uppercase"
-                      required
-                    />
-                  </div>
-                  {currentService.required_fields.includes('nature_of_business') && (
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1.5">Nature of Business</label>
-                      <input
-                        type="text"
-                        value={formData.nature_of_business || 'General Merchandising & Information Technology'}
-                        onChange={e => handleFieldChange('nature_of_business', e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-500"
-                        required
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Mandatory NDPR Customer Consent Checkbox */}
-              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={consentAccepted}
-                    onChange={e => setConsentAccepted(e.target.checked)}
-                    className="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-950"
-                  />
-                  <span className="text-[11px] text-slate-300 leading-snug">
-                    <strong className="text-white">NDPR / NIMC Compliance Consent:</strong> I certify that I have obtained full legal authorization from the subject individual to query, verify, or modify their identity record.
-                  </span>
-                </label>
-
-                {/* Sandbox Toggle */}
-                <div className="pt-2 border-t border-slate-850 flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400">Simulation / Sandbox Mode:</span>
+                  {/* 7. Verify & Debit Wallet Button */}
                   <button
-                    type="button"
-                    onClick={() => setUseTestSandbox(!useTestSandbox)}
-                    className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold transition ${
-                      useTestSandbox
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                        : 'bg-slate-800 text-slate-400'
-                    }`}
+                    type="submit"
+                    disabled={submitting || activeNinSlips.length === 0}
+                    className="w-full py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-bold transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
                   >
-                    {useTestSandbox ? 'ACTIVE (Sandbox)' : 'OFF (Live Verification)'}
+                    {submitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Verifying &amp; Processing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Verify &amp; Debit Wallet (₦{finalCharge.toLocaleString('en-NG')})</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
                   </button>
+                </form>
+              </>
+            ) : (
+              /* Preserved Non-NIN Workflows (BVN / Modification / Enrolment / Additional) */
+              <>
+                <div>
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-blue-600 dark:text-emerald-400 font-bold">
+                    {String(currentService.category || '').replace(/_/g, ' ')}
+                  </span>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">{currentService.name}</h2>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">{currentService.description}</p>
                 </div>
-              </div>
 
-              {/* Cost & Submit Button */}
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full py-3 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 text-xs font-bold transition-all shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2"
-              >
-                {submitting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Executing Verification Query...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Confirm &amp; Debit ₦{(currentService.price ?? (currentService as any).selling_price ?? 0).toLocaleString()}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Select Service</label>
+                  <div className="grid grid-cols-1 gap-1.5 max-h-52 overflow-y-auto pr-1">
+                    {((categories as any)[
+                      activeCategory === 'bvn_verify'
+                        ? 'bvn_verification'
+                        : activeCategory === 'nin_mod'
+                        ? 'nin_modification'
+                        : activeCategory === 'enrolment'
+                        ? 'enrolment'
+                        : 'additional_services'
+                    ] || []).map((srv: IdentityService) => {
+                      const isSelected = selectedServiceKey === srv.key;
+                      return (
+                        <button
+                          key={srv.key}
+                          type="button"
+                          onClick={() => {
+                            setSelectedServiceKey(srv.key);
+                            setError(null);
+                            setSuccessMessage(null);
+                            resetIdempotency();
+                          }}
+                          className={`flex items-center justify-between p-2.5 rounded-xl border text-xs text-left transition ${
+                            isSelected
+                              ? 'bg-blue-50 dark:bg-emerald-500/10 border-blue-500 dark:border-emerald-500/60 text-slate-900 dark:text-white font-semibold'
+                              : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          <span className="truncate pr-2">{srv.name}</span>
+                          <span className="font-mono font-bold text-blue-700 dark:text-emerald-400 shrink-0">
+                            ₦{(srv.price ?? (srv as any).selling_price ?? 0).toLocaleString()}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-400 text-xs">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1 leading-relaxed">{error}</div>
+                  </div>
                 )}
-              </button>
-            </form>
+
+                {successMessage && (
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div className="flex-1 leading-relaxed">{successMessage}</div>
+                  </div>
+                )}
+
+                <form onSubmit={handleFormSubmit} className="space-y-4">
+                  {(currentService.required_fields || []).includes('nin') && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                        National Identification Number (NIN)
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={16}
+                        value={formData.nin || ''}
+                        onChange={e => handleFieldChange('nin', e.target.value)}
+                        placeholder="11-digit NIN"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white font-mono"
+                        required
+                      />
+                    </div>
+                  )}
+
+                  {(currentService.required_fields || []).includes('bvn') && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                        Bank Verification Number (BVN)
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={11}
+                        value={formData.bvn || ''}
+                        onChange={e => handleFieldChange('bvn', e.target.value)}
+                        placeholder="11-digit BVN"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white font-mono"
+                        required
+                      />
+                    </div>
+                  )}
+
+                  {(currentService.required_fields || []).includes('phone') && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                        Phone Number
+                      </label>
+                      <input
+                        type="tel"
+                        value={formData.phone || ''}
+                        onChange={e => handleFieldChange('phone', e.target.value)}
+                        placeholder="e.g. 08012345678"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white font-mono"
+                        required
+                      />
+                    </div>
+                  )}
+
+                  {(currentService.required_fields || []).includes('firstname') && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">First Name</label>
+                        <input
+                          type="text"
+                          value={formData.firstname || ''}
+                          onChange={e => handleFieldChange('firstname', e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white uppercase"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Surname</label>
+                        <input
+                          type="text"
+                          value={formData.lastname || ''}
+                          onChange={e => handleFieldChange('lastname', e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white uppercase"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {(currentService.required_fields || []).includes('dob') && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Date of Birth</label>
+                        <input
+                          type="date"
+                          value={formData.dob || ''}
+                          onChange={e => handleFieldChange('dob', e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Gender</label>
+                        <select
+                          value={formData.gender || 'F'}
+                          onChange={e => handleFieldChange('gender', e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                        >
+                          <option value="F">Female</option>
+                          <option value="M">Male</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {(currentService.required_fields || []).includes('first_name') && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">New First Name</label>
+                        <input
+                          type="text"
+                          value={formData.first_name || ''}
+                          onChange={e => handleFieldChange('first_name', e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white uppercase"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">New Last Name</label>
+                        <input
+                          type="text"
+                          value={formData.last_name || ''}
+                          onChange={e => handleFieldChange('last_name', e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white uppercase"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {(currentService.required_fields || []).includes('address') && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Residential Address</label>
+                        <input
+                          type="text"
+                          value={formData.address || ''}
+                          onChange={e => handleFieldChange('address', e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                          required
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          type="text"
+                          placeholder="State"
+                          value={formData.state || ''}
+                          onChange={e => handleFieldChange('state', e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                          required
+                        />
+                        <input
+                          type="text"
+                          placeholder="LGA"
+                          value={formData.lga || ''}
+                          onChange={e => handleFieldChange('lga', e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {(currentService.required_fields || []).includes('bank_name') && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Bank</label>
+                      <select
+                        value={formData.bank_name || (modBanks[0]?.bank_name || 'ACCESS BANK')}
+                        onChange={e => handleFieldChange('bank_name', e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                      >
+                        {(modBanks.length > 0 ? modBanks : [
+                          { bank_name: 'ACCESS BANK', price: 4500 },
+                          { bank_name: 'FIRST BANK', price: 4500 },
+                          { bank_name: 'GT BANK', price: 4500 },
+                          { bank_name: 'ZENITH BANK', price: 4500 },
+                          { bank_name: 'UBA', price: 4500 },
+                        ]).map(b => (
+                          <option key={b.bank_name} value={b.bank_name}>{b.bank_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {(currentService.required_fields || []).includes('business_name') && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Business Name</label>
+                      <input
+                        type="text"
+                        value={formData.business_name || ''}
+                        onChange={e => handleFieldChange('business_name', e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white uppercase"
+                        required
+                      />
+                    </div>
+                  )}
+
+                  <label className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={consentAccepted}
+                      onChange={e => setConsentAccepted(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug">
+                      <strong className="text-slate-900 dark:text-white">Authorization Consent:</strong> I confirm I have obtained legal authorization from the identity holder to submit this request.
+                    </span>
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-bold transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Processing Request...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Verify &amp; Debit Wallet (₦{finalCharge.toLocaleString('en-NG')})</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              </>
+            )}
           </div>
 
-          {/* Right Column: Verified Slip Card & Preview */}
+          {/* Right Column: Human-Readable Verification Report */}
           <div className="lg:col-span-7 space-y-4">
-            {verifiedResult ? (
-              <div className="rounded-3xl bg-slate-900 border border-emerald-500/40 p-6 sm:p-8 space-y-6 shadow-2xl">
-                {/* Result Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+            {submitting ? (
+              <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-10 sm:p-14 text-center space-y-4 shadow-sm">
+                <Loader2 className="w-10 h-10 text-blue-600 dark:text-emerald-400 animate-spin mx-auto" />
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Verifying Identity Record</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1">
+                    Please hold on while we retrieve and format your verification report. Do not close or refresh this page.
+                  </p>
+                </div>
+              </div>
+            ) : report && verifiedRecord ? (
+              <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 p-5 sm:p-8 space-y-6 shadow-lg print-only-area">
+                {/* Report Top Bar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
                       <CheckCircle2 className="w-6 h-6" />
                     </div>
                     <div>
-                      <div className="text-xs font-bold text-white uppercase tracking-wider">
-                        Federal Republic of Nigeria
+                      <div className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wide">
+                        {companyName}
                       </div>
-                      <div className="text-[11px] text-slate-400">
-                        {currentService.name} &bull; Validated via Sovereign Identity Registry
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Verification Report &bull; {report.slipTypeName}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {(verifiedResult.pdf_base64 || verifiedResult.pdf_url || verifiedResult.has_pdf_slip) && (
-                      <button
-                        onClick={() => {
-                          if (verifiedResult.pdf_url) {
-                            window.open(verifiedResult.pdf_url, '_blank');
-                          } else {
-                            setActiveSlipRecord({
-                              ...verifiedResult,
-                              service_key: selectedServiceKey,
-                              type: currentService.category,
-                            });
-                            setSlipModalOpen(true);
-                          }
-                        }}
-                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Download Provider PDF</span>
-                      </button>
-                    )}
+                  <div className="no-print flex items-center gap-2 flex-wrap">
                     <button
-                      onClick={() => {
-                        setActiveSlipRecord({
-                          ...verifiedResult,
-                          service_key: selectedServiceKey,
-                          type: currentService.category,
-                        });
-                        setSlipModalOpen(true);
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition"
+                      type="button"
+                      onClick={() => handleDirectDownloadPdf(verifiedRecord)}
+                      disabled={downloadingPdf}
+                      className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm"
+                    >
+                      {downloadingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                      <span>{downloadingPdf ? 'Generating...' : 'Download PDF'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1.5 transition"
                     >
                       <Printer className="w-3.5 h-3.5" />
-                      <span>Print Certified Slip</span>
+                      <span>Print</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveSlipRecord(verifiedRecord);
+                        setSlipModalOpen(true);
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold flex items-center gap-1.5 transition"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Full View</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Identity Biodata Preview Card */}
-                <div className="rounded-2xl bg-slate-950 border border-slate-800 p-6 space-y-6">
+                {/* Readable Identity Report Card */}
+                <div className="rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-5">
                   <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-                    {/* Photo */}
-                    <div className="w-28 h-32 rounded-xl overflow-hidden border border-slate-700 bg-slate-900 shrink-0 shadow-md">
-                      <img
-                        src={verifiedResult.photo || getInitialsAvatar(`${verifiedResult.firstname || ''} ${verifiedResult.surname || ''}`.trim() || 'HT')}
-                        alt="Verified Portrait"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
+                    {report.photo ? (
+                      <div className="w-28 h-34 rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0 shadow-sm">
+                        <img
+                          src={report.photo}
+                          alt={report.fullName || 'Verified Subject Photograph'}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-28 h-32 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 shrink-0 flex flex-col items-center justify-center p-2 text-center">
+                        <FileText className="w-6 h-6 text-slate-400 mb-1" />
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+                          No photo returned
+                        </span>
+                      </div>
+                    )}
 
-                    {/* Details */}
-                    <div className="flex-1 grid grid-cols-2 gap-4 text-xs">
-                      <div>
-                        <div className="text-slate-500 text-[10px] uppercase font-bold">Surname</div>
-                        <div className="text-white font-bold text-sm">{verifiedResult.surname || 'MUSBAU'}</div>
-                      </div>
-                      <div>
-                        <div className="text-slate-500 text-[10px] uppercase font-bold">First Name</div>
-                        <div className="text-white font-bold text-sm">{verifiedResult.firstname || 'FATIMOH'}</div>
-                      </div>
-                      <div>
-                        <div className="text-slate-500 text-[10px] uppercase font-bold">Middle Name</div>
-                        <div className="text-slate-300 font-medium">{verifiedResult.middlename || '-'}</div>
-                      </div>
-                      <div>
-                        <div className="text-slate-500 text-[10px] uppercase font-bold">Gender</div>
-                        <div className="text-slate-300 font-medium">{verifiedResult.gender || 'Female'}</div>
-                      </div>
-                      <div>
-                        <div className="text-slate-500 text-[10px] uppercase font-bold">Date of Birth</div>
-                        <div className="text-slate-300 font-mono">{verifiedResult.birthdate || '1995-08-14'}</div>
-                      </div>
-                      <div>
-                        <div className="text-slate-500 text-[10px] uppercase font-bold">Telephone</div>
-                        <div className="text-slate-300 font-mono">{verifiedResult.telephoneno || '08032503238'}</div>
+                    <div className="flex-1 w-full space-y-3">
+                      {report.fullName && (
+                        <div>
+                          <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">Full Name</div>
+                          <div className="text-lg font-extrabold text-slate-900 dark:text-white">{report.fullName}</div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        {reportFields.map(field => (
+                          <div key={field.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5">
+                            <div className="text-slate-500 dark:text-slate-400 text-[10px] uppercase font-bold">
+                              {field.label}
+                            </div>
+                            <div
+                              className={`text-slate-900 dark:text-white font-semibold mt-0.5 break-words ${
+                                field.mono ? 'font-mono' : ''
+                              }`}
+                            >
+                              {field.value}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
 
-                  {/* Number Banner */}
-                  <div className="pt-4 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  {/* Transaction & Verification Metadata */}
+                  <div className="pt-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                     <div>
-                      <div className="text-[10px] text-slate-500 font-mono uppercase">Verified Identity Number</div>
-                      <div className="text-xl sm:text-2xl font-black text-emerald-400 font-mono tracking-widest">
-                        {verifiedResult.nin || verifiedResult.bvn || formData.nin || formData.bvn || '35359517922'}
-                      </div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold block">
+                        Transaction Reference
+                      </span>
+                      <span className="font-mono font-bold text-slate-900 dark:text-white">{report.reference}</span>
                     </div>
-                    <div className="text-left sm:text-right">
-                      <div className="text-[10px] text-slate-500 font-mono uppercase">NIMC Tracking Code</div>
-                      <div className="text-xs font-mono text-slate-300 font-bold">
-                        {verifiedResult.tracking_id || `NIMC-${Math.floor(100000000 + Math.random() * 900000000)}`}
-                      </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold block">
+                        Verification Date
+                      </span>
+                      <span className="text-slate-700 dark:text-slate-300 font-medium">{report.verifiedAt}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold block">
+                        Verification Status
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold font-mono">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>{report.status}</span>
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Additional Raw Payload view */}
-                <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-850 space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-300">Raw Registry Response</span>
-                    <span className="text-[10px] font-mono text-slate-500">Identity Gateway v1</span>
-                  </div>
-                  <pre className="p-3 rounded-xl bg-slate-950 text-[10px] font-mono text-slate-400 overflow-x-auto max-h-40">
-                    {JSON.stringify(verifiedResult, null, 2)}
-                  </pre>
+                {/* Legal Notice */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 flex items-start gap-2.5">
+                  <Lock className="w-4 h-4 text-blue-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <span>
+                    This {companyName} verification report is provided for authorized identity validation and KYC records. It does not replace an official government-issued NIMC identity card.
+                  </span>
                 </div>
               </div>
             ) : (
-              <div className="rounded-3xl bg-slate-900/60 border border-slate-800 p-12 text-center space-y-4">
-                <div className="w-14 h-14 rounded-2xl bg-slate-800 text-slate-500 mx-auto flex items-center justify-center">
-                  <FileText className="w-7 h-7 text-emerald-500/70" />
+              /* Clean Empty State */
+              <div className="no-print rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 sm:p-12 text-center space-y-4 shadow-sm">
+                <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-emerald-400 mx-auto flex items-center justify-center">
+                  <FileText className="w-7 h-7" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">No Verification Loaded</h3>
-                  <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                    Select a service from the left and submit valid credentials to execute the query against the identity registry and view the verified biodata slip.
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Ready to Verify</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 leading-relaxed">
+                    Select a search type, enter the 11-digit NIN or phone number, pick your preferred slip type, and click <strong>Verify &amp; Debit Wallet</strong> to view your report.
                   </p>
                 </div>
-                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800/80 max-w-md mx-auto text-left text-xs space-y-2">
-                  <div className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 max-w-md mx-auto text-left text-xs space-y-1.5">
+                  <div className="font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4" />
-                    <span>Transaction Safety Guarantee:</span>
+                    <span>Automatic Wallet Protection</span>
                   </div>
-                  <p className="text-slate-400 text-[11px] leading-relaxed">
-                    Every transaction generates an immutable reference. In the event of an upstream provider rejection, the debited amount is immediately refunded to your wallet.
+                  <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+                    If a verification query cannot be completed, your wallet is automatically refunded immediately with a full ledger reference.
                   </p>
                 </div>
               </div>
@@ -1048,12 +1193,14 @@ export const NinServicesPage: React.FC = () => {
           </div>
         </div>
       ) : (
-        /* History & Slip Vault */
-        <div className="rounded-3xl bg-slate-900 border border-slate-800 p-6 space-y-6">
+        /* Verification History & Reports */
+        <div className="no-print rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-6 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-bold text-white">Identity Slip Vault &amp; Transaction Journal</h2>
-              <p className="text-xs text-slate-400">Search and reprint any verification certificate or check pending status.</p>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Verification History</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Search previous verifications, view reports, download PDF copies, or print slips.
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -1061,85 +1208,90 @@ export const NinServicesPage: React.FC = () => {
                 value={historySearch}
                 onChange={e => setHistorySearch(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && loadHistory()}
-                placeholder="Search reference or ID..."
-                className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                placeholder="Search reference or number..."
+                className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <button
+                type="button"
                 onClick={loadHistory}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs transition"
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition"
                 title="Refresh history"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className={`w-4 h-4 ${historyLoading ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
-              <thead className="bg-slate-950 text-slate-400 font-semibold uppercase text-[10px] border-b border-slate-800">
+              <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-semibold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
                 <tr>
-                  <th className="py-3 px-4">Service</th>
-                  <th className="py-3 px-4">Identifier</th>
+                  <th className="py-3 px-4">Type</th>
+                  <th className="py-3 px-4">Search Value</th>
                   <th className="py-3 px-4">Reference</th>
-                  <th className="py-3 px-4">Cost</th>
+                  <th className="py-3 px-4">Amount</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4">Date</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono">
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
                 {history.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-slate-500 font-sans">
-                      No identity records found in your vault.
+                      No verification records found yet.
                     </td>
                   </tr>
                 ) : (
                   history.map(item => (
-                    <tr key={item.id} className="hover:bg-slate-850/50">
-                      <td className="py-3.5 px-4 font-sans font-bold text-white">
+                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className="py-3.5 px-4 font-sans font-bold text-slate-900 dark:text-white">
                         {item.type}
                       </td>
-                      <td className="py-3.5 px-4 text-emerald-400 font-bold">{item.search_value}</td>
-                      <td className="py-3.5 px-4 text-slate-400 text-[11px] truncate max-w-[150px]">
+                      <td className="py-3.5 px-4 text-blue-700 dark:text-emerald-400 font-bold">{item.search_value}</td>
+                      <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[150px]">
                         {item.reference || item.id}
                       </td>
-                      <td className="py-3.5 px-4 font-bold">₦{item.cost.toLocaleString()}</td>
+                      <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">₦{item.cost.toLocaleString()}</td>
                       <td className="py-3.5 px-4">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             item.status === 'completed'
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
                               : item.status === 'pending'
-                              ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
-                              : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20'
+                              : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20'
                           }`}
                         >
                           {item.status.toUpperCase()}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-slate-400 font-sans text-[11px]">
+                      <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 font-sans text-[11px]">
                         {new Date(item.created_at).toLocaleString('en-NG')}
                       </td>
                       <td className="py-3.5 px-4 text-right space-x-2">
                         {item.status === 'pending' && (
                           <button
+                            type="button"
                             onClick={() => handlePollStatus(item.reference || item.id)}
                             disabled={pollingRef === (item.reference || item.id)}
-                            className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 text-[11px] font-sans hover:bg-amber-500/25 transition"
+                            className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[11px] font-sans hover:bg-amber-500/25 transition"
                           >
                             {pollingRef === (item.reference || item.id) ? 'Checking...' : 'Check Status'}
                           </button>
                         )}
-                        <button
-                          onClick={() => {
-                            setActiveSlipRecord(item);
-                            setSlipModalOpen(true);
-                          }}
-                          className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-sans font-semibold transition"
-                        >
-                          View Slip
-                        </button>
+                        {item.status === 'completed' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveSlipRecord(item);
+                              setSlipModalOpen(true);
+                            }}
+                            className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-sans font-semibold transition"
+                          >
+                            View Report
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -1150,80 +1302,88 @@ export const NinServicesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Slip Modal Component */}
+      {/* Printable & Downloadable Report Modal */}
       <IdentitySlipModal
         isOpen={slipModalOpen}
         onClose={() => setSlipModalOpen(false)}
         record={activeSlipRecord}
       />
 
-      {/* Transaction PIN Authorization Modal */}
+      {/* Transaction PIN Authorization Modal (only prompted if user has PIN configured) */}
       <TransactionPinModal
         isOpen={pinModalOpen}
         onClose={() => setPinModalOpen(false)}
         onSuccess={() => {
           setPinModalOpen(false);
-          executeVerificationWithPin();
+          executeVerification();
         }}
-        title="Authorize Identity Query"
-        description={`Enter your 4-digit security PIN to authorize query on ${currentService?.name || 'Identity Service'}.`}
-        amount={currentService?.price}
+        title="Authorize Verification"
+        description={`Enter your 4-digit Transaction PIN to verify and debit ₦${finalCharge.toLocaleString('en-NG')}.`}
+        amount={finalCharge}
       />
+
       {/* Specimen Zoom Preview Modal */}
       {previewModalTemplate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-8">
-            <div className="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800 text-xs">
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-8">
+            <div className="flex items-center justify-between px-5 py-4 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-xs">
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-amber-400" />
-                <span className="font-bold text-white uppercase tracking-wider">{previewModalTemplate.name}</span>
-                <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 font-mono text-[10px] border border-amber-500/20">
-                  DEMO SPECIMEN
+                <span className="font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                  {previewModalTemplate.name}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 font-mono text-[10px] font-bold">
+                  SAMPLE SPECIMEN
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => setPreviewModalTemplate(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                className="p-1 rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white text-lg leading-none"
               >
                 &times;
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
-              <div className="relative rounded-xl overflow-hidden border-2 border-dashed border-amber-500/40 bg-slate-950 flex items-center justify-center max-h-[60vh]">
+            <div className="p-5 sm:p-6 space-y-4">
+              <div className="relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 flex items-center justify-center max-h-[60vh]">
                 <img
                   src={previewModalTemplate.demo_image_url}
                   alt={previewModalTemplate.name}
                   className="w-full h-auto object-contain max-h-[58vh]"
                 />
                 <div className="absolute inset-0 bg-slate-950/20 flex items-center justify-center pointer-events-none select-none">
-                  <div className="border-2 border-dashed border-amber-400/80 bg-amber-950/85 text-amber-300 px-4 py-2 rounded-xl text-xs font-mono font-black tracking-widest rotate-[-8deg] shadow-2xl">
-                    {previewModalTemplate.watermark_text || 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY'}
+                  <div className="border-2 border-dashed border-amber-400/80 bg-amber-950/85 text-amber-200 px-4 py-2 rounded-xl text-xs font-mono font-black tracking-widest rotate-[-8deg] shadow-2xl">
+                    {previewModalTemplate.watermark_text || 'SAMPLE SPECIMEN'}
                   </div>
                 </div>
               </div>
 
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-1 text-xs">
-                <div className="font-semibold text-white">{previewModalTemplate.name}</div>
-                <p className="text-slate-400 text-[11px] leading-relaxed">{previewModalTemplate.description}</p>
-                <div className="pt-2 text-[10px] text-amber-400/90 font-mono">
-                  * Notice: This sample preview demonstrates the certified certificate layout. Genuine documents with your actual registry biodata are issued upon live verification.
+              <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 space-y-1 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-900 dark:text-white">{previewModalTemplate.name}</span>
+                  {previewModalTemplate.price !== null && previewModalTemplate.price !== undefined && (
+                    <span className="font-mono font-bold text-blue-700 dark:text-emerald-400">
+                      ₦{Number(previewModalTemplate.price).toLocaleString('en-NG')}
+                    </span>
+                  )}
                 </div>
+                <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+                  {previewModalTemplate.description}
+                </p>
               </div>
             </div>
 
-            <div className="flex items-center justify-between px-6 py-3.5 bg-slate-950 border-t border-slate-800 text-xs">
-              <span className="text-slate-400 font-mono text-[11px]">Format: {previewModalTemplate.category} Specification</span>
+            <div className="flex items-center justify-end gap-2 px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 text-xs">
               <button
                 type="button"
                 onClick={() => {
-                  handleFieldChange('slip_type', previewModalTemplate.id);
+                  setSelectedSlipId(previewModalTemplate.id);
                   setPreviewModalTemplate(null);
+                  resetIdempotency();
                 }}
-                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition"
               >
-                Select This Format
+                Use This Slip Format
               </button>
             </div>
           </div>

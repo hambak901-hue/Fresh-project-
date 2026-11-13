@@ -47,6 +47,72 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         return '2sureverify';
     }
 
+    private function buildRequestPayload(string $endpoint, array $payload): array
+    {
+        $ep = strtolower(trim($endpoint));
+        $slipType = trim((string)($payload['slip_type'] ?? 'ninStandard'));
+        $tier = trim((string)($payload['tier'] ?? 'basic'));
+        $nin = trim((string)($payload['nin'] ?? $payload['search_value'] ?? ''));
+        $phone = trim((string)($payload['phone'] ?? $payload['phone_number'] ?? $payload['search_value'] ?? ''));
+        $bvn = trim((string)($payload['bvn'] ?? $payload['search_value'] ?? ''));
+
+        if (str_contains($ep, 'nin_v1.php')) {
+            return ['nin' => $nin, 'slip_type' => $slipType];
+        }
+        if (str_contains($ep, 'phone_v1.php')) {
+            return ['phone' => $phone, 'slip_type' => $slipType];
+        }
+        if (str_contains($ep, 'nin_v2.php')) {
+            return ['nin' => $nin, 'tier' => $tier];
+        }
+        if (str_contains($ep, 'phone_v2.php')) {
+            return ['phone' => $phone, 'tier' => $tier];
+        }
+        if (str_contains($ep, 'nin_v3.php')) {
+            return ['nin' => $nin, 'tier' => $tier ?: 'v1', 'slip_type' => $slipType];
+        }
+        if (str_contains($ep, 'phone_v3.php')) {
+            return ['phone' => $phone, 'tier' => $tier ?: 'v1', 'slip_type' => $slipType];
+        }
+        if (str_contains($ep, 'vnin')) {
+            return ['nin' => $nin, 'slip_type' => $slipType];
+        }
+        if (str_contains($ep, 'bvn_v1.php')) {
+            return ['bvn' => $bvn, 'slip_type' => $slipType];
+        }
+        if (str_contains($ep, 'bvn_v2.php') || str_contains($ep, 'bvn_v3.php')) {
+            return ['bvn' => $bvn, 'tier' => $tier, 'slip_type' => $slipType];
+        }
+
+        // Preserve full payload for modification / enrolment / additional endpoints (strip internal keys)
+        $clean = $payload;
+        unset($clean['service_key'], $clean['search_value'], $clean['consent'], $clean['idempotency_key'], $clean['slip_template_id'], $clean['testSandbox']);
+        return $clean;
+    }
+
+    private function normalizePhotoField(array $data): array
+    {
+        if (!empty($data['photo']) && is_string($data['photo'])) {
+            $p = trim($data['photo']);
+            $isUrlOrAsset = str_starts_with($p, 'data:')
+                || str_starts_with($p, 'http://')
+                || str_starts_with($p, 'https://')
+                || str_starts_with($p, '/assets/')
+                || str_starts_with($p, '/uploads/');
+            if ($p !== '' && !$isUrlOrAsset) {
+                $mime = str_starts_with($p, 'iVBOR') ? 'image/png' : 'image/jpeg';
+                $data['photo'] = "data:{$mime};base64," . $p;
+            }
+        }
+        if (!empty($data['user_data']) && is_array($data['user_data'])) {
+            $data['user_data'] = $this->normalizePhotoField($data['user_data']);
+        }
+        if (!empty($data['data']) && is_array($data['data'])) {
+            $data['data'] = $this->normalizePhotoField($data['data']);
+        }
+        return $data;
+    }
+
     public function verify(string $endpoint, array $payload): array
     {
         $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
@@ -57,8 +123,9 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
 
         // Perform real provider cURL call
         if (!empty($this->apiKey)) {
+            $requestPayload = $this->buildRequestPayload($endpoint, $payload);
             $ch = curl_init($url);
-            $jsonPayload = json_encode(array_merge($payload, ['api_key' => $this->apiKey]));
+            $jsonPayload = json_encode(array_merge($requestPayload, ['api_key' => $this->apiKey]));
 
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
@@ -80,13 +147,30 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             curl_close($ch);
 
             $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
-            $this->logTransaction($endpoint, $payload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $reference);
+            $this->logTransaction($endpoint, $requestPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $reference);
 
             if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
                 $decoded = json_decode($responseBody, true);
                 if (is_array($decoded)) {
-                    $decoded['reference'] = $decoded['reference'] ?? $reference;
-                    return $decoded;
+                    $statusLower = strtolower((string)($decoded['status'] ?? ''));
+                    $isSuccess = (!isset($decoded['success']) || (bool)$decoded['success'] === true) && $statusLower !== 'failed' && $statusLower !== 'error';
+                    if ($isSuccess) {
+                        $decoded = $this->normalizePhotoField($decoded);
+                        $decoded['reference'] = $decoded['reference'] ?? $reference;
+                        if (isset($decoded['amount_charged']) && is_numeric($decoded['amount_charged'])) {
+                            $decoded['provider_cost'] = (float)$decoded['amount_charged'];
+                        }
+                        $decoded['success'] = true;
+                        return $decoded;
+                    }
+                    return [
+                        'status' => 'failed',
+                        'success' => false,
+                        'code' => $statusCode,
+                        'message' => (string)($decoded['message'] ?? $decoded['error'] ?? 'Provider verification request failed'),
+                        'reference' => $decoded['reference'] ?? $reference,
+                        'raw_error' => $responseBody,
+                    ];
                 }
             }
 

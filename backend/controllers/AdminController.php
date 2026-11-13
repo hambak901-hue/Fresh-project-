@@ -1276,6 +1276,7 @@ class AdminController
             $db->execute('DELETE FROM verification_records WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM kyc_submissions WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM transactions WHERE user_id = :uid', ['uid' => $customerId]);
+            $db->execute('DELETE FROM wallet_ledger WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM wallets WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM user_profiles WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM notifications WHERE user_id = :uid', ['uid' => $customerId]);
@@ -1941,99 +1942,194 @@ class AdminController
     }
 
     // =========================================================================
-    // 14. SLIP TEMPLATES
+    // 14. SLIP TEMPLATES & NIN SLIP MANAGEMENT
     // =========================================================================
     public function slipTemplates(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        $this->db->execute(
-            'CREATE TABLE IF NOT EXISTS slip_templates (
-                id VARCHAR(50) PRIMARY KEY,
-                name VARCHAR(191) NOT NULL,
-                category VARCHAR(50) NOT NULL DEFAULT "NIN",
-                demo_image_url VARCHAR(500) NULL,
-                description TEXT NULL,
-                supported_service VARCHAR(100) NOT NULL DEFAULT "all_nin",
-                is_active TINYINT(1) NOT NULL DEFAULT 1,
-                display_order INT NOT NULL DEFAULT 1,
-                badge VARCHAR(50) NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
-        );
-        $templates = $this->db->fetchAll('SELECT * FROM slip_templates ORDER BY display_order ASC');
-        if (empty($templates)) {
-            // Seed defaults
-            $defaults = [
-                ['tpl_nin_long', 'NIMC Long Slip (Standard Official Format)', 'NIN', '/assets/aistudio/IMG_0483_23e1a1e1.png', 'Complete Federal Republic of Nigeria official NIMC certificate format with tracking barcode, verified photo, and sovereign QR security stamp.', 'all_nin', 1, 1, 'Recommended'],
-                ['tpl_nin_plastic', 'NIMC Premium Plastic Digital ID Card', 'NIN', '/assets/aistudio/IMG_0484_0fb633df.png', 'Dual-sided wallet plastic biometric card format featuring high-resolution identity photo, microprint background, and national emblem.', 'all_nin', 1, 2, 'Plastic Card'],
-                ['tpl_nin_improved', 'NIMC Improved Regular Slip (Modern Vector)', 'NIN', '/assets/aistudio/IMG_0483_23e1a1e1.png', 'Official modern vector typography slip with embedded high-contrast QR code and verification tracking stamp.', 'all_nin', 1, 3, 'Vector Modern'],
-                ['tpl_bvn_standard', 'NIBSS BVN Standard Verification Document', 'BVN', '/assets/aistudio/IMG_0483_23e1a1e1.png', 'Central Bank of Nigeria authorized BVN verification certificate with bank verification stamp.', 'all_bvn', 1, 4, 'CBN Standard'],
-                ['tpl_bvn_plastic', 'NIBSS Digital BVN Biometric Card', 'BVN', '/assets/aistudio/IMG_0484_0fb633df.png', 'Wallet format BVN plastic card featuring verified customer photograph and account security seal.', 'all_bvn', 1, 5, 'Plastic Card'],
-            ];
-            foreach ($defaults as $d) {
-                $this->db->execute(
-                    'INSERT IGNORE INTO slip_templates (id, name, category, demo_image_url, description, supported_service, is_active, display_order, badge)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    $d
-                );
-            }
-            $templates = $this->db->fetchAll('SELECT * FROM slip_templates ORDER BY display_order ASC');
-        }
+        VerificationController::ensureSlipSchemaAndDefaults($this->db);
 
-        foreach ($templates as &$t) {
-            $t['is_active'] = (bool)$t['is_active'];
-            $t['display_order'] = (int)$t['display_order'];
-        }
+        $rows = $this->db->fetchAll('SELECT * FROM slip_templates ORDER BY display_order ASC, name ASC');
+        $templates = array_map([VerificationController::class, 'formatSlipRow'], $rows);
 
         Response::success(['templates' => $templates]);
+    }
+
+    public function uploadSlipSpecimen(Request $request): void
+    {
+        Auth::requireRole($request, ['admin', 'superadmin']);
+
+        $decoded = null;
+        $ext = null;
+
+        // 1. Check multipart file upload first
+        if (!empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
+            $tmpPath = $_FILES['file']['tmp_name'];
+            $size = (int)($_FILES['file']['size'] ?? 0);
+            if ($size <= 0 || $size > 5 * 1024 * 1024) {
+                Response::error('Specimen image must be under 5MB.', 422);
+            }
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mime = $finfo ? strtolower((string)finfo_file($finfo, $tmpPath)) : '';
+            if ($finfo) {
+                finfo_close($finfo);
+            }
+            $allowedMimes = [
+                'image/png' => 'png',
+                'image/jpeg' => 'jpg',
+                'image/jpg' => 'jpg',
+                'image/webp' => 'webp',
+            ];
+            if (!isset($allowedMimes[$mime])) {
+                Response::error('Unsupported image format. Please upload a PNG, JPG, JPEG, or WebP file.', 422);
+            }
+            $ext = $allowedMimes[$mime];
+            $decoded = file_get_contents($tmpPath);
+        } else {
+            // 2. Base64 data URI upload
+            $fileData = (string)($request->input('file_data') ?? $request->input('file_base64') ?? '');
+            if (!preg_match('/^data:([a-zA-Z0-9\/\+.-]+);base64,(.+)$/s', $fileData, $matches)) {
+                Response::error('Please choose a valid PNG, JPG, JPEG, or WebP specimen image.', 422);
+            }
+            $mime = strtolower($matches[1]);
+            $allowedMimes = [
+                'image/png' => 'png',
+                'image/jpeg' => 'jpg',
+                'image/jpg' => 'jpg',
+                'image/webp' => 'webp',
+            ];
+            if (!isset($allowedMimes[$mime])) {
+                Response::error('Unsupported image format. Please upload a PNG, JPG, JPEG, or WebP file.', 422);
+            }
+            $decoded = base64_decode($matches[2], true);
+            if ($decoded === false) {
+                Response::error('Could not decode uploaded image data.', 422);
+            }
+            if (strlen($decoded) > 5 * 1024 * 1024) {
+                Response::error('Specimen image exceeds the 5MB maximum limit.', 422);
+            }
+            $ext = $allowedMimes[$mime];
+        }
+
+        if ($decoded === false || $decoded === null || $ext === null) {
+            Response::error('Failed to process uploaded specimen image.', 422);
+        }
+
+        $parentUploads = dirname(HAMBAKTECH_ROOT) . '/uploads';
+        $uploadDir = is_dir($parentUploads)
+            ? ($parentUploads . '/slips')
+            : (HAMBAKTECH_ROOT . '/uploads/slips');
+        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
+            Response::error('Failed to initialize server upload directory.', 500);
+        }
+
+        $safeFilename = 'specimen_' . time() . '_' . substr(md5(uniqid('', true)), 0, 8) . '.' . $ext;
+        $targetPath = $uploadDir . '/' . $safeFilename;
+        if (file_put_contents($targetPath, $decoded) === false) {
+            Response::error('Failed to store uploaded specimen image.', 500);
+        }
+
+        Response::success([
+            'url' => '/uploads/slips/' . $safeFilename,
+            'filename' => $safeFilename,
+        ], 'Specimen image uploaded successfully.');
     }
 
     public function saveSlipTemplate(Request $request, array $params = []): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        $id = $params['id'] ?? (string)$request->input('id', '');
+        VerificationController::ensureSlipSchemaAndDefaults($this->db);
+
+        $id = trim((string)($params['id'] ?? $request->input('id', '')));
         $body = $request->getBody();
 
         if (empty($id)) {
             $id = 'tpl_' . strtolower(bin2hex(random_bytes(4)));
         }
 
+        $existing = $this->db->fetchOne('SELECT * FROM slip_templates WHERE id = :id LIMIT 1', ['id' => $id]);
+
+        $name = array_key_exists('name', $body) ? trim((string)$body['name']) : ($existing['name'] ?? 'Slip Template');
+        if ($name === '') {
+            Response::error('Slip name cannot be empty.', 422);
+        }
+
+        $slipCode = array_key_exists('slip_code', $body)
+            ? (trim((string)$body['slip_code']) ?: null)
+            : ($existing['slip_code'] ?? null);
+        $category = array_key_exists('category', $body)
+            ? strtoupper(trim((string)$body['category']))
+            : ($existing['category'] ?? 'NIN');
+        $price = array_key_exists('price', $body)
+            ? ($body['price'] === '' || $body['price'] === null ? null : max(0.0, (float)$body['price']))
+            : (isset($existing['price']) && $existing['price'] !== null ? (float)$existing['price'] : null);
+        $demoImg = array_key_exists('demo_image_url', $body)
+            ? trim((string)$body['demo_image_url'])
+            : ($existing['demo_image_url'] ?? '/assets/aistudio/IMG_0483_23e1a1e1.png');
+        $description = array_key_exists('description', $body)
+            ? trim((string)$body['description'])
+            : ($existing['description'] ?? '');
+        $supportedService = array_key_exists('supported_service', $body)
+            ? trim((string)$body['supported_service'])
+            : ($existing['supported_service'] ?? 'all_nin');
+        $isActive = array_key_exists('is_active', $body)
+            ? (filter_var($body['is_active'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0)
+            : (int)($existing['is_active'] ?? 1);
+        $displayOrder = array_key_exists('display_order', $body)
+            ? max(0, (int)$body['display_order'])
+            : (int)($existing['display_order'] ?? 1);
+        $isRecommended = array_key_exists('is_recommended', $body)
+            ? (filter_var($body['is_recommended'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0)
+            : (int)($existing['is_recommended'] ?? 0);
+        $badge = array_key_exists('badge', $body)
+            ? (trim((string)$body['badge']) ?: null)
+            : ($existing['badge'] ?? null);
+        if ($isRecommended && empty($badge)) {
+            $badge = 'Recommended';
+        }
+        $watermark = array_key_exists('watermark_text', $body)
+            ? (trim((string)$body['watermark_text']) ?: 'SAMPLE SPECIMEN')
+            : ($existing['watermark_text'] ?? 'SAMPLE SPECIMEN');
+
         $this->db->execute(
-            'INSERT INTO slip_templates (id, name, category, demo_image_url, description, supported_service, is_active, display_order, badge)
-             VALUES (:id, :name, :cat, :img, :desc, :sup, :act, :ord, :bdg)
+            'INSERT INTO slip_templates
+             (id, slip_code, name, category, price, demo_image_url, description, supported_service, is_active, display_order, is_recommended, badge, watermark_text)
+             VALUES
+             (:id, :scode, :name, :cat, :price, :img, :desc, :sup, :act, :ord, :rec, :bdg, :wmark)
              ON DUPLICATE KEY UPDATE
-                name = COALESCE(:name2, name),
-                category = COALESCE(:cat2, category),
-                demo_image_url = COALESCE(:img2, demo_image_url),
-                description = COALESCE(:desc2, description),
-                supported_service = COALESCE(:sup2, supported_service),
-                is_active = COALESCE(:act2, is_active),
-                display_order = COALESCE(:ord2, display_order),
-                badge = COALESCE(:bdg2, badge)',
+                slip_code = VALUES(slip_code),
+                name = VALUES(name),
+                category = VALUES(category),
+                price = VALUES(price),
+                demo_image_url = VALUES(demo_image_url),
+                description = VALUES(description),
+                supported_service = VALUES(supported_service),
+                is_active = VALUES(is_active),
+                display_order = VALUES(display_order),
+                is_recommended = VALUES(is_recommended),
+                badge = VALUES(badge),
+                watermark_text = VALUES(watermark_text)',
             [
                 'id' => $id,
-                'name' => $body['name'] ?? 'Slip Template',
-                'cat' => $body['category'] ?? 'NIN',
-                'img' => $body['demo_image_url'] ?? '',
-                'desc' => $body['description'] ?? '',
-                'sup' => $body['supported_service'] ?? 'all_nin',
-                'act' => isset($body['is_active']) ? ($body['is_active'] ? 1 : 0) : 1,
-                'ord' => (int)($body['display_order'] ?? 1),
-                'bdg' => $body['badge'] ?? null,
-                'name2' => $body['name'] ?? null,
-                'cat2' => $body['category'] ?? null,
-                'img2' => $body['demo_image_url'] ?? null,
-                'desc2' => $body['description'] ?? null,
-                'sup2' => $body['supported_service'] ?? null,
-                'act2' => isset($body['is_active']) ? ($body['is_active'] ? 1 : 0) : null,
-                'ord2' => isset($body['display_order']) ? (int)$body['display_order'] : null,
-                'bdg2' => $body['badge'] ?? null,
+                'scode' => $slipCode,
+                'name' => $name,
+                'cat' => $category,
+                'price' => $price,
+                'img' => $demoImg,
+                'desc' => $description,
+                'sup' => $supportedService,
+                'act' => $isActive,
+                'ord' => $displayOrder,
+                'rec' => $isRecommended,
+                'bdg' => $badge,
+                'wmark' => $watermark,
             ]
         );
 
         $row = $this->db->fetchOne('SELECT * FROM slip_templates WHERE id = :id', ['id' => $id]);
-        Response::success(['template' => $row], 'Slip template saved successfully');
+        Response::success([
+            'template' => $row ? VerificationController::formatSlipRow($row) : null,
+        ], 'Slip template saved successfully');
     }
 
     public function deleteSlipTemplate(Request $request, array $params): void

@@ -1,11 +1,12 @@
 /**
  * @file IdentitySlipModal.tsx
- * High-fidelity NIMC & CBN Certified Digital Identity Slip Viewer.
- * Renders Standard, Premium Plastic, and Basic verification certificates
- * with high-res photo, QR verification code, national seal, and direct print/download controls.
+ * Human-Readable Verification Report Viewer, Printer & PDF Exporter.
+ * Displays strictly the actual identity fields returned by verification queries
+ * (never fabricates fallback data), supports HAMBAKTECH branding, genuine PDF export,
+ * and clean A4 print layout.
  */
 
-import React, { useRef } from 'react';
+import React, { useState } from 'react';
 import {
   Printer,
   Download,
@@ -14,243 +15,209 @@ import {
   CheckCircle2,
   QrCode,
   Lock,
-  Building,
-  User,
-  Calendar,
-  MapPin,
-  Phone,
+  Loader2,
   FileText,
 } from 'lucide-react';
-import { getInitialsAvatar } from '../../lib/avatar';
+import { useCms } from '../../context/CmsContext';
+import { downloadVerificationReportPdf, extractVerificationReport } from '../../lib/pdfReport';
 
 interface IdentitySlipModalProps {
   isOpen: boolean;
   onClose: () => void;
   record: any;
-  slipType?: 'ninStandard' | 'ninPremium' | 'ninBasic' | 'bvnStandard';
+  slipType?: string;
 }
 
 export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
   isOpen,
   onClose,
   record,
-  slipType = 'ninStandard',
 }) => {
-  const slipRef = useRef<HTMLDivElement>(null);
+  const { branding } = useCms();
+  const [downloading, setDownloading] = useState(false);
 
   if (!isOpen || !record) return null;
 
-  const data = record.data || record.result || record;
-  const isBvn = record.service_key?.startsWith('bvn') || record.type?.includes('BVN');
-
-  const fullName = `${data.firstname || data.firstName || 'FATIMOH'} ${data.middlename || data.middleName || ''} ${data.surname || 'MUSBAU'}`.trim();
-  const idNumber = data.nin || data.bvn || data.idNumber || record.search_value || '35359517922';
-  const trackingId = data.tracking_id || data.trackingId || `NIMC-${Math.floor(100000000 + Math.random() * 900000000)}`;
-  const photo = data.photo || getInitialsAvatar(fullName);
-  const dob = data.birthdate || data.dateOfBirth || data.dob || '1995-08-14';
-  const gender = data.gender || 'Female';
-  const phone = data.telephoneno || data.phone || '08032503238';
-  const state = data.residence_state || data.stateOfOrigin || 'Lagos';
-  const lga = data.residence_lga || data.lgaOfOrigin || 'Lekki LCDA';
-  const verifiedAt = record.created_at ? new Date(record.created_at).toLocaleString('en-NG') : new Date().toLocaleString('en-NG');
+  const companyName = branding?.company_name || 'HAMBAK TECH & SERVICES';
+  const report = extractVerificationReport(record);
 
   const handlePrint = () => {
     window.print();
   };
 
-  const handleDownloadSlip = () => {
-    // If genuine provider Base64 PDF is present, download authentic PDF document
-    const base64Pdf = data.pdf_base64 || record.result?.pdf_base64;
-    if (base64Pdf) {
-      try {
-        const cleanBase64 = base64Pdf.replace(/^data:application\/pdf;base64,/, '');
-        const byteCharacters = atob(cleanBase64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `OFFICIAL_${isBvn ? 'BVN' : 'NIMC'}_SLIP_${idNumber}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
-        return;
-      } catch (err) {
-        console.warn('Could not parse base64 PDF, falling back to certificate text export:', err);
-      }
-    }
-
-    if (data.pdf_url) {
-      window.open(data.pdf_url, '_blank');
+  const handleDownloadPdf = async () => {
+    if (report.pdfUrl) {
+      window.open(report.pdfUrl, '_blank', 'noopener,noreferrer');
       return;
     }
-
-    // Official verification certificate export
-    const content = `=================================================================\nFEDERAL REPUBLIC OF NIGERIA - OFFICIAL IDENTITY RECORD\nValidated via HambakTech Sovereign Gateway\n=================================================================\nDocument Type:   ${isBvn ? 'Central Bank of Nigeria BVN Certificate' : 'NIMC Certified Sovereign Identity Slip'}\nFull Name:       ${fullName}\nIdentity Number: ${idNumber}\nTracking ID:     ${trackingId}\nDate of Birth:   ${dob}\nGender:          ${gender}\nTelephone:       ${phone}\nState of Origin: ${state}\nLocal Govt Area: ${lga}\nVerified Status: COMPLETED / VERIFIED CITIZEN\nTimestamp:       ${verifiedAt}\nReference:       ${record.reference || 'HT-IMMUTABLE-REF'}\n=================================================================\nSecurity Seal:   CONFIRMED AUTHENTIC BY HAMBAKTECH ENTERPRISE GATEWAY\n`;
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${isBvn ? 'BVN' : 'NIMC'}_SLIP_${idNumber}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    setDownloading(true);
+    try {
+      await downloadVerificationReportPdf(record, companyName);
+    } finally {
+      setDownloading(false);
+    }
   };
 
+  const detailFields: Array<{ label: string; value: string | null; mono?: boolean }> = [
+    { label: 'First Name', value: report.firstName },
+    { label: 'Middle Name', value: report.middleName },
+    { label: 'Surname', value: report.surname },
+    { label: 'National Identity Number (NIN)', value: report.nin, mono: true },
+    { label: 'Bank Verification Number (BVN)', value: report.bvn, mono: true },
+    { label: 'Date of Birth', value: report.dateOfBirth, mono: true },
+    { label: 'Gender', value: report.gender },
+    { label: 'Phone Number', value: report.phoneNumber, mono: true },
+    { label: 'Address / Location', value: [report.address, report.lga, report.state].filter(Boolean).join(', ') || null },
+    { label: 'Tracking Reference', value: report.trackingId, mono: true },
+  ].filter(item => Boolean(item.value));
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto">
+      <div className="relative w-full max-w-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-6 print-only-area">
         {/* Top Control Bar */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-bold text-white uppercase tracking-wider">
-              {isBvn ? 'Central Bank of Nigeria BVN Slip' : 'NIMC Certified Sovereign Slip'}
+        <div className="no-print flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-4 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="font-bold text-slate-900 dark:text-white uppercase tracking-wide truncate">
+              {report.slipTypeName}
             </span>
-            <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono text-[10px]">
-              VERIFIED
+            <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-mono text-[10px] font-bold">
+              {report.status}
             </span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold transition"
-              title="Print official identity certificate"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-semibold transition"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print Slip</span>
+              <span>Print</span>
             </button>
             <button
-              onClick={handleDownloadSlip}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition shadow-sm"
-              title="Download verified record"
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={downloading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-bold transition shadow-sm"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download</span>
+              {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              <span>{downloading ? 'Generating PDF...' : 'Download PDF'}</span>
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              className="p-1.5 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition"
+              aria-label="Close report"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Printable Certificate Area */}
-        <div className="p-6 sm:p-8 space-y-6" ref={slipRef}>
-          {/* Certificate Container */}
-          <div className="relative rounded-2xl bg-gradient-to-b from-slate-950 to-slate-900 border-2 border-emerald-500/40 p-6 sm:p-8 shadow-xl overflow-hidden">
-            {/* Watermark Crest */}
-            <div className="absolute right-6 top-1/2 -translate-y-1/2 opacity-5 pointer-events-none select-none">
-              <ShieldCheck className="w-96 h-96 text-emerald-500" />
-            </div>
-
-            {/* Header Header */}
-            <div className="text-center pb-6 border-b border-slate-800 space-y-1">
-              <div className="flex items-center justify-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-lg border border-emerald-500/30">
-                  🇳🇬
+        {/* Printable Verification Report Body */}
+        <div className="p-5 sm:p-8 space-y-6">
+          <div className="rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-6">
+            {/* Report Brand Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-blue-600/10 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 flex items-center justify-center border border-blue-600/20 shrink-0">
+                  <ShieldCheck className="w-6 h-6" />
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-extrabold text-white uppercase tracking-widest">
-                    Federal Republic of Nigeria
+                  <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wide">
+                    {companyName}
                   </h2>
-                  <p className="text-[11px] text-emerald-400 font-semibold">
-                    {isBvn
-                      ? 'Central Bank of Nigeria (CBN) &bull; Bank Verification Number'
-                      : 'National Identity Management Commission (NIMC) &bull; National Identity Number'}
+                  <p className="text-xs font-semibold text-blue-700 dark:text-blue-400">
+                    Digital Identity Verification Report &bull; {report.slipTypeName}
                   </p>
                 </div>
               </div>
-              <p className="text-[10px] text-slate-400 font-mono mt-1">
-                Official Verification Tracking ID: {trackingId} &bull; Validated via Sovereign Identity Core
-              </p>
+              <div className="text-left sm:text-right text-[11px]">
+                <div className="text-slate-500 dark:text-slate-400 uppercase font-semibold">Transaction Reference</div>
+                <div className="font-mono font-bold text-slate-900 dark:text-white">{report.reference}</div>
+              </div>
             </div>
 
-            {/* Main Slip Body */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 mt-6 items-center">
-              {/* Photo & QR Code */}
-              <div className="sm:col-span-4 flex flex-col items-center gap-4 text-center">
-                <div className="relative w-32 h-36 rounded-xl overflow-hidden border-2 border-emerald-500/50 bg-slate-950 shadow-lg">
-                  <img src={photo} alt={fullName} className="w-full h-full object-cover" />
-                  <div className="absolute bottom-0 inset-x-0 bg-emerald-950/80 backdrop-blur-xs text-[9px] text-emerald-300 font-bold py-0.5 font-mono">
-                    VERIFIED CITIZEN
+            {/* Portrait + Key Identity Fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 items-start">
+              {report.photo ? (
+                <div className="sm:col-span-4 flex flex-col items-center gap-3">
+                  <div className="w-32 h-40 rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
+                    <img
+                      src={report.photo}
+                      alt={report.fullName || 'Verified Subject Photograph'}
+                      className="w-full h-full object-cover"
+                    />
                   </div>
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-bold">
+                    Returned Portrait
+                  </span>
                 </div>
-
-                <div className="p-2.5 rounded-xl bg-white text-slate-950 shadow-md">
-                  <QrCode className="w-20 h-20" />
-                  <p className="text-[8px] font-mono font-bold mt-1 uppercase">Scan to Verify</p>
+              ) : (
+                <div className="sm:col-span-4 flex flex-col items-center justify-center gap-2 p-5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-white/60 dark:bg-slate-900/50 text-center">
+                  <FileText className="w-8 h-8 text-slate-400" />
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    No portrait returned for this slip query
+                  </span>
                 </div>
-              </div>
+              )}
 
-              {/* Biodata Fields */}
               <div className="sm:col-span-8 space-y-4">
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-3">
+                {report.fullName && (
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-500">Full Name</span>
-                    <h3 className="text-lg font-black text-white tracking-tight">{fullName}</h3>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500">Gender</span>
-                      <p className="font-semibold text-slate-200">{gender}</p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500">Date of Birth</span>
-                      <p className="font-mono font-bold text-slate-200">{dob}</p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500">Phone</span>
-                      <p className="font-mono text-slate-200">{phone}</p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500">Residence State</span>
-                      <p className="text-slate-200 font-semibold">{state}</p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500">Residence LGA</span>
-                      <p className="text-slate-200 font-semibold">{lga}</p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-500">Status</span>
-                      <p className="text-emerald-400 font-bold font-mono">ACTIVE / LINKED</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sovereign Number Banner */}
-                <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-950/60 to-slate-950 border border-emerald-500/40 flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-emerald-400 font-mono">
-                      {isBvn ? 'Bank Verification Number (BVN)' : 'National Identification Number (NIN)'}
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400">
+                      Full Name
                     </span>
-                    <div className="text-2xl sm:text-3xl font-black font-mono tracking-widest text-white mt-0.5">
-                      {idNumber}
-                    </div>
+                    <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white">
+                      {report.fullName}
+                    </h3>
                   </div>
-                  <div className="text-right">
-                    <span className="text-[9px] uppercase font-mono text-slate-400 block">Digital Certificate</span>
-                    <span className="text-[10px] font-mono text-emerald-400 font-bold">100% Authentic</span>
+                )}
+
+                {detailFields.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {detailFields.map(field => (
+                      <div
+                        key={field.label}
+                        className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+                      >
+                        <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">
+                          {field.label}
+                        </div>
+                        <div
+                          className={`text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 mt-0.5 break-words ${
+                            field.mono ? 'font-mono' : ''
+                          }`}
+                        >
+                          {field.value}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                ) : (
+                  <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300">
+                    Verification completed. Reference: <span className="font-mono font-bold">{report.reference}</span>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Bottom Security Footer */}
-            <div className="mt-6 pt-4 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between text-[10px] text-slate-400 font-mono gap-2">
-              <div className="flex items-center gap-2">
-                <Lock className="w-3 h-3 text-emerald-400" />
-                <span>Authenticated via Secure Sovereign Verification Gateway</span>
+            {/* Footer Metadata & Legal Disclaimer */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+                <div className="flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Verification Timestamp: {report.verifiedAt}</span>
+                </div>
+                <div className="flex items-center gap-1.5 font-mono">
+                  <QrCode className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Ref: {report.reference}</span>
+                </div>
               </div>
-              <div>
-                <span>Timestamp: {verifiedAt}</span>
-              </div>
+              <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3">
+                <strong>Verification Notice:</strong> This document is a {companyName} digital verification report generated from authorized query output at the timestamp above. It is provided strictly for legitimate KYC and identity confirmation records and does not serve as a replacement for an official government-issued ID card issued directly by NIMC.
+              </p>
             </div>
           </div>
         </div>

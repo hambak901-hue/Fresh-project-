@@ -391,13 +391,14 @@ export const api = {
     return request('/api/wallet/admin/financial-reports');
   },
 
-  // Verification (Phase 5 Complete 2SureVerify Integration)
+  // Verification (Identity API)
   async getVerificationServices(): Promise<{
     success: boolean;
     activeProvider: string;
     services: import('../types').IdentityService[];
     categories: Record<string, import('../types').IdentityService[]>;
-    slipTypes: Array<{ id: string; name: string; description: string }>;
+    slipTypes: Array<{ id: string; template_id?: string; name: string; description: string; price?: number | null; is_recommended?: boolean; badge?: string | null }>;
+    slipTemplates?: import('../types').SlipTemplateItem[];
   }> {
     return request('/api/verification/services');
   },
@@ -406,20 +407,30 @@ export const api = {
     serviceKey: string,
     payload: any,
     consent: boolean = true,
-    testSandbox: boolean = false
+    idempotencyKey?: string
   ): Promise<{
     success: boolean;
     pending?: boolean;
+    duplicate?: boolean;
     message: string;
     reference: string;
     newBalance: number;
+    cost?: number;
+    slip_type?: string;
+    slip_name?: string | null;
+    verified_at?: string;
     recordId: string;
     result: any;
     service: { key: string; name: string; category: string };
   }> {
     return request('/api/verification/verify', {
       method: 'POST',
-      body: JSON.stringify({ serviceKey, payload, consent, testSandbox }),
+      body: JSON.stringify({
+        serviceKey,
+        payload,
+        consent,
+        idempotency_key: idempotencyKey || payload?.idempotency_key,
+      }),
     });
   },
 
@@ -1185,6 +1196,13 @@ export const api = {
   async deleteAdminSlipTemplate(id: string): Promise<{ success: boolean; message: string }> {
     return request(`/api/admin/slip-templates/${id}`, {
       method: 'DELETE',
+    });
+  },
+
+  async uploadSlipSpecimen(fileDataUri: string): Promise<{ success: boolean; url: string; filename: string; message: string }> {
+    return request('/api/admin/slip-templates/upload-specimen', {
+      method: 'POST',
+      body: JSON.stringify({ file_data: fileDataUri }),
     });
   },
 

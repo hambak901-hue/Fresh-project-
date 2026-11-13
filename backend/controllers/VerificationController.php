@@ -32,6 +32,162 @@ class VerificationController
         $this->walletService = new WalletService();
     }
 
+    public static function ensureSlipSchemaAndDefaults(Database $db): void
+    {
+        try {
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS slip_templates (
+                    id VARCHAR(50) PRIMARY KEY,
+                    slip_code VARCHAR(64) NULL,
+                    name VARCHAR(191) NOT NULL,
+                    category VARCHAR(50) NOT NULL DEFAULT "NIN",
+                    price DECIMAL(15, 2) NULL,
+                    demo_image_url VARCHAR(500) NULL,
+                    description TEXT NULL,
+                    supported_service VARCHAR(100) NOT NULL DEFAULT "all_nin",
+                    is_active TINYINT(1) NOT NULL DEFAULT 1,
+                    display_order INT NOT NULL DEFAULT 1,
+                    is_recommended TINYINT(1) NOT NULL DEFAULT 0,
+                    badge VARCHAR(50) NULL,
+                    watermark_text VARCHAR(100) DEFAULT "SAMPLE SPECIMEN",
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+
+            $cols = [
+                'slip_code' => 'ADD COLUMN slip_code VARCHAR(64) NULL AFTER id',
+                'price' => 'ADD COLUMN price DECIMAL(15, 2) NULL AFTER category',
+                'is_recommended' => 'ADD COLUMN is_recommended TINYINT(1) NOT NULL DEFAULT 0 AFTER display_order',
+                'watermark_text' => 'ADD COLUMN watermark_text VARCHAR(100) DEFAULT "SAMPLE SPECIMEN"',
+            ];
+            foreach ($cols as $col => $clause) {
+                $exists = $db->fetchOne(
+                    'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "slip_templates" AND COLUMN_NAME = :col',
+                    ['col' => $col]
+                );
+                if (!$exists) {
+                    $db->execute("ALTER TABLE slip_templates {$clause}");
+                }
+            }
+
+            $idempExists = $db->fetchOne(
+                'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "verification_records" AND COLUMN_NAME = "idempotency_key"'
+            );
+            if (!$idempExists) {
+                $db->execute('ALTER TABLE verification_records ADD COLUMN idempotency_key VARCHAR(120) NULL AFTER has_slip');
+            }
+
+            $canonicalCount = $db->fetchOne(
+                'SELECT COUNT(*) as cnt FROM slip_templates WHERE category = "NIN" AND slip_code IN ("ninBasic", "ninRegular", "ninStandard", "ninPremium", "ninVnin")'
+            );
+            if ((int)($canonicalCount['cnt'] ?? 0) === 0) {
+                // Remove old unconfigured placeholder NIN slips once when migrating to the 5 canonical NIN slip formats
+                $db->execute(
+                    'DELETE FROM slip_templates WHERE id IN ("tpl_nin_long", "tpl_nin_plastic", "tpl_nin_improved") AND (slip_code IS NULL OR slip_code = "")'
+                );
+
+                $ninDefaults = [
+                    [
+                        'id' => 'tpl_nin_basic',
+                        'slip_code' => 'ninBasic',
+                        'name' => 'Basic Slip',
+                        'category' => 'NIN',
+                        'price' => 200.00,
+                        'demo_image_url' => '/assets/aistudio/IMG_0486_66e12609.jpeg',
+                        'description' => 'Essential NIN verification layout showing core biodata details, verified photograph, and transaction reference.',
+                        'supported_service' => 'all_nin',
+                        'is_active' => 1,
+                        'display_order' => 1,
+                        'is_recommended' => 0,
+                        'badge' => null,
+                        'watermark_text' => 'SAMPLE SPECIMEN',
+                    ],
+                    [
+                        'id' => 'tpl_nin_regular',
+                        'slip_code' => 'ninRegular',
+                        'name' => 'Regular Slip',
+                        'category' => 'NIN',
+                        'price' => 200.00,
+                        'demo_image_url' => '/assets/aistudio/IMG_0485_9e5b9616.png',
+                        'description' => 'Standard full-page verification report displaying complete citizen details, photograph, and tracking details.',
+                        'supported_service' => 'all_nin',
+                        'is_active' => 1,
+                        'display_order' => 2,
+                        'is_recommended' => 0,
+                        'badge' => null,
+                        'watermark_text' => 'SAMPLE SPECIMEN',
+                    ],
+                    [
+                        'id' => 'tpl_nin_standard',
+                        'slip_code' => 'ninStandard',
+                        'name' => 'Standard Slip',
+                        'category' => 'NIN',
+                        'price' => 200.00,
+                        'demo_image_url' => '/assets/aistudio/IMG_0483_23e1a1e1.png',
+                        'description' => 'Long-form standard verification layout with full demographic attributes, residential info, and QR reference.',
+                        'supported_service' => 'all_nin',
+                        'is_active' => 1,
+                        'display_order' => 3,
+                        'is_recommended' => 1,
+                        'badge' => 'Recommended',
+                        'watermark_text' => 'SAMPLE SPECIMEN',
+                    ],
+                    [
+                        'id' => 'tpl_nin_premium',
+                        'slip_code' => 'ninPremium',
+                        'name' => 'Premium Slip',
+                        'category' => 'NIN',
+                        'price' => 250.00,
+                        'demo_image_url' => '/assets/aistudio/IMG_0484_0fb633df.png',
+                        'description' => 'High-clarity compact card layout with verified photograph, structured biodata, and QR verification tag.',
+                        'supported_service' => 'all_nin',
+                        'is_active' => 1,
+                        'display_order' => 4,
+                        'is_recommended' => 0,
+                        'badge' => 'Premium Card',
+                        'watermark_text' => 'SAMPLE SPECIMEN',
+                    ],
+                    [
+                        'id' => 'tpl_nin_vnin',
+                        'slip_code' => 'ninVnin',
+                        'name' => 'VNIN Slip',
+                        'category' => 'NIN',
+                        'price' => 250.00,
+                        'demo_image_url' => '/assets/aistudio/IMG_0483_23e1a1e1.png',
+                        'description' => 'Virtual NIN verification slip format tailored for institutional onboarding and third-party KYC compliance.',
+                        'supported_service' => 'all_nin',
+                        'is_active' => 1,
+                        'display_order' => 5,
+                        'is_recommended' => 0,
+                        'badge' => 'Virtual NIN',
+                        'watermark_text' => 'SAMPLE SPECIMEN',
+                    ],
+                ];
+
+                foreach ($ninDefaults as $d) {
+                    $db->execute(
+                        'INSERT IGNORE INTO slip_templates
+                         (id, slip_code, name, category, price, demo_image_url, description, supported_service, is_active, display_order, is_recommended, badge, watermark_text)
+                         VALUES (:id, :slip_code, :name, :category, :price, :demo_image_url, :description, :supported_service, :is_active, :display_order, :is_recommended, :badge, :watermark_text)',
+                        $d
+                    );
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('[Slip Schema/Seed Notice]: ' . $e->getMessage());
+        }
+    }
+
+    public static function formatSlipRow(array $row): array
+    {
+        $row['is_active'] = (bool)($row['is_active'] ?? true);
+        $row['display_order'] = (int)($row['display_order'] ?? 1);
+        $row['is_recommended'] = (bool)($row['is_recommended'] ?? false);
+        $row['price'] = isset($row['price']) && $row['price'] !== null ? (float)$row['price'] : null;
+        return $row;
+    }
+
     private function resolveActiveProviderId(?string $serviceProvider = null): string
     {
         if (!empty($serviceProvider) && in_array(strtolower($serviceProvider), ['veripine', '2sureverify'], true)) {
@@ -66,8 +222,118 @@ class VerificationController
         return 'nin_verification';
     }
 
+    private function extractNormalizedIdentity(array $providerResult): array
+    {
+        $raw = $providerResult['data'] ?? $providerResult;
+        if (isset($raw['user_data']) && is_array($raw['user_data'])) {
+            $nested = $raw['user_data'];
+            $merged = array_merge($raw, $nested);
+        } elseif (isset($raw['data']) && is_array($raw['data'])) {
+            $merged = array_merge($raw, $raw['data']);
+        } else {
+            $merged = is_array($raw) ? $raw : [];
+        }
+
+        // Preserve original returned keys, normalize aliases only when present (never fabricate defaults)
+        $first = $merged['firstname'] ?? $merged['firstName'] ?? $merged['first_name'] ?? null;
+        $middle = $merged['middlename'] ?? $merged['middleName'] ?? $merged['middle_name'] ?? null;
+        $surname = $merged['surname'] ?? $merged['lastName'] ?? $merged['last_name'] ?? $merged['lastname'] ?? null;
+        $nin = $merged['nin'] ?? $merged['NIN'] ?? null;
+        $bvn = $merged['bvn'] ?? $merged['BVN'] ?? null;
+        $dob = $merged['birthdate'] ?? $merged['dateOfBirth'] ?? $merged['date_of_birth'] ?? $merged['dob'] ?? null;
+        $gender = $merged['gender'] ?? $merged['sex'] ?? null;
+        $phone = $merged['telephoneno'] ?? $merged['phone'] ?? $merged['phoneNumber'] ?? $merged['phone_number'] ?? null;
+        $address = $merged['address'] ?? $merged['residence_address'] ?? $merged['residential_address'] ?? $merged['residence_AdressLine1'] ?? null;
+        $state = $merged['residence_state'] ?? $merged['state'] ?? $merged['stateOfOrigin'] ?? null;
+        $lga = $merged['residence_lga'] ?? $merged['lga'] ?? $merged['lgaOfOrigin'] ?? null;
+        $tracking = $merged['tracking_id'] ?? $merged['trackingId'] ?? null;
+        $photo = $merged['photo'] ?? $merged['image'] ?? $merged['avatar'] ?? null;
+
+        if (is_string($photo) && trim($photo) !== '') {
+            $photo = trim($photo);
+            $isUrlOrAsset = str_starts_with($photo, 'data:')
+                || str_starts_with($photo, 'http://')
+                || str_starts_with($photo, 'https://')
+                || str_starts_with($photo, '/assets/')
+                || str_starts_with($photo, '/uploads/');
+            if (!$isUrlOrAsset) {
+                $mime = str_starts_with($photo, 'iVBOR') ? 'image/png' : 'image/jpeg';
+                $photo = "data:{$mime};base64," . $photo;
+            }
+        } else {
+            $photo = null;
+        }
+
+        if ($first !== null) $merged['firstname'] = (string)$first;
+        if ($middle !== null) $merged['middlename'] = (string)$middle;
+        if ($surname !== null) $merged['surname'] = (string)$surname;
+        if ($nin !== null) $merged['nin'] = (string)$nin;
+        if ($bvn !== null) $merged['bvn'] = (string)$bvn;
+        if ($dob !== null) $merged['birthdate'] = (string)$dob;
+        if ($gender !== null) $merged['gender'] = (string)$gender;
+        if ($phone !== null) $merged['telephoneno'] = (string)$phone;
+        if ($address !== null) $merged['address'] = (string)$address;
+        if ($state !== null) $merged['residence_state'] = (string)$state;
+        if ($lga !== null) $merged['residence_lga'] = (string)$lga;
+        if ($tracking !== null) $merged['tracking_id'] = (string)$tracking;
+        if ($photo !== null) $merged['photo'] = $photo;
+
+        if (!empty($providerResult['pdf_base64']) && empty($merged['pdf_base64'])) {
+            $merged['pdf_base64'] = $providerResult['pdf_base64'];
+        }
+        if (!empty($providerResult['pdf_url']) && empty($merged['pdf_url'])) {
+            $merged['pdf_url'] = $providerResult['pdf_url'];
+        }
+
+        unset($merged['user_data']);
+        return $merged;
+    }
+
+    private function sanitizeCustomerError(string $message): string
+    {
+        $clean = preg_replace('/https?:\/\/\S+/i', '', $message) ?? $message;
+        $clean = str_ireplace(['2sureverify', 'veripine', 'ulamadata', 'api_key', 'twosureverify_api_key'], 'verification gateway', $clean);
+        return trim($clean) ?: 'Identity verification could not be completed at this moment.';
+    }
+
+    private function sanitizeResultForCustomer(array $data): array
+    {
+        unset(
+            $data['provider'],
+            $data['provider_id'],
+            $data['provider_cost'],
+            $data['wholesale_cost'],
+            $data['raw_error'],
+            $data['endpoint'],
+            $data['api_url'],
+            $data['api_key'],
+            $data['amount_charged'],
+            $data['balance_before'],
+            $data['balance_after'],
+            $data['wallet_balance'],
+            $data['provider_balance'],
+            $data['commission'],
+            $data['charge']
+        );
+        if (!empty($data['photo']) && is_string($data['photo'])) {
+            $p = trim($data['photo']);
+            $isUrlOrAsset = str_starts_with($p, 'data:')
+                || str_starts_with($p, 'http://')
+                || str_starts_with($p, 'https://')
+                || str_starts_with($p, '/assets/')
+                || str_starts_with($p, '/uploads/');
+            if ($p !== '' && !$isUrlOrAsset) {
+                $mime = str_starts_with($p, 'iVBOR') ? 'image/png' : 'image/jpeg';
+                $data['photo'] = "data:{$mime};base64," . $p;
+            }
+        }
+        return $data;
+    }
+
     public function services(Request $request): void
     {
+        self::ensureSlipSchemaAndDefaults($this->db);
+
         $user = Auth::user($request);
         $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
         $activeProvider = $this->resolveActiveProviderId();
@@ -103,6 +369,7 @@ class VerificationController
 
         foreach ($rows as &$r) {
             $r['selling_price'] = (float)$r['selling_price'];
+            $r['price'] = $r['selling_price'];
             $r['enabled'] = (bool)$r['enabled'];
             $r['slip_type_supported'] = (bool)$r['slip_type_supported'];
             if ($isAdmin) {
@@ -121,30 +388,63 @@ class VerificationController
             $categories[$catKey][] = $r;
         }
 
-        $slipTypes = [
-            ['id' => 'ninStandard', 'name' => 'NIN Standard Slip', 'description' => 'Official standard NIN verification slip'],
-            ['id' => 'ninPremium', 'name' => 'NIN Premium Slip', 'description' => 'High-security digital ID card format'],
-            ['id' => 'ninLong', 'name' => 'NIN Long Slip', 'description' => 'Comprehensive full-record NIMC slip'],
-            ['id' => 'ninValidating', 'name' => 'NIN Validating Slip', 'description' => 'Institutional verification certificate'],
-        ];
+        $slipTemplates = [];
+        try {
+            $tplRows = $this->db->fetchAll('SELECT * FROM slip_templates WHERE is_active = 1 ORDER BY display_order ASC, name ASC');
+            foreach ($tplRows as $t) {
+                $slipTemplates[] = self::formatSlipRow($t);
+            }
+        } catch (Throwable) {
+        }
+
+        $slipTypes = array_values(array_map(static function ($t) {
+            return [
+                'id' => $t['slip_code'] ?: $t['id'],
+                'template_id' => $t['id'],
+                'name' => $t['name'],
+                'description' => $t['description'] ?? '',
+                'price' => $t['price'],
+                'is_recommended' => $t['is_recommended'],
+                'badge' => $t['badge'] ?? null,
+            ];
+        }, array_filter($slipTemplates, static fn($t) => strtoupper((string)($t['category'] ?? '')) === 'NIN')));
 
         Response::success([
-            'activeProvider' => $isAdmin ? $activeProvider : 'sovereign',
+            'activeProvider' => $isAdmin ? $activeProvider : 'verified',
             'services' => $rows,
             'categories' => $categories,
             'slipTypes' => $slipTypes,
+            'slipTemplates' => $slipTemplates,
         ]);
     }
 
     public function verify(Request $request): void
     {
+        self::ensureSlipSchemaAndDefaults($this->db);
+
         $user = Auth::requireAuth($request);
-        $serviceKey = trim((string)($request->input('serviceKey') ?? $request->input('service_key', 'nin_v1')));
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+
+        // Enforce explicit NDPR/NIMC authorization consent
+        $rawConsent = $request->input('consent', false);
+        $consentAccepted = filter_var($rawConsent, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
+        if (!$consentAccepted) {
+            Response::error('Legal authorization consent is required before submitting an identity verification request.', 422);
+        }
+
         $nestedPayload = $request->input('payload', []);
         $allInputs = array_merge($request->getBody(), is_array($nestedPayload) ? $nestedPayload : []);
 
-        $slipType = (string)($allInputs['slip_type'] ?? $request->input('slip_type', 'ninStandard'));
-        $tier = (string)($allInputs['tier'] ?? $request->input('tier', 'standard'));
+        $serviceKey = trim((string)($request->input('serviceKey') ?? $request->input('service_key', '')));
+        $searchType = strtolower(trim((string)($allInputs['search_type'] ?? $request->input('search_type', ''))));
+        if ($serviceKey === '' || $serviceKey === 'nin_verify') {
+            $serviceKey = ($searchType === 'phone' || $searchType === 'phone_number') ? 'phone_v1' : 'nin_v1';
+        }
+
+        $slipTemplateId = trim((string)($allInputs['slip_template_id'] ?? $request->input('slip_template_id', '')));
+        $slipTypeInput = trim((string)($allInputs['slip_type'] ?? $request->input('slip_type', 'ninStandard')));
+        $tier = trim((string)($allInputs['tier'] ?? $request->input('tier', 'standard')));
+        $idempotencyKey = trim((string)($allInputs['idempotency_key'] ?? $request->input('idempotency_key', '')));
 
         $searchValue = trim((string)(
             $allInputs['search_value']
@@ -165,7 +465,24 @@ class VerificationController
         }
 
         if ($searchValue === '') {
-            Response::error('Please provide the required NIN, BVN, phone number, tracking ID, or search parameters.', 422);
+            Response::error('Please provide the required NIN, phone number, or search value.', 422);
+        }
+
+        // Strict format validation BEFORE touching wallet
+        if (in_array($serviceKey, ['nin_v1', 'nin_v2', 'nin_v3'], true)) {
+            $cleanNin = preg_replace('/\s+/', '', $searchValue) ?? '';
+            if (!preg_match('/^\d{11}$/', $cleanNin)) {
+                Response::error('NIN Number must be exactly 11 numeric digits.', 422);
+            }
+            $searchValue = $cleanNin;
+            $allInputs['nin'] = $cleanNin;
+        } elseif (in_array($serviceKey, ['phone_v1', 'phone_v2', 'phone_v3'], true)) {
+            $cleanPhone = preg_replace('/\s+/', '', $searchValue) ?? '';
+            if (!preg_match('/^\d{11}$/', $cleanPhone)) {
+                Response::error('Phone Number must be exactly 11 numeric digits (e.g. 08012345678).', 422);
+            }
+            $searchValue = $cleanPhone;
+            $allInputs['phone'] = $cleanPhone;
         }
 
         // 1. Fetch Service Configuration from MySQL
@@ -178,7 +495,96 @@ class VerificationController
             Response::error('Selected verification service is unavailable or inactive.', 404);
         }
 
-        // Determine adapter and ensure credentials exist before debiting wallet
+        // 2. Resolve Slip Template, Active Status & Dynamic Slip Price BEFORE touching wallet
+        $cost = (float)$service['selling_price'];
+        $resolvedSlipCode = $slipTypeInput ?: 'ninStandard';
+        $resolvedSlipName = null;
+
+        $categoryKey = $this->mapCategoryKey((string)($service['category_code'] ?? ''));
+        $isNinVerification = ($categoryKey === 'nin_verification');
+
+        if ($isNinVerification || $slipTemplateId !== '' || !empty($service['slip_type_supported'])) {
+            $tpl = null;
+            if ($slipTemplateId !== '') {
+                $tpl = $this->db->fetchOne(
+                    'SELECT * FROM slip_templates WHERE id = :id OR slip_code = :code LIMIT 1',
+                    ['id' => $slipTemplateId, 'code' => $slipTemplateId]
+                );
+            }
+            if (!$tpl && $slipTypeInput !== '') {
+                $tpl = $this->db->fetchOne(
+                    'SELECT * FROM slip_templates WHERE slip_code = :code OR id = :id LIMIT 1',
+                    ['code' => $slipTypeInput, 'id' => $slipTypeInput]
+                );
+            }
+
+            if ($tpl) {
+                if (!(bool)$tpl['is_active']) {
+                    Response::error('The selected slip type is currently disabled. Please select an active slip type.', 422);
+                }
+                if (!empty($tpl['slip_code'])) {
+                    $resolvedSlipCode = (string)$tpl['slip_code'];
+                }
+                $resolvedSlipName = (string)$tpl['name'];
+                if ($tpl['price'] !== null && (float)$tpl['price'] > 0) {
+                    $cost = (float)$tpl['price'];
+                }
+            } elseif ($isNinVerification && $slipTemplateId !== '') {
+                Response::error('Selected slip type was not found.', 422);
+            }
+        }
+
+        // 3. Idempotency / Duplicate Submission Guard BEFORE touching wallet
+        if ($idempotencyKey !== '') {
+            $idempKeyNorm = substr($idempotencyKey, 0, 120);
+            try {
+                $existing = $this->db->fetchOne(
+                    'SELECT * FROM verification_records WHERE user_id = :uid AND idempotency_key = :ikey ORDER BY created_at DESC LIMIT 1',
+                    ['uid' => $user['id'], 'ikey' => $idempKeyNorm]
+                );
+                if ($existing) {
+                    if ($existing['status'] === 'completed') {
+                        $decodedRes = json_decode((string)$existing['result_data'], true) ?: [];
+                        if (!$isAdmin && is_array($decodedRes)) {
+                            $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
+                        }
+                        $wallet = $this->db->fetchOne('SELECT balance FROM wallets WHERE user_id = :uid', ['uid' => $user['id']]);
+                        $bal = $wallet ? (float)$wallet['balance'] : (float)($user['wallet_balance'] ?? 0);
+                        Response::success([
+                            'duplicate' => true,
+                            'verification_id' => $existing['id'],
+                            'recordId' => $existing['id'],
+                            'reference' => $existing['reference'],
+                            'cost' => (float)$existing['cost'],
+                            'balance_after' => $bal,
+                            'newBalance' => $bal,
+                            'slip_type' => $existing['slip_type'],
+                            'slip_name' => $resolvedSlipName,
+                            'data' => $decodedRes,
+                            'result' => $decodedRes,
+                            'verified_at' => $existing['created_at'],
+                            'service' => [
+                                'key' => $serviceKey,
+                                'name' => $service['name'],
+                                'category' => $categoryKey,
+                            ],
+                        ], 'Verification already processed for this request.');
+                        return;
+                    }
+                    if ($existing['status'] === 'pending') {
+                        Response::error('This verification request is already in progress. Please wait for completion.', 409);
+                    }
+                    // If failed recently (< 30s) with the exact same idempotency_key, guard against accidental double click
+                    $createdTs = strtotime((string)($existing['created_at'] ?? '')) ?: 0;
+                    if ($existing['status'] === 'failed' && (time() - $createdTs) < 30) {
+                        Response::error('Duplicate submission detected. Please review and try again.', 409);
+                    }
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        // 4. Determine adapter and ensure credentials exist before debiting wallet
         $preferredProvider = $this->resolveActiveProviderId($service['provider_id'] ?? null);
         $veripine = new VeripineAdapter();
         $twoSure = new TwoSureVerifyAdapter();
@@ -202,16 +608,15 @@ class VerificationController
         $adapter = ($usedProvider === 'veripine') ? $veripine : $twoSure;
         if (($usedProvider === 'veripine' && !$veripine->hasCredentials()) || ($usedProvider === '2sureverify' && !$hasTwoSureKey)) {
             Response::error(
-                'Identity provider credentials are not configured on this server. Please configure Veripine or 2SureVerify API keys in Super Admin > Service & Provider Settings.',
+                'Verification service is temporarily unavailable because gateway credentials are not configured.',
                 503
             );
         }
 
-        $cost = (float)$service['selling_price'];
         $wholesaleCost = (float)$service['wholesale_cost'];
         $endpoint = (string)($service['endpoint'] ?? $serviceKey);
 
-        // 2. Atomic Wallet Debit
+        // 5. Atomic Wallet Debit
         $reference = 'VRF_' . strtoupper(bin2hex(random_bytes(6)));
         try {
             $debitResult = $this->walletService->debit(
@@ -219,22 +624,49 @@ class VerificationController
                 $cost,
                 'nin_verification',
                 $reference,
-                "Identity verification fee for {$service['name']} ({$searchValue})",
+                "Identity verification fee for {$service['name']}" . ($resolvedSlipName ? " ({$resolvedSlipName})" : '') . " ({$searchValue})",
                 'internal',
-                ['service_key' => $serviceKey, 'search_value' => $searchValue]
+                [
+                    'service_key' => $serviceKey,
+                    'search_value' => $searchValue,
+                    'slip_type' => $resolvedSlipCode,
+                ]
             );
         } catch (Exception $e) {
             Response::error($e->getMessage(), 400);
             return;
         }
 
-        // 3. Dispatch to Real Upstream Provider Adapter
+        // Insert initial pending record to lock idempotency_key against concurrent double clicks
         $recordId = Security::generateUuid();
+        try {
+            $this->db->execute(
+                'INSERT INTO verification_records
+                 (id, user_id, type, service_key, search_value, provider, cost, provider_cost, status, reference, slip_type, has_slip, idempotency_key, result_data, created_at)
+                 VALUES
+                 (:id, :uid, :type, :skey, :search, :prov, :cost, 0.00, "pending", :ref, :slip, 0, :ikey, NULL, NOW())',
+                [
+                    'id' => $recordId,
+                    'uid' => $user['id'],
+                    'type' => strtoupper(explode('_', $serviceKey)[0] ?? 'NIN'),
+                    'skey' => $serviceKey,
+                    'search' => $searchValue,
+                    'prov' => $usedProvider,
+                    'cost' => $cost,
+                    'ref' => $reference,
+                    'slip' => $resolvedSlipCode,
+                    'ikey' => $idempotencyKey !== '' ? substr($idempotencyKey, 0, 120) : null,
+                ]
+            );
+        } catch (Throwable) {
+        }
+
+        // 6. Dispatch to Real Upstream Provider Adapter
         try {
             $payload = array_merge($allInputs, [
                 'service_key' => $serviceKey,
                 'search_value' => $searchValue,
-                'slip_type' => $slipType,
+                'slip_type' => $resolvedSlipCode,
                 'tier' => $tier,
                 'reference' => $reference,
             ]);
@@ -250,32 +682,24 @@ class VerificationController
                 throw new Exception((string)($providerResult['message'] ?? 'Upstream identity verification failed.'));
             }
 
-            $resultData = $providerResult['data'] ?? $providerResult;
+            $resultData = $this->extractNormalizedIdentity($providerResult);
             $actualProviderCost = (float)($providerResult['provider_cost'] ?? $wholesaleCost);
-            $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+            $verifiedAt = date('c');
+
             $customerSafeResult = $resultData;
             if (!$isAdmin && is_array($customerSafeResult)) {
-                unset($customerSafeResult['provider'], $customerSafeResult['provider_id'], $customerSafeResult['provider_cost'], $customerSafeResult['wholesale_cost'], $customerSafeResult['raw_error'], $customerSafeResult['endpoint'], $customerSafeResult['api_url']);
+                $customerSafeResult = $this->sanitizeResultForCustomer($customerSafeResult);
             }
 
-            // 4. Save to verification_records
+            // 7. Update verification_records to completed
             $this->db->execute(
-                'INSERT INTO verification_records
-                 (id, user_id, type, service_key, search_value, provider, cost, provider_cost, status, reference, slip_type, has_slip, result_data, created_at)
-                 VALUES
-                 (:id, :uid, :type, :skey, :search, :prov, :cost, :pcost, "completed", :ref, :slip, 1, :result, NOW())',
+                'UPDATE verification_records
+                 SET provider_cost = :pcost, status = "completed", has_slip = 1, result_data = :result
+                 WHERE id = :id',
                 [
-                    'id' => $recordId,
-                    'uid' => $user['id'],
-                    'type' => strtoupper(explode('_', $serviceKey)[0] ?? 'NIN'),
-                    'skey' => $serviceKey,
-                    'search' => $searchValue,
-                    'prov' => $usedProvider,
-                    'cost' => $cost,
                     'pcost' => $actualProviderCost,
-                    'ref' => $reference,
-                    'slip' => $slipType,
                     'result' => json_encode($resultData),
+                    'id' => $recordId,
                 ]
             );
 
@@ -291,7 +715,8 @@ class VerificationController
                 'status' => 'successful',
                 'amount' => $cost,
                 'metadata' => [
-                    'slip_type' => $slipType,
+                    'slip_type' => $resolvedSlipCode,
+                    'slip_name' => $resolvedSlipName,
                     'search_type' => strtoupper(explode('_', $serviceKey)[0] ?? 'NIN'),
                 ],
             ]);
@@ -303,18 +728,20 @@ class VerificationController
                 'cost' => $cost,
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
-                'slip_type' => $slipType,
+                'slip_type' => $resolvedSlipCode,
+                'slip_name' => $resolvedSlipName,
+                'verified_at' => $verifiedAt,
                 'data' => $customerSafeResult,
                 'result' => $customerSafeResult,
                 'service' => [
                     'key' => $serviceKey,
                     'name' => $service['name'],
-                    'category' => $this->mapCategoryKey((string)($service['category_code'] ?? '')),
+                    'category' => $categoryKey,
                 ],
             ], 'Verification completed successfully!');
         } catch (Exception $e) {
             $refundRef = 'REFUND_' . $reference;
-            $this->walletService->credit(
+            $refundResult = $this->walletService->credit(
                 $user['id'],
                 $cost,
                 'manual_adjustment',
@@ -324,20 +751,12 @@ class VerificationController
             );
 
             $this->db->execute(
-                'INSERT INTO verification_records
-                 (id, user_id, type, service_key, search_value, provider, cost, provider_cost, status, reference, slip_type, has_slip, result_data, created_at)
-                 VALUES
-                 (:id, :uid, "FAILED", :skey, :search, :prov, :cost, 0.00, "failed", :ref, :slip, 0, :result, NOW())',
+                'UPDATE verification_records
+                 SET type = "FAILED", provider_cost = 0.00, status = "failed", has_slip = 0, result_data = :result
+                 WHERE id = :id',
                 [
-                    'id' => $recordId,
-                    'uid' => $user['id'],
-                    'skey' => $serviceKey,
-                    'search' => $searchValue,
-                    'prov' => $usedProvider,
-                    'cost' => $cost,
-                    'ref' => $reference,
-                    'slip' => $slipType,
                     'result' => json_encode(['error' => $e->getMessage()]),
+                    'id' => $recordId,
                 ]
             );
 
@@ -353,10 +772,19 @@ class VerificationController
                 'status' => 'failed',
                 'amount' => $cost,
                 'error_message' => $e->getMessage(),
-                'metadata' => ['slip_type' => $slipType],
+                'metadata' => ['slip_type' => $resolvedSlipCode, 'refund_reference' => $refundRef],
             ]);
 
-            Response::error('Verification could not be completed: ' . $e->getMessage() . '. Your wallet has been automatically refunded.', 502);
+            $displayError = $isAdmin ? $e->getMessage() : $this->sanitizeCustomerError($e->getMessage());
+            Response::error(
+                'Verification could not be completed: ' . $displayError . '. Your wallet has been automatically refunded.',
+                502,
+                [
+                    'refunded' => true,
+                    'refund_reference' => $refundRef,
+                    'balance_after' => $refundResult['balance_after'] ?? null,
+                ]
+            );
         }
     }
 
@@ -399,7 +827,7 @@ class VerificationController
             if (!empty($r['result']) && is_string($r['result'])) {
                 $decodedRes = json_decode($r['result'], true);
                 if (!$isAdmin && is_array($decodedRes)) {
-                    unset($decodedRes['provider'], $decodedRes['provider_id'], $decodedRes['provider_cost'], $decodedRes['wholesale_cost'], $decodedRes['raw_error'], $decodedRes['endpoint'], $decodedRes['api_url']);
+                    $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
                 }
                 $r['result'] = $decodedRes;
             }
@@ -417,6 +845,8 @@ class VerificationController
      */
     public function slipTemplates(Request $request): void
     {
+        self::ensureSlipSchemaAndDefaults($this->db);
+
         $category = strtoupper(trim((string)$request->query('category', '')));
         $templates = [];
         try {
@@ -427,10 +857,9 @@ class VerificationController
                 $params['cat'] = $category;
             }
             $sql .= 'ORDER BY display_order ASC, name ASC';
-            $templates = $this->db->fetchAll($sql, $params);
-            foreach ($templates as &$t) {
-                $t['is_active'] = (bool)$t['is_active'];
-                $t['display_order'] = (int)$t['display_order'];
+            $rows = $this->db->fetchAll($sql, $params);
+            foreach ($rows as $t) {
+                $templates[] = self::formatSlipRow($t);
             }
         } catch (Throwable) {
         }
@@ -498,7 +927,7 @@ class VerificationController
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
             $decodedRes = json_decode($record['result_data'], true);
             if (!$isAdmin && is_array($decodedRes)) {
-                unset($decodedRes['provider'], $decodedRes['provider_id'], $decodedRes['provider_cost'], $decodedRes['wholesale_cost'], $decodedRes['raw_error'], $decodedRes['endpoint'], $decodedRes['api_url']);
+                $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
             }
             $record['result'] = $decodedRes;
         }
@@ -534,7 +963,7 @@ class VerificationController
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
             $decodedRes = json_decode($record['result_data'], true);
             if (!$isAdmin && is_array($decodedRes)) {
-                unset($decodedRes['provider'], $decodedRes['provider_id'], $decodedRes['provider_cost'], $decodedRes['wholesale_cost'], $decodedRes['raw_error'], $decodedRes['endpoint'], $decodedRes['api_url']);
+                $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
             }
             $record['result'] = $decodedRes;
         }

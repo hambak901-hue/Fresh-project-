@@ -196,13 +196,16 @@ class SchemaSync
 
             'slip_templates' => 'CREATE TABLE IF NOT EXISTS slip_templates (
                 id VARCHAR(50) PRIMARY KEY,
+                slip_code VARCHAR(64) NULL,
                 name VARCHAR(191) NOT NULL,
                 category VARCHAR(50) NOT NULL DEFAULT "NIN",
+                price DECIMAL(15, 2) NULL,
                 demo_image_url VARCHAR(500) NULL,
                 description TEXT NULL,
                 supported_service VARCHAR(100) NOT NULL DEFAULT "all_nin",
                 is_active TINYINT(1) NOT NULL DEFAULT 1,
                 display_order INT NOT NULL DEFAULT 1,
+                is_recommended TINYINT(1) NOT NULL DEFAULT 0,
                 badge VARCHAR(50) NULL,
                 watermark_text VARCHAR(100) DEFAULT "DEMO SPECIMEN - SAMPLE PREVIEW ONLY",
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -377,6 +380,15 @@ class SchemaSync
             'announcements' => [
                 'target_audience' => 'ADD COLUMN target_audience VARCHAR(64) NOT NULL DEFAULT "all_customers"',
                 'target_user_id' => 'ADD COLUMN target_user_id VARCHAR(36) NULL',
+            ],
+            'slip_templates' => [
+                'slip_code' => 'ADD COLUMN slip_code VARCHAR(64) NULL',
+                'price' => 'ADD COLUMN price DECIMAL(15, 2) NULL',
+                'is_recommended' => 'ADD COLUMN is_recommended TINYINT(1) NOT NULL DEFAULT 0',
+                'watermark_text' => 'ADD COLUMN watermark_text VARCHAR(100) DEFAULT "SAMPLE SPECIMEN"',
+            ],
+            'verification_records' => [
+                'idempotency_key' => 'ADD COLUMN idempotency_key VARCHAR(120) NULL',
             ],
         ];
 

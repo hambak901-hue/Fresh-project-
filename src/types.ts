@@ -190,13 +190,16 @@ export interface IdentityService {
 
 export interface SlipTemplateItem {
   id: string;
+  slip_code?: string;
   name: string;
   category: 'NIN' | 'BVN' | 'OTHER';
+  price?: number | null;
   demo_image_url: string;
   description: string;
   supported_service: string;
   is_active: boolean;
   display_order: number;
+  is_recommended?: boolean;
   badge?: string;
   watermark_text?: string;
   created_at: string;

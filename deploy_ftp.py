@@ -83,6 +83,7 @@ def main():
 
     # 2. Ensure upload directories exist
     ensure_remote_dir(ftp, f"/{REMOTE_ROOT}/uploads/logos")
+    ensure_remote_dir(ftp, f"/{REMOTE_ROOT}/uploads/slips")
 
     # 3. Backup existing index.html if present
     try:

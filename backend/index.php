@@ -271,6 +271,7 @@ $router->get('/api/admin/providers/logs', [AdminController::class, 'providerLogs
 
 // Identity Slip Templates
 $router->get('/api/admin/slip-templates', [AdminController::class, 'slipTemplates']);
+$router->post('/api/admin/slip-templates/upload-specimen', [AdminController::class, 'uploadSlipSpecimen']);
 $router->post('/api/admin/slip-templates', [AdminController::class, 'saveSlipTemplate']);
 $router->put('/api/admin/slip-templates/:id', [AdminController::class, 'saveSlipTemplate']);
 $router->delete('/api/admin/slip-templates/:id', [AdminController::class, 'deleteSlipTemplate']);

@@ -356,11 +356,13 @@ CREATE TABLE verification_records (
     reference VARCHAR(100) NULL UNIQUE,
     slip_type VARCHAR(50) NULL,
     has_slip TINYINT(1) NOT NULL DEFAULT 0,
+    idempotency_key VARCHAR(120) NULL,
     result_data JSON NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_vr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_vr_user (user_id),
-    INDEX idx_vr_search (search_value)
+    INDEX idx_vr_search (search_value),
+    INDEX idx_vr_idemp (user_id, idempotency_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
@@ -773,15 +775,18 @@ CREATE TABLE audit_logs (
 
 CREATE TABLE slip_templates (
     id VARCHAR(50) PRIMARY KEY,
+    slip_code VARCHAR(64) NULL,
     name VARCHAR(150) NOT NULL,
     category VARCHAR(50) NOT NULL,
+    price DECIMAL(15, 2) NULL,
     demo_image_url VARCHAR(500) NULL,
     description TEXT NULL,
     supported_service VARCHAR(100) DEFAULT 'all_nin',
     is_active TINYINT(1) DEFAULT 1,
     display_order INT DEFAULT 1,
+    is_recommended TINYINT(1) NOT NULL DEFAULT 0,
     badge VARCHAR(50) NULL,
-    watermark_text VARCHAR(100) DEFAULT 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY',
+    watermark_text VARCHAR(100) DEFAULT 'SAMPLE SPECIMEN',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

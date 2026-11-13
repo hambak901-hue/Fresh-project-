@@ -525,6 +525,36 @@
   },
   "audit_logs": [
     {
+      "id": "audit_1794580791003",
+      "user_email": "admin@hambaktech.co.ng",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "129.205.124.226",
+      "created_at": "2026-11-13T14:39:51.003Z"
+    },
+    {
+      "id": "audit_1794580766400",
+      "user_email": "hambak901@gmail.com",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "129.205.124.226",
+      "created_at": "2026-11-13T14:39:26.400Z"
+    },
+    {
+      "id": "audit_1794580680978",
+      "user_email": "hambak901@gmail.com",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "129.205.124.226",
+      "created_at": "2026-11-13T14:38:00.978Z"
+    },
+    {
       "id": "audit_1794497538396",
       "user_id": "usr_superadmin",
       "user_email": "admin@hambaktech.com.ng",
