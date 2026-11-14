@@ -616,6 +616,7 @@ class VerificationController
     {
         self::ensureSlipSchemaAndDefaults($this->db);
         SchemaSync::syncModificationCatalog($this->db);
+        SchemaSync::syncEnrolmentCatalog($this->db);
 
         $user = Auth::user($request);
         $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);

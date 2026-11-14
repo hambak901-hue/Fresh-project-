@@ -1647,7 +1647,7 @@ class AdminController
             ['id1' => $primaryId, 'id2' => $primaryId]
         );
         $this->db->execute(
-            'UPDATE service_catalogue SET provider_id = :pid, updated_at = NOW() WHERE service_key LIKE "nin\_%" OR service_key LIKE "phone\_%" OR service_key LIKE "demo\_%" OR service_key LIKE "bvn\_%" OR service_key = "vnin_verification"',
+            'UPDATE service_catalogue SET provider_id = :pid, updated_at = NOW() WHERE (processing_type = "instant" OR processing_type IS NULL) AND (service_key LIKE "nin\_%" OR service_key LIKE "phone\_%" OR service_key LIKE "demo\_%" OR service_key LIKE "bvn\_%" OR service_key = "vnin_verification") AND service_key NOT IN ("bvn_modification", "bvn_enroll_adult", "bvn_enroll_child")',
             ['pid' => $primaryId]
         );
 
@@ -1678,6 +1678,7 @@ class AdminController
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
         \HambakTech\Core\SchemaSync::syncModificationCatalog($this->db);
+        \HambakTech\Core\SchemaSync::syncEnrolmentCatalog($this->db);
 
         $rows = $this->db->fetchAll(
             'SELECT s.service_key as `key`, s.name, s.selling_price as price, s.wholesale_cost, 
@@ -1757,6 +1758,7 @@ class AdminController
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
         \HambakTech\Core\SchemaSync::syncModificationCatalog($this->db);
+        \HambakTech\Core\SchemaSync::syncEnrolmentCatalog($this->db);
 
         $adapter = new \HambakTech\Adapters\Verification\TwoSureVerifyAdapter();
         if (!$adapter->hasCredentials()) {

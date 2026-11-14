@@ -16,10 +16,12 @@ import {
   SlipTemplateItem,
   ModificationServiceItem,
   ModificationRequestItem,
+  EnrolmentOrderItem,
 } from '../../types';
 import { IdentitySlipModal } from './IdentitySlipModal';
 import { TransactionPinModal } from './TransactionPinModal';
 import { ModificationSection, getModificationStatusStyle } from './ModificationSection';
+import { EnrolmentSection, getEnrolmentStatusStyle } from './EnrolmentSection';
 import { downloadVerificationReportPdf, extractVerificationReport } from '../../lib/pdfReport';
 import {
   ShieldCheck,
@@ -103,7 +105,6 @@ export const NinServicesPage: React.FC = () => {
   const [consentAccepted, setConsentAccepted] = useState<boolean>(false);
 
   const [modBanks, setModBanks] = useState<Array<{ bank_name: string; price: number }>>([]);
-  const [enrollBanks, setEnrollBanks] = useState<Array<{ bank_name: string; price: number }>>([]);
 
   const [submitting, setSubmitting] = useState<boolean>(false);
   const inFlightRef = useRef<boolean>(false);
@@ -129,7 +130,8 @@ export const NinServicesPage: React.FC = () => {
 
   const [history, setHistory] = useState<VerificationRecord[]>([]);
   const [modHistory, setModHistory] = useState<ModificationRequestItem[]>([]);
-  const [historyTabFilter, setHistoryTabFilter] = useState<'instant' | 'nin_mod' | 'bvn_mod'>('instant');
+  const [enrolmentHistory, setEnrolmentHistory] = useState<EnrolmentOrderItem[]>([]);
+  const [historyTabFilter, setHistoryTabFilter] = useState<'instant' | 'nin_mod' | 'bvn_mod' | 'enrolment'>('instant');
   const [ninModServices, setNinModServices] = useState<ModificationServiceItem[]>([]);
   const [bvnModServices, setBvnModServices] = useState<ModificationServiceItem[]>([]);
   const [loadingModServices, setLoadingModServices] = useState<boolean>(true);
@@ -203,10 +205,14 @@ export const NinServicesPage: React.FC = () => {
   const loadHistory = async () => {
     try {
       setHistoryLoading(true);
-      const [verRes, modRes] = await Promise.all([
+      const [verRes, modRes, enrRes] = await Promise.all([
         api.getVerificationHistory(undefined, historySearch.trim() || undefined),
         api.getModificationHistory({
           identity_type: 'ALL',
+          search: historySearch.trim() || undefined,
+          limit: 50,
+        }).catch(() => null),
+        api.getEnrolmentHistory({
           search: historySearch.trim() || undefined,
           limit: 50,
         }).catch(() => null),
@@ -216,6 +222,9 @@ export const NinServicesPage: React.FC = () => {
       }
       if (modRes && modRes.success) {
         setModHistory(modRes.requests || []);
+      }
+      if (enrRes && enrRes.success) {
+        setEnrolmentHistory(enrRes.orders || []);
       }
     } catch {
       setHistory([]);
@@ -228,11 +237,6 @@ export const NinServicesPage: React.FC = () => {
     if (selectedServiceKey === 'bvn_modification' && modBanks.length === 0) {
       api.getBvnModificationBanks().then(res => {
         if (res.success) setModBanks(res.data);
-      }).catch(() => {});
-    }
-    if ((selectedServiceKey === 'bvn_enroll_adult' || selectedServiceKey === 'bvn_enroll_child') && enrollBanks.length === 0) {
-      api.getBvnEnrollmentBanks().then(res => {
-        if (res.success) setEnrollBanks(res.data);
       }).catch(() => {});
     }
   }, [selectedServiceKey]);
@@ -446,10 +450,6 @@ export const NinServicesPage: React.FC = () => {
           setBvnModServices(modRes.bvn_modification || []);
         }
       }).catch(() => {});
-    }
-    if (cat === 'enrolment') {
-      const firstEnroll = (categories.enrolment || [])[0];
-      setSelectedServiceKey(firstEnroll?.key || 'bvn_enroll_adult');
     }
     if (cat === 'additional') {
       const firstAdd = (categories.additional_services || []).filter(s => !s.key.toLowerCase().startsWith('demo_'))[0];
@@ -943,7 +943,7 @@ export const NinServicesPage: React.FC = () => {
           { id: 'bvn_mod', label: 'BVN Modification', icon: Briefcase },
           { id: 'enrolment', label: 'Enrolment', icon: GraduationCap },
           { id: 'additional', label: 'Additional Services', icon: Briefcase },
-          { id: 'history', label: 'Verification History', icon: FileText, count: history.length + modHistory.length },
+          { id: 'history', label: 'Verification History', icon: FileText, count: history.length + modHistory.length + enrolmentHistory.length },
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeCategory === tab.id;
@@ -996,6 +996,17 @@ export const NinServicesPage: React.FC = () => {
           loadingServices={loadingModServices}
           onOpenHistoryTab={() => {
             setHistoryTabFilter('bvn_mod');
+            handleSwitchCategory('history');
+          }}
+        />
+      ) : activeCategory === 'enrolment' ? (
+        <EnrolmentSection
+          key="enrolment-workspace"
+          onOrderUpdated={() => {
+            void loadHistory();
+          }}
+          onOpenHistoryTab={() => {
+            setHistoryTabFilter('enrolment');
             handleSwitchCategory('history');
           }}
         />
@@ -1758,13 +1769,8 @@ export const NinServicesPage: React.FC = () => {
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Select Service</label>
                   <div className="grid grid-cols-1 gap-1.5 max-h-52 overflow-y-auto pr-1">
                     {(() => {
-                      const catList: IdentityService[] = (categories as any)[
-                        activeCategory === 'enrolment' ? 'enrolment' : 'additional_services'
-                      ] || [];
-                      const filteredList =
-                        activeCategory === 'additional'
-                          ? catList.filter(s => !s.key.toLowerCase().startsWith('demo_'))
-                          : catList;
+                      const catList: IdentityService[] = (categories as any)['additional_services'] || [];
+                      const filteredList = catList.filter(s => !s.key.toLowerCase().startsWith('demo_'));
                       if (filteredList.length === 0) {
                         return (
                           <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-500">
@@ -2267,6 +2273,7 @@ export const NinServicesPage: React.FC = () => {
               { id: 'instant', label: `Instant Verifications (${history.length})` },
               { id: 'nin_mod', label: `NIN Modifications (${modHistory.filter(m => m.identity_type === 'NIN').length})` },
               { id: 'bvn_mod', label: `BVN Modifications (${modHistory.filter(m => m.identity_type === 'BVN').length})` },
+              { id: 'enrolment', label: `NIN Enrolments (${enrolmentHistory.length})` },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -2356,6 +2363,74 @@ export const NinServicesPage: React.FC = () => {
                         </td>
                       </tr>
                     ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : historyTabFilter === 'enrolment' ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-semibold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="py-3 px-4">Order #</th>
+                    <th className="py-3 px-4">Service</th>
+                    <th className="py-3 px-4">Applicant</th>
+                    <th className="py-3 px-4">Charge</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Submitted</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {enrolmentHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-500">
+                        No NIN Enrolment orders found yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    enrolmentHistory.map(order => {
+                      const st = getEnrolmentStatusStyle(order.status);
+                      return (
+                        <tr key={order.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
+                            {order.order_number}
+                          </td>
+                          <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white">
+                            <div>{order.service_name}</div>
+                            {order.refund_reference && (
+                              <div className="text-[10px] font-mono text-purple-600 dark:text-purple-300 mt-0.5">
+                                Refund: {order.refund_reference}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-medium text-slate-800 dark:text-slate-200">{order.applicant_name}</div>
+                            <div className="text-[11px] font-mono text-slate-500">{order.applicant_phone_masked}</div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white tabular-nums">
+                            ₦{Number(order.customer_price).toLocaleString('en-NG')}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${st.classes}`}>
+                              {st.label}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px]">
+                            {new Date(order.created_at).toLocaleString('en-NG')}
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchCategory('enrolment')}
+                              className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-semibold"
+                            >
+                              Open Tracker
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

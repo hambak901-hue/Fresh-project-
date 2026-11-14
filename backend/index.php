@@ -29,6 +29,7 @@ use HambakTech\Controllers\SettingsController;
 use HambakTech\Controllers\NotificationController;
 use HambakTech\Controllers\AcademyController;
 use HambakTech\Controllers\ModificationController;
+use HambakTech\Controllers\EnrolmentController;
 
 $request = new Request();
 $router = new Router();
@@ -142,6 +143,18 @@ $router->get('/api/modifications/:id/status', [ModificationController::class, 'r
 $router->post('/api/modifications/:id/poll', [ModificationController::class, 'pollStatus']);
 $router->post('/api/modifications/:id/submit-info', [ModificationController::class, 'submitAdditionalInfo']);
 $router->post('/api/modifications/webhook', [ModificationController::class, 'webhook']);
+
+// -----------------------------------------------------------------------------
+// 5C. HAMBAK ENROLMENT CENTRE — VERIFIED MANUAL NIN ENROLMENT (STAGE 4)
+// -----------------------------------------------------------------------------
+$router->get('/api/enrolments/services', [EnrolmentController::class, 'services']);
+$router->post('/api/enrolments/upload-document', [EnrolmentController::class, 'uploadDocument']);
+$router->get('/api/enrolments/document/:id', [EnrolmentController::class, 'getDocument']);
+$router->get('/api/enrolments/sample/:id', [EnrolmentController::class, 'getSampleDocument']);
+$router->post('/api/enrolments/submit', [EnrolmentController::class, 'submit']);
+$router->get('/api/enrolments/history', [EnrolmentController::class, 'history']);
+$router->get('/api/enrolments/:id/status', [EnrolmentController::class, 'orderStatus']);
+$router->post('/api/enrolments/:id/poll', [EnrolmentController::class, 'pollStatus']);
 
 // -----------------------------------------------------------------------------
 // 6. TELECOMMUNICATIONS (DATA, AIRTIME, BILLS, PINS, EXAMS, SWAP, BULKSMS)
@@ -281,6 +294,17 @@ $router->post('/api/admin/modifications/sync-catalog', [ModificationController::
 $router->get('/api/admin/modifications/:id', [ModificationController::class, 'adminDetail']);
 $router->post('/api/admin/modifications/:id/poll', [ModificationController::class, 'adminPollStatus']);
 $router->post('/api/admin/modifications/:id/update', [ModificationController::class, 'adminUpdateRequest']);
+
+// Admin Enrolment Centre Operations (Stage 4)
+$router->get('/api/admin/enrolments', [EnrolmentController::class, 'adminList']);
+$router->get('/api/admin/enrolments/services', [EnrolmentController::class, 'adminServices']);
+$router->put('/api/admin/enrolments/services/:key', [EnrolmentController::class, 'adminUpdateService']);
+$router->post('/api/admin/enrolments/services/:key/sample', [EnrolmentController::class, 'adminUploadSample']);
+$router->delete('/api/admin/enrolments/samples/:id', [EnrolmentController::class, 'adminDeleteSample']);
+$router->post('/api/admin/enrolments/sync-catalog', [EnrolmentController::class, 'adminSyncCatalog']);
+$router->get('/api/admin/enrolments/:id', [EnrolmentController::class, 'adminDetail']);
+$router->post('/api/admin/enrolments/:id/poll', [EnrolmentController::class, 'adminPollStatus']);
+$router->post('/api/admin/enrolments/:id/update', [EnrolmentController::class, 'adminUpdateOrder']);
 
 // Store & Academy aliases under /api/admin/services/*
 $router->post('/api/admin/services/store', [AdminController::class, 'saveStoreItem']);

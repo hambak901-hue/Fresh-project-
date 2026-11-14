@@ -329,6 +329,61 @@ class SchemaSync
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'enrolment_orders' => 'CREATE TABLE IF NOT EXISTS enrolment_orders (
+                id VARCHAR(36) PRIMARY KEY,
+                order_number VARCHAR(64) NOT NULL UNIQUE,
+                user_id VARCHAR(36) NOT NULL,
+                enrolment_type ENUM("NIN_ADULT", "NIN_CHILD", "NIN_ARRANGEMENT", "BVN_ENROLMENT", "BVN_ARRANGEMENT") NOT NULL DEFAULT "NIN_ADULT",
+                identity_domain ENUM("NIN", "BVN") NOT NULL DEFAULT "NIN",
+                service_key VARCHAR(100) NOT NULL,
+                service_name VARCHAR(191) NOT NULL,
+                applicant_name VARCHAR(191) NOT NULL,
+                applicant_phone_masked VARCHAR(40) NULL,
+                submitted_fields JSON NOT NULL,
+                supporting_documents JSON NULL,
+                customer_price DECIMAL(15, 2) NOT NULL,
+                provider_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                profit DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                provider_id VARCHAR(50) NOT NULL DEFAULT "2sureverify",
+                endpoint VARCHAR(150) NOT NULL,
+                payment_reference VARCHAR(120) NOT NULL UNIQUE,
+                refund_reference VARCHAR(120) NULL UNIQUE,
+                idempotency_key VARCHAR(120) NULL,
+                provider_reference VARCHAR(120) NULL,
+                provider_status VARCHAR(64) NULL,
+                provider_remarks TEXT NULL,
+                provider_response JSON NULL,
+                admin_notes TEXT NULL,
+                reviewed_by VARCHAR(100) NULL,
+                reviewed_at DATETIME NULL,
+                estimated_completion_text VARCHAR(150) NULL,
+                status ENUM("pending", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
+                completed_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_eo_user (user_id),
+                INDEX idx_eo_domain_status (identity_domain, status),
+                INDEX idx_eo_prov_ref (provider_reference),
+                INDEX idx_eo_idemp (user_id, idempotency_key),
+                INDEX idx_eo_created (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'enrolment_sample_documents' => 'CREATE TABLE IF NOT EXISTS enrolment_sample_documents (
+                id VARCHAR(36) PRIMARY KEY,
+                service_key VARCHAR(100) NOT NULL,
+                title VARCHAR(191) NOT NULL,
+                description TEXT NULL,
+                original_name VARCHAR(255) NOT NULL,
+                stored_name VARCHAR(255) NOT NULL,
+                mime_type VARCHAR(100) NOT NULL,
+                file_size INT NOT NULL DEFAULT 0,
+                file_path VARCHAR(500) NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_by VARCHAR(36) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_esd_skey (service_key)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
         ];
 
         foreach ($tableDefinitions as $name => $sql) {
@@ -528,6 +583,15 @@ class SchemaSync
             $errors = array_merge($errors, $modSync['errors'] ?? []);
         } catch (Throwable $e) {
             $errors[] = 'syncModificationCatalog => ' . $e->getMessage();
+        }
+
+        // Ensure Stage 4 enrolment tables and verified NIN Enrolment services exist
+        try {
+            $enrSync = self::syncEnrolmentCatalog($db);
+            $applied = array_merge($applied, $enrSync['applied'] ?? []);
+            $errors = array_merge($errors, $enrSync['errors'] ?? []);
+        } catch (Throwable $e) {
+            $errors[] = 'syncEnrolmentCatalog => ' . $e->getMessage();
         }
 
         return [
@@ -1143,6 +1207,321 @@ class SchemaSync
                 }
             } catch (Throwable $e) {
                 $errors[] = 'mod_srv:' . $srv['service_key'] . ' => ' . $e->getMessage();
+            }
+        }
+
+        return ['applied' => $applied, 'errors' => $errors];
+    }
+
+    public static function syncEnrolmentCatalog(Database $db, bool $force = false): array
+    {
+        static $enrSynced = false;
+        if ($enrSynced && !$force) {
+            return ['applied' => [], 'errors' => []];
+        }
+        $enrSynced = true;
+
+        $applied = [];
+        $errors = [];
+
+        // 1. Ensure Stage 4 metadata columns on service_catalogue exist
+        $catCols = [
+            'processing_type' => 'ADD COLUMN processing_type ENUM("instant", "manual") NOT NULL DEFAULT "instant"',
+            'manual_label' => 'ADD COLUMN manual_label VARCHAR(80) NULL DEFAULT "Manual Processing"',
+            'estimated_turnaround' => 'ADD COLUMN estimated_turnaround VARCHAR(150) NULL',
+            'required_documents' => 'ADD COLUMN required_documents JSON NULL',
+            'form_schema' => 'ADD COLUMN form_schema JSON NULL',
+            'supported_notes' => 'ADD COLUMN supported_notes TEXT NULL',
+        ];
+        foreach ($catCols as $col => $clause) {
+            try {
+                $exists = $db->fetchOne(
+                    'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "service_catalogue" AND COLUMN_NAME = :col',
+                    ['col' => $col]
+                );
+                if (!$exists) {
+                    $db->execute("ALTER TABLE service_catalogue {$clause}");
+                    $applied[] = "col:service_catalogue.{$col}";
+                }
+            } catch (Throwable $e) {
+                $errors[] = "col:service_catalogue.{$col} => " . $e->getMessage();
+            }
+        }
+
+        // 2. Ensure Stage 4 enrolment tables exist
+        try {
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS enrolment_orders (
+                    id VARCHAR(36) PRIMARY KEY,
+                    order_number VARCHAR(64) NOT NULL UNIQUE,
+                    user_id VARCHAR(36) NOT NULL,
+                    enrolment_type ENUM("NIN_ADULT", "NIN_CHILD", "NIN_ARRANGEMENT", "BVN_ENROLMENT", "BVN_ARRANGEMENT") NOT NULL DEFAULT "NIN_ADULT",
+                    identity_domain ENUM("NIN", "BVN") NOT NULL DEFAULT "NIN",
+                    service_key VARCHAR(100) NOT NULL,
+                    service_name VARCHAR(191) NOT NULL,
+                    applicant_name VARCHAR(191) NOT NULL,
+                    applicant_phone_masked VARCHAR(40) NULL,
+                    submitted_fields JSON NOT NULL,
+                    supporting_documents JSON NULL,
+                    customer_price DECIMAL(15, 2) NOT NULL,
+                    provider_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                    profit DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                    provider_id VARCHAR(50) NOT NULL DEFAULT "2sureverify",
+                    endpoint VARCHAR(150) NOT NULL,
+                    payment_reference VARCHAR(120) NOT NULL UNIQUE,
+                    refund_reference VARCHAR(120) NULL UNIQUE,
+                    idempotency_key VARCHAR(120) NULL,
+                    provider_reference VARCHAR(120) NULL,
+                    provider_status VARCHAR(64) NULL,
+                    provider_remarks TEXT NULL,
+                    provider_response JSON NULL,
+                    admin_notes TEXT NULL,
+                    reviewed_by VARCHAR(100) NULL,
+                    reviewed_at DATETIME NULL,
+                    estimated_completion_text VARCHAR(150) NULL,
+                    status ENUM("pending", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
+                    completed_at DATETIME NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_eo_user (user_id),
+                    INDEX idx_eo_domain_status (identity_domain, status),
+                    INDEX idx_eo_prov_ref (provider_reference),
+                    INDEX idx_eo_idemp (user_id, idempotency_key),
+                    INDEX idx_eo_created (created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS enrolment_sample_documents (
+                    id VARCHAR(36) PRIMARY KEY,
+                    service_key VARCHAR(100) NOT NULL,
+                    title VARCHAR(191) NOT NULL,
+                    description TEXT NULL,
+                    original_name VARCHAR(255) NOT NULL,
+                    stored_name VARCHAR(255) NOT NULL,
+                    mime_type VARCHAR(100) NOT NULL,
+                    file_size INT NOT NULL DEFAULT 0,
+                    file_path VARCHAR(500) NOT NULL,
+                    is_active TINYINT(1) NOT NULL DEFAULT 1,
+                    created_by VARCHAR(36) NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_esd_skey (service_key)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+        } catch (Throwable $e) {
+            $errors[] = 'enr_tables => ' . $e->getMessage();
+        }
+
+        // 3. Ensure Enrolment category exists
+        try {
+            $db->execute(
+                'INSERT INTO service_categories (id, code, name, icon, display_order, is_active)
+                 VALUES ("cat_enr", "enrolment", "Enrolment", "FilePlus", 6, 1)
+                 ON DUPLICATE KEY UPDATE name = VALUES(name), code = VALUES(code)'
+            );
+        } catch (Throwable $e) {
+            $errors[] = 'enr_category => ' . $e->getMessage();
+        }
+
+        // 4. Confirmed 2SureVerify NIN Enrolment services (explicitly NIN Enrolment despite "bvn" in endpoint filenames)
+        $docPassportAdult = [
+            'key' => 'passport_photo',
+            'provider_file_param' => 'passport_photo',
+            'label' => 'Applicant White-Background Passport Photograph',
+            'required' => true,
+            'accepted_formats' => ['JPG', 'PNG', 'WEBP'],
+            'max_size_mb' => 5,
+            'description' => 'Clear recent colour passport photograph on a plain white background (face centred, no glasses/headgear unless religious).',
+        ];
+        $docValidIdAdult = [
+            'key' => 'valid_id',
+            'provider_file_param' => 'valid_id',
+            'label' => 'Supporting Identification / Birth Record',
+            'required' => true,
+            'accepted_formats' => ['JPG', 'PNG', 'WEBP', 'PDF'],
+            'max_size_mb' => 5,
+            'description' => 'Birth Certificate, Sworn Declaration of Age, International Passport, Voter\'s Card, or Driver\'s Licence.',
+        ];
+        $docAddressProof = [
+            'key' => 'address_proof',
+            'provider_file_param' => 'address_proof',
+            'label' => 'Proof of Address / Utility Bill (Optional)',
+            'required' => false,
+            'accepted_formats' => ['JPG', 'PNG', 'WEBP', 'PDF'],
+            'max_size_mb' => 5,
+            'description' => 'Optional recent utility bill or tenancy document confirming residential address.',
+        ];
+
+        $docPassportChild = [
+            'key' => 'passport_photo',
+            'provider_file_param' => 'passport_photo',
+            'label' => 'Child White-Background Passport Photograph',
+            'required' => true,
+            'accepted_formats' => ['JPG', 'PNG', 'WEBP'],
+            'max_size_mb' => 5,
+            'description' => 'Clear recent passport photograph of the child on a plain white background.',
+        ];
+        $docBirthCertChild = [
+            'key' => 'birth_certificate',
+            'provider_file_param' => 'birth_certificate',
+            'label' => 'Child NPC Birth Certificate / Hospital Birth Record',
+            'required' => true,
+            'accepted_formats' => ['JPG', 'PNG', 'WEBP', 'PDF'],
+            'max_size_mb' => 5,
+            'description' => 'Official National Population Commission (NPC) birth certificate or hospital birth record for the child.',
+        ];
+        $docParentNinSlip = [
+            'key' => 'parent_nin_slip',
+            'provider_file_param' => 'parent_nin_slip',
+            'label' => 'Parent / Legal Guardian NIN Slip',
+            'required' => true,
+            'accepted_formats' => ['JPG', 'PNG', 'WEBP', 'PDF'],
+            'max_size_mb' => 5,
+            'description' => 'Clear copy of the authorizing parent or legal guardian\'s valid NIN slip.',
+        ];
+
+        $enrolmentServices = [
+            [
+                'id' => 'srv_enr_nin_adult',
+                'category_id' => 'cat_enr',
+                'service_key' => 'bvn_enroll_adult',
+                'name' => 'NIN Enrolment (Adult)',
+                'description' => 'Manual National Identification Number (NIN) enrolment processing for adult applicants (16 years and above) with verified biodata and supporting identification.',
+                'endpoint' => '/api/v1/bvn_enroll_adult.php',
+                'wholesale_cost' => 10000.00,
+                'selling_price' => 15000.00,
+                'estimated_turnaround' => '3 – 7 Business Days (Manual Processing)',
+                'supported_notes' => "Ensure applicant full names, date of birth, and state/LGA match supporting birth/identity documents exactly.\nThis is a Manual Processing NIN Enrolment request — status remains Pending until completed.",
+                'required_fields' => ['first_name', 'last_name', 'dob', 'gender', 'phone', 'marital_status', 'state_of_origin', 'lga_of_origin', 'residence_address', 'residence_state', 'residence_lga'],
+                'required_documents' => [$docPassportAdult, $docValidIdAdult, $docAddressProof],
+                'form_schema' => [
+                    ['key' => 'first_name', 'provider_param' => 'first_name', 'label' => 'First Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Ibrahim', 'help_text' => 'Applicant legal first name matching supporting identification.'],
+                    ['key' => 'middle_name', 'provider_param' => 'middle_name', 'label' => 'Middle Name (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'e.g., Musa', 'help_text' => 'Leave blank if the applicant has no middle name.'],
+                    ['key' => 'last_name', 'provider_param' => 'last_name', 'label' => 'Surname / Last Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Adeyemi', 'help_text' => 'Applicant legal surname / family name.'],
+                    ['key' => 'dob', 'provider_param' => 'dob', 'label' => 'Date of Birth', 'type' => 'date', 'required' => true, 'help_text' => 'Adult applicant date of birth (16 years and above).'],
+                    ['key' => 'gender', 'provider_param' => 'gender', 'label' => 'Gender', 'type' => 'select', 'required' => true, 'help_text' => 'Applicant biological gender.', 'options' => [['value' => 'Male', 'label' => 'Male'], ['value' => 'Female', 'label' => 'Female']]],
+                    ['key' => 'phone', 'provider_param' => 'phone', 'label' => 'Active Phone Number', 'type' => 'tel', 'required' => true, 'maxLength' => 11, 'placeholder' => 'e.g., 08031234567', 'help_text' => '11-digit Nigerian mobile number reachable for enrolment updates.'],
+                    ['key' => 'email', 'provider_param' => 'email', 'label' => 'Contact Email Address (Optional)', 'type' => 'email', 'required' => false, 'placeholder' => 'applicant@example.com', 'help_text' => 'Optional email address for NIN tracking and digital slip notification.'],
+                    ['key' => 'marital_status', 'provider_param' => 'marital_status', 'label' => 'Marital Status', 'type' => 'select', 'required' => true, 'help_text' => 'Current marital status of the adult applicant.', 'options' => [['value' => 'Single', 'label' => 'Single'], ['value' => 'Married', 'label' => 'Married'], ['value' => 'Divorced', 'label' => 'Divorced'], ['value' => 'Widowed', 'label' => 'Widowed']]],
+                    ['key' => 'state_of_origin', 'provider_param' => 'state_of_origin', 'label' => 'State of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Kano', 'help_text' => 'Applicant indigene state of origin.'],
+                    ['key' => 'lga_of_origin', 'provider_param' => 'lga_of_origin', 'label' => 'LGA of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Nassarawa', 'help_text' => 'Local Government Area of origin.'],
+                    ['key' => 'residence_address', 'provider_param' => 'residence_address', 'label' => 'Residential Street Address', 'type' => 'text', 'required' => true, 'placeholder' => 'House no., street name, area', 'help_text' => 'Full current residential address in Nigeria.'],
+                    ['key' => 'residence_state', 'provider_param' => 'residence_state', 'label' => 'State of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Lagos', 'help_text' => 'State where the applicant currently resides.'],
+                    ['key' => 'residence_lga', 'provider_param' => 'residence_lga', 'label' => 'LGA of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Ikeja', 'help_text' => 'Local Government Area of current residence.'],
+                    ['key' => 'town', 'provider_param' => 'town', 'label' => 'Town / City (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'e.g., Ikeja', 'help_text' => 'Town or city of residence.'],
+                    ['key' => 'notes', 'provider_param' => 'notes', 'label' => 'Additional Processing Notes (Optional)', 'type' => 'textarea', 'required' => false, 'placeholder' => 'Any helpful context for our NIN enrolment team', 'help_text' => 'Optional notes or scheduling details.'],
+                ],
+            ],
+            [
+                'id' => 'srv_enr_nin_child',
+                'category_id' => 'cat_enr',
+                'service_key' => 'bvn_enroll_child',
+                'name' => 'NIN Enrolment (Child)',
+                'description' => 'Manual National Identification Number (NIN) enrolment processing for minors / children under 16 years linked to a verified parent or legal guardian NIN.',
+                'endpoint' => '/api/v1/bvn_enroll_child.php',
+                'wholesale_cost' => 8000.00,
+                'selling_price' => 12000.00,
+                'estimated_turnaround' => '3 – 7 Business Days (Manual Processing)',
+                'supported_notes' => "Child NIN Enrolment requires a valid 11-digit Parent / Legal Guardian NIN and NPC Birth Certificate.\nThis is a Manual Processing NIN Enrolment request — status remains Pending until completed.",
+                'required_fields' => ['first_name', 'last_name', 'dob', 'gender', 'parent_nin', 'parent_name', 'parent_relationship', 'phone', 'state_of_origin', 'lga_of_origin', 'residence_address', 'residence_state', 'residence_lga'],
+                'required_documents' => [$docPassportChild, $docBirthCertChild, $docParentNinSlip],
+                'form_schema' => [
+                    ['key' => 'first_name', 'provider_param' => 'first_name', 'label' => 'Child First Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Amina', 'help_text' => 'Child legal first name matching NPC birth certificate.'],
+                    ['key' => 'middle_name', 'provider_param' => 'middle_name', 'label' => 'Child Middle Name (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'e.g., Bello', 'help_text' => 'Leave blank if the child has no middle name.'],
+                    ['key' => 'last_name', 'provider_param' => 'last_name', 'label' => 'Child Surname / Last Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Yusuf', 'help_text' => 'Child family surname matching parent record.'],
+                    ['key' => 'dob', 'provider_param' => 'dob', 'label' => 'Child Date of Birth', 'type' => 'date', 'required' => true, 'help_text' => 'Exact Date of Birth printed on the child\'s birth certificate (under 18 years).'],
+                    ['key' => 'gender', 'provider_param' => 'gender', 'label' => 'Child Gender', 'type' => 'select', 'required' => true, 'help_text' => 'Child biological gender.', 'options' => [['value' => 'Male', 'label' => 'Male'], ['value' => 'Female', 'label' => 'Female']]],
+                    ['key' => 'parent_nin', 'provider_param' => 'parent_nin', 'label' => 'Parent / Guardian 11-Digit NIN', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => 'Enter 11-digit parent NIN', 'help_text' => 'Active 11-digit NIN of the authorizing parent or legal guardian.'],
+                    ['key' => 'parent_name', 'provider_param' => 'parent_name', 'label' => 'Parent / Guardian Full Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Full name as on Parent NIN slip', 'help_text' => 'Exact full name of the parent or legal guardian.'],
+                    ['key' => 'parent_relationship', 'provider_param' => 'parent_relationship', 'label' => 'Relationship to Child', 'type' => 'select', 'required' => true, 'help_text' => 'Authorizing guardian relationship.', 'options' => [['value' => 'Father', 'label' => 'Father'], ['value' => 'Mother', 'label' => 'Mother'], ['value' => 'Legal Guardian', 'label' => 'Legal Guardian']]],
+                    ['key' => 'phone', 'provider_param' => 'phone', 'label' => 'Parent / Guardian Phone Number', 'type' => 'tel', 'required' => true, 'maxLength' => 11, 'placeholder' => 'e.g., 08031234567', 'help_text' => '11-digit Nigerian mobile number of the parent/guardian.'],
+                    ['key' => 'email', 'provider_param' => 'email', 'label' => 'Parent / Guardian Email (Optional)', 'type' => 'email', 'required' => false, 'placeholder' => 'parent@example.com', 'help_text' => 'Optional email address for status notifications.'],
+                    ['key' => 'state_of_origin', 'provider_param' => 'state_of_origin', 'label' => 'State of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Kaduna', 'help_text' => 'Child state of origin.'],
+                    ['key' => 'lga_of_origin', 'provider_param' => 'lga_of_origin', 'label' => 'LGA of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Zaria', 'help_text' => 'Child Local Government Area of origin.'],
+                    ['key' => 'residence_address', 'provider_param' => 'residence_address', 'label' => 'Residential Street Address', 'type' => 'text', 'required' => true, 'placeholder' => 'House no., street name, area', 'help_text' => 'Full current residential address where the child lives.'],
+                    ['key' => 'residence_state', 'provider_param' => 'residence_state', 'label' => 'State of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Abuja FCT', 'help_text' => 'State of current residence.'],
+                    ['key' => 'residence_lga', 'provider_param' => 'residence_lga', 'label' => 'LGA of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., AMAC', 'help_text' => 'LGA of current residence.'],
+                    ['key' => 'notes', 'provider_param' => 'notes', 'label' => 'Additional Processing Notes (Optional)', 'type' => 'textarea', 'required' => false, 'placeholder' => 'Any helpful context for our child NIN enrolment team', 'help_text' => 'Optional notes for manual verification officers.'],
+                ],
+            ],
+        ];
+
+        foreach ($enrolmentServices as $srv) {
+            try {
+                $existing = $db->fetchOne(
+                    'SELECT id, category_id, name, provider_id, endpoint, processing_type, manual_label, estimated_turnaround, required_documents, form_schema, supported_notes FROM service_catalogue WHERE service_key = :sk LIMIT 1',
+                    ['sk' => $srv['service_key']]
+                );
+                if (!$existing) {
+                    $db->execute(
+                        'INSERT INTO service_catalogue
+                         (id, category_id, service_key, name, description, provider_id, endpoint, wholesale_cost, selling_price, required_fields, slip_type_supported, is_active, processing_type, manual_label, estimated_turnaround, required_documents, form_schema, supported_notes)
+                         VALUES
+                         (:id, :cat, :sk, :nm, :desc, "2sureverify", :ep, :wc, :sp, :rf, 0, 1, "manual", "Manual Processing", :eta, :rdocs, :fschema, :notes)',
+                        [
+                            'id' => $srv['id'],
+                            'cat' => $srv['category_id'],
+                            'sk' => $srv['service_key'],
+                            'nm' => $srv['name'],
+                            'desc' => $srv['description'],
+                            'ep' => $srv['endpoint'],
+                            'wc' => $srv['wholesale_cost'],
+                            'sp' => $srv['selling_price'],
+                            'rf' => json_encode($srv['required_fields']),
+                            'eta' => $srv['estimated_turnaround'],
+                            'rdocs' => json_encode($srv['required_documents']),
+                            'fschema' => json_encode($srv['form_schema']),
+                            'notes' => $srv['supported_notes'],
+                        ]
+                    );
+                    $applied[] = 'enr_insert:' . $srv['service_key'];
+                } else {
+                    // Preserve admin-edited selling_price, is_active, wholesale_cost, form_schema, required_documents, and instructions;
+                    // strictly enforce category_id = cat_enr, provider_id = 2sureverify, endpoint, processing_type = manual, and non-BVN NIN naming if miscategorized
+                    $updCols = ['processing_type = "manual"', 'provider_id = "2sureverify"', 'endpoint = :ep'];
+                    $updParams = ['id' => $existing['id'], 'ep' => $srv['endpoint']];
+
+                    if ($existing['category_id'] !== 'cat_enr') {
+                        $updCols[] = 'category_id = "cat_enr"';
+                    }
+                    if (stripos((string)($existing['name'] ?? ''), 'bvn') !== false || empty($existing['name'])) {
+                        $updCols[] = 'name = :nm';
+                        $updParams['nm'] = $srv['name'];
+                    }
+                    if (empty($existing['manual_label'])) {
+                        $updCols[] = 'manual_label = "Manual Processing"';
+                    }
+                    if (empty($existing['estimated_turnaround'])) {
+                        $updCols[] = 'estimated_turnaround = :eta';
+                        $updParams['eta'] = $srv['estimated_turnaround'];
+                    }
+                    if (empty($existing['supported_notes'])) {
+                        $updCols[] = 'supported_notes = :notes';
+                        $updParams['notes'] = $srv['supported_notes'];
+                    }
+                    $curDocs = is_string($existing['required_documents'] ?? null)
+                        ? json_decode((string)$existing['required_documents'], true)
+                        : ($existing['required_documents'] ?? null);
+                    if (empty($curDocs) || !is_array($curDocs)) {
+                        $updCols[] = 'required_documents = :rdocs';
+                        $updParams['rdocs'] = json_encode($srv['required_documents']);
+                    }
+                    $curSchema = is_string($existing['form_schema'] ?? null)
+                        ? json_decode((string)$existing['form_schema'], true)
+                        : ($existing['form_schema'] ?? null);
+                    if (empty($curSchema) || !is_array($curSchema)) {
+                        $updCols[] = 'form_schema = :fschema';
+                        $updParams['fschema'] = json_encode($srv['form_schema']);
+                    }
+                    if (count($updCols) > 3 || ($existing['processing_type'] ?? '') !== 'manual' || ($existing['category_id'] ?? '') !== 'cat_enr') {
+                        $db->execute(
+                            'UPDATE service_catalogue SET ' . implode(', ', $updCols) . ' WHERE id = :id',
+                            $updParams
+                        );
+                        $applied[] = 'enr_backfill:' . $srv['service_key'];
+                    }
+                }
+            } catch (Throwable $e) {
+                $errors[] = 'enr_srv:' . $srv['service_key'] . ' => ' . $e->getMessage();
             }
         }
 

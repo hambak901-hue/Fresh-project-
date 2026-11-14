@@ -978,6 +978,356 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ];
     }
 
+    /**
+     * Stage 4 — Verified 2SureVerify NIN Enrolment parameter & multipart file mapping registry.
+     * Note: bvn_enroll_adult.php and bvn_enroll_child.php are explicitly NIN Enrolment endpoints
+     * per https://2sureverify.com/api_docs.php and /api/v1/services.php.
+     */
+    public static function getAllEnrolmentMappingSpecs(): array
+    {
+        return [
+            'bvn_enroll_adult' => [
+                'endpoint' => '/api/v1/bvn_enroll_adult.php',
+                'method' => 'POST',
+                'enrolment_label' => 'NIN Enrolment (Adult)',
+                'identity_domain' => 'NIN',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'first_name' => 'first_name',
+                    'middle_name' => 'middle_name',
+                    'last_name' => 'last_name',
+                    'dob' => 'dob',
+                    'gender' => 'gender',
+                    'phone' => 'phone',
+                    'email' => 'email',
+                    'marital_status' => 'marital_status',
+                    'state_of_origin' => 'state_of_origin',
+                    'lga_of_origin' => 'lga_of_origin',
+                    'residence_address' => 'residence_address',
+                    'residence_state' => 'residence_state',
+                    'residence_lga' => 'residence_lga',
+                    'town' => 'town',
+                    'notes' => 'notes',
+                ],
+                'files' => [
+                    'passport_photo' => 'passport_photo',
+                    'valid_id' => 'valid_id',
+                    'address_proof' => 'address_proof',
+                ],
+            ],
+            'bvn_enroll_child' => [
+                'endpoint' => '/api/v1/bvn_enroll_child.php',
+                'method' => 'POST',
+                'enrolment_label' => 'NIN Enrolment (Child)',
+                'identity_domain' => 'NIN',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'first_name' => 'first_name',
+                    'middle_name' => 'middle_name',
+                    'last_name' => 'last_name',
+                    'dob' => 'dob',
+                    'gender' => 'gender',
+                    'parent_nin' => 'parent_nin',
+                    'parent_name' => 'parent_name',
+                    'parent_relationship' => 'parent_relationship',
+                    'phone' => 'phone',
+                    'email' => 'email',
+                    'state_of_origin' => 'state_of_origin',
+                    'lga_of_origin' => 'lga_of_origin',
+                    'residence_address' => 'residence_address',
+                    'residence_state' => 'residence_state',
+                    'residence_lga' => 'residence_lga',
+                    'notes' => 'notes',
+                ],
+                'files' => [
+                    'passport_photo' => 'passport_photo',
+                    'birth_certificate' => 'birth_certificate',
+                    'parent_nin_slip' => 'parent_nin_slip',
+                ],
+            ],
+        ];
+    }
+
+    public static function getEnrolmentMappingSpec(string $serviceKey, array $formSchema = [], array $requiredDocs = []): array
+    {
+        $all = self::getAllEnrolmentMappingSpecs();
+        $base = $all[$serviceKey] ?? [
+            'endpoint' => '',
+            'method' => 'POST',
+            'enrolment_label' => $serviceKey,
+            'identity_domain' => 'NIN',
+            'provider_schema_verified' => false,
+            'fields' => [],
+            'files' => [],
+        ];
+
+        $fieldMap = $base['fields'];
+        $fieldTrace = [];
+        foreach ($formSchema as $fDef) {
+            if (!is_array($fDef) || empty($fDef['key'])) {
+                continue;
+            }
+            $ck = (string)$fDef['key'];
+            $pp = trim((string)($fDef['provider_param'] ?? ($fieldMap[$ck] ?? $ck)));
+            $fieldMap[$ck] = $pp;
+            $fieldTrace[] = [
+                'customer_field' => $ck,
+                'internal_field' => $ck,
+                'provider_param' => $pp,
+                'required' => !empty($fDef['required']),
+            ];
+        }
+
+        $fileMap = $base['files'];
+        $fileTrace = [];
+        foreach ($requiredDocs as $dDef) {
+            if (!is_array($dDef) || empty($dDef['key'])) {
+                continue;
+            }
+            $dk = (string)$dDef['key'];
+            $pfp = trim((string)($dDef['provider_file_param'] ?? ($fileMap[$dk] ?? $dk)));
+            $fileMap[$dk] = $pfp;
+            $fileTrace[] = [
+                'doc_key' => $dk,
+                'provider_file_param' => $pfp,
+                'required' => !empty($dDef['required']),
+            ];
+        }
+
+        return [
+            'service_key' => $serviceKey,
+            'endpoint' => $base['endpoint'],
+            'method' => $base['method'],
+            'enrolment_label' => $base['enrolment_label'],
+            'identity_domain' => $base['identity_domain'],
+            'provider_schema_verified' => (bool)$base['provider_schema_verified'],
+            'verification_note' => '2SureVerify api_docs.php & /api/v1/services.php verify the endpoint URL, POST method, Manual status, and provider cost, while deferring per-endpoint parameter names to OpenAPI/headers on request. Admins can adjust provider_param and provider_file_param per field/document anytime.',
+            'fields' => $fieldMap,
+            'files' => $fileMap,
+            'field_trace' => $fieldTrace,
+            'file_trace' => $fileTrace,
+        ];
+    }
+
+    public function mapEnrolmentPayload(
+        string $serviceKey,
+        array $fields,
+        array $files = [],
+        array $formSchema = [],
+        array $requiredDocs = []
+    ): array {
+        $spec = self::getEnrolmentMappingSpec($serviceKey, $formSchema, $requiredDocs);
+        $fieldMap = $spec['fields'];
+        $fileMap = $spec['files'];
+        $blockedKeys = ['service_key', 'consent', 'idempotency_key', 'pin', 'transaction_pin', 'document_ids', 'supporting_documents'];
+
+        $mappedFields = [];
+        foreach ($fields as $k => $v) {
+            $key = (string)$k;
+            if (in_array($key, $blockedKeys, true) || !is_scalar($v)) {
+                continue;
+            }
+            $strVal = trim((string)$v);
+            if ($strVal === '') {
+                continue;
+            }
+            if (!empty($fieldMap) && !array_key_exists($key, $fieldMap)) {
+                continue;
+            }
+            $providerKey = preg_replace('/[^a-zA-Z0-9_]/', '_', (string)($fieldMap[$key] ?? $key)) ?: $key;
+            $mappedFields[$providerKey] = $strVal;
+        }
+
+        $mappedFiles = [];
+        foreach ($files as $idx => $fileItem) {
+            if (!is_array($fileItem)) {
+                continue;
+            }
+            $docKey = (string)($fileItem['doc_key'] ?? ('document_' . $idx));
+            $targetParam = preg_replace('/[^a-zA-Z0-9_]/', '_', (string)($fileMap[$docKey] ?? $docKey)) ?: ('document_' . $idx);
+            $mappedFiles[] = array_merge($fileItem, [
+                'provider_file_param' => $targetParam,
+            ]);
+        }
+
+        return [
+            'payload' => $mappedFields,
+            'files' => $mappedFiles,
+            'provider_schema_verified' => $spec['provider_schema_verified'],
+        ];
+    }
+
+    /**
+     * Submit Manual NIN Enrolment Request to 2SureVerify (/api/v1/bvn_enroll_adult.php or /api/v1/bvn_enroll_child.php).
+     * Manual enrolment orders ALWAYS stay `pending` on initial submission until provider confirms completion via /api/v1/status.php.
+     */
+    public function submitEnrolment(
+        string $endpoint,
+        array $fields,
+        array $files = [],
+        ?string $reference = null,
+        ?string $serviceKey = null,
+        array $formSchema = [],
+        array $requiredDocs = []
+    ): array {
+        $ref = $reference ?: ('2SV_ENR_' . strtoupper(bin2hex(random_bytes(6))));
+
+        if (empty($this->apiKey)) {
+            return [
+                'success' => false,
+                'pending' => false,
+                'status' => 'failed',
+                'code' => 503,
+                'message' => '2SureVerify API key is not configured on the production host.',
+                'reference' => $ref,
+            ];
+        }
+
+        $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
+        $startTime = microtime(true);
+
+        $resolvedKey = trim((string)($serviceKey ?? ($fields['service_key'] ?? '')));
+        $mapped = $this->mapEnrolmentPayload($resolvedKey, $fields, $files, $formSchema, $requiredDocs);
+        $cleanFields = $mapped['payload'];
+        $resolvedFiles = $mapped['files'];
+        $cleanFields['reference'] = $cleanFields['reference'] ?? $ref;
+
+        $curlFiles = [];
+        $fileIndex = 0;
+        foreach ($resolvedFiles as $fileItem) {
+            if (!is_array($fileItem)) {
+                continue;
+            }
+            $filePath = (string)($fileItem['file_path'] ?? '');
+            if ($filePath !== '' && is_file($filePath) && is_readable($filePath)) {
+                $mime = (string)($fileItem['mime_type'] ?? 'application/octet-stream');
+                $origName = basename((string)($fileItem['original_name'] ?? ('document_' . $fileIndex)));
+                $rawParam = (string)($fileItem['provider_file_param'] ?? $fileItem['doc_key'] ?? ('document_' . $fileIndex));
+                $fieldKey = preg_replace('/[^a-zA-Z0-9_]/', '_', $rawParam) ?: ('document_' . $fileIndex);
+                if (isset($curlFiles[$fieldKey])) {
+                    $fieldKey .= '_' . $fileIndex;
+                }
+                $curlFiles[$fieldKey] = new \CURLFile($filePath, $mime, $origName);
+                $fileIndex++;
+            }
+        }
+
+        $ch = curl_init($url);
+        if (!empty($curlFiles)) {
+            $postBody = array_merge($cleanFields, $curlFiles);
+            $headers = [
+                'Accept: application/json',
+                'X-Api-Key: ' . $this->apiKey,
+            ];
+        } else {
+            $postBody = json_encode($cleanFields);
+            $headers = [
+                'Content-Type: application/json',
+                'Accept: application/json',
+                'X-Api-Key: ' . $this->apiKey,
+            ];
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $postBody,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_CONNECTTIMEOUT => 12,
+            CURLOPT_TIMEOUT => $this->timeout,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+
+        $responseBody = curl_exec($ch);
+        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErrno = curl_errno($ch);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
+        $logPayload = $cleanFields;
+        if (!empty($curlFiles)) {
+            $logPayload['_attached_files'] = array_keys($curlFiles);
+        }
+        $this->logTransaction($endpoint, $logPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $ref, 'POST');
+
+        if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
+            $decoded = json_decode($responseBody, true);
+            if (is_array($decoded)) {
+                $provRef = (string)($decoded['reference'] ?? $decoded['data']['reference'] ?? $decoded['request_id'] ?? $ref);
+                $statusLower = strtolower(trim((string)($decoded['status'] ?? $decoded['data']['status'] ?? '')));
+                $pendingFlag = $decoded['pending'] ?? $decoded['data']['pending'] ?? null;
+                $isPending = ($pendingFlag === true || $pendingFlag === 1 || strtolower((string)$pendingFlag) === 'true' || in_array($statusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true));
+
+                $providerCost = 0.0;
+                foreach (['amount_charged', 'charge', 'cost', 'price'] as $costKey) {
+                    if (isset($decoded[$costKey]) && is_numeric($decoded[$costKey])) {
+                        $providerCost = (float)$decoded[$costKey];
+                        break;
+                    }
+                    if (isset($decoded['data'][$costKey]) && is_numeric($decoded['data'][$costKey])) {
+                        $providerCost = (float)$decoded['data'][$costKey];
+                        break;
+                    }
+                }
+
+                // Explicit failure check first ONLY when not flagged pending
+                $explicitSuccess = $decoded['success'] ?? null;
+                $isFailed = !$isPending && (
+                    $explicitSuccess === false
+                    || strtolower((string)$explicitSuccess) === 'false'
+                    || in_array($statusLower, ['failed', 'error', 'rejected', 'declined'], true)
+                );
+
+                if ($isFailed) {
+                    return [
+                        'success' => false,
+                        'pending' => false,
+                        'status' => 'failed',
+                        'code' => $statusCode,
+                        'reference' => $provRef,
+                        'message' => (string)($decoded['message'] ?? $decoded['error'] ?? 'Provider rejected enrolment request.'),
+                        'raw' => $decoded,
+                    ];
+                }
+
+                // Manual enrolment orders ALWAYS stay `pending` on initial submission
+                return [
+                    'success' => true,
+                    'pending' => true,
+                    'status' => 'pending',
+                    'provider_status' => $statusLower !== '' ? $statusLower : 'pending',
+                    'reference' => $provRef,
+                    'provider_cost' => $providerCost,
+                    'message' => (string)($decoded['message'] ?? 'NIN Enrolment order accepted and queued for manual processing.'),
+                    'raw' => $decoded,
+                ];
+            }
+        }
+
+        $errorMsg = 'Provider enrolment request failed.';
+        if ($curlErrno === CURLE_OPERATION_TIMEDOUT) {
+            $errorMsg = 'Gateway timed out while submitting enrolment request.';
+        } elseif ($responseBody) {
+            $decodedErr = json_decode($responseBody, true);
+            if (is_array($decodedErr) && !empty($decodedErr['message'])) {
+                $errorMsg = (string)$decodedErr['message'];
+            }
+        } elseif ($curlError) {
+            $errorMsg = 'Connection error: ' . $curlError;
+        }
+
+        return [
+            'success' => false,
+            'pending' => false,
+            'status' => 'failed',
+            'code' => $curlErrno === CURLE_OPERATION_TIMEDOUT ? 504 : ($statusCode ?: 502),
+            'message' => $errorMsg,
+            'reference' => $ref,
+            'raw_error' => $responseBody ?: $curlError,
+        ];
+    }
+
     public function verify(string $endpoint, array $payload): array
     {
         $reference = (string)($payload['reference'] ?? ('2SV_' . strtoupper(bin2hex(random_bytes(6)))));
@@ -1113,7 +1463,12 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                     $safeReq[$k] = strlen($v) > 5 ? substr($v, 0, 3) . '•••••' . substr($v, -2) : 'REDACTED';
                 }
             }
-            foreach (['password', 'api_key', 'secret_key', 'pin', 'transaction_pin'] as $sk) {
+            foreach (['dob', 'birthdate', 'residence_address', 'address', 'email'] as $pk) {
+                if (!empty($safeReq[$pk]) && is_string($safeReq[$pk])) {
+                    $safeReq[$pk] = '[MASKED]';
+                }
+            }
+            foreach (['password', 'api_key', 'secret_key', 'pin', 'transaction_pin', 'photo', 'passport_photo'] as $sk) {
                 if (isset($safeReq[$sk]) && $safeReq[$sk] !== '') {
                     $safeReq[$sk] = '[REDACTED]';
                 }

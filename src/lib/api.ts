@@ -2461,4 +2461,226 @@ export const api = {
       method: 'POST',
     });
   },
+
+  // Stage 4 — HAMBAK Enrolment Centre (Customer Endpoints)
+  async getEnrolmentServices(): Promise<{
+    success: boolean;
+    services: import('../types').EnrolmentServiceItem[];
+    count: number;
+  }> {
+    return request('/api/enrolments/services');
+  },
+
+  async uploadEnrolmentDocument(
+    file: File,
+    docKey: string,
+    serviceKey?: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    document: import('../types').ModificationDocumentAttachment;
+  }> {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('doc_key', docKey);
+    if (serviceKey) {
+      fd.append('service_key', serviceKey);
+    }
+    return request('/api/enrolments/upload-document', {
+      method: 'POST',
+      body: fd,
+      timeoutMs: 60000,
+    });
+  },
+
+  async submitEnrolmentOrder(payload: {
+    service_key: string;
+    fields: Record<string, any>;
+    document_ids?: Record<string, string>;
+    supporting_documents?: Array<{ id: string; doc_key: string }>;
+    consent: boolean;
+    pin?: string;
+    idempotency_key: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').EnrolmentOrderItem;
+    pending?: boolean;
+    status?: string;
+    balance_after?: number;
+    newBalance?: number;
+    payment_reference?: string;
+    provider_reference?: string;
+    idempotent_replay?: boolean;
+  }> {
+    return request('/api/enrolments/submit', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      timeoutMs: 45000,
+    });
+  },
+
+  async getEnrolmentHistory(params: {
+    status?: string;
+    search?: string;
+    limit?: number;
+  } = {}): Promise<{
+    success: boolean;
+    count: number;
+    orders: import('../types').EnrolmentOrderItem[];
+  }> {
+    const q = new URLSearchParams();
+    if (params.status && params.status !== 'all') q.set('status', params.status);
+    if (params.search) q.set('search', params.search);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return request(`/api/enrolments/history${qs ? `?${qs}` : ''}`);
+  },
+
+  async getEnrolmentOrderStatus(id: string): Promise<{
+    success: boolean;
+    order: import('../types').EnrolmentOrderItem;
+  }> {
+    return request(`/api/enrolments/${encodeURIComponent(id)}/status`);
+  },
+
+  async pollEnrolmentStatus(id: string): Promise<{
+    success: boolean;
+    message: string;
+    updated: boolean;
+    order: import('../types').EnrolmentOrderItem;
+    refund?: any;
+  }> {
+    return request(`/api/enrolments/${encodeURIComponent(id)}/poll`, {
+      method: 'POST',
+    });
+  },
+
+  // Stage 4 — HAMBAK Enrolment Centre (Admin Endpoints)
+  async getAdminEnrolments(params: {
+    service_key?: string;
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{
+    success: boolean;
+    orders: import('../types').EnrolmentOrderItem[];
+    pagination: { total: number; page: number; limit: number; total_pages: number };
+    stats: import('../types').EnrolmentAdminStats;
+  }> {
+    const q = new URLSearchParams();
+    if (params.service_key && params.service_key !== 'ALL') q.set('service_key', params.service_key);
+    if (params.status && params.status !== 'all') q.set('status', params.status);
+    if (params.search) q.set('search', params.search);
+    if (params.page) q.set('page', String(params.page));
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return request(`/api/admin/enrolments${qs ? `?${qs}` : ''}`);
+  },
+
+  async getAdminEnrolmentDetail(id: string): Promise<{
+    success: boolean;
+    order: import('../types').EnrolmentOrderItem;
+  }> {
+    return request(`/api/admin/enrolments/${encodeURIComponent(id)}`);
+  },
+
+  async pollAdminEnrolmentStatus(id: string): Promise<{
+    success: boolean;
+    message: string;
+    updated: boolean;
+    order: import('../types').EnrolmentOrderItem;
+    refund?: any;
+  }> {
+    return request(`/api/admin/enrolments/${encodeURIComponent(id)}/poll`, {
+      method: 'POST',
+    });
+  },
+
+  async updateAdminEnrolmentOrder(
+    id: string,
+    payload: {
+      status: string;
+      provider_remarks?: string;
+      admin_notes?: string;
+      estimated_completion_text?: string;
+      trigger_refund?: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').EnrolmentOrderItem;
+    refund?: any;
+  }> {
+    return request(`/api/admin/enrolments/${encodeURIComponent(id)}/update`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminEnrolmentServices(): Promise<{
+    success: boolean;
+    services: import('../types').EnrolmentServiceItem[];
+    unverified_services: import('../types').EnrolmentUnverifiedNotice[];
+  }> {
+    return request('/api/admin/enrolments/services');
+  },
+
+  async updateAdminEnrolmentService(
+    key: string,
+    payload: Partial<import('../types').EnrolmentServiceItem>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    service: import('../types').EnrolmentServiceItem;
+  }> {
+    return request(`/api/admin/enrolments/services/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async uploadAdminEnrolmentSample(
+    serviceKey: string,
+    file: File,
+    title: string,
+    description = ''
+  ): Promise<{
+    success: boolean;
+    message: string;
+    sample: import('../types').EnrolmentSampleDocument;
+  }> {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('title', title);
+    if (description) {
+      fd.append('description', description);
+    }
+    return request(`/api/admin/enrolments/services/${encodeURIComponent(serviceKey)}/sample`, {
+      method: 'POST',
+      body: fd,
+      timeoutMs: 60000,
+    });
+  },
+
+  async deleteAdminEnrolmentSample(id: string): Promise<{
+    success: boolean;
+    deleted: boolean;
+    message: string;
+  }> {
+    return request(`/api/admin/enrolments/samples/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async syncAdminEnrolmentCatalog(): Promise<{
+    success: boolean;
+    message: string;
+    updated_services: number;
+  }> {
+    return request('/api/admin/enrolments/sync-catalog', {
+      method: 'POST',
+    });
+  },
 };

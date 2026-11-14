@@ -1194,5 +1194,124 @@ export interface ModificationAdminStats {
   total_margin: number;
 }
 
+// Stage 4 — HAMBAK Enrolment Centre (Verified Manual NIN Enrolment Types)
+
+export interface EnrolmentSampleDocument {
+  id: string;
+  service_key: string;
+  title: string;
+  description?: string;
+  original_name: string;
+  mime_type: string;
+  file_size: number;
+  is_active: boolean;
+  file_url: string;
+  created_at?: string | null;
+}
+
+export interface EnrolmentServiceItem {
+  id: string;
+  key: string;
+  service_key: string;
+  category: 'enrolment' | string;
+  identity_domain: 'NIN';
+  enrolment_type: 'NIN_ADULT' | 'NIN_CHILD' | string;
+  name: string;
+  description: string;
+  selling_price: number;
+  price: number;
+  is_active: boolean;
+  enabled: boolean;
+  verified_provider_service: boolean;
+  processing_type: 'manual' | string;
+  manual_label: string;
+  estimated_turnaround: string;
+  supported_notes?: string;
+  required_fields: string[];
+  required_documents: ModificationRequiredDocument[];
+  form_schema: ModificationFormField[];
+  sample_documents: EnrolmentSampleDocument[];
+  updated_at?: string | null;
+  // Admin-only private fields
+  provider_id?: string;
+  provider?: string;
+  endpoint?: string;
+  wholesale_cost?: number;
+  profit?: number;
+  margin_percent?: number;
+  provider_schema_verified?: boolean;
+  payload_mapping?: ModificationPayloadMappingSpec;
+}
+
+export type EnrolmentOrderStatus =
+  | 'pending'
+  | 'processing'
+  | 'query_required'
+  | 'completed'
+  | 'failed'
+  | 'rejected'
+  | 'refunded';
+
+export interface EnrolmentOrderItem {
+  id: string;
+  order_number: string;
+  user_id: string;
+  enrolment_type: 'NIN_ADULT' | 'NIN_CHILD' | string;
+  identity_domain: 'NIN' | string;
+  service_key: string;
+  service_name: string;
+  applicant_name: string;
+  applicant_phone_masked: string;
+  submitted_fields: Record<string, any>;
+  supporting_documents: ModificationDocumentAttachment[];
+  customer_price: number;
+  payment_reference: string;
+  refund_reference?: string | null;
+  provider_remarks?: string | null;
+  estimated_completion_text: string;
+  status: EnrolmentOrderStatus | string;
+  reviewed_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  // Admin-only fields
+  provider_reference?: string | null;
+  provider_status?: string | null;
+  customer_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  provider_cost?: number;
+  profit?: number;
+  provider_id?: string;
+  endpoint?: string;
+  admin_notes?: string | null;
+  reviewed_by?: string | null;
+  provider_response?: any;
+}
+
+export interface EnrolmentAdminStats {
+  total_all: number;
+  adult_count: number;
+  child_count: number;
+  pending_count: number;
+  processing_count: number;
+  query_count: number;
+  completed_count: number;
+  failed_count: number;
+  refunded_count: number;
+  total_revenue: number;
+  total_provider_cost: number;
+  total_margin: number;
+}
+
+export interface EnrolmentUnverifiedNotice {
+  service_key: string;
+  name: string;
+  identity_domain: string;
+  status: string;
+  reason: string;
+}
+
+
 
 

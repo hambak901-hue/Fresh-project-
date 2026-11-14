@@ -51,6 +51,7 @@ import {
   Send,
   CheckCircle2,
   ArrowLeft,
+  UserPlus,
 } from 'lucide-react';
 
 // Admin child views
@@ -77,6 +78,7 @@ import { SupportManagement } from './SupportManagement';
 import { NotificationManagement } from './NotificationManagement';
 import { GlobalSettingsManagement } from './GlobalSettingsManagement';
 import { ModificationManagement } from './ModificationManagement';
+import { EnrolmentManagement } from './EnrolmentManagement';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
@@ -96,6 +98,7 @@ export type AdminTabKey =
   | 'modules'
   | 'services'
   | 'modifications_admin'
+  | 'enrolments_admin'
   | 'digital_services'
   | 'store_admin'
   | 'academy_admin'
@@ -565,6 +568,7 @@ export function SuperAdminDashboard({
       items: [
         { id: 'services', label: 'Core Services & Pricing', icon: Cpu },
         { id: 'modifications_admin', label: 'NIN & BVN Modifications', icon: ShieldCheck, badge: 'Stage 3' },
+        { id: 'enrolments_admin', label: 'Enrolment Centre', icon: UserPlus, badge: 'Stage 4' },
         { id: 'digital_services', label: 'Digital Utilities (Cable & Disco)', icon: Tv, badge: 'Phase 8' },
         { id: 'store_admin', label: 'Hardware Store', icon: ShoppingBag, badge: 'Catalog' },
         { id: 'academy_admin', label: 'Digital Training Academy', icon: GraduationCap, badge: '12 Courses' },
@@ -812,6 +816,8 @@ export function SuperAdminDashboard({
             {activeTab === 'services' && <ServiceManagement />}
 
             {activeTab === 'modifications_admin' && <ModificationManagement />}
+
+            {activeTab === 'enrolments_admin' && <EnrolmentManagement />}
 
             {activeTab === 'digital_services' && <DigitalServicesManagement />}
 
