@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User as UserIcon, Mail, Phone, MapPin, Shield, Copy, Check, CheckCircle2, AlertCircle, Loader2, Sparkles, Camera } from 'lucide-react';
 import { api } from '../../lib/api';
+import { useCms } from '../../context/CmsContext';
 import { User } from '../../types';
 import { getInitialsAvatar } from '../../lib/avatar';
 
@@ -18,6 +19,8 @@ const PRESET_AVATARS = [
 ];
 
 export function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
+  const { rates } = useCms();
+  const airtimeDiscountPercent = rates?.airtime_discount_percent ?? 2.5;
   const [fullName, setFullName] = useState(user.full_name || '');
   const [phoneNumber, setPhoneNumber] = useState(user.phone_number || '');
   const [address, setAddress] = useState(user.address || '');
@@ -331,7 +334,7 @@ export function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
               </li>
               <li className="flex items-center justify-between">
                 <span>Airtime Discount:</span>
-                <span className="font-mono text-white">2.5%</span>
+                <span className="font-mono text-white">{airtimeDiscountPercent}%</span>
               </li>
             </ul>
           </div>

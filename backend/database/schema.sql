@@ -431,15 +431,22 @@ CREATE TABLE telecom_plans (
     id VARCHAR(36) PRIMARY KEY,
     provider_plan_id VARCHAR(50) NOT NULL,
     network ENUM('MTN', 'AIRTEL', 'GLO', '9MOBILE') NOT NULL,
-    name VARCHAR(100) NOT NULL,
+    network_id INT NULL,
+    name VARCHAR(150) NOT NULL,
     size VARCHAR(50) NOT NULL,
-    plan_type ENUM('SME', 'Corporate', 'Gifting', 'Direct') NOT NULL DEFAULT 'SME',
+    plan_type VARCHAR(100) NOT NULL DEFAULT 'SME',
     validity VARCHAR(50) NOT NULL DEFAULT '30 Days',
     wholesale_cost DECIMAL(15, 2) NOT NULL,
     price DECIMAL(15, 2) NOT NULL,
+    pricing_mode VARCHAR(30) NOT NULL DEFAULT 'default_markup',
+    fixed_price DECIMAL(15, 2) NULL,
+    markup_percent DECIMAL(8, 2) NULL,
+    discount_percent DECIMAL(8, 2) NULL,
+    admin_price_locked TINYINT(1) NOT NULL DEFAULT 0,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     provider_id VARCHAR(50) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_telecom_network (network, is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -455,32 +462,83 @@ CREATE TABLE telecom_orders (
     profit DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
     provider_id VARCHAR(50) NOT NULL,
     provider_ref VARCHAR(100) NOT NULL,
+    idempotency_key VARCHAR(100) NULL,
     status ENUM('successful', 'pending', 'failed', 'refunded') NOT NULL DEFAULT 'pending',
     metadata JSON NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_to_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_to_user (user_id),
-    INDEX idx_to_status (status)
+    INDEX idx_to_status (status),
+    INDEX idx_to_idem (user_id, idempotency_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE airtime_pin_denominations (
     id VARCHAR(36) PRIMARY KEY,
+    provider_plan_id INT NULL,
     network ENUM('MTN', 'AIRTEL', 'GLO', '9MOBILE') NOT NULL,
+    network_id INT NULL,
     value DECIMAL(10, 2) NOT NULL,
     wholesale_cost DECIMAL(10, 2) NOT NULL,
+    api_discount DECIMAL(8, 2) NOT NULL DEFAULT 0.00,
+    available_stock INT NOT NULL DEFAULT 0,
+    max_quantity INT NOT NULL DEFAULT 50,
     price DECIMAL(10, 2) NOT NULL,
-    is_active TINYINT(1) NOT NULL DEFAULT 1
+    pricing_mode VARCHAR(30) NOT NULL DEFAULT 'default_markup',
+    fixed_price DECIMAL(15, 2) NULL,
+    markup_percent DECIMAL(8, 2) NULL,
+    discount_percent DECIMAL(8, 2) NULL,
+    admin_price_locked TINYINT(1) NOT NULL DEFAULT 0,
+    provider_id VARCHAR(50) NOT NULL DEFAULT 'ulamadata',
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE data_pin_denominations (
     id VARCHAR(36) PRIMARY KEY,
+    provider_plan_id INT NULL,
     network ENUM('MTN', 'AIRTEL', 'GLO', '9MOBILE') NOT NULL,
-    name VARCHAR(100) NOT NULL,
+    network_id INT NULL,
+    name VARCHAR(150) NOT NULL,
     size VARCHAR(50) NOT NULL,
+    validity VARCHAR(50) NOT NULL DEFAULT '30 Days',
+    plan_type VARCHAR(100) NULL,
     wholesale_cost DECIMAL(10, 2) NOT NULL,
+    available_stock INT NOT NULL DEFAULT 0,
+    max_quantity INT NOT NULL DEFAULT 50,
     price DECIMAL(10, 2) NOT NULL,
-    is_active TINYINT(1) NOT NULL DEFAULT 1
+    pricing_mode VARCHAR(30) NOT NULL DEFAULT 'default_markup',
+    fixed_price DECIMAL(15, 2) NULL,
+    markup_percent DECIMAL(8, 2) NULL,
+    discount_percent DECIMAL(8, 2) NULL,
+    admin_price_locked TINYINT(1) NOT NULL DEFAULT 0,
+    provider_id VARCHAR(50) NOT NULL DEFAULT 'ulamadata',
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE telecom_vouchers (
+    id VARCHAR(36) PRIMARY KEY,
+    order_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    service_type ENUM('airtime_pin', 'data_pin') NOT NULL,
+    network VARCHAR(30) NOT NULL,
+    denomination_label VARCHAR(80) NOT NULL,
+    face_value DECIMAL(15, 2) NULL,
+    pin_code VARCHAR(120) NOT NULL,
+    serial_number VARCHAR(120) NOT NULL,
+    load_code VARCHAR(100) NULL,
+    check_balance_code VARCHAR(100) NULL,
+    card_name VARCHAR(120) NULL,
+    voucher_index INT NOT NULL DEFAULT 1,
+    provider_ref VARCHAR(100) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_order_voucher_idx (order_id, voucher_index),
+    UNIQUE KEY uniq_pin_serial_pair (service_type, network, pin_code, serial_number),
+    INDEX idx_tv_user (user_id),
+    INDEX idx_tv_order (order_id),
+    CONSTRAINT fk_tv_order FOREIGN KEY (order_id) REFERENCES telecom_orders(id) ON DELETE CASCADE,
+    CONSTRAINT fk_tv_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE cable_packages (

@@ -242,52 +242,126 @@ export interface ProviderLogItem {
   created_at: string;
 }
 
+export interface TelecomVoucherItem {
+  index: number;
+  pin: string;
+  serial: string;
+  denomination_label?: string;
+  value?: number;
+  network?: string;
+  load_code?: string;
+  check_balance?: string;
+  card_name?: string;
+  created_at?: string;
+}
+
 export interface TelecomOrder {
   id: string;
-  user_id: string;
+  user_id?: string;
+  reference?: string;
   service: 'data' | 'airtime' | 'airtime_pin' | 'airtime_swap' | 'cable' | 'data_pin' | 'bulksms' | 'electricity' | 'exam';
+  service_type?: string;
   network: string;
   phone: string;
+  recipient?: string;
   plan: string;
   amount: number;
-  cost_price: number;
-  profit: number;
-  provider: string;
+  cost_price?: number;
+  profit?: number;
+  provider?: string;
+  provider_id?: string;
   provider_ref: string;
   status: 'successful' | 'pending' | 'failed';
   metadata?: any;
+  voucher_count?: number;
+  vouchers?: TelecomVoucherItem[];
+  customer_name?: string;
+  customer_email?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface TelecomPlanItem {
   id: string;
-  network: 'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE';
+  network: 'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE' | string;
+  network_id?: number | null;
   name: string;
   size: string;
   validity: string;
-  type: 'SME' | 'Corporate' | 'Gifting' | 'Direct';
+  type: string;
+  plan_type?: string;
   price: number;
-  cost_price: number;
-  provider_plan_id: number;
+  wholesale_cost?: number;
+  cost_price?: number;
+  pricing_mode?: 'fixed' | 'markup_percent' | 'discount_percent' | 'default_markup' | string;
+  fixed_price?: number | null;
+  markup_percent?: number | null;
+  discount_percent?: number | null;
+  admin_price_locked?: boolean;
+  margin?: number;
+  margin_percent?: number;
+  provider_plan_id?: number;
+  provider_id?: string;
+  provider?: string;
+  is_active?: boolean;
   enabled: boolean;
+  updated_at?: string;
 }
 
 export interface AirtimePinDenomination {
   id: string;
   network: string;
+  network_id?: number;
   denomination: number;
   price: number;
+  selling_price?: number;
   discount_percent: number;
+  discount_rate?: number;
+  available_stock: number;
+  in_stock: boolean;
+  max_quantity: number;
   enabled: boolean;
+  is_active?: boolean;
+  // Admin-only fields
+  provider_plan_id?: number;
+  wholesale_cost?: number;
+  api_discount?: number;
+  pricing_mode?: 'fixed' | 'markup_percent' | 'discount_percent' | 'default_markup' | string;
+  fixed_price?: number | null;
+  markup_percent?: number | null;
+  admin_price_locked?: boolean;
+  profit?: number;
+  margin_percent?: number;
+  price_anomaly?: boolean;
+  updated_at?: string;
 }
 
 export interface DataPinDenomination {
   id: string;
   network: string;
+  network_id?: number;
   size: string;
   plan_name: string;
+  name?: string;
+  validity?: string;
   price: number;
+  selling_price?: number;
+  available_stock: number;
+  in_stock: boolean;
+  max_quantity: number;
   enabled: boolean;
+  is_active?: boolean;
+  // Admin-only fields
+  provider_plan_id?: number;
+  wholesale_cost?: number;
+  pricing_mode?: 'fixed' | 'markup_percent' | 'discount_percent' | 'default_markup' | string;
+  fixed_price?: number | null;
+  markup_percent?: number | null;
+  discount_percent?: number | null;
+  admin_price_locked?: boolean;
+  profit?: number;
+  margin_percent?: number;
+  updated_at?: string;
 }
 
 export interface CablePackageItem {

@@ -64,12 +64,12 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ onNavigate, onOpenAu
       description:
         'Convenient bill payments covering airtime top-ups, DSTV, GOtv, and Startimes subscriptions, plus prepaid and postpaid electricity tokens.',
       features: [
-        `${rates?.airtime_discount_percent || 2.5}% discount on eligible airtime recharges`,
+        `${rates?.airtime_discount_percent ?? 2.5}% discount on eligible airtime recharges`,
         'Smartcard verification before cable TV subscription renewal',
         'Electricity meter verification and instant token display',
         'Printable order receipts for every bill payment',
       ],
-      pricing: `${rates?.airtime_discount_percent || 2.5}% Airtime Discount`,
+      pricing: `${rates?.airtime_discount_percent ?? 2.5}% Airtime Discount`,
       icon: Zap,
     },
     {

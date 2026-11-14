@@ -264,12 +264,12 @@ class VtpassAdapter implements TelecomAdapterInterface
         ];
     }
 
-    public function vendAirtimePin(string $network, float $value, int $quantity, string $businessName): array
+    public function vendAirtimePin(string $network, float $value, int $quantity, string $businessName, ?int $planTypeId = null, ?string $requestId = null): array
     {
         throw new RuntimeException('Recharge card PIN printing is not supported by VTpass directly. Switch active telecom provider to UlamaData for PIN vending.');
     }
 
-    public function vendDataPin(string $network, string|int $planId, int $quantity, string $businessName): array
+    public function vendDataPin(string $network, string|int $planId, int $quantity, string $businessName, ?string $requestId = null): array
     {
         throw new RuntimeException('Data PIN printing is not supported by VTpass directly. Switch active telecom provider to UlamaData for Data PIN vending.');
     }

@@ -13,6 +13,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { useCms } from '../../context/CmsContext';
 import {
   Wallet,
   ArrowUpRight,
@@ -42,6 +43,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onOpenFundModal,
 }) => {
   const { user, refreshUser } = useAuth();
+  const { rates } = useCms();
+  const airtimeDiscountPercent = rates?.airtime_discount_percent ?? 2.5;
   const [summary, setSummary] = useState<any | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -245,7 +248,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
             <div>
               <div className="text-xs font-bold text-white">Recharge Airtime</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">Instant 2.5% cashback discount</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Instant {airtimeDiscountPercent}% cashback discount</div>
             </div>
           </button>
 

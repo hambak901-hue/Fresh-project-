@@ -295,74 +295,467 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     }
 
     /**
+     * Fetch Official Ulamadata Networks & Carrier Prefixes (GET /api/get-networks)
+     */
+    public function getNetworks(string $service = 'data'): array
+    {
+        $svc = in_array(strtolower($service), ['airtime', 'data'], true) ? strtolower($service) : 'data';
+        $res = $this->executeHttp('/api/get-networks?service=' . urlencode($svc), 'GET');
+        $rows = is_array($res['data']) ? $res['data'] : [];
+        if (isset($rows['data']) && is_array($rows['data'])) {
+            $rows = $rows['data'];
+        }
+        $normalized = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $rawNet = strtoupper(trim((string)($row['network'] ?? ($row['code'] ?? ($row['name'] ?? '')))));
+            if ($rawNet === '') {
+                continue;
+            }
+            $netCode = str_contains($rawNet, 'AIRTEL') ? 'AIRTEL'
+                : (str_contains($rawNet, 'GLO') ? 'GLO'
+                : (str_contains($rawNet, '9MOB') ? '9MOBILE' : 'MTN'));
+            $prefixes = [];
+            if (!empty($row['prefix'])) {
+                foreach (explode('|', (string)$row['prefix']) as $pfx) {
+                    $clean = preg_replace('/\D+/', '', trim($pfx));
+                    if ($clean !== '') {
+                        $prefixes[] = $clean;
+                    }
+                }
+            }
+            $normalized[] = [
+                'id' => (int)($row['id'] ?? $this->getNetworkId($netCode)),
+                'network' => $netCode,
+                'label' => (string)($row['network'] ?? $netCode),
+                'prefixes' => array_values(array_unique($prefixes)),
+            ];
+        }
+        return $normalized;
+    }
+
+    /**
      * 3. Data Bundle Vending (POST /api/data)
      */
-    public function purchaseData(string $network, string $phone, string|int $planId, bool $ported = true): array
+    public function purchaseData(string $network, string $phone, string|int $planId, bool $ported = false, ?string $requestId = null): array
     {
-        $requestId = 'HT_DAT_' . strtoupper(bin2hex(random_bytes(5)));
+        $reqId = $requestId ?: ('HT_DAT_' . strtoupper(bin2hex(random_bytes(5))));
         $payload = [
             'phone' => $phone,
             'plan' => (int)$planId,
             'bypass' => $ported,
-            'Ported_number' => $ported,
-            'request-id' => $requestId,
+            'request-id' => $reqId,
         ];
 
         $res = $this->executeHttp('/api/data', 'POST', $payload);
         $data = $res['data'];
 
-        $status = strtolower((string)($data['status'] ?? ($data['Status'] ?? 'failed')));
-        $isSuccess = in_array($status, ['success', 'successful', 'delivered'], true);
-        $providerRef = (string)($data['request-id'] ?? ($data['ident'] ?? ($data['id'] ?? $requestId)));
+        $statusRaw = strtolower(trim((string)($data['status'] ?? ($data['Status'] ?? ''))));
+        $isSuccess = in_array($statusRaw, ['success', 'successful', 'delivered', 'completed'], true);
+        $isPending = in_array($statusRaw, ['pending', 'processing', 'queued', 'initiated'], true);
+        $providerRef = (string)($data['request-id'] ?? ($data['ident'] ?? ($data['id'] ?? $reqId)));
 
-        if (!$isSuccess) {
-            $msg = $data['message'] ?? ($data['msg'] ?? 'Data bundle vending failed upstream');
+        if (!$isSuccess && !$isPending) {
+            $msg = $data['message'] ?? ($data['msg'] ?? ($data['api_response'] ?? 'Data bundle vending failed upstream'));
             throw new RuntimeException((string)$msg);
         }
 
         return [
-            'status' => 'successful',
+            'status' => $isSuccess ? 'successful' : 'pending',
             'provider_reference' => $providerRef,
             'network' => $network,
             'phone' => $phone,
             'plan_id' => $planId,
+            'api_response' => $data['api_response'] ?? ($data['response'] ?? ($data['message'] ?? null)),
             'raw' => $data,
         ];
     }
 
     /**
-     * 4. Airtime PIN Vending (POST /api/recharge_card)
+     * Split comma/array PIN & serial lists, pair them 1:1, and verify completeness & uniqueness.
      */
-    public function vendAirtimePin(string $network, float $value, int $quantity, string $businessName): array
+    public function parseAndVerifyVouchers(array $data, int $expectedQuantity, string $network, float $faceValue = 0): array
+    {
+        $splitField = static function ($val): array {
+            if (is_array($val)) {
+                $out = [];
+                foreach ($val as $item) {
+                    if (is_array($item)) {
+                        $v = trim((string)($item['pin'] ?? ($item['serial'] ?? ($item['code'] ?? ''))));
+                    } else {
+                        $v = trim((string)$item);
+                    }
+                    if ($v !== '') {
+                        $out[] = $v;
+                    }
+                }
+                return $out;
+            }
+            $str = trim((string)$val);
+            if ($str === '') {
+                return [];
+            }
+            $parts = preg_split('/\s*,\s*/', $str) ?: [];
+            $out = [];
+            foreach ($parts as $p) {
+                $p = trim($p);
+                if ($p !== '') {
+                    $out[] = $p;
+                }
+            }
+            return $out;
+        };
+
+        $rawPins = $data['pin'] ?? ($data['pins'] ?? ($data['cards'] ?? ''));
+        $rawSerials = $data['serial'] ?? ($data['serials'] ?? '');
+
+        $pins = [];
+        $serials = [];
+
+        if (is_array($rawPins) && isset($rawPins[0]) && is_array($rawPins[0])) {
+            foreach ($rawPins as $row) {
+                $p = trim((string)($row['pin'] ?? ($row['code'] ?? '')));
+                $s = trim((string)($row['serial'] ?? ($row['serial_number'] ?? '')));
+                if ($p !== '') $pins[] = $p;
+                if ($s !== '') $serials[] = $s;
+            }
+        } else {
+            $pins = $splitField($rawPins);
+            $serials = $splitField($rawSerials);
+        }
+
+        $loadPin = trim((string)($data['load_pin'] ?? ($data['load_code'] ?? '')));
+        $checkBal = trim((string)($data['check_balance'] ?? ''));
+        $cardName = trim((string)($data['card_name'] ?? ''));
+
+        $vouchers = [];
+        $pairCount = min(count($pins), count($serials));
+        for ($i = 0; $i < $pairCount; $i++) {
+            $vouchers[] = [
+                'index' => $i + 1,
+                'pin' => $pins[$i],
+                'serial' => $serials[$i],
+                'value' => $faceValue > 0 ? $faceValue : (float)($data['pinsize'] ?? 0),
+                'network' => strtoupper($network),
+                'load_code' => $loadPin,
+                'check_balance' => $checkBal,
+                'card_name' => $cardName,
+            ];
+        }
+
+        if (count($pins) === 0 || count($serials) === 0) {
+            return [
+                'valid' => false,
+                'error' => 'Provider returned no PIN or serial numbers.',
+                'pin_count' => count($pins),
+                'serial_count' => count($serials),
+                'vouchers' => $vouchers,
+            ];
+        }
+
+        if (count($pins) !== count($serials)) {
+            return [
+                'valid' => false,
+                'error' => sprintf('Voucher count mismatch: %d PIN(s) vs %d serial(s).', count($pins), count($serials)),
+                'pin_count' => count($pins),
+                'serial_count' => count($serials),
+                'vouchers' => $vouchers,
+            ];
+        }
+
+        if (count($pins) !== $expectedQuantity) {
+            return [
+                'valid' => false,
+                'error' => sprintf('Expected %d voucher(s), received %d from provider.', $expectedQuantity, count($pins)),
+                'pin_count' => count($pins),
+                'serial_count' => count($serials),
+                'vouchers' => $vouchers,
+            ];
+        }
+
+        $seenPairs = [];
+        $seenPins = [];
+        foreach ($vouchers as $v) {
+            $pairKey = $v['pin'] . '|' . $v['serial'];
+            if (isset($seenPairs[$pairKey]) || isset($seenPins[$v['pin']])) {
+                return [
+                    'valid' => false,
+                    'error' => 'Duplicate voucher PIN or serial detected in provider response.',
+                    'pin_count' => count($pins),
+                    'serial_count' => count($serials),
+                    'vouchers' => $vouchers,
+                ];
+            }
+            $seenPairs[$pairKey] = true;
+            $seenPins[$v['pin']] = true;
+        }
+
+        return [
+            'valid' => true,
+            'error' => null,
+            'pin_count' => count($pins),
+            'serial_count' => count($serials),
+            'vouchers' => $vouchers,
+        ];
+    }
+
+    /**
+     * 4a. Live Airtime PIN Catalogue (GET /api/get-recharge-pins)
+     */
+    public function fetchAirtimePinCatalogue(): array
+    {
+        $res = $this->executeHttp('/api/get-recharge-pins', 'GET');
+        $rows = $res['data'];
+        if (isset($rows['data']) && is_array($rows['data'])) {
+            $rows = $rows['data'];
+        }
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $providerPlanId = (int)($row['id'] ?? 0);
+            if ($providerPlanId <= 0) {
+                continue;
+            }
+            $rawNet = strtoupper(trim((string)($row['network'] ?? 'MTN')));
+            $network = str_contains($rawNet, 'AIRTEL') ? 'AIRTEL'
+                : (str_contains($rawNet, 'GLO') ? 'GLO'
+                : (str_contains($rawNet, '9MOB') || str_contains($rawNet, 'ETISALAT') ? '9MOBILE' : 'MTN'));
+            $items[] = [
+                'provider_plan_id' => $providerPlanId,
+                'network' => $network,
+                'network_id' => $this->getNetworkId($network),
+                'denomination' => (float)($row['pinsize'] ?? ($row['amount'] ?? 0)),
+                'wholesale_cost' => (float)($row['price'] ?? 0),
+                'api_discount' => (float)($row['apidiscount'] ?? 0),
+                'available_stock' => max(0, (int)($row['available'] ?? 0)),
+                'raw' => $row,
+            ];
+        }
+        return $items;
+    }
+
+    /**
+     * 4b. Sync Airtime PIN Catalogue into airtime_pin_denominations (preserves fixed/admin-locked prices)
+     */
+    public function syncAirtimePinCatalogue(bool $recalculateUnlocked = false): array
+    {
+        $items = $this->fetchAirtimePinCatalogue();
+        $defaultMarkup = 1.0;
+        try {
+            $mRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "pin_default_markup_percent"');
+            if ($mRow && is_numeric($mRow['setting_value'])) {
+                $defaultMarkup = max(0.0, (float)$mRow['setting_value']);
+            }
+        } catch (\Throwable) {
+        }
+
+        $synced = 0;
+        $inserted = 0;
+        $updated = 0;
+        $preservedOverrides = 0;
+        $syncedIds = [];
+
+        foreach ($items as $item) {
+            $ppid = $item['provider_plan_id'];
+            $wholesale = $item['wholesale_cost'];
+            $denomination = $item['denomination'];
+            if ($ppid <= 0 || $denomination <= 0 || $wholesale <= 0) {
+                continue;
+            }
+
+            $rowId = 'apin_ud_' . $ppid;
+            $defaultSelling = round($wholesale * (1 + ($defaultMarkup / 100)), 2);
+
+            $existing = $this->db->fetchOne('SELECT id, price, pricing_mode, admin_price_locked FROM airtime_pin_denominations WHERE id = :id', ['id' => $rowId]);
+            if (!$existing) {
+                $this->db->execute(
+                    'INSERT INTO airtime_pin_denominations
+                     (id, provider_plan_id, network, network_id, value, wholesale_cost, api_discount, available_stock, max_quantity, price, pricing_mode, admin_price_locked, provider_id, is_active, updated_at)
+                     VALUES
+                     (:id, :ppid, :net, :nid, :val, :wcost, :adisc, :avail, 50, :price, "default_markup", 0, "ulamadata", 1, NOW())',
+                    [
+                        'id' => $rowId,
+                        'ppid' => $ppid,
+                        'net' => $item['network'],
+                        'nid' => $item['network_id'],
+                        'val' => $denomination,
+                        'wcost' => $wholesale,
+                        'adisc' => $item['api_discount'],
+                        'avail' => $item['available_stock'],
+                        'price' => $defaultSelling,
+                    ]
+                );
+                $inserted++;
+            } else {
+                $isLocked = (int)($existing['admin_price_locked'] ?? 0) === 1
+                    || in_array((string)($existing['pricing_mode'] ?? ''), ['fixed', 'markup_percent', 'discount_percent'], true);
+
+                if ($isLocked || !$recalculateUnlocked) {
+                    $this->db->execute(
+                        'UPDATE airtime_pin_denominations
+                         SET provider_plan_id = :ppid,
+                             network = :net,
+                             network_id = :nid,
+                             value = :val,
+                             wholesale_cost = :wcost,
+                             api_discount = :adisc,
+                             available_stock = :avail,
+                             updated_at = NOW()
+                         WHERE id = :id',
+                        [
+                            'id' => $rowId,
+                            'ppid' => $ppid,
+                            'net' => $item['network'],
+                            'nid' => $item['network_id'],
+                            'val' => $denomination,
+                            'wcost' => $wholesale,
+                            'adisc' => $item['api_discount'],
+                            'avail' => $item['available_stock'],
+                        ]
+                    );
+                    if ($isLocked) {
+                        $preservedOverrides++;
+                    }
+                } else {
+                    $this->db->execute(
+                        'UPDATE airtime_pin_denominations
+                         SET provider_plan_id = :ppid,
+                             network = :net,
+                             network_id = :nid,
+                             value = :val,
+                             wholesale_cost = :wcost,
+                             api_discount = :adisc,
+                             available_stock = :avail,
+                             price = :price,
+                             updated_at = NOW()
+                         WHERE id = :id',
+                        [
+                            'id' => $rowId,
+                            'ppid' => $ppid,
+                            'net' => $item['network'],
+                            'nid' => $item['network_id'],
+                            'val' => $denomination,
+                            'wcost' => $wholesale,
+                            'adisc' => $item['api_discount'],
+                            'avail' => $item['available_stock'],
+                            'price' => $defaultSelling,
+                        ]
+                    );
+                }
+                $updated++;
+            }
+
+            $syncedIds[] = $rowId;
+            $synced++;
+        }
+
+        if (!empty($syncedIds)) {
+            $placeholders = implode(',', array_fill(0, count($syncedIds), '?'));
+            $this->db->execute(
+                "UPDATE airtime_pin_denominations SET is_active = 0, updated_at = NOW() WHERE provider_id = 'ulamadata' AND id NOT IN ({$placeholders})",
+                $syncedIds
+            );
+        }
+
+        return [
+            'synced_count' => $synced,
+            'inserted_count' => $inserted,
+            'updated_count' => $updated,
+            'preserved_overrides' => $preservedOverrides,
+            'items' => $items,
+            'timestamp' => date('c'),
+        ];
+    }
+
+    /**
+     * 4c. Airtime PIN Vending (POST /api/recharge_card)
+     */
+    public function vendAirtimePin(string $network, float $value, int $quantity, string $businessName, ?int $planTypeId = null, ?string $requestId = null): array
     {
         $networkId = $this->getNetworkId($network);
-        $requestId = 'HT_PIN_' . strtoupper(bin2hex(random_bytes(5)));
+        if ($planTypeId === null || $planTypeId <= 0) {
+            $liveCatalogue = $this->fetchAirtimePinCatalogue();
+            foreach ($liveCatalogue as $c) {
+                if ($c['network_id'] === $networkId && abs($c['denomination'] - $value) < 0.01) {
+                    $planTypeId = $c['provider_plan_id'];
+                    break;
+                }
+            }
+        }
+        if ($planTypeId === null || $planTypeId <= 0) {
+            throw new RuntimeException("No valid Ulamadata plan_type ID found for {$network} ₦{$value} Airtime PIN.");
+        }
+
+        $reqId = $requestId ?: ('HT_APIN_' . strtoupper(bin2hex(random_bytes(5))));
+        $cardName = trim($businessName) !== '' ? mb_substr(trim($businessName), 0, 50) : 'HambakTech';
         $payload = [
             'network' => $networkId,
-            'amount' => (int)round($value),
+            'plan_type' => $planTypeId,
             'quantity' => $quantity,
-            'business_name' => $businessName ?: 'HambakTech Enterprise',
-            'request-id' => $requestId,
+            'card_name' => $cardName,
+            'request-id' => $reqId,
         ];
 
         $res = $this->executeHttp('/api/recharge_card', 'POST', $payload);
         $data = $res['data'];
 
-        $status = strtolower((string)($data['status'] ?? ($data['Status'] ?? 'failed')));
-        if (!in_array($status, ['success', 'successful'], true)) {
-            throw new RuntimeException((string)($data['message'] ?? ($data['msg'] ?? 'Airtime PIN generation failed upstream')));
+        $statusRaw = strtolower(trim((string)($data['status'] ?? ($data['Status'] ?? ''))));
+        $isSuccess = in_array($statusRaw, ['success', 'successful', 'delivered', 'completed'], true);
+        $isPending = in_array($statusRaw, ['pending', 'processing', 'queued', 'initiated'], true);
+        $providerRef = (string)($data['request-id'] ?? ($data['ident'] ?? ($data['id'] ?? $reqId)));
+
+        if ($isPending) {
+            return [
+                'status' => 'pending',
+                'provider_reference' => $providerRef,
+                'network' => $network,
+                'quantity' => $quantity,
+                'vouchers' => [],
+                'cards' => [],
+                'incomplete_vouchers' => false,
+                'raw' => $data,
+            ];
         }
 
-        $cards = $data['cards'] ?? ($data['pins'] ?? ($data['pin'] ?? []));
-        if (is_string($cards)) {
-            $cards = [$cards];
+        if (!$isSuccess) {
+            throw new RuntimeException((string)($data['message'] ?? ($data['api_response'] ?? ($data['msg'] ?? 'Airtime PIN generation failed upstream'))));
         }
+
+        $parsed = $this->parseAndVerifyVouchers($data, $quantity, $network, $value);
+        if (!$parsed['valid']) {
+            return [
+                'status' => 'pending',
+                'incomplete_vouchers' => true,
+                'integrity_error' => $parsed['error'],
+                'provider_reference' => $providerRef,
+                'network' => $network,
+                'quantity' => $quantity,
+                'vouchers' => $parsed['vouchers'],
+                'cards' => $parsed['vouchers'],
+                'raw' => $data,
+            ];
+        }
+
         return [
             'status' => 'successful',
-            'provider_reference' => (string)($data['request-id'] ?? ($data['ident'] ?? $requestId)),
+            'incomplete_vouchers' => false,
+            'provider_reference' => $providerRef,
             'network' => $network,
-            'quantity' => is_array($cards) && count($cards) > 0 ? count($cards) : $quantity,
-            'cards' => $cards,
+            'quantity' => count($parsed['vouchers']),
+            'vouchers' => $parsed['vouchers'],
+            'cards' => $parsed['vouchers'],
+            'load_pin' => (string)($data['load_pin'] ?? ''),
+            'check_balance' => (string)($data['check_balance'] ?? ''),
+            'old_wallet' => $data['old_wallet'] ?? ($data['old_balance'] ?? null),
+            'new_wallet' => $data['new_wallet'] ?? ($data['new_balance'] ?? null),
             'raw' => $data,
         ];
     }
@@ -370,37 +763,71 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     /**
      * 5. Data PIN Vending (POST /api/data_card)
      */
-    public function vendDataPin(string $network, string|int $planId, int $quantity, string $businessName): array
+    public function vendDataPin(string $network, string|int $planId, int $quantity, string $businessName, ?string $requestId = null): array
     {
         $networkId = $this->getNetworkId($network);
-        $requestId = 'HT_DPIN_' . strtoupper(bin2hex(random_bytes(5)));
+        $reqId = $requestId ?: ('HT_DPIN_' . strtoupper(bin2hex(random_bytes(5))));
+        $cardName = trim($businessName) !== '' ? mb_substr(trim($businessName), 0, 50) : 'HambakTech';
         $payload = [
             'network' => $networkId,
             'plan' => (int)$planId,
-            'amount' => (int)$planId,
             'quantity' => $quantity,
-            'business_name' => $businessName ?: 'HambakTech Enterprise',
-            'request-id' => $requestId,
+            'card_name' => $cardName,
+            'request-id' => $reqId,
         ];
 
         $res = $this->executeHttp('/api/data_card', 'POST', $payload);
         $data = $res['data'];
 
-        $status = strtolower((string)($data['status'] ?? ($data['Status'] ?? 'failed')));
-        if (!in_array($status, ['success', 'successful'], true)) {
-            throw new RuntimeException((string)($data['message'] ?? ($data['msg'] ?? 'Data PIN generation failed upstream')));
+        $statusRaw = strtolower(trim((string)($data['status'] ?? ($data['Status'] ?? ''))));
+        $isSuccess = in_array($statusRaw, ['success', 'successful', 'delivered', 'completed'], true);
+        $isPending = in_array($statusRaw, ['pending', 'processing', 'queued', 'initiated'], true);
+        $providerRef = (string)($data['request-id'] ?? ($data['ident'] ?? ($data['id'] ?? $reqId)));
+
+        if ($isPending) {
+            return [
+                'status' => 'pending',
+                'provider_reference' => $providerRef,
+                'network' => $network,
+                'quantity' => $quantity,
+                'vouchers' => [],
+                'cards' => [],
+                'incomplete_vouchers' => false,
+                'raw' => $data,
+            ];
         }
 
-        $cards = $data['cards'] ?? ($data['pins'] ?? ($data['pin'] ?? []));
-        if (is_string($cards)) {
-            $cards = [$cards];
+        if (!$isSuccess) {
+            throw new RuntimeException((string)($data['message'] ?? ($data['api_response'] ?? ($data['msg'] ?? 'Data PIN generation failed upstream'))));
         }
+
+        $parsed = $this->parseAndVerifyVouchers($data, $quantity, $network, 0);
+        if (!$parsed['valid']) {
+            return [
+                'status' => 'pending',
+                'incomplete_vouchers' => true,
+                'integrity_error' => $parsed['error'],
+                'provider_reference' => $providerRef,
+                'network' => $network,
+                'quantity' => $quantity,
+                'vouchers' => $parsed['vouchers'],
+                'cards' => $parsed['vouchers'],
+                'raw' => $data,
+            ];
+        }
+
         return [
             'status' => 'successful',
-            'provider_reference' => (string)($data['request-id'] ?? ($data['ident'] ?? $requestId)),
+            'incomplete_vouchers' => false,
+            'provider_reference' => $providerRef,
             'network' => $network,
-            'quantity' => is_array($cards) && count($cards) > 0 ? count($cards) : $quantity,
-            'cards' => $cards,
+            'quantity' => count($parsed['vouchers']),
+            'vouchers' => $parsed['vouchers'],
+            'cards' => $parsed['vouchers'],
+            'load_pin' => (string)($data['load_pin'] ?? ''),
+            'check_balance' => (string)($data['check_balance'] ?? ''),
+            'old_wallet' => $data['old_wallet'] ?? ($data['old_balance'] ?? null),
+            'new_wallet' => $data['new_wallet'] ?? ($data['new_balance'] ?? null),
             'raw' => $data,
         ];
     }
@@ -636,17 +1063,55 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     }
 
     /**
-     * 14. Dynamic Plan Synchronization (GET /api/data_plans)
+     * 14. Dynamic Plan Synchronization (GET /api/data_plans + GET /api/get-networks?service=data)
+     * Updates wholesale_cost & metadata without overwriting admin-configured selling prices.
      */
-    public function syncLivePlans(): array
+    public function syncLivePlans(bool $recalculateUnlocked = false): array
     {
+        // 1. Fetch & cache official network prefixes
+        $networkMap = [];
+        try {
+            $networks = $this->getNetworks('data');
+            foreach ($networks as $net) {
+                $networkMap[$net['network']] = $net;
+            }
+            if (!empty($networks)) {
+                $this->db->execute(
+                    'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+                     VALUES ("set_ulamadata_prefixes", "ulamadata_network_prefixes", :val, "telecom", "Cached official Ulamadata network prefixes")
+                     ON DUPLICATE KEY UPDATE setting_value = :val2, updated_at = NOW()',
+                    [
+                        'val' => json_encode($networkMap),
+                        'val2' => json_encode($networkMap),
+                    ]
+                );
+            }
+        } catch (\Throwable) {
+        }
+
+        // 2. Fetch live Ulamadata data plans
         $res = $this->executeHttp('/api/data_plans', 'GET');
         $livePlans = $res['data']['plans'] ?? ($res['data']['data'] ?? $res['data']);
         if (!is_array($livePlans)) {
             $livePlans = [];
         }
 
+        // 3. Read platform default markup %
+        $defaultMarkup = 15.0;
+        try {
+            $mRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "data_default_markup_percent"');
+            if ($mRow && is_numeric($mRow['setting_value'])) {
+                $defaultMarkup = max(0.0, (float)$mRow['setting_value']);
+            }
+        } catch (\Throwable) {
+        }
+
         $synced = 0;
+        $inserted = 0;
+        $updated = 0;
+        $preservedOverrides = 0;
+        $syncedIds = [];
+
         foreach ($livePlans as $p) {
             if (!is_array($p)) {
                 continue;
@@ -667,41 +1132,143 @@ class UlamaDataAdapter implements TelecomAdapterInterface
                     : (str_contains($upperNet, '9MOB') ? '9MOBILE' : 'MTN'));
             }
 
-            $planId = (string)($p['plan_id'] ?? ($p['id'] ?? ''));
+            $planId = trim((string)($p['plan_id'] ?? ($p['id'] ?? '')));
             if ($planId === '') {
                 continue;
             }
-            $wholesale = (float)($p['price'] ?? ($p['amount'] ?? 250));
-            $selling = (float)round($wholesale * 1.15);
-            $size = (string)($p['datasize'] ?? ($p['size'] ?? ($p['plan'] ?? '1GB')));
-            $name = (string)($p['name'] ?? "{$networkName} {$size}");
-            $ptype = (string)($p['type'] ?? ($p['plan_type'] ?? 'SME'));
-            $validity = (string)($p['day'] ?? ($p['validity'] ?? '30 Days'));
+            $wholesale = (float)($p['price'] ?? ($p['amount'] ?? 0));
+            if ($wholesale <= 0) {
+                continue;
+            }
 
-            $this->db->execute(
-                'INSERT INTO telecom_plans 
-                 (id, provider_plan_id, network, name, size, plan_type, validity, wholesale_cost, price, is_active, provider_id, updated_at)
-                 VALUES 
-                 (:id, :ppid, :net, :name, :size, :ptype, :val, :wcost, :price, 1, "ulamadata", NOW())
-                 ON DUPLICATE KEY UPDATE wholesale_cost = :wcost2, name = :name2, updated_at = NOW()',
-                [
-                    'id' => 'plan_ud_' . $planId,
-                    'ppid' => $planId,
-                    'net' => $networkName,
-                    'name' => $name,
-                    'size' => $size,
-                    'ptype' => $ptype,
-                    'val' => $validity,
-                    'wcost' => $wholesale,
-                    'price' => $selling,
-                    'wcost2' => $wholesale,
-                    'name2' => $name,
-                ]
-            );
+            $size = trim((string)($p['datasize'] ?? ($p['size'] ?? ($p['plan'] ?? '1GB'))));
+            $ptype = trim((string)($p['type'] ?? ($p['plan_type'] ?? 'SME')));
+            if ($ptype === '') {
+                $ptype = 'SME';
+            }
+            $rawDay = trim((string)($p['day'] ?? ($p['validity'] ?? '30')));
+            if (is_numeric($rawDay)) {
+                $validity = ((int)$rawDay === 1) ? '1 Day' : "{$rawDay} Days";
+            } else {
+                $validity = $rawDay !== '' ? $rawDay : '30 Days';
+            }
+            $rawName = trim((string)($p['name'] ?? ''));
+            $name = $rawName !== ''
+                ? "{$networkName} {$size} ({$rawName})"
+                : "{$networkName} {$size} ({$ptype})";
+            $name = mb_substr($name, 0, 145);
+
+            $rowId = 'plan_ud_' . $planId;
+            $networkId = (int)($networkMap[$networkName]['id'] ?? $this->getNetworkId($networkName));
+            $defaultSelling = (float)round($wholesale * (1 + ($defaultMarkup / 100)), 2);
+
+            $existing = $this->db->fetchOne('SELECT id, price, pricing_mode, admin_price_locked FROM telecom_plans WHERE id = :id', ['id' => $rowId]);
+
+            if (!$existing) {
+                $this->db->execute(
+                    'INSERT INTO telecom_plans
+                     (id, provider_plan_id, network, network_id, name, size, plan_type, validity, wholesale_cost, price, pricing_mode, admin_price_locked, is_active, provider_id, updated_at)
+                     VALUES
+                     (:id, :ppid, :net, :nid, :name, :size, :ptype, :val, :wcost, :price, "default_markup", 0, 1, "ulamadata", NOW())',
+                    [
+                        'id' => $rowId,
+                        'ppid' => $planId,
+                        'net' => $networkName,
+                        'nid' => $networkId,
+                        'name' => $name,
+                        'size' => $size,
+                        'ptype' => mb_substr($ptype, 0, 95),
+                        'val' => mb_substr($validity, 0, 48),
+                        'wcost' => $wholesale,
+                        'price' => $defaultSelling,
+                    ]
+                );
+                $inserted++;
+            } else {
+                $isLocked = (int)($existing['admin_price_locked'] ?? 0) === 1
+                    || in_array((string)($existing['pricing_mode'] ?? ''), ['fixed', 'markup_percent', 'discount_percent'], true);
+
+                if ($isLocked || !$recalculateUnlocked) {
+                    // Preserve admin-configured selling price; only update wholesale_cost and provider metadata
+                    $this->db->execute(
+                        'UPDATE telecom_plans
+                         SET provider_plan_id = :ppid,
+                             network = :net,
+                             network_id = :nid,
+                             name = :name,
+                             size = :size,
+                             plan_type = :ptype,
+                             validity = :val,
+                             wholesale_cost = :wcost,
+                             updated_at = NOW()
+                         WHERE id = :id',
+                        [
+                            'id' => $rowId,
+                            'ppid' => $planId,
+                            'net' => $networkName,
+                            'nid' => $networkId,
+                            'name' => $name,
+                            'size' => $size,
+                            'ptype' => mb_substr($ptype, 0, 95),
+                            'val' => mb_substr($validity, 0, 48),
+                            'wcost' => $wholesale,
+                        ]
+                    );
+                    if ($isLocked) {
+                        $preservedOverrides++;
+                    }
+                } else {
+                    $this->db->execute(
+                        'UPDATE telecom_plans
+                         SET provider_plan_id = :ppid,
+                             network = :net,
+                             network_id = :nid,
+                             name = :name,
+                             size = :size,
+                             plan_type = :ptype,
+                             validity = :val,
+                             wholesale_cost = :wcost,
+                             price = :price,
+                             updated_at = NOW()
+                         WHERE id = :id',
+                        [
+                            'id' => $rowId,
+                            'ppid' => $planId,
+                            'net' => $networkName,
+                            'nid' => $networkId,
+                            'name' => $name,
+                            'size' => $size,
+                            'ptype' => mb_substr($ptype, 0, 95),
+                            'val' => mb_substr($validity, 0, 48),
+                            'wcost' => $wholesale,
+                            'price' => $defaultSelling,
+                        ]
+                    );
+                }
+                $updated++;
+            }
+
+            $syncedIds[] = $rowId;
             $synced++;
         }
 
-        return ['synced_count' => $synced, 'timestamp' => date('c')];
+        // 4. Deactivate legacy/removed plans that no longer exist on Ulamadata (e.g. fake seeded 101..402)
+        if (!empty($syncedIds)) {
+            $placeholders = implode(',', array_fill(0, count($syncedIds), '?'));
+            $this->db->execute(
+                "UPDATE telecom_plans SET is_active = 0, updated_at = NOW() WHERE provider_id = 'ulamadata' AND id NOT IN ({$placeholders})",
+                $syncedIds
+            );
+        }
+
+        return [
+            'synced_count' => $synced,
+            'inserted_count' => $inserted,
+            'updated_count' => $updated,
+            'preserved_overrides' => $preservedOverrides,
+            'networks_cached' => count($networkMap),
+            'timestamp' => date('c'),
+        ];
     }
 
     public function ping(): array

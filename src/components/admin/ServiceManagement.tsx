@@ -33,7 +33,7 @@ import {
   Star,
 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { StoreItem, AcademyCourse, IdentityService, ProviderConfigItem, ProviderLogItem, SlipTemplateItem } from '../../types';
+import { StoreItem, AcademyCourse, IdentityService, ProviderConfigItem, ProviderLogItem, SlipTemplateItem, TelecomPlanItem, TelecomOrder, AirtimePinDenomination, DataPinDenomination } from '../../types';
 
 export function ServiceManagement() {
   const [activeTab, setActiveTab] = useState<'nin' | 'slip_templates' | 'providers' | 'telecom' | 'digital' | 'store' | 'academy' | 'reports'>('nin');
@@ -84,6 +84,119 @@ export function ServiceManagement() {
   // Academy Course modal
   const [editingCourse, setEditingCourse] = useState<Partial<AcademyCourse> | null>(null);
 
+  // Telecom Data Bundles & Orders State (Stage 5 Phase 1)
+  const [telecomPlans, setTelecomPlans] = useState<TelecomPlanItem[]>([]);
+  const [telecomCategoriesByNet, setTelecomCategoriesByNet] = useState<Record<string, string[]>>({});
+  const [telecomNetworkFilter, setTelecomNetworkFilter] = useState<'ALL' | 'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE'>('ALL');
+  const [telecomCategoryFilter, setTelecomCategoryFilter] = useState<string>('ALL');
+  const [telecomPlanSearch, setTelecomPlanSearch] = useState<string>('');
+  const [syncingDataPlans, setSyncingDataPlans] = useState<boolean>(false);
+  const [defaultMarkupPercent, setDefaultMarkupPercent] = useState<number>(15);
+  const [bulkPricingMode, setBulkPricingMode] = useState<'markup_percent' | 'discount_percent' | 'default_markup'>('markup_percent');
+  const [bulkPricingValue, setBulkPricingValue] = useState<number>(15);
+  const [bulkSkipFixed, setBulkSkipFixed] = useState<boolean>(true);
+  const [applyingBulkPricing, setApplyingBulkPricing] = useState<boolean>(false);
+  const [planEdits, setPlanEdits] = useState<Record<string, { pricing_mode: string; value: number }>>({});
+  const [savingPlanId, setSavingPlanId] = useState<string | null>(null);
+  const [telecomOrders, setTelecomOrders] = useState<TelecomOrder[]>([]);
+  const [ordersServiceFilter, setOrdersServiceFilter] = useState<'all' | 'data' | 'airtime' | 'airtime_pin' | 'data_pin'>('all');
+  const [ordersStatusFilter, setOrdersStatusFilter] = useState<'all' | 'successful' | 'pending' | 'failed'>('all');
+  const [loadingTelecomOrders, setLoadingTelecomOrders] = useState<boolean>(false);
+  const [requeryingOrderId, setRequeryingOrderId] = useState<string | null>(null);
+  const [expandedOrderMetaId, setExpandedOrderMetaId] = useState<string | null>(null);
+
+  // Telecom Airtime PIN & Data PIN State (Stage 5 Phase 2)
+  const [airtimePinDenoms, setAirtimePinDenoms] = useState<AirtimePinDenomination[]>([]);
+  const [airtimePinNetFilter, setAirtimePinNetFilter] = useState<'ALL' | 'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE'>('ALL');
+  const [syncingAirtimePins, setSyncingAirtimePins] = useState<boolean>(false);
+  const [pinDefaultMarkupPercent, setPinDefaultMarkupPercent] = useState<number>(1);
+  const [pinBulkMode, setPinBulkMode] = useState<'markup_percent' | 'discount_percent' | 'default_markup'>('markup_percent');
+  const [pinBulkValue, setPinBulkValue] = useState<number>(1);
+  const [pinBulkSkipFixed, setPinBulkSkipFixed] = useState<boolean>(true);
+  const [applyingPinBulk, setApplyingPinBulk] = useState<boolean>(false);
+  const [airtimePinEdits, setAirtimePinEdits] = useState<Record<string, { pricing_mode: string; value: number; max_quantity: number }>>({});
+  const [savingAirtimePinId, setSavingAirtimePinId] = useState<string | null>(null);
+  const [dataPinDenoms, setDataPinDenoms] = useState<DataPinDenomination[]>([]);
+  const [dataPinCatalogueStatus, setDataPinCatalogueStatus] = useState<string>('');
+  const [dataPinEdits, setDataPinEdits] = useState<Record<string, { pricing_mode: string; value: number; max_quantity: number }>>({});
+  const [savingDataPinId, setSavingDataPinId] = useState<string | null>(null);
+
+  const fetchAdminTelecomData = async (
+    srvFilter: string = ordersServiceFilter,
+    stFilter: string = ordersStatusFilter
+  ) => {
+    setLoadingTelecomOrders(true);
+    try {
+      const [plansRes, ordersRes, apinRes, dpinRes] = await Promise.all([
+        api.getAdminTelecomPlans().catch(() => null),
+        api.getAdminTelecomOrders({ service: srvFilter, status: stFilter, limit: 60 }).catch(() => null),
+        api.getAdminAirtimePins().catch(() => null),
+        api.getAdminDataPins().catch(() => null),
+      ]);
+      if (plansRes) {
+        const list = plansRes.plans || [];
+        setTelecomPlans(list);
+        setTelecomCategoriesByNet(plansRes.categories_by_network || {});
+        const defMk = plansRes.data_default_markup_percent ?? 15;
+        setDefaultMarkupPercent(defMk);
+        const editMap: Record<string, { pricing_mode: string; value: number }> = {};
+        list.forEach(p => {
+          const mode = p.pricing_mode || 'default_markup';
+          let val = p.price;
+          if (mode === 'fixed') val = p.fixed_price ?? p.price;
+          else if (mode === 'markup_percent') val = p.markup_percent ?? defMk;
+          else if (mode === 'discount_percent') val = p.discount_percent ?? 0;
+          editMap[p.id] = { pricing_mode: mode, value: Number(val) };
+        });
+        setPlanEdits(editMap);
+      }
+      if (apinRes) {
+        const list = apinRes.denominations || [];
+        setAirtimePinDenoms(list);
+        const defPinMk = apinRes.pin_default_markup_percent ?? 1;
+        setPinDefaultMarkupPercent(defPinMk);
+        const apinMap: Record<string, { pricing_mode: string; value: number; max_quantity: number }> = {};
+        list.forEach(d => {
+          const mode = d.pricing_mode || 'default_markup';
+          let val = d.price;
+          if (mode === 'fixed') val = d.fixed_price ?? d.price;
+          else if (mode === 'markup_percent') val = d.markup_percent ?? defPinMk;
+          else if (mode === 'discount_percent') val = d.discount_percent ?? 0;
+          apinMap[d.id] = {
+            pricing_mode: mode,
+            value: Number(val),
+            max_quantity: Number(d.max_quantity ?? 50),
+          };
+        });
+        setAirtimePinEdits(apinMap);
+      }
+      if (dpinRes) {
+        const dList = dpinRes.denominations || [];
+        setDataPinDenoms(dList);
+        setDataPinCatalogueStatus(dpinRes.catalogue_status || '');
+        const dpinMap: Record<string, { pricing_mode: string; value: number; max_quantity: number }> = {};
+        dList.forEach(d => {
+          const mode = d.pricing_mode || 'default_markup';
+          let val = d.price;
+          if (mode === 'fixed') val = d.fixed_price ?? d.price;
+          else if (mode === 'markup_percent') val = d.markup_percent ?? 1;
+          else if (mode === 'discount_percent') val = d.discount_percent ?? 0;
+          dpinMap[d.id] = {
+            pricing_mode: mode,
+            value: Number(val),
+            max_quantity: Number(d.max_quantity ?? 50),
+          };
+        });
+        setDataPinEdits(dpinMap);
+      }
+      if (ordersRes?.orders) {
+        setTelecomOrders(ordersRes.orders);
+      }
+    } finally {
+      setLoadingTelecomOrders(false);
+    }
+  };
+
   const fetchServices = async () => {
     setLoading(true);
     try {
@@ -95,6 +208,9 @@ export function ServiceManagement() {
         api.getAdminSlipTemplates().catch(() => ({ templates: [] })),
       ]);
       setSettings(res.settings || {});
+      if (typeof res?.settings?.data_default_markup_percent === 'number') {
+        setDefaultMarkupPercent(res.settings.data_default_markup_percent);
+      }
       setStoreItems(res.store_items || []);
       setAcademyCourses(res.academy_courses || []);
       if (pricingRes?.services) {
@@ -126,6 +242,7 @@ export function ServiceManagement() {
       if (templatesRes?.templates) {
         setSlipTemplates(templatesRes.templates);
       }
+      await fetchAdminTelecomData();
     } catch (e) {
       console.error(e);
     } finally {
@@ -136,6 +253,253 @@ export function ServiceManagement() {
   useEffect(() => {
     fetchServices();
   }, []);
+
+  const handleSyncDataPlans = async () => {
+    setSyncingDataPlans(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await api.syncAdminTelecomPlans(false);
+      setSuccessMsg(
+        res.message ||
+          `Synced ${res.synced_count} live plans from Ulamadata (preserved ${res.preserved_overrides} admin-configured prices).`
+      );
+      await fetchAdminTelecomData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to sync live plans from Ulamadata');
+    } finally {
+      setSyncingDataPlans(false);
+    }
+  };
+
+  const handleSaveDataPlan = async (plan: TelecomPlanItem) => {
+    const edit = planEdits[plan.id] || { pricing_mode: plan.pricing_mode || 'fixed', value: plan.price };
+    setSavingPlanId(plan.id);
+    setErrorMsg(null);
+    try {
+      const payload: any = {
+        pricing_mode: edit.pricing_mode,
+        is_active: plan.is_active ?? plan.enabled,
+      };
+      if (edit.pricing_mode === 'fixed') {
+        payload.fixed_price = Number(edit.value);
+        payload.price = Number(edit.value);
+      } else if (edit.pricing_mode === 'markup_percent') {
+        payload.markup_percent = Number(edit.value);
+      } else if (edit.pricing_mode === 'discount_percent') {
+        payload.discount_percent = Number(edit.value);
+      }
+      const res = await api.updateAdminTelecomPlan(plan.id, payload);
+      if (res.plan) {
+        setTelecomPlans(prev =>
+          prev.map(item => (item.id === plan.id ? { ...item, ...res.plan, type: res.plan.plan_type || item.type } : item))
+        );
+      }
+      setSuccessMsg(`Saved ${plan.network} ${plan.size} (${plan.type}) selling price.`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update data plan pricing');
+    } finally {
+      setSavingPlanId(null);
+    }
+  };
+
+  const handleToggleDataPlanActive = async (plan: TelecomPlanItem) => {
+    const nextActive = !(plan.is_active ?? plan.enabled);
+    setErrorMsg(null);
+    try {
+      await api.updateAdminTelecomPlan(plan.id, {
+        pricing_mode: plan.pricing_mode || 'default_markup',
+        fixed_price: plan.fixed_price,
+        markup_percent: plan.markup_percent,
+        discount_percent: plan.discount_percent,
+        is_active: nextActive,
+      });
+      setTelecomPlans(prev =>
+        prev.map(item => (item.id === plan.id ? { ...item, is_active: nextActive, enabled: nextActive } : item))
+      );
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update plan status');
+    }
+  };
+
+  const handleApplyBulkDataPricing = async () => {
+    setApplyingBulkPricing(true);
+    setErrorMsg(null);
+    try {
+      const res = await api.bulkUpdateAdminTelecomPricing({
+        network: telecomNetworkFilter,
+        category: telecomCategoryFilter,
+        pricing_mode: bulkPricingMode,
+        value: Number(bulkPricingValue),
+        skip_fixed_overrides: bulkSkipFixed,
+        data_default_markup_percent: Number(defaultMarkupPercent),
+      });
+      setSuccessMsg(res.message || `Updated ${res.updated_count} data plans.`);
+      await fetchAdminTelecomData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to apply bulk data pricing');
+    } finally {
+      setApplyingBulkPricing(false);
+    }
+  };
+
+  const handleToggleDataCategory = async (isActive: boolean) => {
+    if (telecomNetworkFilter === 'ALL' || telecomCategoryFilter === 'ALL') {
+      setErrorMsg('Select both a specific Network and a specific Category to enable or disable an entire category.');
+      return;
+    }
+    setErrorMsg(null);
+    try {
+      const res = await api.toggleAdminTelecomCategory({
+        network: telecomNetworkFilter,
+        category: telecomCategoryFilter,
+        is_active: isActive,
+      });
+      setSuccessMsg(res.message);
+      await fetchAdminTelecomData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to toggle category status');
+    }
+  };
+
+  const handleRequeryTelecomOrder = async (order: TelecomOrder) => {
+    setRequeryingOrderId(order.id);
+    setErrorMsg(null);
+    try {
+      const res = await api.verifyTelecomTransaction(order.provider_ref || order.id);
+      setSuccessMsg(`Order ${order.provider_ref || order.id}: ${res.result?.status || res.order?.status || 'checked'}`);
+      await fetchAdminTelecomData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to requery telecom transaction');
+    } finally {
+      setRequeryingOrderId(null);
+    }
+  };
+
+  const handleSyncAirtimePins = async () => {
+    setSyncingAirtimePins(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await api.syncAdminAirtimePins(false);
+      setSuccessMsg(res.message || `Synced ${res.synced_count} Airtime PIN denominations from Ulamadata.`);
+      await fetchAdminTelecomData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to sync Airtime PIN catalogue from Ulamadata');
+    } finally {
+      setSyncingAirtimePins(false);
+    }
+  };
+
+  const handleSaveAirtimePin = async (denom: AirtimePinDenomination) => {
+    const edit = airtimePinEdits[denom.id] || {
+      pricing_mode: denom.pricing_mode || 'fixed',
+      value: denom.price,
+      max_quantity: denom.max_quantity ?? 50,
+    };
+    setSavingAirtimePinId(denom.id);
+    setErrorMsg(null);
+    try {
+      const payload: any = {
+        pricing_mode: edit.pricing_mode,
+        max_quantity: Number(edit.max_quantity || 50),
+        is_active: denom.is_active ?? denom.enabled,
+      };
+      if (edit.pricing_mode === 'fixed') {
+        payload.fixed_price = Number(edit.value);
+        payload.price = Number(edit.value);
+      } else if (edit.pricing_mode === 'markup_percent') {
+        payload.markup_percent = Number(edit.value);
+      } else if (edit.pricing_mode === 'discount_percent') {
+        payload.discount_percent = Number(edit.value);
+      }
+      const res = await api.updateAdminAirtimePin(denom.id, payload);
+      if (res.denomination) {
+        setAirtimePinDenoms(prev =>
+          prev.map(item => (item.id === denom.id ? { ...item, ...res.denomination } : item))
+        );
+      }
+      setSuccessMsg(`Saved ${denom.network} ₦${denom.denomination.toLocaleString()} Airtime PIN pricing & quantity cap.`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to save Airtime PIN settings');
+    } finally {
+      setSavingAirtimePinId(null);
+    }
+  };
+
+  const handleToggleAirtimePinActive = async (denom: AirtimePinDenomination) => {
+    const nextActive = !(denom.is_active ?? denom.enabled);
+    setErrorMsg(null);
+    try {
+      const res = await api.updateAdminAirtimePin(denom.id, {
+        pricing_mode: denom.pricing_mode || 'default_markup',
+        fixed_price: denom.fixed_price,
+        markup_percent: denom.markup_percent,
+        discount_percent: denom.discount_percent,
+        max_quantity: denom.max_quantity,
+        is_active: nextActive,
+      });
+      setAirtimePinDenoms(prev =>
+        prev.map(item => (item.id === denom.id ? { ...item, ...(res.denomination || {}), is_active: nextActive, enabled: nextActive } : item))
+      );
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update Airtime PIN status');
+    }
+  };
+
+  const handleApplyBulkAirtimePinPricing = async () => {
+    setApplyingPinBulk(true);
+    setErrorMsg(null);
+    try {
+      const res = await api.bulkUpdateAdminAirtimePinPricing({
+        network: airtimePinNetFilter,
+        pricing_mode: pinBulkMode,
+        value: Number(pinBulkValue),
+        skip_fixed_overrides: pinBulkSkipFixed,
+        pin_default_markup_percent: Number(pinDefaultMarkupPercent),
+      });
+      setSuccessMsg(res.message || `Updated pricing for ${res.updated_count} Airtime PIN denominations.`);
+      await fetchAdminTelecomData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to apply bulk Airtime PIN pricing');
+    } finally {
+      setApplyingPinBulk(false);
+    }
+  };
+
+  const handleSaveDataPin = async (denom: DataPinDenomination) => {
+    const edit = dataPinEdits[denom.id] || {
+      pricing_mode: denom.pricing_mode || 'fixed',
+      value: denom.price,
+      max_quantity: denom.max_quantity ?? 50,
+    };
+    setSavingDataPinId(denom.id);
+    setErrorMsg(null);
+    try {
+      const payload: any = {
+        pricing_mode: edit.pricing_mode,
+        max_quantity: Number(edit.max_quantity || 50),
+        is_active: denom.is_active ?? denom.enabled,
+      };
+      if (edit.pricing_mode === 'fixed') {
+        payload.fixed_price = Number(edit.value);
+        payload.price = Number(edit.value);
+      } else if (edit.pricing_mode === 'markup_percent') {
+        payload.markup_percent = Number(edit.value);
+      } else if (edit.pricing_mode === 'discount_percent') {
+        payload.discount_percent = Number(edit.value);
+      }
+      await api.updateAdminDataPin(denom.id, payload);
+      setSuccessMsg(`Saved ${denom.network} ${denom.size} Data PIN configuration.`);
+      await fetchAdminTelecomData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update Data PIN configuration');
+    } finally {
+      setSavingDataPinId(null);
+    }
+  };
 
   const handleSavePricing = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,7 +513,8 @@ export function ServiceManagement() {
         airtel_1gb: settings.airtel_1gb,
         glo_1gb: settings.glo_1gb,
         nine_mobile_1gb: settings.nine_mobile_1gb,
-        airtime_discount_percent: settings.airtime_discount_percent,
+        airtime_discount_percent: settings.airtime_discount_percent ?? 2.5,
+        data_default_markup_percent: defaultMarkupPercent,
       });
       setSuccessMsg('Service pricing & telecom tariffs updated live across the platform.');
       setTimeout(() => setSuccessMsg(null), 3500);
@@ -1623,83 +1988,960 @@ export function ServiceManagement() {
         </div>
       )}
 
-      {/* 2. TELECOMMUNICATIONS */}
-      {activeTab === 'telecom' && (
-        <form onSubmit={handleSavePricing} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 text-xs">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Smartphone className="w-4 h-4 text-sky-400" />
-                <span>Telecommunications &amp; VTU Pricing</span>
-              </h2>
-              <p className="text-slate-400 mt-0.5">Configure 1GB wholesale rates per carrier and airtime cashback spread.</p>
-            </div>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-1.5"
-            >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              <span>Save Telecom Rates</span>
-            </button>
-          </div>
+      {/* 2. TELECOMMUNICATIONS (DATA BUNDLES CATALOG, PRICING & AIRTIME DISCOUNT) */}
+      {activeTab === 'telecom' && (() => {
+        const availableAdminCategories =
+          telecomNetworkFilter === 'ALL'
+            ? Array.from(new Set(telecomPlans.map(p => p.type || p.plan_type || ''))).filter(Boolean)
+            : telecomCategoriesByNet[telecomNetworkFilter] ||
+              Array.from(
+                new Set(telecomPlans.filter(p => p.network === telecomNetworkFilter).map(p => p.type || p.plan_type || ''))
+              ).filter(Boolean);
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="space-y-1">
-              <label className="text-slate-400">MTN SME 1GB (₦)</label>
-              <input
-                type="number"
-                value={settings.mtn_sme_1gb || 270}
-                onChange={e => setSettings({ ...settings, mtn_sme_1gb: Number(e.target.value) })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-slate-400">Airtel Corporate 1GB (₦)</label>
-              <input
-                type="number"
-                value={settings.airtel_1gb || 290}
-                onChange={e => setSettings({ ...settings, airtel_1gb: Number(e.target.value) })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-slate-400">Glo Corporate 1GB (₦)</label>
-              <input
-                type="number"
-                value={settings.glo_1gb || 260}
-                onChange={e => setSettings({ ...settings, glo_1gb: Number(e.target.value) })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-slate-400">9mobile SME 1GB (₦)</label>
-              <input
-                type="number"
-                value={settings.nine_mobile_1gb || 250}
-                onChange={e => setSettings({ ...settings, nine_mobile_1gb: Number(e.target.value) })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-              />
-            </div>
-          </div>
+        const filteredAdminPlans = telecomPlans.filter(p => {
+          if (telecomNetworkFilter !== 'ALL' && p.network !== telecomNetworkFilter) return false;
+          const cat = p.type || p.plan_type || '';
+          if (telecomCategoryFilter !== 'ALL' && cat !== telecomCategoryFilter) return false;
+          if (!telecomPlanSearch.trim()) return true;
+          const q = telecomPlanSearch.toLowerCase();
+          return (
+            p.name.toLowerCase().includes(q) ||
+            p.size.toLowerCase().includes(q) ||
+            cat.toLowerCase().includes(q) ||
+            String(p.provider_plan_id || '').includes(q)
+          );
+        });
 
-          <div className="space-y-1 pt-2 border-t border-slate-800">
-            <label className="text-slate-400 font-semibold">VTU Airtime Customer Discount (%)</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="number"
-                step={0.5}
-                min={0}
-                max={10}
-                value={settings.airtime_discount_percent || 2.5}
-                onChange={e => setSettings({ ...settings, airtime_discount_percent: Number(e.target.value) })}
-                className="w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-              />
-              <span className="text-slate-400 font-mono">% discount automatically credited back to customer</span>
+        return (
+          <div className="space-y-6 text-xs">
+            {/* Airtime Discount & Headline Reference Tariffs */}
+            <form onSubmit={handleSavePricing} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                <div>
+                  <h2 className="text-base font-bold text-white flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-sky-400" />
+                    <span>Airtime Discount &amp; Platform Telecom Tariffs</span>
+                  </h2>
+                  <p className="text-slate-400 mt-0.5">
+                    Configure dynamic VTU airtime customer discount and default data bundle markup percentage.
+                  </p>
+                </div>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-1.5 self-start sm:self-auto"
+                >
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span>Save Telecom Settings</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-1.5">
+                  <label className="text-slate-300 font-semibold">VTU Airtime Customer Discount (%)</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      step={0.1}
+                      min={0}
+                      max={50}
+                      value={settings.airtime_discount_percent ?? 2.5}
+                      onChange={e => setSettings({ ...settings, airtime_discount_percent: Number(e.target.value) })}
+                      className="w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                    />
+                    <span className="text-slate-400">
+                      Applied live on Customer Airtime UI, public calculator, and wallet deductions (0–50%).
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-slate-300 font-semibold">Default Data Bundle Platform Markup (%)</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      step={0.5}
+                      min={0}
+                      max={500}
+                      value={defaultMarkupPercent}
+                      onChange={e => setDefaultMarkupPercent(Number(e.target.value))}
+                      className="w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                    />
+                    <span className="text-slate-400">
+                      Fallback markup for newly synced Ulamadata plans without fixed/rule overrides.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2 border-t border-slate-800/80">
+                <div className="space-y-1">
+                  <label className="text-slate-400">Public Calc MTN 1GB (₦)</label>
+                  <input
+                    type="number"
+                    value={settings.mtn_sme_1gb ?? 270}
+                    onChange={e => setSettings({ ...settings, mtn_sme_1gb: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-400">Public Calc Airtel 1GB (₦)</label>
+                  <input
+                    type="number"
+                    value={settings.airtel_1gb ?? 290}
+                    onChange={e => setSettings({ ...settings, airtel_1gb: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-400">Public Calc Glo 1GB (₦)</label>
+                  <input
+                    type="number"
+                    value={settings.glo_1gb ?? 260}
+                    onChange={e => setSettings({ ...settings, glo_1gb: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-400">Public Calc 9mobile 1GB (₦)</label>
+                  <input
+                    type="number"
+                    value={settings.nine_mobile_1gb ?? 250}
+                    onChange={e => setSettings({ ...settings, nine_mobile_1gb: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+              </div>
+            </form>
+
+            {/* Live Ulamadata Data Bundles Catalog & Pricing Manager */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-emerald-400" />
+                    <span>Live Data Bundles Catalog &amp; Pricing Rules ({telecomPlans.length} plans)</span>
+                  </h3>
+                  <p className="text-slate-400 mt-1">
+                    Precedence: <strong className="text-white">1. Fixed Price Override (Locked)</strong> &rarr;{' '}
+                    <strong className="text-white">2. Plan % Markup / % Discount</strong> &rarr;{' '}
+                    <strong className="text-white">3. Default Platform % Markup</strong>. Syncing updates wholesale cost without overwriting admin selling prices.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSyncDataPlans}
+                  disabled={syncingDataPlans}
+                  className="px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-xl font-bold flex items-center gap-2 self-start sm:self-auto"
+                >
+                  <RefreshCw className={`w-4 h-4 ${syncingDataPlans ? 'animate-spin' : ''}`} />
+                  <span>{syncingDataPlans ? 'Syncing Ulamadata...' : 'Sync Live Plans from Ulamadata'}</span>
+                </button>
+              </div>
+
+              {/* Filter & Bulk Pricing Controls */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 bg-slate-950 border border-slate-800 rounded-xl p-4">
+                <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Network</label>
+                    <select
+                      value={telecomNetworkFilter}
+                      onChange={e => {
+                        setTelecomNetworkFilter(e.target.value as any);
+                        setTelecomCategoryFilter('ALL');
+                      }}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-white font-semibold"
+                    >
+                      <option value="ALL">All Networks</option>
+                      <option value="MTN">MTN</option>
+                      <option value="AIRTEL">AIRTEL</option>
+                      <option value="GLO">GLO</option>
+                      <option value="9MOBILE">9MOBILE</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Category</label>
+                    <select
+                      value={telecomCategoryFilter}
+                      onChange={e => setTelecomCategoryFilter(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-white font-semibold"
+                    >
+                      <option value="ALL">All Categories</option>
+                      {availableAdminCategories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Search Plan</label>
+                    <input
+                      type="text"
+                      value={telecomPlanSearch}
+                      onChange={e => setTelecomPlanSearch(e.target.value)}
+                      placeholder="1GB, 30 days, ID..."
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="lg:col-span-7 flex flex-wrap items-end gap-2.5">
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Bulk Rule</label>
+                    <select
+                      value={bulkPricingMode}
+                      onChange={e => setBulkPricingMode(e.target.value as any)}
+                      className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-white"
+                    >
+                      <option value="markup_percent">% Markup over Wholesale</option>
+                      <option value="discount_percent">% Discount off Base Price</option>
+                      <option value="default_markup">Reset to Default Markup</option>
+                    </select>
+                  </div>
+                  {bulkPricingMode !== 'default_markup' && (
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Percent (%)</label>
+                      <input
+                        type="number"
+                        step={0.5}
+                        value={bulkPricingValue}
+                        onChange={e => setBulkPricingValue(Number(e.target.value))}
+                        className="w-24 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-white font-mono"
+                      />
+                    </div>
+                  )}
+                  <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-300 pb-2">
+                    <input
+                      type="checkbox"
+                      checked={bulkSkipFixed}
+                      onChange={e => setBulkSkipFixed(e.target.checked)}
+                      className="rounded border-slate-700"
+                    />
+                    <span>Preserve Fixed Overrides</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleApplyBulkDataPricing}
+                    disabled={applyingBulkPricing}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold flex items-center gap-1.5"
+                  >
+                    {applyingBulkPricing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    <span>Apply Bulk Pricing</span>
+                  </button>
+                  {telecomNetworkFilter !== 'ALL' && telecomCategoryFilter !== 'ALL' && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleDataCategory(true)}
+                        className="px-2.5 py-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-semibold"
+                      >
+                        Enable Category
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleDataCategory(false)}
+                        className="px-2.5 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 font-semibold"
+                      >
+                        Disable Category
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Plans Pricing Table */}
+              <div className="overflow-x-auto border border-slate-800 rounded-xl max-h-[540px] overflow-y-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] sticky top-0 z-10 border-b border-slate-800">
+                    <tr>
+                      <th className="py-3 px-3">Plan &amp; ID</th>
+                      <th className="py-3 px-3">Network / Category</th>
+                      <th className="py-3 px-3 text-right">Ulamadata Cost</th>
+                      <th className="py-3 px-3">Pricing Mode &amp; Value</th>
+                      <th className="py-3 px-3 text-right">Selling Price</th>
+                      <th className="py-3 px-3 text-right">Profit</th>
+                      <th className="py-3 px-3 text-center">Status</th>
+                      <th className="py-3 px-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/70">
+                    {filteredAdminPlans.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-10 text-center text-slate-500">
+                          No data plans matched your filter. Click &ldquo;Sync Live Plans from Ulamadata&rdquo; to load the catalog.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredAdminPlans.map(plan => {
+                        const edit = planEdits[plan.id] || {
+                          pricing_mode: plan.pricing_mode || 'default_markup',
+                          value: plan.price,
+                        };
+                        const wholesale = plan.wholesale_cost ?? 0;
+                        let previewPrice = plan.price;
+                        if (edit.pricing_mode === 'fixed') {
+                          previewPrice = Number(edit.value || 0);
+                        } else if (edit.pricing_mode === 'markup_percent') {
+                          previewPrice = Math.round(wholesale * (1 + Number(edit.value || 0) / 100) * 100) / 100;
+                        } else if (edit.pricing_mode === 'discount_percent') {
+                          const base =
+                            plan.fixed_price && plan.fixed_price > 0
+                              ? plan.fixed_price
+                              : Math.round(wholesale * (1 + defaultMarkupPercent / 100) * 100) / 100;
+                          previewPrice = Math.round(base * (1 - Number(edit.value || 0) / 100) * 100) / 100;
+                        } else {
+                          previewPrice = Math.round(wholesale * (1 + defaultMarkupPercent / 100) * 100) / 100;
+                        }
+                        const profit = Math.round((previewPrice - wholesale) * 100) / 100;
+                        const active = plan.is_active ?? plan.enabled;
+
+                        return (
+                          <tr key={plan.id} className="hover:bg-slate-800/30">
+                            <td className="py-2.5 px-3">
+                              <div className="font-bold text-white">{plan.size} — {plan.validity}</div>
+                              <div className="text-[10px] text-slate-500 font-mono">
+                                {plan.name} (API #{plan.provider_plan_id})
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="font-bold text-emerald-400">{plan.network}</span>
+                              <div className="text-[10px] text-slate-400">{plan.type || plan.plan_type}</div>
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-300">
+                              ₦{wholesale.toLocaleString()}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="flex items-center gap-1.5">
+                                <select
+                                  value={edit.pricing_mode}
+                                  onChange={e => {
+                                    const nextMode = e.target.value;
+                                    let nextVal = edit.value;
+                                    if (nextMode === 'fixed') nextVal = plan.fixed_price ?? plan.price;
+                                    else if (nextMode === 'markup_percent') nextVal = plan.markup_percent ?? defaultMarkupPercent;
+                                    else if (nextMode === 'discount_percent') nextVal = plan.discount_percent ?? 0;
+                                    setPlanEdits(prev => ({
+                                      ...prev,
+                                      [plan.id]: { pricing_mode: nextMode, value: Number(nextVal) },
+                                    }));
+                                  }}
+                                  className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-[11px]"
+                                >
+                                  <option value="default_markup">Default ({defaultMarkupPercent}%)</option>
+                                  <option value="fixed">Fixed Price (₦)</option>
+                                  <option value="markup_percent">% Markup</option>
+                                  <option value="discount_percent">% Discount</option>
+                                </select>
+                                {edit.pricing_mode !== 'default_markup' && (
+                                  <input
+                                    type="number"
+                                    step={edit.pricing_mode === 'fixed' ? 1 : 0.5}
+                                    value={edit.value}
+                                    onChange={e =>
+                                      setPlanEdits(prev => ({
+                                        ...prev,
+                                        [plan.id]: { ...edit, value: Number(e.target.value) },
+                                      }))
+                                    }
+                                    className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right text-white font-mono text-[11px]"
+                                  />
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-white">
+                              ₦{previewPrice.toLocaleString()}
+                              {plan.admin_price_locked && (
+                                <span className="ml-1 inline-flex items-center text-[9px] text-amber-400" title="Admin-locked price">
+                                  <Lock className="w-2.5 h-2.5" />
+                                </span>
+                              )}
+                            </td>
+                            <td className={`py-2.5 px-3 text-right font-mono font-semibold ${profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {profit >= 0 ? `+₦${profit.toLocaleString()}` : `-₦${Math.abs(profit).toLocaleString()}`}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleDataPlanActive(plan)}
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  active
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                                }`}
+                              >
+                                {active ? 'Active' : 'Disabled'}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveDataPlan(plan)}
+                                disabled={savingPlanId === plan.id}
+                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold inline-flex items-center gap-1 text-[11px]"
+                              >
+                                {savingPlanId === plan.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                <span>Save</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Stage 5 Phase 2: Airtime PIN Catalogue, Stock & Pricing Manager */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-emerald-400" />
+                    <span>Airtime PIN Catalogue &amp; Pricing Rules ({airtimePinDenoms.length} denominations)</span>
+                  </h3>
+                  <p className="text-slate-400 mt-1">
+                    Synced from Ulamadata <span className="font-mono text-slate-300">/api/get-recharge-pins</span>. Fixed overrides stay locked across syncs &amp; bulk updates.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSyncAirtimePins}
+                  disabled={syncingAirtimePins}
+                  className="px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-xl font-bold flex items-center gap-2 self-start sm:self-auto"
+                >
+                  <RefreshCw className={`w-4 h-4 ${syncingAirtimePins ? 'animate-spin' : ''}`} />
+                  <span>{syncingAirtimePins ? 'Syncing PINs...' : 'Sync Airtime PINs from Ulamadata'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 bg-slate-950 border border-slate-800 rounded-xl p-4">
+                <div className="lg:col-span-4 grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Network Filter</label>
+                    <select
+                      value={airtimePinNetFilter}
+                      onChange={e => setAirtimePinNetFilter(e.target.value as any)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-white font-semibold"
+                    >
+                      <option value="ALL">All Networks</option>
+                      <option value="MTN">MTN</option>
+                      <option value="AIRTEL">AIRTEL</option>
+                      <option value="GLO">GLO</option>
+                      <option value="9MOBILE">9MOBILE</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Default PIN Markup %</label>
+                    <input
+                      type="number"
+                      step={0.5}
+                      min={0}
+                      max={500}
+                      value={pinDefaultMarkupPercent}
+                      onChange={e => setPinDefaultMarkupPercent(Number(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="lg:col-span-8 flex flex-wrap items-end gap-2.5">
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Bulk PIN Rule</label>
+                    <select
+                      value={pinBulkMode}
+                      onChange={e => setPinBulkMode(e.target.value as any)}
+                      className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-white"
+                    >
+                      <option value="markup_percent">% Markup over Cost</option>
+                      <option value="discount_percent">% Discount off Base</option>
+                      <option value="default_markup">Reset to Default Markup</option>
+                    </select>
+                  </div>
+                  {pinBulkMode !== 'default_markup' && (
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Percent (%)</label>
+                      <input
+                        type="number"
+                        step={0.5}
+                        value={pinBulkValue}
+                        onChange={e => setPinBulkValue(Number(e.target.value))}
+                        className="w-24 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-2 text-white font-mono"
+                      />
+                    </div>
+                  )}
+                  <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-300 pb-2">
+                    <input
+                      type="checkbox"
+                      checked={pinBulkSkipFixed}
+                      onChange={e => setPinBulkSkipFixed(e.target.checked)}
+                      className="rounded border-slate-700"
+                    />
+                    <span>Preserve Fixed Overrides</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleApplyBulkAirtimePinPricing}
+                    disabled={applyingPinBulk}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold flex items-center gap-1.5"
+                  >
+                    {applyingPinBulk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    <span>Apply Bulk PIN Pricing</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-800 rounded-xl max-h-[460px] overflow-y-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] sticky top-0 z-10 border-b border-slate-800">
+                    <tr>
+                      <th className="py-3 px-3">Network &amp; Face Value</th>
+                      <th className="py-3 px-3 text-right">Ulamadata Cost</th>
+                      <th className="py-3 px-3 text-center">Live Stock</th>
+                      <th className="py-3 px-3 text-center">Max Qty</th>
+                      <th className="py-3 px-3">Pricing Mode &amp; Value</th>
+                      <th className="py-3 px-3 text-right">Selling Price</th>
+                      <th className="py-3 px-3 text-right">Profit</th>
+                      <th className="py-3 px-3 text-center">Status</th>
+                      <th className="py-3 px-3 text-right">Save</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/70">
+                    {airtimePinDenoms.filter(d => airtimePinNetFilter === 'ALL' || d.network === airtimePinNetFilter).length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-8 text-center text-slate-500">
+                          No Airtime PIN denominations synced yet. Click &ldquo;Sync Airtime PINs from Ulamadata&rdquo;.
+                        </td>
+                      </tr>
+                    ) : (
+                      airtimePinDenoms
+                        .filter(d => airtimePinNetFilter === 'ALL' || d.network === airtimePinNetFilter)
+                        .map(denom => {
+                          const edit = airtimePinEdits[denom.id] || {
+                            pricing_mode: denom.pricing_mode || 'default_markup',
+                            value: denom.price,
+                            max_quantity: denom.max_quantity ?? 50,
+                          };
+                          const wholesale = denom.wholesale_cost ?? 0;
+                          let previewPrice = denom.price;
+                          if (edit.pricing_mode === 'fixed') {
+                            previewPrice = Number(edit.value || 0);
+                          } else if (edit.pricing_mode === 'markup_percent') {
+                            previewPrice = Math.round(wholesale * (1 + Number(edit.value || 0) / 100) * 100) / 100;
+                          } else if (edit.pricing_mode === 'discount_percent') {
+                            const base =
+                              denom.fixed_price && denom.fixed_price > 0
+                                ? denom.fixed_price
+                                : Math.round(wholesale * (1 + pinDefaultMarkupPercent / 100) * 100) / 100;
+                            previewPrice = Math.round(base * (1 - Number(edit.value || 0) / 100) * 100) / 100;
+                          } else {
+                            previewPrice = Math.round(wholesale * (1 + pinDefaultMarkupPercent / 100) * 100) / 100;
+                          }
+                          const profit = Math.round((previewPrice - wholesale) * 100) / 100;
+                          const active = denom.is_active ?? denom.enabled;
+
+                          return (
+                            <tr key={denom.id} className="hover:bg-slate-800/30">
+                              <td className="py-2.5 px-3">
+                                <div className="font-bold text-white">
+                                  {denom.network} ₦{denom.denomination.toLocaleString()}
+                                </div>
+                                <div className="text-[10px] text-slate-500 font-mono">
+                                  plan_type #{denom.provider_plan_id}
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono text-slate-300">
+                                <div>₦{wholesale.toLocaleString()}</div>
+                                {(denom.api_discount ?? 0) > 0 && (
+                                  <div className="text-[10px] text-slate-500">Disc: {denom.api_discount}%</div>
+                                )}
+                                {denom.price_anomaly && (
+                                  <div className="text-[9px] text-amber-400 font-semibold" title="Provider price unusually low vs face value">
+                                    Verify Upstream Cost
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    denom.available_stock > 0
+                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                      : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                                  }`}
+                                >
+                                  {denom.available_stock > 0 ? `${denom.available_stock} in stock` : '0 (Out)'}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={500}
+                                  value={edit.max_quantity}
+                                  onChange={e =>
+                                    setAirtimePinEdits(prev => ({
+                                      ...prev,
+                                      [denom.id]: { ...edit, max_quantity: Math.max(1, Number(e.target.value) || 1) },
+                                    }))
+                                  }
+                                  className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-center text-white font-mono text-[11px]"
+                                />
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="flex items-center gap-1.5">
+                                  <select
+                                    value={edit.pricing_mode}
+                                    onChange={e => {
+                                      const nextMode = e.target.value;
+                                      let nextVal = edit.value;
+                                      if (nextMode === 'fixed') nextVal = denom.fixed_price ?? denom.price;
+                                      else if (nextMode === 'markup_percent') nextVal = denom.markup_percent ?? pinDefaultMarkupPercent;
+                                      else if (nextMode === 'discount_percent') nextVal = denom.discount_percent ?? 0;
+                                      setAirtimePinEdits(prev => ({
+                                        ...prev,
+                                        [denom.id]: { ...edit, pricing_mode: nextMode, value: Number(nextVal) },
+                                      }));
+                                    }}
+                                    className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-[11px]"
+                                  >
+                                    <option value="default_markup">Default ({pinDefaultMarkupPercent}%)</option>
+                                    <option value="fixed">Fixed Price (₦)</option>
+                                    <option value="markup_percent">% Markup</option>
+                                    <option value="discount_percent">% Discount</option>
+                                  </select>
+                                  {edit.pricing_mode !== 'default_markup' && (
+                                    <input
+                                      type="number"
+                                      step={edit.pricing_mode === 'fixed' ? 0.5 : 0.5}
+                                      value={edit.value}
+                                      onChange={e =>
+                                        setAirtimePinEdits(prev => ({
+                                          ...prev,
+                                          [denom.id]: { ...edit, value: Number(e.target.value) },
+                                        }))
+                                      }
+                                      className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right text-white font-mono text-[11px]"
+                                    />
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-white">
+                                ₦{previewPrice.toLocaleString()}
+                                {denom.admin_price_locked && (
+                                  <span className="ml-1 inline-flex items-center text-[9px] text-amber-400" title="Admin-locked price">
+                                    <Lock className="w-2.5 h-2.5" />
+                                  </span>
+                                )}
+                              </td>
+                              <td className={`py-2.5 px-3 text-right font-mono font-semibold ${profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {profit >= 0 ? `+₦${profit.toLocaleString()}` : `-₦${Math.abs(profit).toLocaleString()}`}
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleAirtimePinActive(denom)}
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    active
+                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                      : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                                  }`}
+                                >
+                                  {active ? 'Active' : 'Disabled'}
+                                </button>
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveAirtimePin(denom)}
+                                  disabled={savingAirtimePinId === denom.id}
+                                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold inline-flex items-center gap-1 text-[11px]"
+                                >
+                                  {savingAirtimePinId === denom.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                  <span>Save</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Stage 5 Phase 2: Data PIN Catalogue & Safety Gate Manager */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <div className="border-b border-slate-800 pb-3">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-amber-400" />
+                  <span>Data PIN Catalogue &amp; Safety Gate ({dataPinDenoms.length} confirmed plans)</span>
+                </h3>
+                <p className="text-slate-400 mt-1">
+                  Separate from ordinary <span className="font-mono text-slate-300">/api/data_plans</span>. Data PIN orders target <span className="font-mono text-slate-300">/api/data_card</span> and remain disabled until confirmed Ulamadata Data PIN plan IDs and pricing are present.
+                </p>
+              </div>
+              {dataPinDenoms.length === 0 ? (
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs">
+                  {dataPinCatalogueStatus || '0 confirmed Ulamadata Data PIN plans in catalogue — customer Data PIN purchases are safely disabled.'}
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-800 rounded-xl">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] border-b border-slate-800">
+                      <tr>
+                        <th className="py-2.5 px-3">Plan</th>
+                        <th className="py-2.5 px-3 text-right">Wholesale</th>
+                        <th className="py-2.5 px-3 text-center">Stock</th>
+                        <th className="py-2.5 px-3 text-center">Max Qty</th>
+                        <th className="py-2.5 px-3">Pricing Mode &amp; Value</th>
+                        <th className="py-2.5 px-3 text-right">Selling Price</th>
+                        <th className="py-2.5 px-3 text-right">Save</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/70">
+                      {dataPinDenoms.map(dp => {
+                        const edit = dataPinEdits[dp.id] || {
+                          pricing_mode: dp.pricing_mode || 'fixed',
+                          value: dp.price,
+                          max_quantity: dp.max_quantity ?? 50,
+                        };
+                        return (
+                          <tr key={dp.id}>
+                            <td className="py-2.5 px-3 font-bold text-white">
+                              {dp.network} {dp.size} ({dp.validity || '30 Days'}) — #{dp.provider_plan_id}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-300">
+                              ₦{(dp.wholesale_cost ?? 0).toLocaleString()}
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-mono text-slate-300">{dp.available_stock}</td>
+                            <td className="py-2.5 px-3 text-center">
+                              <input
+                                type="number"
+                                min={1}
+                                max={500}
+                                value={edit.max_quantity}
+                                onChange={e =>
+                                  setDataPinEdits(prev => ({
+                                    ...prev,
+                                    [dp.id]: { ...edit, max_quantity: Math.max(1, Number(e.target.value) || 1) },
+                                  }))
+                                }
+                                className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-center text-white font-mono text-[11px]"
+                              />
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="flex items-center gap-1.5">
+                                <select
+                                  value={edit.pricing_mode}
+                                  onChange={e =>
+                                    setDataPinEdits(prev => ({
+                                      ...prev,
+                                      [dp.id]: { ...edit, pricing_mode: e.target.value },
+                                    }))
+                                  }
+                                  className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-[11px]"
+                                >
+                                  <option value="default_markup">Default</option>
+                                  <option value="fixed">Fixed Price (₦)</option>
+                                  <option value="markup_percent">% Markup</option>
+                                  <option value="discount_percent">% Discount</option>
+                                </select>
+                                {edit.pricing_mode !== 'default_markup' && (
+                                  <input
+                                    type="number"
+                                    value={edit.value}
+                                    onChange={e =>
+                                      setDataPinEdits(prev => ({
+                                        ...prev,
+                                        [dp.id]: { ...edit, value: Number(e.target.value) },
+                                      }))
+                                    }
+                                    className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right text-white font-mono text-[11px]"
+                                  />
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-white">
+                              ₦{dp.price.toLocaleString()}
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveDataPin(dp)}
+                                disabled={savingDataPinId === dp.id}
+                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold inline-flex items-center gap-1 text-[11px]"
+                              >
+                                <Save className="w-3 h-3" />
+                                <span>Save</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Admin Data, Airtime & PIN Orders & Provider Response Monitor */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-emerald-400" />
+                    <span>Telecom &amp; PIN Orders &amp; Ulamadata Response Monitor</span>
+                  </h3>
+                  <p className="text-slate-400 mt-0.5">
+                    Inspect wholesale cost, profit margin, voucher counts, provider references, and raw Ulamadata execution responses.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select
+                    value={ordersServiceFilter}
+                    onChange={e => {
+                      const val = e.target.value as any;
+                      setOrdersServiceFilter(val);
+                      fetchAdminTelecomData(val, ordersStatusFilter);
+                    }}
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white"
+                  >
+                    <option value="all">All Telecom &amp; PINs</option>
+                    <option value="data">Data Only</option>
+                    <option value="airtime">Airtime Only</option>
+                    <option value="airtime_pin">Airtime PINs</option>
+                    <option value="data_pin">Data PINs</option>
+                  </select>
+                  <select
+                    value={ordersStatusFilter}
+                    onChange={e => {
+                      const val = e.target.value as any;
+                      setOrdersStatusFilter(val);
+                      fetchAdminTelecomData(ordersServiceFilter, val);
+                    }}
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="successful">Successful</option>
+                    <option value="pending">Pending</option>
+                    <option value="failed">Failed</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => fetchAdminTelecomData()}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold flex items-center gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingTelecomOrders ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-800 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] border-b border-slate-800">
+                    <tr>
+                      <th className="py-2.5 px-3">Customer</th>
+                      <th className="py-2.5 px-3">Plan / Service</th>
+                      <th className="py-2.5 px-3">Phone / Card Name</th>
+                      <th className="py-2.5 px-3 text-right">Customer Paid</th>
+                      <th className="py-2.5 px-3 text-right">Cost</th>
+                      <th className="py-2.5 px-3 text-right">Profit</th>
+                      <th className="py-2.5 px-3">Provider Ref</th>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3 text-right">Inspect / Requery</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/70">
+                    {telecomOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-8 text-center text-slate-500">
+                          No data, airtime, or PIN orders recorded yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      telecomOrders.map(ord => (
+                        <React.Fragment key={ord.id}>
+                          <tr className="hover:bg-slate-800/30">
+                            <td className="py-2.5 px-3">
+                              <div className="font-semibold text-white">{ord.customer_name || 'Customer'}</div>
+                              <div className="text-[10px] text-slate-500">{ord.customer_email || ord.user_id}</div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="font-bold text-emerald-400 uppercase">{(ord.service_type || ord.service || '').replace('_', ' ')}</span>
+                              <div className="text-slate-200">{ord.plan}</div>
+                              {(ord.voucher_count ?? 0) > 0 && (
+                                <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[10px] font-semibold">
+                                  {ord.voucher_count} PINs Stored
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-slate-300">{ord.phone}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-white">
+                              ₦{(ord.amount ?? 0).toLocaleString()}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-400">
+                              ₦{(ord.cost_price ?? 0).toLocaleString()}
+                            </td>
+                            <td className={`py-2.5 px-3 text-right font-mono font-semibold ${(ord.profit ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              ₦{(ord.profit ?? 0).toLocaleString()}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-[10px] text-slate-400 max-w-[140px] truncate">
+                              {ord.provider_ref}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                  ord.status === 'successful'
+                                    ? 'bg-emerald-500/10 text-emerald-400'
+                                    : ord.status === 'pending'
+                                    ? 'bg-amber-500/10 text-amber-400'
+                                    : 'bg-rose-500/10 text-rose-400'
+                                }`}
+                              >
+                                {ord.status}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedOrderMetaId(expandedOrderMetaId === ord.id ? null : ord.id)
+                                  }
+                                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold"
+                                >
+                                  {expandedOrderMetaId === ord.id ? 'Hide JSON' : 'Response'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRequeryTelecomOrder(ord)}
+                                  disabled={requeryingOrderId === ord.id}
+                                  className="px-2 py-1 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold"
+                                >
+                                  {requeryingOrderId === ord.id ? '...' : 'Requery'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {expandedOrderMetaId === ord.id && (
+                            <tr className="bg-slate-950">
+                              <td colSpan={9} className="p-3">
+                                <pre className="text-[10px] font-mono text-emerald-300 overflow-x-auto max-h-48">
+                                  {JSON.stringify(ord.metadata || {}, null, 2)}
+                                </pre>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </form>
-      )}
+        );
+      })()}
 
       {/* 3. DIGITAL UTILITIES */}
       {activeTab === 'digital' && (

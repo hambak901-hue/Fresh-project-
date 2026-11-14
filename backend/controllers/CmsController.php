@@ -497,12 +497,12 @@ class CmsController
             'airtel_1gb' => 290.00,
             'glo_1gb' => 275.00,
             'nine_mobile_1gb' => 280.00,
-            'airtime_discount_percent' => 2.0,
+            'airtime_discount_percent' => \HambakTech\Controllers\TelecomController::readAirtimeDiscountPercent($this->db),
         ];
-        $settingsRows = $this->db->fetchAll('SELECT setting_key, setting_value FROM system_settings WHERE setting_key LIKE "%fee%" OR setting_key LIKE "%rate%" OR setting_key LIKE "%1gb%"');
+        $settingsRows = $this->db->fetchAll('SELECT setting_key, setting_value FROM system_settings WHERE setting_key LIKE "%fee%" OR setting_key LIKE "%rate%" OR setting_key LIKE "%1gb%" OR setting_key LIKE "%discount%"');
         foreach ($settingsRows as $sr) {
             $val = json_decode($sr['setting_value'], true);
-            $rates[$sr['setting_key']] = is_numeric($val) ? (float)$val : $val;
+            $rates[$sr['setting_key']] = is_numeric($val) ? (float)$val : (is_numeric($sr['setting_value']) ? (float)$sr['setting_value'] : $val);
         }
 
         Response::success([

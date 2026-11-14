@@ -20,6 +20,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   TelecomOrder,
   TelecomPlanItem,
+  TelecomVoucherItem,
   AirtimePinDenomination,
   DataPinDenomination,
   CablePackageItem,
@@ -76,7 +77,7 @@ export const TelecomPage: React.FC = () => {
 
   // PIN Authorization State
   const [isPinModalOpen, setIsPinModalOpen] = useState<boolean>(false);
-  const [pendingPinAction, setPendingPinAction] = useState<(() => Promise<void>) | null>(null);
+  const [pendingPinAction, setPendingPinAction] = useState<((verifiedPin?: string) => Promise<void>) | null>(null);
   const [pinModalTitle, setPinModalTitle] = useState<string>('Authorize Purchase');
   const [pinModalDesc, setPinModalDesc] = useState<string>('');
   const [pinModalAmount, setPinModalAmount] = useState<number | undefined>(undefined);
@@ -85,29 +86,56 @@ export const TelecomPage: React.FC = () => {
   const [airtimeNetwork, setAirtimeNetwork] = useState<'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE'>('MTN');
   const [airtimePhone, setAirtimePhone] = useState('');
   const [airtimeAmount, setAirtimeAmount] = useState<number>(1000);
+  const [airtimeDiscountPercent, setAirtimeDiscountPercent] = useState<number>(2.5);
 
   // 2. Data State
   const [dataPlans, setDataPlans] = useState<TelecomPlanItem[]>([]);
+  const [categoriesByNetwork, setCategoriesByNetwork] = useState<Record<string, string[]>>({});
   const [dataNetwork, setDataNetwork] = useState<'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE'>('MTN');
-  const [dataTypeFilter, setDataTypeFilter] = useState<'all' | 'SME' | 'Corporate' | 'Gifting' | 'Direct'>('all');
+  const [dataCategory, setDataCategory] = useState<string>('');
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
   const [dataPhone, setDataPhone] = useState('');
+  const [validatingPhone, setValidatingPhone] = useState(false);
+  const [phoneValidation, setPhoneValidation] = useState<{
+    checked: boolean;
+    valid: boolean;
+    matches_network: boolean;
+    formatted_phone: string;
+    detected_network: string | null;
+    selected_network: string;
+    message: string;
+  } | null>(null);
+  const [dataOrderResult, setDataOrderResult] = useState<{
+    status: string;
+    reference: string;
+    plan: string;
+    network: string;
+    phone: string;
+    amount: number;
+    message: string;
+  } | null>(null);
 
   // 3. Airtime PIN State
   const [airtimePinDenoms, setAirtimePinDenoms] = useState<AirtimePinDenomination[]>([]);
+  const [airtimePinCatalogueStatus, setAirtimePinCatalogueStatus] = useState<string>('');
   const [pinNetwork, setPinNetwork] = useState<'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE'>('MTN');
+  const [selectedAirtimePinId, setSelectedAirtimePinId] = useState<string>('');
   const [pinDenom, setPinDenom] = useState<number>(100);
   const [pinQuantity, setPinQuantity] = useState<number>(1);
   const [pinBusinessName, setPinBusinessName] = useState<string>('HambakTech Enterprise');
-  const [generatedAirtimePins, setGeneratedAirtimePins] = useState<any[]>([]);
+  const [generatedAirtimePins, setGeneratedAirtimePins] = useState<TelecomVoucherItem[]>([]);
+  const [pendingAirtimePinOrder, setPendingAirtimePinOrder] = useState<TelecomOrder | null>(null);
 
   // 4. Data PIN State
   const [dataPinDenoms, setDataPinDenoms] = useState<DataPinDenomination[]>([]);
+  const [dataPinAvailable, setDataPinAvailable] = useState<boolean>(false);
+  const [dataPinCatalogueStatus, setDataPinCatalogueStatus] = useState<string>('');
   const [dataPinNetwork, setDataPinNetwork] = useState<'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE'>('MTN');
   const [selectedDataPinId, setSelectedDataPinId] = useState<string>('');
   const [dataPinQuantity, setDataPinQuantity] = useState<number>(1);
   const [dataPinBusinessName, setDataPinBusinessName] = useState<string>('HambakTech Enterprise');
-  const [generatedDataPins, setGeneratedDataPins] = useState<any[]>([]);
+  const [generatedDataPins, setGeneratedDataPins] = useState<TelecomVoucherItem[]>([]);
+  const [pendingDataPinOrder, setPendingDataPinOrder] = useState<TelecomOrder | null>(null);
 
   // 5. Airtime Swap State
   const [swapConfigs, setSwapConfigs] = useState<AirtimeSwapConfigItem[]>([]);
@@ -153,6 +181,8 @@ export const TelecomPage: React.FC = () => {
   const [historyFilterService, setHistoryFilterService] = useState<string>('all');
   const [historySearch, setHistorySearch] = useState<string>('');
   const [selectedOrderReceipt, setSelectedOrderReceipt] = useState<TelecomOrder | null>(null);
+  const [receiptVouchers, setReceiptVouchers] = useState<TelecomVoucherItem[]>([]);
+  const [loadingReceiptVouchers, setLoadingReceiptVouchers] = useState<boolean>(false);
   const [queryRef, setQueryRef] = useState<string>('');
   const [queryStatusResult, setQueryStatusResult] = useState<any | null>(null);
 
@@ -171,25 +201,99 @@ export const TelecomPage: React.FC = () => {
   const loadDataPlans = async () => {
     try {
       const res = await api.getTelecomPlans();
-      setDataPlans(res.plans || []);
-      const first = (res.plans || []).find(p => p.network === 'MTN');
+      const loadedPlans = res.plans || [];
+      setDataPlans(loadedPlans);
+      setCategoriesByNetwork(res.categories_by_network || {});
+      if (typeof res.airtime_discount_percent === 'number') {
+        setAirtimeDiscountPercent(res.airtime_discount_percent);
+      }
+      const mtnCats =
+        res.categories_by_network?.['MTN'] ||
+        Array.from(new Set(loadedPlans.filter(p => p.network === 'MTN').map(p => p.type)));
+      const firstCat = mtnCats[0] || '';
+      setDataCategory(prev => (prev && mtnCats.includes(prev) ? prev : firstCat));
+      const first =
+        loadedPlans.find(p => p.network === 'MTN' && (!firstCat || p.type === firstCat)) ||
+        loadedPlans.find(p => p.network === 'MTN');
       if (first) setSelectedPlanId(first.id);
     } catch {}
   };
 
+  const runPhoneValidation = async (networkToCheck: string, phoneToCheck: string) => {
+    const digits = phoneToCheck.replace(/\D+/g, '');
+    if (digits.length < 10) {
+      setPhoneValidation(null);
+      return null;
+    }
+    setValidatingPhone(true);
+    try {
+      const res = await api.validateTelecomPhone(networkToCheck, phoneToCheck);
+      const state = {
+        checked: true,
+        valid: Boolean(res.valid),
+        matches_network: Boolean(res.matches_network),
+        formatted_phone: res.formatted_phone || phoneToCheck.trim(),
+        detected_network: res.detected_network || null,
+        selected_network: res.selected_network || networkToCheck,
+        message: res.message,
+      };
+      setPhoneValidation(state);
+      return state;
+    } catch (err: any) {
+      const failState = {
+        checked: true,
+        valid: false,
+        matches_network: false,
+        formatted_phone: phoneToCheck.trim(),
+        detected_network: null,
+        selected_network: networkToCheck,
+        message: err?.message || 'Unable to validate recipient phone number.',
+      };
+      setPhoneValidation(failState);
+      return failState;
+    } finally {
+      setValidatingPhone(false);
+    }
+  };
+
+  useEffect(() => {
+    const digits = dataPhone.replace(/\D+/g, '');
+    if (digits.length < 10) {
+      setPhoneValidation(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      runPhoneValidation(dataNetwork, dataPhone);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [dataPhone, dataNetwork]);
+
   const loadAirtimePins = async () => {
     try {
       const res = await api.getAirtimePinDenominations();
-      setAirtimePinDenoms(res.denominations || []);
+      const list = res.denominations || [];
+      setAirtimePinDenoms(list);
+      setAirtimePinCatalogueStatus(res.catalogue_status || '');
+      const mtnList = list.filter(d => d.network === pinNetwork);
+      const firstMatch = mtnList.find(d => d.in_stock) || mtnList[0] || list[0];
+      if (firstMatch && !list.some(d => d.id === selectedAirtimePinId && d.network === pinNetwork)) {
+        setSelectedAirtimePinId(firstMatch.id);
+        setPinDenom(firstMatch.denomination);
+      }
     } catch {}
   };
 
   const loadDataPins = async () => {
     try {
       const res = await api.getDataPinDenominations();
-      setDataPinDenoms(res.denominations || []);
-      if (res.denominations?.length) {
-        setSelectedDataPinId(res.denominations[0].id);
+      const list = res.denominations || [];
+      setDataPinDenoms(list);
+      setDataPinAvailable(Boolean(res.available_for_purchase));
+      setDataPinCatalogueStatus(res.catalogue_status || '');
+      if (list.length) {
+        setSelectedDataPinId(prev => (list.some(d => d.id === prev) ? prev : list[0].id));
+      } else {
+        setSelectedDataPinId('');
       }
     } catch {}
   };
@@ -226,11 +330,29 @@ export const TelecomPage: React.FC = () => {
     } catch {}
   };
 
-  const loadOrders = async () => {
+  const loadOrders = async (serviceOverride?: string) => {
     try {
-      const res = await api.getTelecomHistory();
+      const srv = serviceOverride ?? historyFilterService;
+      const res = await api.getTelecomHistory(srv === 'all' ? undefined : srv);
       setOrders(res.orders || []);
     } catch {}
+  };
+
+  const openOrderReceiptModal = async (order: TelecomOrder) => {
+    setSelectedOrderReceipt(order);
+    const existing = Array.isArray(order.vouchers) ? order.vouchers : [];
+    setReceiptVouchers(existing);
+    if ((order.service === 'airtime_pin' || order.service === 'data_pin') && order.status === 'successful' && existing.length === 0) {
+      setLoadingReceiptVouchers(true);
+      try {
+        const res = await api.getTelecomOrderVouchers(order.id);
+        setReceiptVouchers(res.vouchers || []);
+      } catch {
+        setReceiptVouchers([]);
+      } finally {
+        setLoadingReceiptVouchers(false);
+      }
+    }
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -276,39 +398,80 @@ export const TelecomPage: React.FC = () => {
     setIsPinModalOpen(true);
   };
 
-  // 2. Purchase Data
-  const handlePurchaseData = (e: React.FormEvent) => {
+  // 2. Purchase Data (10-Step Flow)
+  const handlePurchaseData = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
-    const cleanPhone = dataPhone.trim().replace(/\s+/g, '');
-    if (cleanPhone.length < 11) {
-      setError('Please provide a valid 11-digit recipient phone number.');
-      return;
-    }
-    if (!selectedPlanId) {
-      setError('Please select a data bundle plan.');
+    setDataOrderResult(null);
+
+    const rawTrimmed = dataPhone.trim().replace(/\s+/g, '');
+    if (!rawTrimmed) {
+      setError('Please enter a recipient Nigerian phone number.');
       return;
     }
 
-    const currentPlan = dataPlans.find(p => p.id === selectedPlanId);
-    const price = currentPlan?.price || 0;
+    const validation =
+      phoneValidation &&
+      phoneValidation.checked &&
+      phoneValidation.selected_network === dataNetwork
+        ? phoneValidation
+        : await runPhoneValidation(dataNetwork, rawTrimmed);
+
+    if (!validation || !validation.valid || !validation.matches_network) {
+      setError(
+        validation?.message ||
+          `Please enter a valid ${dataNetwork} Nigerian phone number before proceeding.`
+      );
+      return;
+    }
+
+    if (!selectedDataPlan) {
+      setError('Please select a data category and bundle plan.');
+      return;
+    }
+
+    const verifiedPhone = validation.formatted_phone || rawTrimmed;
+    const price = selectedDataPlan.price || 0;
+    const planSnapshot = selectedDataPlan;
+    const idempotencyKey = `DATA_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
     setPinModalTitle('Authorize Data Bundle');
-    setPinModalDesc(`Enter your 4-digit security PIN to authorize ${currentPlan?.name || 'data'} for ${cleanPhone}.`);
+    setPinModalDesc(
+      `Enter your 4-digit security PIN to send ${planSnapshot.network} ${planSnapshot.size} (${planSnapshot.type} • ${planSnapshot.validity}) to ${verifiedPhone} for ₦${price.toLocaleString()}.`
+    );
     setPinModalAmount(price);
     setPendingPinAction(() => async () => {
       try {
         setLoading(true);
-        const res = await api.purchaseData(selectedPlanId, cleanPhone);
+        const res = await api.purchaseData(
+          planSnapshot.id,
+          verifiedPhone,
+          dataNetwork,
+          idempotencyKey
+        );
+        const orderStatus = res.status || res.order?.status || 'successful';
+        const ref = res.reference || res.order?.provider_ref || res.order?.id || '';
+        setDataOrderResult({
+          status: orderStatus,
+          reference: ref,
+          plan: res.order?.plan || `${planSnapshot.network} ${planSnapshot.size} (${planSnapshot.type})`,
+          network: dataNetwork,
+          phone: verifiedPhone,
+          amount: res.order?.amount ?? price,
+          message: res.message,
+        });
         if (res.success) {
           setSuccessMsg(res.message);
           setDataPhone('');
+          setPhoneValidation(null);
           await refreshUser();
           await loadOrders();
         }
       } catch (err: any) {
         setError(err.message || 'Failed to dispatch data. Check wallet balance.');
+        await refreshUser().catch(() => {});
+        await loadOrders().catch(() => {});
       } finally {
         setLoading(false);
       }
@@ -317,59 +480,151 @@ export const TelecomPage: React.FC = () => {
   };
 
   // 3. Purchase Airtime PINs
-  const handlePurchaseAirtimePin = async (e: React.FormEvent) => {
+  const handlePurchaseAirtimePin = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
     setGeneratedAirtimePins([]);
+    setPendingAirtimePinOrder(null);
 
-    try {
-      setLoading(true);
-      const res = await api.purchaseAirtimePin({
-        network: pinNetwork,
-        denomination: pinDenom,
-        quantity: pinQuantity,
-        businessName: pinBusinessName,
-      });
-      if (res.success) {
-        setSuccessMsg(res.message);
-        setGeneratedAirtimePins(res.pins || []);
-        await refreshUser();
-        await loadOrders();
-      }
-    } catch (err: any) {
-      setError(err.message || 'Airtime PIN generation failed.');
-    } finally {
-      setLoading(false);
+    const netDenoms = airtimePinDenoms.filter(d => d.network === pinNetwork);
+    const chosen =
+      netDenoms.find(d => d.id === selectedAirtimePinId) ||
+      netDenoms.find(d => d.denomination === pinDenom) ||
+      netDenoms[0] ||
+      null;
+
+    if (!chosen) {
+      setError(`No active Airtime PIN denominations available for ${pinNetwork}.`);
+      return;
     }
+    if (!chosen.in_stock || chosen.available_stock <= 0) {
+      setError(`${pinNetwork} ₦${chosen.denomination.toLocaleString()} Airtime PINs are currently out of stock (0 available).`);
+      return;
+    }
+    const maxAllowed = Math.min(chosen.max_quantity || 50, chosen.available_stock);
+    if (pinQuantity < 1 || pinQuantity > maxAllowed) {
+      setError(`Quantity must be between 1 and ${maxAllowed} card(s) for ${pinNetwork} ₦${chosen.denomination.toLocaleString()}.`);
+      return;
+    }
+
+    const cleanBiz = pinBusinessName.trim() || 'HambakTech';
+    const unitPrice = chosen.selling_price ?? chosen.price;
+    const totalAmount = Math.round(unitPrice * pinQuantity * 100) / 100;
+    const idempotencyKey = `APIN_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    setPinModalTitle('Authorize Airtime PIN Generation');
+    setPinModalDesc(
+      `Enter your 4-digit security PIN to generate ${pinQuantity}x ${pinNetwork} ₦${chosen.denomination.toLocaleString()} Recharge PIN(s) at ₦${unitPrice.toLocaleString()}/card (Total: ₦${totalAmount.toLocaleString()}).`
+    );
+    setPinModalAmount(totalAmount);
+    setPendingPinAction(() => async (verifiedPin?: string) => {
+      try {
+        setLoading(true);
+        const res = await api.purchaseAirtimePin(
+          {
+            denominationId: chosen.id,
+            network: chosen.network,
+            denomination: chosen.denomination,
+            quantity: pinQuantity,
+            businessName: cleanBiz,
+            card_name: cleanBiz,
+            transaction_pin: verifiedPin || '',
+            idempotency_key: idempotencyKey,
+          },
+          idempotencyKey
+        );
+        if (res.status === 'pending' || res.incomplete_vouchers) {
+          setPendingAirtimePinOrder(res.order);
+          setSuccessMsg(res.message || 'Airtime PIN order is pending verification.');
+        } else if (res.success) {
+          setSuccessMsg(res.message);
+          setGeneratedAirtimePins(res.vouchers || res.pins || []);
+        }
+        await refreshUser();
+        await loadAirtimePins();
+        await loadOrders();
+      } catch (err: any) {
+        setError(err.message || 'Airtime PIN generation failed.');
+        await refreshUser().catch(() => {});
+        await loadAirtimePins().catch(() => {});
+        await loadOrders().catch(() => {});
+      } finally {
+        setLoading(false);
+      }
+    });
+    setIsPinModalOpen(true);
   };
 
   // 4. Purchase Data PINs
-  const handlePurchaseDataPin = async (e: React.FormEvent) => {
+  const handlePurchaseDataPin = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
     setGeneratedDataPins([]);
+    setPendingDataPinOrder(null);
 
-    try {
-      setLoading(true);
-      const res = await api.purchaseDataPin({
-        network: dataPinNetwork,
-        planId: selectedDataPinId,
-        quantity: dataPinQuantity,
-        businessName: dataPinBusinessName,
-      });
-      if (res.success) {
-        setSuccessMsg(res.message);
-        setGeneratedDataPins(res.pins || []);
-        await refreshUser();
-        await loadOrders();
-      }
-    } catch (err: any) {
-      setError(err.message || 'Data PIN generation failed.');
-    } finally {
-      setLoading(false);
+    const netPlans = dataPinDenoms.filter(d => d.network === dataPinNetwork);
+    const chosen = netPlans.find(d => d.id === selectedDataPinId) || netPlans[0] || null;
+    if (!chosen || !dataPinAvailable) {
+      setError(dataPinCatalogueStatus || 'Data PIN purchases are temporarily disabled pending confirmed Ulamadata plan IDs.');
+      return;
     }
+    if (!chosen.in_stock || chosen.available_stock <= 0) {
+      setError(`${dataPinNetwork} ${chosen.size} Data PINs are currently out of stock.`);
+      return;
+    }
+    const maxAllowed = Math.min(chosen.max_quantity || 50, chosen.available_stock);
+    if (dataPinQuantity < 1 || dataPinQuantity > maxAllowed) {
+      setError(`Quantity must be between 1 and ${maxAllowed} Data PIN card(s).`);
+      return;
+    }
+
+    const cleanBiz = dataPinBusinessName.trim() || 'HambakTech';
+    const unitPrice = chosen.selling_price ?? chosen.price;
+    const totalAmount = Math.round(unitPrice * dataPinQuantity * 100) / 100;
+    const idempotencyKey = `DPIN_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    setPinModalTitle('Authorize Data PIN Generation');
+    setPinModalDesc(
+      `Enter your 4-digit security PIN to generate ${dataPinQuantity}x ${dataPinNetwork} ${chosen.size} Data PIN card(s) at ₦${unitPrice.toLocaleString()}/card (Total: ₦${totalAmount.toLocaleString()}).`
+    );
+    setPinModalAmount(totalAmount);
+    setPendingPinAction(() => async (verifiedPin?: string) => {
+      try {
+        setLoading(true);
+        const res = await api.purchaseDataPin(
+          {
+            network: chosen.network,
+            planId: chosen.id,
+            quantity: dataPinQuantity,
+            businessName: cleanBiz,
+            card_name: cleanBiz,
+            transaction_pin: verifiedPin || '',
+            idempotency_key: idempotencyKey,
+          },
+          idempotencyKey
+        );
+        if (res.status === 'pending' || res.incomplete_vouchers) {
+          setPendingDataPinOrder(res.order);
+          setSuccessMsg(res.message || 'Data PIN order is pending verification.');
+        } else if (res.success) {
+          setSuccessMsg(res.message);
+          setGeneratedDataPins(res.vouchers || res.pins || []);
+        }
+        await refreshUser();
+        await loadDataPins();
+        await loadOrders();
+      } catch (err: any) {
+        setError(err.message || 'Data PIN generation failed.');
+        await refreshUser().catch(() => {});
+        await loadDataPins().catch(() => {});
+        await loadOrders().catch(() => {});
+      } finally {
+        setLoading(false);
+      }
+    });
+    setIsPinModalOpen(true);
   };
 
   // 5. Initiate Airtime Swap
@@ -581,6 +836,17 @@ export const TelecomPage: React.FC = () => {
       setLoading(true);
       const res = await api.verifyTelecomTransaction(ref);
       setQueryStatusResult(res);
+      if (res.vouchers && res.vouchers.length > 0 && res.order) {
+        const srv = res.order.service || res.order.service_type;
+        if (srv === 'airtime_pin') {
+          setGeneratedAirtimePins(res.vouchers);
+          setPendingAirtimePinOrder(null);
+        } else if (srv === 'data_pin') {
+          setGeneratedDataPins(res.vouchers);
+          setPendingDataPinOrder(null);
+        }
+        setSuccessMsg(`Vouchers verified and loaded (${res.vouchers.length} card(s)).`);
+      }
       await loadOrders();
     } catch (err: any) {
       setError(err.message || 'Query failed');
@@ -590,15 +856,48 @@ export const TelecomPage: React.FC = () => {
   };
 
   // Derived Values
+  const availableDataCategories =
+    categoriesByNetwork[dataNetwork] && categoriesByNetwork[dataNetwork].length > 0
+      ? categoriesByNetwork[dataNetwork]
+      : Array.from(new Set(dataPlans.filter(p => p.network === dataNetwork).map(p => p.type)));
+
+  const activeDataCategory =
+    dataCategory && availableDataCategories.includes(dataCategory)
+      ? dataCategory
+      : availableDataCategories[0] || '';
+
   const filteredDataPlans = dataPlans.filter(p => {
     const netMatch = p.network === dataNetwork;
-    const typeMatch = dataTypeFilter === 'all' || p.type === dataTypeFilter;
+    const typeMatch = !activeDataCategory || p.type === activeDataCategory;
     return netMatch && typeMatch;
   });
-  const selectedDataPlan = dataPlans.find(p => p.id === selectedPlanId);
 
-  const airtimeDiscount = Math.round((airtimeAmount * 2.5) / 100);
-  const airtimePayable = airtimeAmount - airtimeDiscount;
+  const selectedDataPlan =
+    filteredDataPlans.find(p => p.id === selectedPlanId) || filteredDataPlans[0] || null;
+
+  const networkAirtimePinDenoms = airtimePinDenoms.filter(d => d.network === pinNetwork);
+  const selectedAirtimePinDenom =
+    networkAirtimePinDenoms.find(d => d.id === selectedAirtimePinId) ||
+    networkAirtimePinDenoms.find(d => d.denomination === pinDenom) ||
+    networkAirtimePinDenoms[0] ||
+    null;
+  const airtimePinMaxQty = selectedAirtimePinDenom
+    ? Math.max(1, Math.min(selectedAirtimePinDenom.max_quantity || 50, selectedAirtimePinDenom.available_stock || 0))
+    : 1;
+  const airtimePinUnitPrice = selectedAirtimePinDenom ? (selectedAirtimePinDenom.selling_price ?? selectedAirtimePinDenom.price) : 0;
+  const airtimePinTotalCost = Math.round(airtimePinUnitPrice * pinQuantity * 100) / 100;
+
+  const networkDataPinDenoms = dataPinDenoms.filter(d => d.network === dataPinNetwork);
+  const selectedDataPinPlan =
+    networkDataPinDenoms.find(d => d.id === selectedDataPinId) || networkDataPinDenoms[0] || null;
+  const dataPinMaxQty = selectedDataPinPlan
+    ? Math.max(1, Math.min(selectedDataPinPlan.max_quantity || 50, selectedDataPinPlan.available_stock || 0))
+    : 1;
+  const dataPinUnitPrice = selectedDataPinPlan ? (selectedDataPinPlan.selling_price ?? selectedDataPinPlan.price) : 0;
+  const dataPinTotalCost = Math.round(dataPinUnitPrice * dataPinQuantity * 100) / 100;
+
+  const airtimeDiscount = Math.round(((airtimeAmount * airtimeDiscountPercent) / 100) * 100) / 100;
+  const airtimePayable = Math.max(0, Math.round((airtimeAmount - airtimeDiscount) * 100) / 100);
 
   const currentCableBouquets = cablePackages[cableProvider] || [];
   const selectedCableBouquet = currentCableBouquets.find(p => p.id === selectedCablePackageId);
@@ -661,7 +960,7 @@ export const TelecomPage: React.FC = () => {
             }`}
           >
             <Zap className="w-3.5 h-3.5" />
-            <span>Airtime (2.5% Off)</span>
+            <span>Airtime ({airtimeDiscountPercent}% Off)</span>
           </button>
 
           <button
@@ -783,7 +1082,7 @@ export const TelecomPage: React.FC = () => {
                 <span>Instant VTU Airtime Recharge</span>
               </h2>
               <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                2.5% Cash Discount
+                {airtimeDiscountPercent}% Cash Discount
               </span>
             </div>
 
@@ -855,7 +1154,7 @@ export const TelecomPage: React.FC = () => {
                   <span className="font-mono text-white font-bold">₦{airtimeAmount.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-emerald-400">
-                  <span>Discount Saved (2.5%):</span>
+                  <span>Discount Saved ({airtimeDiscountPercent}%):</span>
                   <span className="font-mono font-bold">-₦{airtimeDiscount.toLocaleString()}</span>
                 </div>
                 <div className="border-t border-slate-800 pt-2 flex justify-between font-bold text-white">
@@ -912,25 +1211,32 @@ export const TelecomPage: React.FC = () => {
       )}
 
       {/* ============================================================== */}
-      {/* 2. DYNAMIC DATA BUNDLES TAB */}
+      {/* 2. DYNAMIC DATA BUNDLES TAB (10-STEP WORKFLOW) */}
       {/* ============================================================== */}
       {activeTab === 'data' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-7 rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Smartphone className="w-4 h-4 text-emerald-400" />
-                <span>Dynamic Data Vending</span>
-              </h2>
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-emerald-400" />
+                  <span>Data Bundle Purchase</span>
+                </h2>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Select network, validate recipient number, pick data category &amp; bundle plan.
+                </p>
+              </div>
               <span className="text-[10px] text-slate-400 font-mono">
-                {filteredDataPlans.length} plans available
+                {filteredDataPlans.length} plan{filteredDataPlans.length === 1 ? '' : 's'}
               </span>
             </div>
 
             <form onSubmit={handlePurchaseData} className="space-y-5">
-              {/* Network */}
+              {/* Step 1: Select Carrier Network */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">Carrier Network</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-2">
+                  1. Select Network Carrier
+                </label>
                 <div className="grid grid-cols-4 gap-2">
                   {(['MTN', 'AIRTEL', 'GLO', '9MOBILE'] as const).map(net => (
                     <button
@@ -938,12 +1244,22 @@ export const TelecomPage: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setDataNetwork(net);
-                        const first = dataPlans.find(p => p.network === net);
-                        if (first) setSelectedPlanId(first.id);
+                        setError(null);
+                        setDataOrderResult(null);
+                        const cats =
+                          categoriesByNetwork[net] && categoriesByNetwork[net].length > 0
+                            ? categoriesByNetwork[net]
+                            : Array.from(new Set(dataPlans.filter(p => p.network === net).map(p => p.type)));
+                        const firstCat = cats[0] || '';
+                        setDataCategory(firstCat);
+                        const firstPlan =
+                          dataPlans.find(p => p.network === net && (!firstCat || p.type === firstCat)) ||
+                          dataPlans.find(p => p.network === net);
+                        setSelectedPlanId(firstPlan?.id || '');
                       }}
                       className={`py-3 text-center rounded-xl text-xs font-black transition-all border ${
                         dataNetwork === net
-                          ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400'
+                          ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400 shadow-sm'
                           : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
                       }`}
                     >
@@ -953,79 +1269,147 @@ export const TelecomPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Data Type Filter */}
+              {/* Step 2 & 3: Recipient Phone & Network Match Validation */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">Data Type / Category</label>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {(['all', 'SME', 'Corporate', 'Gifting', 'Direct'] as const).map(t => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setDataTypeFilter(t)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                        dataTypeFilter === t
-                          ? 'bg-slate-800 border-emerald-500/40 text-emerald-400'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {t === 'all' ? 'All Types' : t}
-                    </button>
-                  ))}
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  2. Recipient Nigerian Phone Number
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="tel"
+                    value={dataPhone}
+                    onChange={e => {
+                      setDataPhone(e.target.value);
+                      setError(null);
+                    }}
+                    placeholder="e.g. 08147837664 or +2348147837664"
+                    className="flex-1 px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => runPhoneValidation(dataNetwork, dataPhone)}
+                    disabled={validatingPhone || dataPhone.replace(/\D+/g, '').length < 10}
+                    className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 text-xs font-bold disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {validatingPhone ? 'Checking...' : 'Validate'}
+                  </button>
                 </div>
+
+                {phoneValidation && (
+                  <div
+                    className={`mt-2 p-3 rounded-xl border text-xs flex items-start gap-2 ${
+                      phoneValidation.valid && phoneValidation.matches_network
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                    }`}
+                  >
+                    {phoneValidation.valid && phoneValidation.matches_network ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1">
+                      <div className="font-semibold">{phoneValidation.message}</div>
+                      {phoneValidation.detected_network && !phoneValidation.matches_network && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const detected = phoneValidation.detected_network as 'MTN' | 'AIRTEL' | 'GLO' | '9MOBILE';
+                            if (['MTN', 'AIRTEL', 'GLO', '9MOBILE'].includes(detected)) {
+                              setDataNetwork(detected);
+                              const cats =
+                                categoriesByNetwork[detected] ||
+                                Array.from(new Set(dataPlans.filter(p => p.network === detected).map(p => p.type)));
+                              const firstCat = cats[0] || '';
+                              setDataCategory(firstCat);
+                              const firstPlan = dataPlans.find(p => p.network === detected && (!firstCat || p.type === firstCat));
+                              setSelectedPlanId(firstPlan?.id || '');
+                            }
+                          }}
+                          className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-emerald-400 hover:text-emerald-300 text-[11px] font-bold"
+                        >
+                          Switch network to {phoneValidation.detected_network}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Plan Grid */}
+              {/* Step 4: Dynamic Data Category Dropdown */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">Select Dynamic Data Plan</label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-72 overflow-y-auto p-1 border border-slate-800/80 rounded-xl bg-slate-950">
-                  {filteredDataPlans.map(plan => (
-                    <button
-                      key={plan.id}
-                      type="button"
-                      onClick={() => setSelectedPlanId(plan.id)}
-                      className={`p-3 text-left rounded-xl border text-xs transition-all ${
-                        selectedPlanId === plan.id
-                          ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-sm'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="font-black text-white text-sm">{plan.size}</div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">{plan.type} &bull; {plan.validity}</div>
-                      <div className="text-emerald-400 font-mono font-bold mt-1 text-xs">
-                        ₦{(plan.price ?? plan.cost_price ?? 0).toLocaleString()}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Phone */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Recipient Nigerian Phone Number</label>
-                <input
-                  type="tel"
-                  value={dataPhone}
-                  onChange={e => setDataPhone(e.target.value)}
-                  placeholder="e.g. 08123456789"
-                  className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  3. Data Category / Service Type ({dataNetwork})
+                </label>
+                <select
+                  value={activeDataCategory}
+                  onChange={e => {
+                    const nextCat = e.target.value;
+                    setDataCategory(nextCat);
+                    const firstInCat = dataPlans.find(
+                      p => p.network === dataNetwork && p.type === nextCat
+                    );
+                    setSelectedPlanId(firstInCat?.id || '');
+                  }}
+                  className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-semibold focus:outline-none focus:border-emerald-500"
                   required
-                />
+                >
+                  {availableDataCategories.length === 0 ? (
+                    <option value="">No active categories for {dataNetwork}</option>
+                  ) : (
+                    availableDataCategories.map(cat => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))
+                  )}
+                </select>
               </div>
 
+              {/* Step 5: Dynamic Data Plan Dropdown */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  4. Select Data Plan ({activeDataCategory || dataNetwork})
+                </label>
+                <select
+                  value={selectedDataPlan?.id || ''}
+                  onChange={e => setSelectedPlanId(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-semibold focus:outline-none focus:border-emerald-500"
+                  required
+                >
+                  {filteredDataPlans.length === 0 ? (
+                    <option value="">No active plans in this category</option>
+                  ) : (
+                    filteredDataPlans.map(plan => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.size} ({plan.type}) — {plan.validity} — ₦{plan.price.toLocaleString()}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {/* Step 6: Submit & PIN Confirmation */}
               <button
                 type="submit"
-                disabled={loading || !selectedDataPlan}
+                disabled={
+                  loading ||
+                  validatingPhone ||
+                  !selectedDataPlan ||
+                  Boolean(phoneValidation && (!phoneValidation.valid || !phoneValidation.matches_network))
+                }
                 className="w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-wider bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Dispatching Data Bundle...</span>
+                    <span>Processing Data Order...</span>
                   </>
                 ) : (
                   <>
                     <span>
-                      Vend {selectedDataPlan?.size} ({selectedDataPlan?.network}) for ₦
+                      Buy {selectedDataPlan?.size || 'Data'} ({dataNetwork}) — ₦
                       {(selectedDataPlan?.price ?? 0).toLocaleString()}
                     </span>
                     <ArrowRight className="w-4 h-4" />
@@ -1035,142 +1419,290 @@ export const TelecomPage: React.FC = () => {
             </form>
           </div>
 
-          <div className="lg:col-span-5 rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-5">
-            <h3 className="text-sm font-bold text-white">Dynamic Plan Specs</h3>
-            {selectedDataPlan ? (
-              <div className="space-y-3 text-xs text-slate-300">
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400">Plan Description:</span>
-                  <span className="font-bold text-white">{selectedDataPlan.name}</span>
+          <div className="lg:col-span-5 space-y-5">
+            {/* Order Summary & Confirmation Card */}
+            <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4">
+              <h3 className="text-sm font-bold text-white">Order Summary</h3>
+              {selectedDataPlan ? (
+                <div className="space-y-3 text-xs text-slate-300">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <span className="text-slate-400">Carrier Network:</span>
+                    <span className="font-bold text-white">{selectedDataPlan.network}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <span className="text-slate-400">Data Category:</span>
+                    <span className="font-semibold text-emerald-400">{selectedDataPlan.type}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <span className="text-slate-400">Bundle Size:</span>
+                    <span className="font-bold text-white">{selectedDataPlan.size}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <span className="text-slate-400">Plan Name:</span>
+                    <span className="font-semibold text-slate-200 text-right">{selectedDataPlan.name}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <span className="text-slate-400">Validity Period:</span>
+                    <span className="font-semibold text-white">{selectedDataPlan.validity}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <span className="text-slate-400">Recipient Number:</span>
+                    <span className="font-mono font-bold text-white">
+                      {phoneValidation?.formatted_phone || dataPhone || '—'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/30">
+                    <span className="font-bold text-slate-200">Total Price (Wallet Debit):</span>
+                    <span className="font-mono text-emerald-400 font-black text-base">
+                      ₦{(selectedDataPlan.price ?? 0).toLocaleString()}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400">Package Type:</span>
-                  <span className="font-semibold text-emerald-400">{selectedDataPlan.type} Bundle</span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400">Validity Period:</span>
-                  <span className="font-semibold text-white">{selectedDataPlan.validity}</span>
-                </div>
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400">Customer Price:</span>
-                  <span className="font-mono text-emerald-400 font-black text-sm">
-                    ₦{(selectedDataPlan.price ?? 0).toLocaleString()}
+              ) : (
+                <div className="text-xs text-slate-500">Select a network, category, and plan to review your order.</div>
+              )}
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
+                <span className="font-bold text-white">Wallet &amp; Refund Guarantee:</span> All data bundle purchases are verified against your Transaction PIN and carrier prefix rules, with automatic wallet refund if delivery fails.
+              </div>
+            </div>
+
+            {dataOrderResult && (
+              <div
+                className={`rounded-2xl border p-5 space-y-3 text-xs ${
+                  dataOrderResult.status === 'successful'
+                    ? 'bg-emerald-500/10 border-emerald-500/30'
+                    : dataOrderResult.status === 'pending'
+                    ? 'bg-amber-500/10 border-amber-500/30'
+                    : 'bg-rose-500/10 border-rose-500/30'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-black text-white text-sm">Data Order Receipt</span>
+                  <span className="px-2 py-0.5 rounded uppercase text-[10px] font-bold bg-slate-900 text-emerald-400">
+                    {dataOrderResult.status}
                   </span>
                 </div>
+                <p className="text-slate-200 font-medium">{dataOrderResult.message}</p>
+                <div className="space-y-1 text-[11px] font-mono text-slate-300 bg-slate-950/70 p-3 rounded-xl">
+                  <div>Ref: {dataOrderResult.reference}</div>
+                  <div>Plan: {dataOrderResult.plan}</div>
+                  <div>Recipient: {dataOrderResult.phone}</div>
+                  <div>Charged: ₦{dataOrderResult.amount.toLocaleString()}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('history');
+                    loadOrders();
+                  }}
+                  className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-emerald-400 font-bold text-xs"
+                >
+                  Open Orders &amp; Receipts
+                </button>
               </div>
-            ) : (
-              <div className="text-xs text-slate-500">Select a plan to view specifications</div>
             )}
-            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
-              <span className="font-bold text-white">Direct Dynamic Catalogue:</span> Plans are synced directly with the carrier databases, ensuring instant activation and automated refund if unfulfilled.
-            </div>
           </div>
         </div>
       )}
 
+      {/* ============================================================== */}
       {/* ============================================================== */}
       {/* 3. AIRTIME PIN GENERATOR (RECHARGE CARD PRINTING) */}
       {/* ============================================================== */}
       {activeTab === 'airtime_pin' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-7 rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Printer className="w-4 h-4 text-emerald-400" />
-                <span>Airtime PIN Recharge Card Generator</span>
-              </h2>
-              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                Printable Vouchers
-              </span>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Printer className="w-4 h-4 text-emerald-400" />
+                  <span>Airtime PIN Recharge Card Generator</span>
+                </h2>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Live Ulamadata PIN denominations, stock counts, and HambakTech selling prices.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadAirtimePins}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Refresh Stock</span>
+              </button>
             </div>
+
+            {networkAirtimePinDenoms.length > 0 && networkAirtimePinDenoms.every(d => !d.in_stock || d.available_stock <= 0) && (
+              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Carrier Stock Currently Depleted:</span>{' '}
+                  {pinNetwork} Airtime PINs currently report <span className="font-mono font-bold">0 in stock</span> from Ulamadata. Purchases are safely blocked until live stock replenishes.
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handlePurchaseAirtimePin} className="space-y-5">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-2">Carrier Network</label>
                 <div className="grid grid-cols-4 gap-2">
-                  {(['MTN', 'AIRTEL', 'GLO', '9MOBILE'] as const).map(net => (
-                    <button
-                      key={net}
-                      type="button"
-                      onClick={() => setPinNetwork(net)}
-                      className={`py-3 text-center rounded-xl text-xs font-black transition-all border ${
-                        pinNetwork === net
-                          ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {net}
-                    </button>
-                  ))}
+                  {(['MTN', 'AIRTEL', 'GLO', '9MOBILE'] as const).map(net => {
+                    const netHasStock = airtimePinDenoms.some(d => d.network === net && d.in_stock && d.available_stock > 0);
+                    return (
+                      <button
+                        key={net}
+                        type="button"
+                        onClick={() => {
+                          setPinNetwork(net);
+                          const match = airtimePinDenoms.filter(d => d.network === net);
+                          const best = match.find(d => d.in_stock) || match[0];
+                          if (best) {
+                            setSelectedAirtimePinId(best.id);
+                            setPinDenom(best.denomination);
+                          }
+                        }}
+                        className={`py-3 text-center rounded-xl text-xs font-black transition-all border ${
+                          pinNetwork === net
+                            ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <div>{net}</div>
+                        <div className={`text-[9px] font-semibold mt-0.5 ${netHasStock ? 'text-emerald-400' : 'text-slate-500'}`}>
+                          {netHasStock ? 'In Stock' : 'Out of Stock'}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">Denomination (₦)</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {[100, 200, 500, 1000].map(amt => (
-                    <button
-                      key={amt}
-                      type="button"
-                      onClick={() => setPinDenom(amt)}
-                      className={`py-2.5 text-center rounded-xl text-xs font-bold border transition-all ${
-                        pinDenom === amt
-                          ? 'bg-slate-800 border-emerald-500 text-emerald-400'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      ₦{amt}
-                    </button>
-                  ))}
-                </div>
+                <label className="block text-xs font-semibold text-slate-300 mb-2">
+                  Live Denominations ({pinNetwork})
+                </label>
+                {networkAirtimePinDenoms.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400">
+                    {airtimePinCatalogueStatus || `No active ${pinNetwork} Airtime PIN denominations synced yet.`}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {networkAirtimePinDenoms.map(denom => {
+                      const isSelected = selectedAirtimePinDenom?.id === denom.id;
+                      const unitPrice = denom.selling_price ?? denom.price;
+                      return (
+                        <button
+                          key={denom.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedAirtimePinId(denom.id);
+                            setPinDenom(denom.denomination);
+                            if (denom.in_stock && denom.available_stock > 0) {
+                              setPinQuantity(q => Math.max(1, Math.min(q, Math.min(denom.max_quantity || 50, denom.available_stock))));
+                            }
+                          }}
+                          className={`p-3 text-left rounded-xl border transition-all ${
+                            isSelected
+                              ? 'bg-slate-800 border-emerald-500 text-white'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                          } ${!denom.in_stock ? 'opacity-70' : ''}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-black text-sm text-white">₦{denom.denomination.toLocaleString()}</span>
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                denom.in_stock
+                                  ? 'bg-emerald-500/15 text-emerald-400'
+                                  : 'bg-rose-500/15 text-rose-400'
+                              }`}
+                            >
+                              {denom.in_stock ? `${denom.available_stock} left` : 'Out'}
+                            </span>
+                          </div>
+                          <div className="text-emerald-400 font-mono font-bold text-xs mt-1">
+                            Pay ₦{unitPrice.toLocaleString()}
+                          </div>
+                          {denom.discount_percent > 0 && (
+                            <div className="text-[9px] text-amber-400 font-semibold mt-0.5">
+                              Save {denom.discount_percent}%
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Quantity (Cards)</label>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Quantity (Max {selectedAirtimePinDenom ? `${airtimePinMaxQty} available` : '0'})
+                  </label>
                   <input
                     type="number"
-                    min="1"
-                    max="50"
+                    min={1}
+                    max={Math.max(1, airtimePinMaxQty)}
+                    disabled={!selectedAirtimePinDenom || !selectedAirtimePinDenom.in_stock}
                     value={pinQuantity}
-                    onChange={e => setPinQuantity(Math.max(1, Number(e.target.value)))}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-mono"
+                    onChange={e =>
+                      setPinQuantity(Math.max(1, Math.min(Math.max(1, airtimePinMaxQty), Number(e.target.value) || 1)))
+                    }
+                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-mono disabled:opacity-50"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Business Name on Card</label>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Business / Card Name</label>
                   <input
                     type="text"
+                    maxLength={50}
                     value={pinBusinessName}
                     onChange={e => setPinBusinessName(e.target.value)}
-                    placeholder="e.g. Hambak Telecoms"
+                    placeholder="e.g. HambakTech Enterprise"
                     className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
                     required
                   />
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs">
-                <span className="text-slate-400">Total Purchase Price:</span>
-                <span className="font-mono text-emerald-400 font-black text-sm">
-                  ₦{(pinDenom * pinQuantity).toLocaleString()}
-                </span>
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-400">
+                  <span>Unit Price ({pinNetwork} ₦{(selectedAirtimePinDenom?.denomination ?? pinDenom).toLocaleString()}):</span>
+                  <span className="font-mono text-white">₦{airtimePinUnitPrice.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center pt-1.5 border-t border-slate-800/80">
+                  <span className="text-slate-300 font-semibold">Total Wallet Charge:</span>
+                  <span className="font-mono text-emerald-400 font-black text-base">
+                    ₦{airtimePinTotalCost.toLocaleString()}
+                  </span>
+                </div>
               </div>
 
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-wider bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                disabled={
+                  loading ||
+                  !selectedAirtimePinDenom ||
+                  !selectedAirtimePinDenom.in_stock ||
+                  selectedAirtimePinDenom.available_stock <= 0 ||
+                  airtimePinUnitPrice <= 0
+                }
+                className="w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-wider bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     <span>Generating Airtime PINs...</span>
                   </>
+                ) : !selectedAirtimePinDenom || !selectedAirtimePinDenom.in_stock ? (
+                  <span>Currently Out of Stock — Purchase Disabled</span>
                 ) : (
                   <>
-                    <span>Generate {pinQuantity}x ₦{pinDenom} {pinNetwork} PIN(s)</span>
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>
+                      Generate {pinQuantity}x ₦{selectedAirtimePinDenom.denomination.toLocaleString()} {pinNetwork} PIN(s)
+                    </span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
@@ -1183,6 +1715,7 @@ export const TelecomPage: React.FC = () => {
               <span>Generated Airtime Cards</span>
               {generatedAirtimePins.length > 0 && (
                 <button
+                  type="button"
                   onClick={() => window.print()}
                   className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs flex items-center gap-1.5 font-bold"
                 >
@@ -1192,25 +1725,61 @@ export const TelecomPage: React.FC = () => {
               )}
             </h3>
 
-            {generatedAirtimePins.length === 0 ? (
+            {pendingAirtimePinOrder && (
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2.5 text-xs">
+                <div className="font-bold text-amber-300">Order Pending Verification ({pendingAirtimePinOrder.provider_ref || pendingAirtimePinOrder.reference})</div>
+                <p className="text-slate-300">
+                  Vouchers are still settling upstream. Do not retry payment — click Requery to fetch verified PINs once complete.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleQueryStatus(pendingAirtimePinOrder.provider_ref || pendingAirtimePinOrder.id)}
+                  className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-[11px]"
+                >
+                  Verify &amp; Fetch Vouchers
+                </button>
+              </div>
+            )}
+
+            {generatedAirtimePins.length === 0 && !pendingAirtimePinOrder ? (
               <div className="p-8 text-center text-xs text-slate-500 rounded-xl bg-slate-950 border border-slate-800">
-                Generated airtime vouchers with serial numbers and recharge USSD codes will appear here ready to print or distribute.
+                Verified airtime recharge PINs, paired serial numbers, dial codes, and balance check codes will appear here ready to copy or print.
               </div>
             ) : (
-              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
                 {generatedAirtimePins.map((item, idx) => (
                   <div key={idx} className="p-4 rounded-xl bg-slate-950 border border-emerald-500/30 space-y-2">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-black text-emerald-400">{pinNetwork} ₦{item.value} RECHARGE</span>
-                      <span className="font-bold text-slate-400">{pinBusinessName}</span>
+                      <span className="font-black text-emerald-400">
+                        {item.network || pinNetwork} ₦{(item.value ?? pinDenom).toLocaleString()} RECHARGE
+                      </span>
+                      <span className="font-bold text-slate-400">{item.card_name || pinBusinessName}</span>
                     </div>
-                    <div className="text-center py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 font-mono text-base font-black text-white tracking-widest">
-                      {item.pin}
+                    <div className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-slate-900 border border-slate-800">
+                      <span className="font-mono text-base font-black text-white tracking-widest">{item.pin}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(item.pin, `PIN #${idx + 1}`)}
+                        className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Copy PIN</span>
+                      </button>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                      <span>SN: {item.serial}</span>
-                      <span className="text-amber-400">{item.load_code}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(item.serial, `Serial #${idx + 1}`)}
+                        className="hover:text-white flex items-center gap-1"
+                      >
+                        <span>SN: {item.serial}</span>
+                        <Copy className="w-2.5 h-2.5" />
+                      </button>
+                      {item.load_code && <span className="text-amber-400">Dial: {item.load_code}</span>}
                     </div>
+                    {item.check_balance && (
+                      <div className="text-[10px] text-slate-500 font-mono">Check Balance: {item.check_balance}</div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1230,10 +1799,28 @@ export const TelecomPage: React.FC = () => {
                 <CreditCard className="w-4 h-4 text-emerald-400" />
                 <span>Data PIN Voucher Printing</span>
               </h2>
-              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                Data Scratch Cards
-              </span>
+              <button
+                type="button"
+                onClick={loadDataPins}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Refresh</span>
+              </button>
             </div>
+
+            {(!dataPinAvailable || networkDataPinDenoms.length === 0) && (
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-amber-300">Data PIN Catalogue Awaiting Provider Confirmation</div>
+                  <p className="mt-1 text-slate-300">
+                    {dataPinCatalogueStatus ||
+                      'Awaiting confirmed Ulamadata Data PIN plan IDs and pricing. Data PIN purchases are safely disabled so ordinary data plans are never mischarged or misrouted.'}
+                  </p>
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handlePurchaseDataPin} className="space-y-5">
               <div>
@@ -1243,7 +1830,11 @@ export const TelecomPage: React.FC = () => {
                     <button
                       key={net}
                       type="button"
-                      onClick={() => setDataPinNetwork(net)}
+                      onClick={() => {
+                        setDataPinNetwork(net);
+                        const match = dataPinDenoms.find(d => d.network === net);
+                        setSelectedDataPinId(match ? match.id : '');
+                      }}
                       className={`py-3 text-center rounded-xl text-xs font-black transition-all border ${
                         dataPinNetwork === net
                           ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400'
@@ -1257,38 +1848,59 @@ export const TelecomPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">Select Data Card Size</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {dataPinDenoms
-                    .filter(d => d.network === dataPinNetwork)
-                    .map(denom => (
+                <label className="block text-xs font-semibold text-slate-300 mb-2">Select Data PIN Plan</label>
+                {networkDataPinDenoms.length === 0 ? (
+                  <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 text-center text-xs text-slate-500">
+                    No verified {dataPinNetwork} Data PIN plans are enabled yet.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    {networkDataPinDenoms.map(denom => (
                       <button
                         key={denom.id}
                         type="button"
                         onClick={() => setSelectedDataPinId(denom.id)}
                         className={`p-3 text-left rounded-xl border transition-all ${
-                          selectedDataPinId === denom.id
+                          selectedDataPinPlan?.id === denom.id
                             ? 'bg-slate-800 border-emerald-500 text-white'
                             : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
                         }`}
                       >
-                        <div className="font-black text-white text-sm">{denom.size}</div>
-                        <div className="text-emerald-400 font-mono font-bold text-xs mt-1">₦{denom.price.toLocaleString()}</div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-black text-white text-sm">{denom.size}</span>
+                          <span
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                              denom.in_stock ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'
+                            }`}
+                          >
+                            {denom.in_stock ? `${denom.available_stock} left` : 'Out'}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">{denom.validity || '30 Days'}</div>
+                        <div className="text-emerald-400 font-mono font-bold text-xs mt-1">
+                          ₦{(denom.selling_price ?? denom.price).toLocaleString()}
+                        </div>
                       </button>
                     ))}
-                </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Quantity</label>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Quantity (Max {selectedDataPinPlan ? dataPinMaxQty : 0})
+                  </label>
                   <input
                     type="number"
-                    min="1"
-                    max="50"
+                    min={1}
+                    max={Math.max(1, dataPinMaxQty)}
+                    disabled={!selectedDataPinPlan || !selectedDataPinPlan.in_stock}
                     value={dataPinQuantity}
-                    onChange={e => setDataPinQuantity(Math.max(1, Number(e.target.value)))}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-mono"
+                    onChange={e =>
+                      setDataPinQuantity(Math.max(1, Math.min(Math.max(1, dataPinMaxQty), Number(e.target.value) || 1)))
+                    }
+                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-mono disabled:opacity-50"
                     required
                   />
                 </div>
@@ -1296,6 +1908,7 @@ export const TelecomPage: React.FC = () => {
                   <label className="block text-xs font-semibold text-slate-300 mb-1.5">Business Name on Card</label>
                   <input
                     type="text"
+                    maxLength={50}
                     value={dataPinBusinessName}
                     onChange={e => setDataPinBusinessName(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white"
@@ -1304,18 +1917,36 @@ export const TelecomPage: React.FC = () => {
                 </div>
               </div>
 
+              {selectedDataPinPlan && (
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center text-xs">
+                  <span className="text-slate-300 font-semibold">Total Wallet Charge:</span>
+                  <span className="font-mono text-emerald-400 font-black text-base">
+                    ₦{dataPinTotalCost.toLocaleString()}
+                  </span>
+                </div>
+              )}
+
               <button
                 type="submit"
-                disabled={loading || !selectedDataPinId}
-                className="w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-wider bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                disabled={
+                  loading ||
+                  !dataPinAvailable ||
+                  !selectedDataPinPlan ||
+                  !selectedDataPinPlan.in_stock ||
+                  selectedDataPinPlan.available_stock <= 0
+                }
+                className="w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-wider bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     <span>Generating Data PINs...</span>
                   </>
+                ) : !selectedDataPinPlan || !dataPinAvailable ? (
+                  <span>Data PIN Temporarily Disabled</span>
                 ) : (
                   <>
+                    <ShieldCheck className="w-4 h-4" />
                     <span>Generate Data PIN Cards</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
@@ -1329,6 +1960,7 @@ export const TelecomPage: React.FC = () => {
               <span>Generated Data Cards</span>
               {generatedDataPins.length > 0 && (
                 <button
+                  type="button"
                   onClick={() => window.print()}
                   className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs flex items-center gap-1.5 font-bold"
                 >
@@ -1338,24 +1970,45 @@ export const TelecomPage: React.FC = () => {
               )}
             </h3>
 
-            {generatedDataPins.length === 0 ? (
+            {pendingDataPinOrder && (
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2 text-xs">
+                <div className="font-bold text-amber-300">Data PIN Order Pending Verification</div>
+                <button
+                  type="button"
+                  onClick={() => handleQueryStatus(pendingDataPinOrder.provider_ref || pendingDataPinOrder.id)}
+                  className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-[11px]"
+                >
+                  Verify &amp; Fetch Vouchers
+                </button>
+              </div>
+            )}
+
+            {generatedDataPins.length === 0 && !pendingDataPinOrder ? (
               <div className="p-8 text-center text-xs text-slate-500 rounded-xl bg-slate-950 border border-slate-800">
-                Generated data recharge vouchers will show here. Customers dial the printed USSD code to load data directly.
+                Verified Data PIN vouchers paired with serial numbers and USSD loading instructions will appear here.
               </div>
             ) : (
-              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
                 {generatedDataPins.map((item, idx) => (
                   <div key={idx} className="p-4 rounded-xl bg-slate-950 border border-emerald-500/30 space-y-2">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-black text-emerald-400">{dataPinNetwork} {item.size} DATA PIN</span>
-                      <span className="font-bold text-slate-400">{dataPinBusinessName}</span>
+                      <span className="font-black text-emerald-400">{item.network || dataPinNetwork} {item.denomination_label || 'DATA PIN'}</span>
+                      <span className="font-bold text-slate-400">{item.card_name || dataPinBusinessName}</span>
                     </div>
-                    <div className="text-center py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 font-mono text-base font-black text-white tracking-widest">
-                      {item.pin}
+                    <div className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-slate-900 border border-slate-800">
+                      <span className="font-mono text-base font-black text-white tracking-widest">{item.pin}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(item.pin, `Data PIN #${idx + 1}`)}
+                        className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Copy</span>
+                      </button>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
                       <span>SN: {item.serial}</span>
-                      <span className="text-amber-400">{item.load_code}</span>
+                      {item.load_code && <span className="text-amber-400">{item.load_code}</span>}
                     </div>
                   </div>
                 ))}
@@ -2135,8 +2788,9 @@ export const TelecomPage: React.FC = () => {
               <select
                 value={historyFilterService}
                 onChange={e => {
-                  setHistoryFilterService(e.target.value);
-                  setTimeout(loadOrders, 50);
+                  const val = e.target.value;
+                  setHistoryFilterService(val);
+                  loadOrders(val);
                 }}
                 className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-white"
               >
@@ -2153,7 +2807,7 @@ export const TelecomPage: React.FC = () => {
               </select>
             </div>
             <button
-              onClick={loadOrders}
+              onClick={() => loadOrders()}
               className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1.5"
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -2191,7 +2845,14 @@ export const TelecomPage: React.FC = () => {
                           {o.service.replace('_', ' ')}
                         </td>
                         <td className="py-3.5 px-4 font-mono font-bold text-emerald-400">{o.network}</td>
-                        <td className="py-3.5 px-4 text-slate-200">{o.plan}</td>
+                        <td className="py-3.5 px-4 text-slate-200">
+                          <div>{o.plan}</div>
+                          {(o.voucher_count ?? 0) > 0 && (
+                            <span className="inline-block mt-0.5 text-[10px] font-bold text-emerald-400">
+                              {o.voucher_count} verified voucher(s)
+                            </span>
+                          )}
+                        </td>
                         <td className="py-3.5 px-4 font-mono text-slate-300">{o.phone}</td>
                         <td className="py-3.5 px-4 font-mono font-bold text-white">
                           ₦{(o.amount ?? 0).toLocaleString()}
@@ -2213,13 +2874,25 @@ export const TelecomPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-3.5 px-4">
-                          <button
-                            onClick={() => setSelectedOrderReceipt(o)}
-                            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-[10px] flex items-center gap-1"
-                          >
-                            <Receipt className="w-3 h-3" />
-                            <span>Receipt</span>
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openOrderReceiptModal(o)}
+                              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-[10px] flex items-center gap-1"
+                            >
+                              <Receipt className="w-3 h-3" />
+                              <span>{(o.service === 'airtime_pin' || o.service === 'data_pin') ? 'PINs / Receipt' : 'Receipt'}</span>
+                            </button>
+                            {o.status === 'pending' && (
+                              <button
+                                type="button"
+                                onClick={() => handleQueryStatus(o.id)}
+                                className="px-2 py-1 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold text-[10px]"
+                              >
+                                Verify
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -2232,18 +2905,22 @@ export const TelecomPage: React.FC = () => {
       )}
 
       {/* ============================================================== */}
-      {/* RECEIPT MODAL */}
+      {/* RECEIPT MODAL (WITH PROTECTED VOUCHER DISPLAY) */}
       {/* ============================================================== */}
       {selectedOrderReceipt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-5 shadow-2xl animate-in zoom-in-95">
+          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-5 shadow-2xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-emerald-400" />
                 <h3 className="font-black text-white text-sm">Official Transaction Receipt</h3>
               </div>
               <button
-                onClick={() => setSelectedOrderReceipt(null)}
+                type="button"
+                onClick={() => {
+                  setSelectedOrderReceipt(null);
+                  setReceiptVouchers([]);
+                }}
                 className="text-slate-400 hover:text-white text-xs font-bold"
               >
                 ✕ Close
@@ -2270,11 +2947,11 @@ export const TelecomPage: React.FC = () => {
                 <span className="font-mono text-emerald-400">{selectedOrderReceipt.network}</span>
               </div>
               <div className="flex justify-between text-slate-400">
-                <span>Recipient:</span>
+                <span>Card Name / Recipient:</span>
                 <span className="font-mono text-white">{selectedOrderReceipt.phone}</span>
               </div>
               <div className="flex justify-between text-slate-400">
-                <span>Gateway Reference:</span>
+                <span>Order Reference:</span>
                 <span className="font-mono text-slate-300 text-[11px]">{selectedOrderReceipt.provider_ref}</span>
               </div>
               <div className="flex justify-between text-slate-400">
@@ -2285,8 +2962,51 @@ export const TelecomPage: React.FC = () => {
               </div>
             </div>
 
+            {(selectedOrderReceipt.service === 'airtime_pin' || selectedOrderReceipt.service === 'data_pin') && (
+              <div className="space-y-2.5">
+                <div className="text-xs font-bold text-white">Verified Recharge Vouchers</div>
+                {loadingReceiptVouchers ? (
+                  <div className="p-4 text-center text-xs text-slate-400 rounded-xl bg-slate-950 border border-slate-800">
+                    Loading stored PIN vouchers...
+                  </div>
+                ) : receiptVouchers.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-500 rounded-xl bg-slate-950 border border-slate-800">
+                    {selectedOrderReceipt.status === 'pending'
+                      ? 'Vouchers will appear here once provider verification settles.'
+                      : 'No vouchers attached to this order.'}
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {receiptVouchers.map((v, i) => (
+                      <div key={i} className="p-3 rounded-xl bg-slate-950 border border-emerald-500/30 space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="font-black text-emerald-400">
+                            #{v.index || i + 1} &bull; {v.denomination_label || selectedOrderReceipt.network}
+                          </span>
+                          {v.load_code && <span className="font-mono text-amber-400">Dial: {v.load_code}</span>}
+                        </div>
+                        <div className="flex items-center justify-between bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
+                          <span className="font-mono font-black text-white tracking-wider">{v.pin}</span>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(v.pin, `Receipt PIN #${i + 1}`)}
+                            className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>Copy PIN</span>
+                          </button>
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-400">SN: {v.serial}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={() => window.print()}
                 className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5"
               >
@@ -2294,7 +3014,11 @@ export const TelecomPage: React.FC = () => {
                 <span>Print Receipt</span>
               </button>
               <button
-                onClick={() => setSelectedOrderReceipt(null)}
+                type="button"
+                onClick={() => {
+                  setSelectedOrderReceipt(null);
+                  setReceiptVouchers([]);
+                }}
                 className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
               >
                 Done
@@ -2308,9 +3032,9 @@ export const TelecomPage: React.FC = () => {
       <TransactionPinModal
         isOpen={isPinModalOpen}
         onClose={() => setIsPinModalOpen(false)}
-        onSuccess={() => {
+        onSuccess={verifiedPin => {
           setIsPinModalOpen(false);
-          if (pendingPinAction) pendingPinAction();
+          if (pendingPinAction) pendingPinAction(verifiedPin);
         }}
         title={pinModalTitle}
         description={pinModalDesc}

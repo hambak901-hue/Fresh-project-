@@ -621,15 +621,162 @@ export const api = {
     });
   },
 
-  async getTelecomPlans(): Promise<{ activeProvider: string; plans: import('../types').TelecomPlanItem[] }> {
-    return request('/api/telecom/plans');
+  async getTelecomPlans(network?: string): Promise<{
+    activeProvider: string;
+    plans: import('../types').TelecomPlanItem[];
+    categories_by_network?: Record<string, string[]>;
+    airtime_discount_percent?: number;
+  }> {
+    const qs = network ? `?network=${encodeURIComponent(network)}` : '';
+    return request(`/api/telecom/plans${qs}`);
   },
 
-  async purchaseData(planId: string, phone: string): Promise<{ success: boolean; message: string; order: TelecomOrder; newBalance: number }> {
+  async validateTelecomPhone(network: string, phone: string): Promise<{
+    success: boolean;
+    valid: boolean;
+    matches_network: boolean;
+    formatted_phone: string;
+    detected_network: string | null;
+    selected_network: string;
+    message: string;
+  }> {
+    return request('/api/telecom/validate-phone', {
+      method: 'POST',
+      body: JSON.stringify({ network, phone }),
+    });
+  },
+
+  async purchaseData(
+    planId: string,
+    phone: string,
+    network?: string,
+    idempotencyKey?: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: TelecomOrder;
+    status?: string;
+    reference?: string;
+    newBalance: number;
+    balance_after?: number;
+    deduplicated?: boolean;
+  }> {
+    const headers: Record<string, string> = {};
+    if (idempotencyKey) {
+      headers['X-Idempotency-Key'] = idempotencyKey;
+    }
     return request('/api/telecom/purchase-data', {
       method: 'POST',
-      body: JSON.stringify({ planId, phone }),
+      headers,
+      timeoutMs: 45000,
+      body: JSON.stringify({
+        planId,
+        phone,
+        network,
+        idempotency_key: idempotencyKey,
+      }),
     });
+  },
+
+  async getAdminTelecomPlans(params?: { network?: string; category?: string }): Promise<{
+    success: boolean;
+    plans: import('../types').TelecomPlanItem[];
+    categories_by_network: Record<string, string[]>;
+    data_default_markup_percent: number;
+    airtime_discount_percent: number;
+    active_provider: string;
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.network && params.network !== 'ALL') qs.set('network', params.network);
+    if (params?.category && params.category !== 'ALL') qs.set('category', params.category);
+    const query = qs.toString();
+    return request(`/api/admin/telecom/plans${query ? `?${query}` : ''}`);
+  },
+
+  async syncAdminTelecomPlans(recalculateUnlocked = false): Promise<{
+    success: boolean;
+    message: string;
+    synced_count: number;
+    preserved_overrides: number;
+    total_fetched: number;
+    categories_by_network?: Record<string, string[]>;
+  }> {
+    return request('/api/admin/telecom/plans/sync', {
+      method: 'POST',
+      timeoutMs: 45000,
+      body: JSON.stringify({ recalculate_unlocked: recalculateUnlocked }),
+    });
+  },
+
+  async updateAdminTelecomPlan(
+    id: string,
+    data: {
+      pricing_mode?: string;
+      fixed_price?: number | null;
+      price?: number;
+      markup_percent?: number | null;
+      discount_percent?: number | null;
+      is_active?: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    plan: import('../types').TelecomPlanItem;
+  }> {
+    return request(`/api/admin/telecom/plans/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async bulkUpdateAdminTelecomPricing(data: {
+    network?: string;
+    category?: string;
+    pricing_mode: 'markup_percent' | 'discount_percent' | 'default_markup';
+    value?: number;
+    skip_fixed_overrides?: boolean;
+    data_default_markup_percent?: number;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    updated_count: number;
+    skipped_fixed: number;
+    data_default_markup_percent: number;
+  }> {
+    return request('/api/admin/telecom/plans/bulk-pricing', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async toggleAdminTelecomCategory(data: {
+    network: string;
+    category: string;
+    is_active: boolean;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    network: string;
+    category: string;
+    is_active: boolean;
+  }> {
+    return request('/api/admin/telecom/category-status', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getAdminTelecomOrders(params?: { service?: string; status?: string; limit?: number }): Promise<{
+    success: boolean;
+    count: number;
+    orders: TelecomOrder[];
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.service) qs.set('service', params.service);
+    if (params?.status) qs.set('status', params.status);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const query = qs.toString();
+    return request(`/api/admin/telecom/orders${query ? `?${query}` : ''}`);
   },
 
   async purchaseAirtime(network: string, phone: string, amount: number): Promise<{ success: boolean; message: string; order: TelecomOrder; discountSaved: number; newBalance: number }> {
@@ -639,20 +786,51 @@ export const api = {
     });
   },
 
-  async getAirtimePinDenominations(): Promise<{ denominations: import('../types').AirtimePinDenomination[] }> {
+  async getAirtimePinDenominations(): Promise<{
+    denominations: import('../types').AirtimePinDenomination[];
+    has_in_stock?: boolean;
+    catalogue_status?: string;
+  }> {
     return request('/api/telecom/airtime-pins/denominations');
   },
 
-  async purchaseAirtimePin(data: { network: string; denomination: number; quantity: number; businessName?: string }): Promise<{
+  async purchaseAirtimePin(
+    data: {
+      denominationId?: string;
+      network: string;
+      denomination: number;
+      quantity: number;
+      businessName?: string;
+      card_name?: string;
+      transaction_pin: string;
+      idempotency_key?: string;
+    },
+    idempotencyKey?: string
+  ): Promise<{
     success: boolean;
     message: string;
-    pins: Array<{ serial: string; pin: string; load_code: string; value: number }>;
+    status?: string;
+    reference?: string;
+    incomplete_vouchers?: boolean;
+    deduplicated?: boolean;
+    vouchers?: import('../types').TelecomVoucherItem[];
+    pins: import('../types').TelecomVoucherItem[];
     order: TelecomOrder;
     newBalance: number;
+    balance_after?: number;
   }> {
+    const ikey = idempotencyKey || data.idempotency_key;
+    const headers: Record<string, string> = {};
+    if (ikey) headers['X-Idempotency-Key'] = ikey;
     return request('/api/telecom/purchase-airtime-pin', {
       method: 'POST',
-      body: JSON.stringify(data),
+      headers,
+      timeoutMs: 45000,
+      body: JSON.stringify({
+        ...data,
+        card_name: data.card_name || data.businessName,
+        idempotency_key: ikey,
+      }),
     });
   },
 
@@ -710,20 +888,50 @@ export const api = {
     });
   },
 
-  async getDataPinDenominations(): Promise<{ denominations: import('../types').DataPinDenomination[] }> {
+  async getDataPinDenominations(): Promise<{
+    denominations: import('../types').DataPinDenomination[];
+    available_for_purchase?: boolean;
+    catalogue_status?: string;
+  }> {
     return request('/api/telecom/data-pins/denominations');
   },
 
-  async purchaseDataPin(data: { network: string; planId: string; quantity: number; businessName?: string }): Promise<{
+  async purchaseDataPin(
+    data: {
+      network: string;
+      planId: string;
+      quantity: number;
+      businessName?: string;
+      card_name?: string;
+      transaction_pin: string;
+      idempotency_key?: string;
+    },
+    idempotencyKey?: string
+  ): Promise<{
     success: boolean;
     message: string;
-    pins: Array<{ serial: string; pin: string; size: string; load_code: string }>;
+    status?: string;
+    reference?: string;
+    incomplete_vouchers?: boolean;
+    deduplicated?: boolean;
+    vouchers?: import('../types').TelecomVoucherItem[];
+    pins: import('../types').TelecomVoucherItem[];
     order: TelecomOrder;
     newBalance: number;
+    balance_after?: number;
   }> {
+    const ikey = idempotencyKey || data.idempotency_key;
+    const headers: Record<string, string> = {};
+    if (ikey) headers['X-Idempotency-Key'] = ikey;
     return request('/api/telecom/purchase-data-pin', {
       method: 'POST',
-      body: JSON.stringify(data),
+      headers,
+      timeoutMs: 45000,
+      body: JSON.stringify({
+        ...data,
+        card_name: data.card_name || data.businessName,
+        idempotency_key: ikey,
+      }),
     });
   },
 
@@ -793,8 +1001,137 @@ export const api = {
     });
   },
 
-  async verifyTelecomTransaction(reference: string): Promise<{ success: boolean; result: any; order?: TelecomOrder }> {
+  async verifyTelecomTransaction(reference: string): Promise<{
+    success: boolean;
+    result: any;
+    order?: TelecomOrder;
+    vouchers?: import('../types').TelecomVoucherItem[];
+  }> {
     return request(`/api/telecom/verify/${encodeURIComponent(reference)}`);
+  },
+
+  async getTelecomOrderVouchers(orderId: string): Promise<{
+    success: boolean;
+    order: TelecomOrder;
+    vouchers: import('../types').TelecomVoucherItem[];
+    voucher_count: number;
+  }> {
+    return request(`/api/telecom/vouchers/${encodeURIComponent(orderId)}`);
+  },
+
+  async getAdminAirtimePins(network?: string): Promise<{
+    success: boolean;
+    denominations: import('../types').AirtimePinDenomination[];
+    pin_default_markup_percent: number;
+    active_provider: string;
+  }> {
+    const qs = network && network !== 'ALL' ? `?network=${encodeURIComponent(network)}` : '';
+    return request(`/api/admin/telecom/airtime-pins${qs}`);
+  },
+
+  async syncAdminAirtimePins(recalculateUnlocked = false): Promise<{
+    success: boolean;
+    message: string;
+    synced_count: number;
+    inserted_count: number;
+    updated_count: number;
+    preserved_overrides: number;
+  }> {
+    return request('/api/admin/telecom/airtime-pins/sync', {
+      method: 'POST',
+      timeoutMs: 45000,
+      body: JSON.stringify({ recalculate_unlocked: recalculateUnlocked }),
+    });
+  },
+
+  async updateAdminAirtimePin(
+    id: string,
+    data: {
+      pricing_mode?: string;
+      fixed_price?: number | null;
+      price?: number;
+      markup_percent?: number | null;
+      discount_percent?: number | null;
+      max_quantity?: number;
+      is_active?: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    denomination: import('../types').AirtimePinDenomination;
+  }> {
+    return request(`/api/admin/telecom/airtime-pins/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async bulkUpdateAdminAirtimePinPricing(data: {
+    network?: string;
+    pricing_mode: 'markup_percent' | 'discount_percent' | 'default_markup';
+    value?: number;
+    skip_fixed_overrides?: boolean;
+    pin_default_markup_percent?: number;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    updated_count: number;
+    skipped_fixed: number;
+    pin_default_markup_percent: number;
+  }> {
+    return request('/api/admin/telecom/airtime-pins/bulk-pricing', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getAdminDataPins(network?: string): Promise<{
+    success: boolean;
+    denominations: import('../types').DataPinDenomination[];
+    pin_default_markup_percent: number;
+    catalogue_status?: string;
+  }> {
+    const qs = network && network !== 'ALL' ? `?network=${encodeURIComponent(network)}` : '';
+    return request(`/api/admin/telecom/data-pins${qs}`);
+  },
+
+  async updateAdminDataPin(
+    id: string,
+    data: {
+      pricing_mode?: string;
+      fixed_price?: number | null;
+      price?: number;
+      markup_percent?: number | null;
+      discount_percent?: number | null;
+      max_quantity?: number;
+      is_active?: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    denomination: import('../types').DataPinDenomination;
+  }> {
+    return request(`/api/admin/telecom/data-pins/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async bulkUpdateAdminDataPinPricing(data: {
+    network?: string;
+    pricing_mode: 'markup_percent' | 'discount_percent' | 'default_markup';
+    value?: number;
+    skip_fixed_overrides?: boolean;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    updated_count: number;
+    skipped_fixed: number;
+  }> {
+    return request('/api/admin/telecom/data-pins/bulk-pricing', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   async getTelecomHistory(service?: string, search?: string): Promise<{ success: boolean; count: number; orders: TelecomOrder[] }> {

@@ -27,7 +27,7 @@ export const RatesCalculator: React.FC<RatesCalculatorProps> = ({ onActionClick 
   const nineMobile1Gb = rates?.nine_mobile_1gb || 250;
   const ninFee = rates?.nin_fee || 250;
   const bvnFee = rates?.bvn_fee || 350;
-  const airtimeDiscountPercent = rates?.airtime_discount_percent || 2.5;
+  const airtimeDiscountPercent = rates?.airtime_discount_percent ?? 2.5;
 
   const getRatePerGb = () => {
     switch (network) {

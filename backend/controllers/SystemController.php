@@ -70,7 +70,7 @@ class SystemController
             'airtel_1gb' => 290,
             'glo_1gb' => 260,
             'nine_mobile_1gb' => 250,
-            'airtime_discount_percent' => 2.5,
+            'airtime_discount_percent' => \HambakTech\Controllers\TelecomController::readAirtimeDiscountPercent($this->db),
             'maintenance_mode' => false,
             'bank_transfer_account_name' => $accNameRow['setting_value'] ?? 'Hambaktech_Services',
             'bank_transfer_bank' => $bankRow['setting_value'] ?? 'Moniepoint MFB',
@@ -137,7 +137,7 @@ class SystemController
             'rates' => [
                 'identity' => $services,
                 'data_plans' => $dataPlans,
-                'airtime_discount_percent' => 2.5,
+                'airtime_discount_percent' => \HambakTech\Controllers\TelecomController::readAirtimeDiscountPercent($this->db),
             ],
         ]);
     }

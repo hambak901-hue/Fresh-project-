@@ -16,8 +16,8 @@ interface TelecomAdapterInterface
     public function checkBalance(): array;
     public function purchaseData(string $network, string $phone, string|int $planId, bool $ported = true): array;
     public function topupAirtime(string $network, string $phone, float $amount, string $airtimeType = 'VTU'): array;
-    public function vendAirtimePin(string $network, float $value, int $quantity, string $businessName): array;
-    public function vendDataPin(string $network, string|int $planId, int $quantity, string $businessName): array;
+    public function vendAirtimePin(string $network, float $value, int $quantity, string $businessName, ?int $planTypeId = null, ?string $requestId = null): array;
+    public function vendDataPin(string $network, string|int $planId, int $quantity, string $businessName, ?string $requestId = null): array;
     public function processAirtimeSwap(string $network, string $phone, float $amount): array;
     public function validateSmartcard(string $provider, string $smartcard): array;
     public function renewCable(string $provider, string $smartcard, string $packageCode): array;

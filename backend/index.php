@@ -161,6 +161,7 @@ $router->post('/api/enrolments/:id/poll', [EnrolmentController::class, 'pollStat
 // -----------------------------------------------------------------------------
 $router->get('/api/telecom/plans', [TelecomController::class, 'plans']);
 $router->post('/api/telecom/plans/sync', [TelecomController::class, 'syncPlans']);
+$router->post('/api/telecom/validate-phone', [TelecomController::class, 'validatePhone']);
 $router->post('/api/telecom/data', [TelecomController::class, 'purchaseData']);
 $router->post('/api/telecom/purchase-data', [TelecomController::class, 'purchaseData']);
 $router->post('/api/telecom/airtime', [TelecomController::class, 'topupAirtime']);
@@ -171,6 +172,7 @@ $router->post('/api/telecom/purchase-airtime-pin', [TelecomController::class, 'v
 $router->get('/api/telecom/data-pins/denominations', [TelecomController::class, 'dataPinDenominations']);
 $router->post('/api/telecom/data-pin', [TelecomController::class, 'vendDataPin']);
 $router->post('/api/telecom/purchase-data-pin', [TelecomController::class, 'vendDataPin']);
+$router->get('/api/telecom/vouchers/:id', [TelecomController::class, 'orderVouchers']);
 $router->get('/api/telecom/airtime-swap/config', [TelecomController::class, 'airtimeSwapConfig']);
 $router->post('/api/telecom/airtime-swap', [TelecomController::class, 'processAirtimeSwap']);
 $router->get('/api/telecom/cable-packages', [TelecomController::class, 'cablePackages']);
@@ -336,6 +338,23 @@ $router->delete('/api/admin/digital-services/cable-package/:id', [AdminControlle
 $router->post('/api/admin/digital-services/disco', [AdminController::class, 'saveElectricityDisco']);
 $router->put('/api/admin/digital-services/disco/:id', [AdminController::class, 'saveElectricityDisco']);
 $router->delete('/api/admin/digital-services/disco/:id', [AdminController::class, 'deleteElectricityDisco']);
+
+// Admin Telecom Data Plans, Pricing & Orders (Stage 5 Phase 1)
+$router->get('/api/admin/telecom/plans', [TelecomController::class, 'adminPlans']);
+$router->post('/api/admin/telecom/plans/sync', [TelecomController::class, 'syncPlans']);
+$router->post('/api/admin/telecom/plans/bulk-pricing', [TelecomController::class, 'adminBulkPlanPricing']);
+$router->put('/api/admin/telecom/plans/:id', [TelecomController::class, 'adminUpdatePlan']);
+$router->put('/api/admin/telecom/category-status', [TelecomController::class, 'adminToggleCategory']);
+$router->get('/api/admin/telecom/orders', [TelecomController::class, 'adminOrders']);
+
+// Admin Telecom Airtime PINs & Data PINs (Stage 5 Phase 2)
+$router->get('/api/admin/telecom/airtime-pins', [TelecomController::class, 'adminAirtimePins']);
+$router->post('/api/admin/telecom/airtime-pins/sync', [TelecomController::class, 'adminSyncAirtimePins']);
+$router->put('/api/admin/telecom/airtime-pins/:id', [TelecomController::class, 'adminUpdateAirtimePin']);
+$router->post('/api/admin/telecom/airtime-pins/bulk-pricing', [TelecomController::class, 'adminBulkAirtimePinPricing']);
+$router->get('/api/admin/telecom/data-pins', [TelecomController::class, 'adminDataPins']);
+$router->put('/api/admin/telecom/data-pins/:id', [TelecomController::class, 'adminUpdateDataPin']);
+$router->post('/api/admin/telecom/data-pins/bulk-pricing', [TelecomController::class, 'adminBulkDataPinPricing']);
 
 // Hardware Store & Settings
 $router->get('/api/admin/store', [AdminController::class, 'store']);
