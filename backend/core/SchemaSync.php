@@ -753,7 +753,12 @@ class SchemaSync
                 'supported_notes' => 'Date of Birth modification undergoes strict NIMC compliance scrutiny; ensure supporting documents are clear and authentic.',
                 'required_fields' => ['nin', 'dob'],
                 'required_documents' => [$docNinSlip, $docBirthCert, $docAffidavit],
-                'form_schema' => [$fldNin, $fldDob, $fldFirst, $fldLast, $fldReason],
+                'form_schema' => [
+                    $fldNin,
+                    $fldDob,
+                    ['key' => 'current_dob', 'provider_param' => 'current_dob', 'label' => 'Currently Registered DOB (Optional)', 'type' => 'date', 'required' => false, 'help_text' => 'Optional: date of birth currently showing on your existing NIN record.'],
+                    $fldReason,
+                ],
             ],
             [
                 'id' => 'srv_mod_dob_name',
@@ -820,9 +825,9 @@ class SchemaSync
                 'form_schema' => [
                     $fldNin,
                     ['key' => 'tracking_id', 'provider_param' => 'tracking_id', 'label' => 'NIMC Tracking ID', 'type' => 'text', 'required' => true, 'placeholder' => 'Enter NIMC tracking ID from slip', 'help_text' => '15-character NIMC enrollment/tracking ID printed on your original slip.'],
-                    $fldFirst,
-                    $fldLast,
-                    $fldPhone,
+                    ['key' => 'first_name', 'provider_param' => 'first_name', 'label' => 'Registered First Name', 'type' => 'text', 'required' => false, 'placeholder' => 'First name on NIN record', 'help_text' => 'First name currently associated with the suspended NIN profile.'],
+                    ['key' => 'last_name', 'provider_param' => 'last_name', 'label' => 'Registered Surname', 'type' => 'text', 'required' => false, 'placeholder' => 'Surname on NIN record', 'help_text' => 'Surname currently associated with the suspended NIN profile.'],
+                    ['key' => 'phone', 'provider_param' => 'phone', 'label' => 'Contact Phone Number', 'type' => 'tel', 'required' => false, 'maxLength' => 11, 'placeholder' => '08031234567', 'help_text' => 'Reachable 11-digit mobile number for remediation updates.'],
                     $fldReason,
                 ],
             ],
@@ -842,9 +847,9 @@ class SchemaSync
                 'form_schema' => [
                     $fldNin,
                     ['key' => 'bvn', 'provider_param' => 'bvn', 'label' => 'Linked 11-Digit BVN', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => 'Enter linked 11-digit BVN', 'help_text' => 'Provide the 11-digit BVN that generated the NIN record.'],
-                    $fldFirst,
-                    $fldLast,
-                    $fldPhone,
+                    ['key' => 'first_name', 'provider_param' => 'first_name', 'label' => 'First Name (As on BVN)', 'type' => 'text', 'required' => false, 'placeholder' => 'e.g., Ibrahim', 'help_text' => 'First name matching your BVN printout and affidavit.'],
+                    ['key' => 'last_name', 'provider_param' => 'last_name', 'label' => 'Surname (As on BVN)', 'type' => 'text', 'required' => false, 'placeholder' => 'e.g., Adeyemi', 'help_text' => 'Surname matching your BVN printout and affidavit.'],
+                    ['key' => 'phone', 'provider_param' => 'phone', 'label' => 'Phone Number Linked to BVN', 'type' => 'tel', 'required' => false, 'maxLength' => 11, 'placeholder' => '08031234567', 'help_text' => 'Active 11-digit Nigerian phone number tied to the BVN.'],
                     $fldReason,
                 ],
             ],
@@ -864,9 +869,9 @@ class SchemaSync
                 'form_schema' => [
                     ['key' => 'nin', 'provider_param' => 'nin', 'label' => 'Child 11-Digit NIN', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => 'Enter child 11-digit NIN', 'help_text' => 'Minor/child\'s existing 11-digit National Identification Number.'],
                     ['key' => 'parent_nin', 'provider_param' => 'parent_nin', 'label' => 'Parent / Guardian 11-Digit NIN', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => 'Enter parent 11-digit NIN', 'help_text' => 'Authorizing parent or legal guardian\'s 11-digit NIN.'],
-                    $fldFirst,
-                    $fldLast,
-                    $fldDob,
+                    ['key' => 'first_name', 'provider_param' => 'first_name', 'label' => 'Child First Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Child first name', 'help_text' => 'Corrected or verified first name of the child as on birth record.'],
+                    ['key' => 'last_name', 'provider_param' => 'last_name', 'label' => 'Child Surname / Last Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Child surname', 'help_text' => 'Corrected or verified surname of the child.'],
+                    ['key' => 'dob', 'provider_param' => 'dob', 'label' => 'Child Date of Birth', 'type' => 'date', 'required' => true, 'help_text' => 'Verified date of birth on the child\'s NPC birth certificate.'],
                     $fldReason,
                 ],
             ],
@@ -981,7 +986,7 @@ class SchemaSync
                     ['value' => 'name_and_dob', 'label' => 'Name & Date of Birth'],
                 ]],
                 ['key' => 'old_value', 'provider_param' => 'old_value', 'label' => 'Current Value on BVN Record', 'type' => 'text', 'required' => false, 'placeholder' => 'Existing value currently shown on BVN', 'help_text' => 'Optional reference showing what is currently on the bank\'s BVN record.'],
-                ['key' => 'new_value', 'provider_param' => 'new_value', 'label' => 'Correct New Value Requested', 'type' => 'text', 'required' => true, 'placeholder' => 'Exact corrected name, DOB, phone, or address', 'help_text' => 'Enter the exact corrected spelling/value matching your valid government ID.'],
+                ['key' => 'new_value', 'provider_param' => 'new_value', 'label' => 'Correct New Value Requested', 'type' => 'text', 'required' => true, 'conditional_on' => ['field' => 'field_to_modify', 'values' => ['', 'name', 'phone', 'address', 'gender', 'name_and_dob']], 'placeholder' => 'Exact corrected name, phone, address, or gender', 'help_text' => 'Enter the exact corrected spelling/value matching your valid government ID.'],
                 ['key' => 'new_dob', 'provider_param' => 'dob', 'label' => 'Corrected Date of Birth', 'type' => 'date', 'required' => true, 'conditional_on' => ['field' => 'field_to_modify', 'values' => ['dob', 'name_and_dob']], 'help_text' => 'Exact Date of Birth from your NPC birth certificate or valid passport.'],
                 ['key' => 'email', 'provider_param' => 'email', 'label' => 'Customer Contact Email (Optional)', 'type' => 'email', 'required' => false, 'placeholder' => 'applicant@example.com', 'help_text' => 'Notification email for bank BVN verification updates.'],
                 ['key' => 'phone', 'provider_param' => 'phone', 'label' => 'Contact Phone Number', 'type' => 'tel', 'required' => true, 'maxLength' => 11, 'placeholder' => '080...', 'help_text' => 'Reachable 11-digit Nigerian mobile number for follow-up.'],
@@ -1084,6 +1089,7 @@ class SchemaSync
                             $srvFieldMap[$sf['key']] = $sf;
                         }
                         $seenKeys = [];
+                        $legacyBvnUpgrade = false;
                         foreach ($curSchema as &$cf) {
                             if (!is_array($cf)) continue;
                             $fk = (string)($cf['key'] ?? '');
@@ -1105,9 +1111,15 @@ class SchemaSync
                                 $cf['maxLength'] = $defFld['maxLength'];
                                 $schemaChanged = true;
                             }
+                            if ($srv['service_key'] === 'bvn_modification' && $fk === 'new_value' && empty($cf['conditional_on']) && !empty($defFld['conditional_on'])) {
+                                $cf['conditional_on'] = $defFld['conditional_on'];
+                                $cf['placeholder'] = $defFld['placeholder'] ?? ($cf['placeholder'] ?? '');
+                                $schemaChanged = true;
+                                $legacyBvnUpgrade = true;
+                            }
                         }
                         unset($cf);
-                        if ($srv['service_key'] === 'bvn_modification' && empty($seenKeys['new_dob']) && !empty($srvFieldMap['new_dob'])) {
+                        if ($legacyBvnUpgrade && empty($seenKeys['new_dob']) && !empty($srvFieldMap['new_dob'])) {
                             $curSchema[] = $srvFieldMap['new_dob'];
                             $schemaChanged = true;
                         }

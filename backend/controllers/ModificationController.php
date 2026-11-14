@@ -136,9 +136,14 @@ class ModificationController
         $wholesale = (float)($row['wholesale_cost'] ?? 0);
         $catCode = strtolower(trim((string)($row['category_code'] ?? $row['category'] ?? '')));
         $serviceKey = (string)($row['service_key'] ?? $row['key'] ?? '');
-        $identityType = ($catCode === 'bvn_modification' || str_starts_with(strtolower($serviceKey), 'bvn_'))
-            ? 'BVN'
-            : 'NIN';
+        $skLower = strtolower($serviceKey);
+        if ($catCode !== '') {
+            $identityType = ($catCode === 'bvn_modification') ? 'BVN' : 'NIN';
+        } else {
+            $identityType = ($skLower === 'bvn_modification' || str_starts_with($skLower, 'bvn_mod'))
+                ? 'BVN'
+                : 'NIN';
+        }
 
         $rawDocs = $this->decodeJsonColumn($row['required_documents'] ?? null, []);
         $rawSchema = $this->decodeJsonColumn($row['form_schema'] ?? null, []);
@@ -209,8 +214,6 @@ class ModificationController
             'customer_price' => $customerPrice,
             'payment_reference' => (string)($row['payment_reference'] ?? ''),
             'refund_reference' => $row['refund_reference'] ?? null,
-            'provider_reference' => $row['provider_reference'] ?? null,
-            'provider_status' => $row['provider_status'] ?? null,
             'provider_remarks' => $row['provider_remarks'] ?? null,
             'estimated_completion_text' => (string)($row['estimated_completion_text'] ?? 'Manual Processing'),
             'status' => (string)($row['status'] ?? 'pending'),
@@ -221,6 +224,8 @@ class ModificationController
         ];
 
         if ($isAdmin) {
+            $item['provider_reference'] = $row['provider_reference'] ?? null;
+            $item['provider_status'] = $row['provider_status'] ?? null;
             $item['customer_name'] = $row['customer_name'] ?? null;
             $item['customer_email'] = $row['customer_email'] ?? null;
             $item['customer_phone'] = $row['customer_phone'] ?? null;
@@ -232,7 +237,7 @@ class ModificationController
             $item['reviewed_by'] = $row['reviewed_by'] ?? null;
             $item['provider_response'] = $this->decodeJsonColumn($row['provider_response'] ?? null, []);
         } else {
-            // Strip provider_cost & provider_remarks internal host details if any URL slipped in
+            // Strip internal provider references, costs, and sanitize remarks for customer responses
             if (!empty($item['provider_remarks'])) {
                 $item['provider_remarks'] = $this->sanitizeCustomerError((string)$item['provider_remarks']);
             }
@@ -267,19 +272,44 @@ class ModificationController
             $adapter = new TwoSureVerifyAdapter();
             if ($adapter->hasCredentials()) {
                 $res = $adapter->getBvnModificationBanks();
-                $list = $res['data'] ?? $res['banks'] ?? $res['enrollment_types'] ?? [];
-                if (!empty($res['success']) && is_array($list) && !empty($list)) {
-                    foreach ($list as $entry) {
-                        if (!is_array($entry)) {
-                            continue;
+                $rawData = $res['data'] ?? $res['banks'] ?? $res['enrollment_types'] ?? [];
+                if (is_array($rawData) && !empty($rawData['banks']) && is_array($rawData['banks'])) {
+                    $rawData = $rawData['banks'];
+                } elseif (is_array($rawData) && !empty($rawData['enrollment_types']) && is_array($rawData['enrollment_types'])) {
+                    $rawData = $rawData['enrollment_types'];
+                }
+
+                $normalizedEntries = [];
+                if (is_array($rawData)) {
+                    foreach ($rawData as $k => $v) {
+                        if (is_array($v)) {
+                            $typeCode = trim((string)($v['enrollment_type'] ?? $v['bank_code'] ?? $v['code'] ?? $v['name'] ?? $v['bank_name'] ?? (is_string($k) ? $k : '')));
+                            $label = trim((string)($v['label'] ?? $v['name'] ?? $v['bank_name'] ?? $v['enrollment_type'] ?? $typeCode));
+                            $rawPrice = $v['price'] ?? $v['cost'] ?? $v['amount'] ?? 0;
+                            if ($typeCode !== '') {
+                                $normalizedEntries[] = ['code' => $typeCode, 'label' => $label, 'price' => is_numeric($rawPrice) ? (float)$rawPrice : 0.0];
+                            }
+                        } elseif (is_string($k) && (is_numeric($v) || is_string($v))) {
+                            $typeCode = trim($k);
+                            if ($typeCode !== '') {
+                                $normalizedEntries[] = [
+                                    'code' => $typeCode,
+                                    'label' => $typeCode,
+                                    'price' => is_numeric($v) ? (float)$v : 0.0,
+                                ];
+                            }
+                        } elseif (is_string($v) && trim($v) !== '') {
+                            $typeCode = trim($v);
+                            $normalizedEntries[] = ['code' => $typeCode, 'label' => $typeCode, 'price' => 0.0];
                         }
-                        $typeCode = trim((string)($entry['enrollment_type'] ?? $entry['bank_code'] ?? $entry['code'] ?? $entry['name'] ?? $entry['bank_name'] ?? ''));
-                        $label = trim((string)($entry['label'] ?? $entry['name'] ?? $entry['bank_name'] ?? $entry['enrollment_type'] ?? $typeCode));
-                        if ($typeCode === '') {
-                            continue;
-                        }
-                        $rawPrice = $entry['price'] ?? $entry['cost'] ?? $entry['amount'] ?? 0;
-                        $wholesale = is_numeric($rawPrice) ? (float)$rawPrice : 0.0;
+                    }
+                }
+
+                if (!empty($res['success']) && !empty($normalizedEntries)) {
+                    foreach ($normalizedEntries as $entry) {
+                        $typeCode = $entry['code'];
+                        $label = $entry['label'];
+                        $wholesale = (float)$entry['price'];
                         // Default sensible customer markup only for newly discovered rows; preserve admin overrides
                         $defaultSelling = $wholesale > 0 ? round($wholesale + max(2500.0, $wholesale * 0.25), -2) : 12000.0;
                         $rowId = 'bvnt_' . substr(md5(strtolower($typeCode)), 0, 12);
@@ -572,11 +602,15 @@ class ModificationController
             $items[] = $row;
         }
 
+        $syncNote = $isAdmin
+            ? $syncRes['message']
+            : (!empty($syncRes['message']) ? $this->sanitizeCustomerError((string)$syncRes['message']) : '');
+
         Response::success([
             'bvn_types' => $items,
             'count' => count($items),
             'live_synced' => $syncRes['live_synced'],
-            'sync_note' => $syncRes['message'],
+            'sync_note' => $syncNote,
         ]);
     }
 
@@ -587,27 +621,74 @@ class ModificationController
     {
         $user = Auth::requireAuth($request);
         $docKey = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$request->input('doc_key', 'supporting_doc')) ?: 'supporting_doc';
+        $serviceKey = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$request->input('service_key', ''));
 
         if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
             Response::error('Please attach a valid supporting document file.', 422);
         }
 
+        // Resolve admin-configured document rules when service_key & doc_key match
+        $maxSizeMb = 5;
+        $configuredFormats = ['JPG', 'PNG', 'WEBP', 'PDF'];
+        if ($serviceKey !== '') {
+            $srv = $this->db->fetchOne(
+                'SELECT s.required_documents FROM service_catalogue s
+                 JOIN service_categories c ON c.id = s.category_id
+                 WHERE s.service_key = :sk AND c.code IN ("nin_modification", "bvn_modification")
+                 LIMIT 1',
+                ['sk' => $serviceKey]
+            );
+            if ($srv) {
+                $docsSpec = $this->decodeJsonColumn($srv['required_documents'] ?? null, []);
+                foreach ($docsSpec as $ds) {
+                    if (is_array($ds) && (string)($ds['key'] ?? '') === $docKey) {
+                        if (!empty($ds['accepted_formats']) && is_array($ds['accepted_formats'])) {
+                            $configuredFormats = array_values(array_filter(array_map('strtoupper', $ds['accepted_formats'])));
+                        }
+                        if (!empty($ds['max_size_mb']) && is_numeric($ds['max_size_mb'])) {
+                            $maxSizeMb = max(1, min(25, (int)$ds['max_size_mb']));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        $safeExtMimeMap = [
+            'jpg'  => ['exts' => ['jpg', 'jpeg'], 'mime' => 'image/jpeg'],
+            'jpeg' => ['exts' => ['jpg', 'jpeg'], 'mime' => 'image/jpeg'],
+            'png'  => ['exts' => ['png'], 'mime' => 'image/png'],
+            'webp' => ['exts' => ['webp'], 'mime' => 'image/webp'],
+            'pdf'  => ['exts' => ['pdf'], 'mime' => 'application/pdf'],
+        ];
+        $allowedExts = [];
+        $allowedMimes = [];
+        foreach ($configuredFormats as $fmt) {
+            $lf = strtolower(trim((string)$fmt));
+            if (isset($safeExtMimeMap[$lf])) {
+                foreach ($safeExtMimeMap[$lf]['exts'] as $e) {
+                    $allowedExts[] = $e;
+                }
+                $allowedMimes[] = $safeExtMimeMap[$lf]['mime'];
+            }
+        }
+        $allowedExts = array_values(array_unique($allowedExts ?: ['jpg', 'jpeg', 'png', 'webp', 'pdf']));
+        $allowedMimes = array_values(array_unique($allowedMimes ?: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']));
+
         $file = $_FILES['file'];
-        if ((int)$file['size'] > 5 * 1024 * 1024) {
-            Response::error('Supporting document file must not exceed 5MB.', 422);
+        if ((int)$file['size'] > $maxSizeMb * 1024 * 1024) {
+            Response::error("Supporting document file must not exceed {$maxSizeMb}MB.", 422);
         }
 
         $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
-        $allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
         if (!in_array($ext, $allowedExts, true)) {
-            Response::error('Invalid file format. Accepted formats: JPG, PNG, WEBP, PDF.', 422);
+            Response::error('Invalid file format. Accepted formats: ' . implode(', ', $configuredFormats) . '.', 422);
         }
 
         $finfo = finfo_open(FILEINFO_MIME_TYPE);
         $mime = finfo_file($finfo, $file['tmp_name']);
         finfo_close($finfo);
 
-        $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
         if (!in_array($mime, $allowedMimes, true)) {
             Response::error('Document file signature validation failed.', 422);
         }
@@ -615,7 +696,13 @@ class ModificationController
         $storageDir = dirname(__DIR__) . '/storage/uploads';
         if (!is_dir($storageDir)) {
             @mkdir($storageDir, 0755, true);
-            @file_put_contents($storageDir . '/.htaccess', "Deny from all\n");
+        }
+        $htaccessPath = $storageDir . '/.htaccess';
+        if (!is_file($htaccessPath)) {
+            @file_put_contents(
+                $htaccessPath,
+                "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n"
+            );
         }
 
         $docId = Security::generateUuid();
@@ -787,6 +874,14 @@ class ModificationController
                     $val = $digits;
                 } elseif ($fk === 'email' && !filter_var($val, FILTER_VALIDATE_EMAIL)) {
                     Response::error('Please provide a valid email address.', 422);
+                } elseif (($fDef['type'] ?? '') === 'date') {
+                    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $val)) {
+                        Response::error(($fDef['label'] ?? 'Date') . ' must be in YYYY-MM-DD format.', 422);
+                    }
+                    $parts = explode('-', $val);
+                    if (!checkdate((int)$parts[1], (int)$parts[2], (int)$parts[0]) || $val > date('Y-m-d')) {
+                        Response::error(($fDef['label'] ?? 'Date') . ' must be a valid calendar date not in the future.', 422);
+                    }
                 } elseif (($fDef['type'] ?? '') === 'select' && !empty($fDef['options']) && is_array($fDef['options'])) {
                     $allowedOptions = array_map(static fn ($opt) => (string)($opt['value'] ?? ''), $fDef['options']);
                     if (!in_array($val, $allowedOptions, true)) {
@@ -971,6 +1066,11 @@ class ModificationController
                 if ((float)$bvnTypeRow['wholesale_cost'] > 0) {
                     $expectedWholesale = (float)$bvnTypeRow['wholesale_cost'];
                 }
+            } else {
+                $activeBvnCountRow = $this->db->fetchOne('SELECT COUNT(*) as cnt FROM modification_bvn_types WHERE is_active = 1');
+                if ($activeBvnCountRow && (int)$activeBvnCountRow['cnt'] > 0) {
+                    Response::error('Selected BVN enrollment bank / type is invalid or currently disabled.', 422);
+                }
             }
         }
 
@@ -1137,15 +1237,19 @@ class ModificationController
 
             $savedRow = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $requestId]);
 
-            Response::success([
+            $submitPayload = [
                 'request' => $savedRow ? $this->formatRequestRow($savedRow, $isAdmin) : null,
                 'pending' => true,
                 'status' => $newStatus,
                 'balance_after' => $debitResult['balance_after'] ?? null,
                 'newBalance' => $debitResult['balance_after'] ?? null,
                 'payment_reference' => $paymentRef,
-                'provider_reference' => $isAdmin ? $provRef : $requestNumber,
-            ], "{$serviceRow['name']} submitted for manual processing. You can track live status updates in your request tracker.");
+            ];
+            if ($isAdmin) {
+                $submitPayload['provider_reference'] = $provRef;
+            }
+
+            Response::success($submitPayload, "{$serviceRow['name']} submitted for manual processing. You can track live status updates in your request tracker.");
         }
 
         // 11. Confirmed immediate provider rejection/failure -> issue AT MOST ONE atomic refund
@@ -2131,24 +2235,37 @@ class ModificationController
         $updatedServices = 0;
         $srvRes = $adapter->getServicesCatalog();
         $list = $srvRes['data'] ?? $srvRes['services'] ?? [];
+        if (is_array($list) && !empty($list['services']) && is_array($list['services'])) {
+            $list = $list['services'];
+        }
         if (!empty($srvRes['success']) && is_array($list)) {
             $localRows = $this->db->fetchAll(
                 'SELECT s.id, s.service_key, s.endpoint FROM service_catalogue s JOIN service_categories c ON c.id = s.category_id WHERE c.code IN ("nin_modification", "bvn_modification")'
             );
-            foreach ($list as $entry) {
-                if (!is_array($entry)) {
+            foreach ($list as $k => $entry) {
+                if (is_string($k) && is_array($entry)) {
+                    $ep = strtolower(trim((string)($entry['endpoint'] ?? $entry['url'] ?? '')));
+                    $sk = strtolower(trim((string)($entry['service_key'] ?? $entry['key'] ?? $entry['code'] ?? $k)));
+                    $price = $entry['price'] ?? $entry['cost'] ?? $entry['amount'] ?? null;
+                } elseif (is_array($entry)) {
+                    $ep = strtolower(trim((string)($entry['endpoint'] ?? $entry['url'] ?? '')));
+                    $sk = strtolower(trim((string)($entry['service_key'] ?? $entry['key'] ?? $entry['code'] ?? '')));
+                    $price = $entry['price'] ?? $entry['cost'] ?? $entry['amount'] ?? null;
+                } else {
                     continue;
                 }
-                $ep = strtolower(trim((string)($entry['endpoint'] ?? $entry['url'] ?? '')));
-                $sk = strtolower(trim((string)($entry['service_key'] ?? $entry['key'] ?? $entry['code'] ?? '')));
-                $price = $entry['price'] ?? $entry['cost'] ?? $entry['amount'] ?? null;
                 if (!is_numeric($price) || (float)$price <= 0) {
                     continue;
                 }
                 foreach ($localRows as $lr) {
-                    $localEp = strtolower((string)$lr['endpoint']);
-                    $localSk = strtolower((string)$lr['service_key']);
-                    if (($ep !== '' && (str_contains($ep, basename($localEp)) || $ep === $localEp)) || ($sk !== '' && $sk === $localSk)) {
+                    $localEp = strtolower(trim((string)$lr['endpoint']));
+                    $localSk = strtolower(trim((string)$lr['service_key']));
+                    $epBase = $ep !== '' ? basename($ep) : '';
+                    $localBase = $localEp !== '' ? basename($localEp) : '';
+                    if (
+                        ($sk !== '' && $sk === $localSk)
+                        || ($ep !== '' && ($ep === $localEp || ($epBase !== '' && $epBase === $localBase)))
+                    ) {
                         $this->db->execute(
                             'UPDATE service_catalogue SET wholesale_cost = :wc, updated_at = NOW() WHERE id = :id',
                             ['wc' => (float)$price, 'id' => $lr['id']]

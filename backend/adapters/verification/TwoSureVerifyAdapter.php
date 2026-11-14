@@ -428,8 +428,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 'fields' => [
                     'nin' => 'nin',
                     'dob' => 'dob',
-                    'first_name' => 'first_name',
-                    'last_name' => 'last_name',
+                    'current_dob' => 'current_dob',
                     'reason' => 'reason',
                 ],
                 'files' => [

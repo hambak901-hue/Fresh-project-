@@ -2241,7 +2241,7 @@ export const api = {
     return request(`/api/modifications/bvn-types${refresh ? '?refresh=1' : ''}`);
   },
 
-  async uploadModificationDocument(file: File, docKey: string): Promise<{
+  async uploadModificationDocument(file: File, docKey: string, serviceKey?: string): Promise<{
     success: boolean;
     message: string;
     document: import('../types').ModificationDocumentAttachment;
@@ -2249,6 +2249,9 @@ export const api = {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('doc_key', docKey);
+    if (serviceKey) {
+      fd.append('service_key', serviceKey);
+    }
     return request('/api/modifications/upload-document', {
       method: 'POST',
       body: fd,

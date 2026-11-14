@@ -19,6 +19,7 @@ import {
 import { TransactionPinModal } from './TransactionPinModal';
 import {
   AlertCircle,
+  ArrowLeft,
   ArrowRight,
   CheckCircle2,
   Clock,
@@ -32,7 +33,6 @@ import {
   MessageSquare,
   Paperclip,
   RefreshCw,
-  Search,
   ShieldCheck,
   Trash2,
   Upload,
@@ -129,7 +129,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
     );
   }, [services, mode]);
 
-  const [serviceSearch, setServiceSearch] = useState<string>('');
+  const [ninStep, setNinStep] = useState<'select' | 'form'>('select');
   const [selectedServiceKey, setSelectedServiceKey] = useState<string>('');
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -148,6 +148,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
   // Submission & Confirmation state
   const [submitting, setSubmitting] = useState<boolean>(false);
   const inFlightRef = useRef<boolean>(false);
+  const serviceSeqRef = useRef<number>(0);
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => createIdempotencyKey());
   const [pinModalOpen, setPinModalOpen] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -178,18 +179,20 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
 
   // Reset form completely when mode switches (ensures zero NIN/BVN field leakage)
   useEffect(() => {
+    serviceSeqRef.current += 1;
     Object.values(localDocPreviewUrls).forEach(u => {
       try {
         URL.revokeObjectURL(u);
       } catch {
       }
     });
-    setServiceSearch('');
+    setNinStep('select');
     setFormValues({});
     setFieldErrors({});
     setDocErrors({});
     setUploadedDocs({});
     setLocalDocPreviewUrls({});
+    setUploadingDocKey(null);
     setConsentChecked(false);
     setFormError(null);
     setSubmitSuccessMsg(null);
@@ -197,37 +200,39 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
     setPasswordVisible(false);
     setQueryTargetId(null);
     setIdempotencyKey(createIdempotencyKey());
-    if (domainServices.length > 0) {
+    if (mode === 'BVN' && domainServices.length > 0) {
       setSelectedServiceKey(domainServices[0].key || domainServices[0].service_key);
     } else {
       setSelectedServiceKey('');
     }
   }, [mode]);
 
-  // Ensure selected service always points to valid item in current domain
+  // Ensure selected service stays valid in current domain without auto-selecting a NIN card before user chooses
   useEffect(() => {
     if (domainServices.length === 0) return;
     const valid = domainServices.some(s => (s.key || s.service_key) === selectedServiceKey);
+    if (mode === 'NIN') {
+      if (selectedServiceKey && !valid) {
+        setSelectedServiceKey('');
+        setNinStep('select');
+      }
+      return;
+    }
     if (!selectedServiceKey || !valid) {
       setSelectedServiceKey(domainServices[0].key || domainServices[0].service_key);
     }
-  }, [domainServices, selectedServiceKey]);
+  }, [domainServices, selectedServiceKey, mode]);
 
   // Fetch BVN Enrollment Types strictly in BVN mode
   useEffect(() => {
     if (mode === 'BVN') {
       loadBvnTypes(false);
     }
-    loadRequests();
   }, [mode]);
 
   useEffect(() => {
-    if (mode === 'BVN') {
-      loadRequests();
-    } else {
-      loadRequests();
-    }
-  }, [statusFilter]);
+    loadRequests();
+  }, [mode, statusFilter]);
 
   const loadBvnTypes = async (refresh = false) => {
     try {
@@ -269,24 +274,18 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
     }
   };
 
-  const filteredServices = useMemo(() => {
-    if (!serviceSearch.trim()) return domainServices;
-    const q = serviceSearch.toLowerCase();
-    return domainServices.filter(
-      s =>
-        s.name.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q) ||
-        (s.supported_notes && s.supported_notes.toLowerCase().includes(q))
-    );
-  }, [domainServices, serviceSearch]);
-
   const selectedService = useMemo(() => {
+    if (domainServices.length === 0) return null;
+    if (mode === 'NIN') {
+      if (!selectedServiceKey) return null;
+      return domainServices.find(s => (s.key || s.service_key) === selectedServiceKey) || null;
+    }
     return (
       domainServices.find(s => (s.key || s.service_key) === selectedServiceKey) ||
       domainServices[0] ||
       null
     );
-  }, [domainServices, selectedServiceKey]);
+  }, [domainServices, selectedServiceKey, mode]);
 
   const activeBvnTypes = useMemo(() => {
     return bvnTypes.filter(t => t.is_active !== false);
@@ -330,14 +329,18 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
     };
   }, [visibleSchemaFields, formValues, selectedService, uploadedDocs]);
 
-  const handleSelectService = (srv: ModificationServiceItem) => {
+  const handleSelectService = (srv: ModificationServiceItem | null) => {
+    serviceSeqRef.current += 1;
     Object.values(localDocPreviewUrls).forEach(u => {
       try {
         URL.revokeObjectURL(u);
       } catch {
       }
     });
-    setSelectedServiceKey(srv.key || srv.service_key);
+    setSelectedServiceKey(srv ? (srv.key || srv.service_key) : '');
+    if (!srv && mode === 'NIN') {
+      setNinStep('select');
+    }
     setFormValues(prev => {
       const next: Record<string, string> = {};
       if (mode === 'BVN' && prev.enrollment_type) {
@@ -349,7 +352,9 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
     setDocErrors({});
     setUploadedDocs({});
     setLocalDocPreviewUrls({});
+    setUploadingDocKey(null);
     setConsentChecked(false);
+    setPasswordVisible(false);
     setFormError(null);
     setSubmitSuccessMsg(null);
     setSubmittedRequest(null);
@@ -412,9 +417,14 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
       return;
     }
 
+    const uploadSeq = serviceSeqRef.current;
     try {
       setUploadingDocKey(docKey);
-      const res = await api.uploadModificationDocument(file, docKey);
+      const activeSvcKey = selectedService?.key || selectedService?.service_key;
+      const res = await api.uploadModificationDocument(file, docKey, activeSvcKey);
+      if (serviceSeqRef.current !== uploadSeq) {
+        return;
+      }
       if (res?.success && res.document) {
         const objUrl = URL.createObjectURL(file);
         setLocalDocPreviewUrls(prev => {
@@ -436,11 +446,16 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
         setFormError(msg);
       }
     } catch (err: any) {
+      if (serviceSeqRef.current !== uploadSeq) {
+        return;
+      }
       const msg = err?.message || 'Unable to upload supporting document. Please try again.';
       setDocErrors(prev => ({ ...prev, [docKey]: msg }));
       setFormError(msg);
     } finally {
-      setUploadingDocKey(null);
+      if (serviceSeqRef.current === uploadSeq) {
+        setUploadingDocKey(null);
+      }
     }
   };
 
@@ -508,6 +523,21 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
           const msg = 'Please provide a valid email address.';
           nextFieldErrors[f.key] = msg;
           if (!firstError) firstError = msg;
+        }
+        if (f.type === 'date') {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+            const msg = `${f.label} must be a valid date (YYYY-MM-DD).`;
+            nextFieldErrors[f.key] = msg;
+            if (!firstError) firstError = msg;
+          } else {
+            const parsed = new Date(`${val}T00:00:00`);
+            const todayIso = new Date().toISOString().split('T')[0];
+            if (Number.isNaN(parsed.getTime()) || val > todayIso) {
+              const msg = `${f.label} cannot be in the future.`;
+              nextFieldErrors[f.key] = msg;
+              if (!firstError) firstError = msg;
+            }
+          }
         }
       }
     }
@@ -636,8 +666,13 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
         setFormError(res?.message || 'Unable to submit modification request.');
       }
     } catch (err: any) {
-      setFormError(err?.message || 'Modification submission failed. Please review your details and try again.');
-      void Promise.allSettled([refreshUser(), loadRequests()]);
+      if (err?.payload?.requires_pin || err?.payload?.data?.requires_pin) {
+        setPinModalOpen(true);
+        setFormError(null);
+      } else {
+        setFormError(err?.message || 'Modification submission failed. Please review your details and try again.');
+        void Promise.allSettled([refreshUser(), loadRequests()]);
+      }
     } finally {
       inFlightRef.current = false;
       setSubmitting(false);
@@ -742,117 +777,280 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
 
   return (
     <div className="space-y-6 font-sans">
-      {/* Main Split Workspace: Left Service Catalog & Details, Right Submission Form */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Column 1: Service Directory & Mandatory Manual Metadata */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 shadow-sm">
-            <div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-emerald-400">
-                  {mode === 'BVN' ? 'NIBSS / Bank BVN Workflow' : 'NIMC NIN Modification Workflow'}
-                </span>
-                <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300 flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Manual Processing</span>
-                </span>
+      {submittedRequest && (
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 p-5 sm:p-6 space-y-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                <Clock className="w-5 h-5" />
               </div>
-              <h2 className="text-lg font-extrabold text-slate-900 dark:text-white mt-1">
-                {sectionTitle}
+              <div>
+                <div className="text-sm font-extrabold text-slate-900 dark:text-white">
+                  Request Submitted for Manual Processing
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {submittedRequest.service_name} &middot; Ref{' '}
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                    {submittedRequest.request_number}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handlePollStatus(submittedRequest.id)}
+              disabled={pollingId === submittedRequest.id}
+              className="px-3.5 py-2 min-h-[40px] rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${pollingId === submittedRequest.id ? 'animate-spin' : ''}`} />
+              <span>Check Live Status</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
+                Current Status
+              </span>
+              <span className="font-bold text-amber-700 dark:text-amber-300 mt-0.5 block">
+                {getModificationStatusStyle(submittedRequest.status).label}
+              </span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
+                Amount Charged
+              </span>
+              <span className="font-mono font-bold text-slate-900 dark:text-white mt-0.5 block tabular-nums">
+                ₦{Number(submittedRequest.customer_price).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
+                Payment Reference
+              </span>
+              <span className="font-mono font-bold text-slate-900 dark:text-white mt-0.5 block break-all">
+                {submittedRequest.payment_reference}
+              </span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
+                Submitted &amp; Est. Time
+              </span>
+              <span className="font-semibold text-slate-900 dark:text-white mt-0.5 block">
+                {submittedRequest.estimated_completion_text}
+              </span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                {new Date(submittedRequest.created_at).toLocaleString('en-NG')}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Compact Step 1 for NIN Modification: Single Dropdown + Selected Service Preview & Continue */}
+      {mode === 'NIN' && ninStep === 'select' ? (
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
+            <div>
+              <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                NIN Modification
               </h2>
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                {sectionSubtitle}
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                Choose a NIMC modification service to review its pricing and estimated timeframe before continuing.
               </p>
             </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 shrink-0 tabular-nums">
+              <span className="font-medium text-amber-700 dark:text-amber-300">Manual Processing</span>
+              <span aria-hidden="true">&middot;</span>
+              <span className="font-mono font-semibold">{domainServices.length} Services</span>
+            </div>
+          </div>
 
-            {/* Search Filter (especially helpful across 15 NIN Modification types) */}
-            {domainServices.length > 3 && (
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={serviceSearch}
-                  onChange={e => setServiceSearch(e.target.value)}
-                  placeholder={`Search ${mode} modification services...`}
-                  className="w-full min-h-[40px] pl-9 pr-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            )}
-
-            {/* Service List */}
+          <div className="max-w-2xl space-y-2">
+            <label
+              htmlFor="nin-modification-select"
+              className="block text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200"
+            >
+              Select a modification service:
+            </label>
             {loadingServices && domainServices.length === 0 ? (
-              <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400 flex flex-col items-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-                <span>Loading {mode} modification services...</span>
-              </div>
-            ) : filteredServices.length === 0 ? (
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
-                No active {mode} modification services match your filter right now.
+              <div className="min-h-[44px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                <span>Loading NIN modification services...</span>
               </div>
             ) : (
-              <div className="space-y-2 max-h-[430px] overflow-y-auto pr-1">
-                {filteredServices.map(srv => {
+              <select
+                id="nin-modification-select"
+                value={selectedServiceKey}
+                onChange={e => {
+                  const key = e.target.value;
+                  const found = domainServices.find(s => (s.key || s.service_key) === key) || null;
+                  handleSelectService(found);
+                }}
+                className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Choose NIN Modification</option>
+                {domainServices.map(srv => {
                   const key = srv.key || srv.service_key;
-                  const isSelected = (selectedService?.key || selectedService?.service_key) === key;
-                  const displayPrice =
-                    mode === 'BVN' && selectedBvnType
-                      ? Number(selectedBvnType.selling_price)
-                      : Number(srv.selling_price ?? srv.price ?? 0);
-
+                  const price = Number(srv.selling_price ?? srv.price ?? 0);
                   return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => handleSelectService(srv)}
-                      className={`w-full text-left p-3.5 rounded-2xl border transition-all ${
-                        isSelected
-                          ? 'bg-blue-50/90 dark:bg-emerald-500/10 border-blue-600 dark:border-emerald-500/60 shadow-sm'
-                          : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-bold text-slate-900 dark:text-white leading-snug">
-                            {srv.name}
-                          </div>
-                          <div className="flex items-center flex-wrap gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                            <span className="font-medium text-amber-700 dark:text-amber-300">
-                              {srv.manual_label || 'Manual Processing'}
-                            </span>
-                            <span aria-hidden="true">&middot;</span>
-                            <span>{srv.estimated_turnaround || '3 – 10 Business Days'}</span>
-                          </div>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <span className="text-xs font-extrabold font-mono text-blue-700 dark:text-emerald-400 tabular-nums">
-                            ₦{displayPrice.toLocaleString('en-NG')}
-                          </span>
-                          {mode === 'BVN' && activeBvnTypes.length > 0 && (
-                            <span className="block text-[10px] text-slate-500 dark:text-slate-400">
-                              By bank type
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </button>
+                    <option key={key} value={key}>
+                      {srv.name} — ₦{price.toLocaleString('en-NG')} ({srv.estimated_turnaround || 'Manual Processing'})
+                    </option>
                   );
                 })}
-              </div>
+              </select>
             )}
           </div>
 
-          {/* Mandatory Requirements Summary Card for Selected Service */}
+          {/* Display ONLY the selected service summary + Continue button once picked */}
           {selectedService && (
-            <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 shadow-sm">
-              <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Service Checklist &amp; Requirements
-                </h3>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/25 text-amber-700 dark:text-amber-300 text-[10px] font-bold whitespace-nowrap shrink-0">
-                  <Clock className="w-3 h-3" />
-                  <span>{selectedService.manual_label || 'Manual Processing'}</span>
-                </span>
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                <div className="space-y-1.5 min-w-0 flex-1">
+                  <div className="flex items-center flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <span className="font-semibold text-amber-700 dark:text-amber-300 inline-flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>{selectedService.manual_label || 'Manual Processing'}</span>
+                    </span>
+                    <span aria-hidden="true">&middot;</span>
+                    <span className="font-medium text-slate-700 dark:text-slate-300">
+                      {selectedService.estimated_turnaround || '3 – 10 Business Days'}
+                    </span>
+                  </div>
+
+                  <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">
+                    {selectedService.name}
+                  </h3>
+
+                  {selectedService.description && (
+                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed max-w-2xl">
+                      {selectedService.description}
+                    </p>
+                  )}
+
+                  {selectedService.supported_notes && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl">
+                      {selectedService.supported_notes} Estimated timeframes are customer-facing guidelines and are not guaranteed completion dates.
+                    </p>
+                  )}
+                </div>
+
+                <div className="sm:text-right shrink-0">
+                  <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 block">
+                    HAMBAK Customer Price
+                  </span>
+                  <span className="text-2xl font-extrabold font-mono text-blue-700 dark:text-emerald-400 tabular-nums mt-0.5 block">
+                    ₦{finalCharge.toLocaleString('en-NG')}
+                  </span>
+                </div>
               </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Service-specific fields and required document uploads load on the next step.
+                </span>
+                <button
+                  id="nin-mod-continue-btn"
+                  type="button"
+                  onClick={() => {
+                    setFormError(null);
+                    setSubmitSuccessMsg(null);
+                    setNinStep('form');
+                  }}
+                  className="w-full sm:w-auto min-h-[44px] px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition shadow-sm flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
+                >
+                  <span>Continue</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Compact switcher header when a NIN Modification form is active */}
+          {mode === 'NIN' && selectedService && (
+            <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+              <button
+                type="button"
+                id="nin-mod-back-btn"
+                onClick={() => setNinStep('select')}
+                className="inline-flex items-center gap-2 min-h-[40px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap w-fit transition"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Change NIN Service</span>
+              </button>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto sm:min-w-[320px]">
+                <label htmlFor="nin-modification-select" className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap hidden sm:inline">
+                  Service:
+                </label>
+                <select
+                  id="nin-modification-select"
+                  value={selectedServiceKey}
+                  onChange={e => {
+                    const key = e.target.value;
+                    const found = domainServices.find(s => (s.key || s.service_key) === key) || null;
+                    handleSelectService(found);
+                  }}
+                  className="w-full min-h-[40px] px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {domainServices.map(srv => {
+                    const key = srv.key || srv.service_key;
+                    const price = Number(srv.selling_price ?? srv.price ?? 0);
+                    return (
+                      <option key={key} value={key}>
+                        {srv.name} — ₦{price.toLocaleString('en-NG')}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Main Split Workspace: Left Requirements (plus BVN header in BVN mode), Right Service-Specific Form */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Column 1: Mandatory Checklist & Service Summary */}
+            <div className="lg:col-span-5 space-y-4">
+              {mode === 'BVN' && (
+                <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <span className="font-semibold uppercase tracking-wider text-blue-700 dark:text-emerald-400">
+                      NIBSS / Bank BVN Workflow
+                    </span>
+                    <span className="font-medium text-amber-700 dark:text-amber-300 inline-flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Manual Processing</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                      {sectionTitle}
+                    </h2>
+                    <span className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 shrink-0 tabular-nums">
+                      {domainServices.length} {domainServices.length === 1 ? 'Service' : 'Services'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                    {sectionSubtitle}
+                  </p>
+                </div>
+              )}
+
+              {/* Mandatory Requirements Summary Card for Selected Service */}
+              {selectedService && (
+                <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Service Checklist &amp; Requirements
+                    </h3>
+                    <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 inline-flex items-center gap-1 whitespace-nowrap shrink-0">
+                      <Clock className="w-3 h-3" />
+                      <span>{selectedService.manual_label || 'Manual Processing'}</span>
+                    </span>
+                  </div>
 
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                 {selectedService.description}
@@ -950,85 +1148,10 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
           )}
         </div>
 
-        {/* Column 2: Dynamic Submission Form & Confirmation Card */}
+        {/* Column 2: Dynamic Submission Form */}
         <div className="lg:col-span-7 space-y-5">
-          {submittedRequest && (
-            <div className="rounded-3xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 p-5 sm:p-6 space-y-4 shadow-md">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
-                    <Clock className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-extrabold text-slate-900 dark:text-white">
-                      Request Submitted for Manual Processing
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      {submittedRequest.service_name} &middot; Ref{' '}
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                        {submittedRequest.request_number}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handlePollStatus(submittedRequest.id)}
-                  disabled={pollingId === submittedRequest.id}
-                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${pollingId === submittedRequest.id ? 'animate-spin' : ''}`} />
-                  <span>Check Live Status</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                  <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
-                    Current Status
-                  </span>
-                  <span className="font-bold text-amber-700 dark:text-amber-300 mt-0.5 block">
-                    {getModificationStatusStyle(submittedRequest.status).label}
-                  </span>
-                  {submittedRequest.provider_status && (
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
-                      Provider: {submittedRequest.provider_status}
-                    </span>
-                  )}
-                </div>
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                  <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
-                    Amount Charged
-                  </span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-white mt-0.5 block tabular-nums">
-                    ₦{Number(submittedRequest.customer_price).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                  <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
-                    Payment Reference
-                  </span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-white mt-0.5 block break-all">
-                    {submittedRequest.payment_reference}
-                  </span>
-                </div>
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                  <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
-                    Submitted &amp; Est. Time
-                  </span>
-                  <span className="font-semibold text-slate-900 dark:text-white mt-0.5 block">
-                    {submittedRequest.estimated_completion_text}
-                  </span>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
-                    {new Date(submittedRequest.created_at).toLocaleString('en-NG')}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
           {selectedService ? (
-            <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-5 shadow-sm">
+            <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-5 shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -1281,6 +1404,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                         <input
                           id={`mod-field-${field.key}`}
                           type={field.type === 'date' ? 'date' : field.type === 'email' ? 'email' : field.type === 'tel' ? 'tel' : 'text'}
+                          max={field.type === 'date' ? new Date().toISOString().split('T')[0] : undefined}
                           maxLength={field.maxLength || (isDigitId ? 11 : field.type === 'tel' ? 13 : undefined)}
                           inputMode={isDigitId || field.type === 'tel' ? 'numeric' : undefined}
                           value={formValues[field.key] || ''}
@@ -1596,6 +1720,8 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
           ) : null}
         </div>
       </div>
+        </div>
+      )}
 
       {/* Domain-Isolated Modification Requests Tracker */}
       <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-5 shadow-sm">
@@ -1610,8 +1736,8 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2 flex-wrap max-w-full">
+            <div className="flex items-center flex-wrap gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 max-w-full">
               {[
                 { id: 'all', label: 'All' },
                 { id: 'pending', label: 'Pending' },

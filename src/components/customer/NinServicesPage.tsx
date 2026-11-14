@@ -436,8 +436,16 @@ export const NinServicesPage: React.FC = () => {
     if (cat === 'nin_verify') setSelectedServiceKey(ninTargetServiceKey);
     if (cat === 'bvn_verify') setSelectedServiceKey(bvnTargetServiceKey);
     if (cat === 'nin_mod') {
-      const firstMod = (categories.nin_modification || [])[0];
+      const firstMod = (ninModServices || categories.nin_modification || [])[0];
       setSelectedServiceKey(firstMod?.key || 'nin_mod_name');
+    }
+    if (cat === 'nin_mod' || cat === 'bvn_mod') {
+      void api.getModificationServices().then(modRes => {
+        if (modRes?.success) {
+          setNinModServices(modRes.nin_modification || []);
+          setBvnModServices(modRes.bvn_modification || []);
+        }
+      }).catch(() => {});
     }
     if (cat === 'enrolment') {
       const firstEnroll = (categories.enrolment || [])[0];
@@ -971,6 +979,7 @@ export const NinServicesPage: React.FC = () => {
       {/* Main Workspace */}
       {activeCategory === 'nin_mod' ? (
         <ModificationSection
+          key="nin-mod-workspace"
           mode="NIN"
           services={ninModServices}
           loadingServices={loadingModServices}
@@ -981,6 +990,7 @@ export const NinServicesPage: React.FC = () => {
         />
       ) : activeCategory === 'bvn_mod' ? (
         <ModificationSection
+          key="bvn-mod-workspace"
           mode="BVN"
           services={bvnModServices}
           loadingServices={loadingModServices}
