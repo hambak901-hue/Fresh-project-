@@ -79,10 +79,28 @@ class AdminController
         $row['is_new'] = $createdTs !== false && $createdTs >= (time() - 72 * 3600);
         unset($row['live_balance']);
 
-        $kycRows = $this->db->fetchAll(
-            'SELECT * FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC',
+        $kycIdRows = $this->db->fetchAll(
+            'SELECT id FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC',
             ['uid' => $customerId]
         );
+        $kycRows = [];
+        if (!empty($kycIdRows)) {
+            $kycIds = array_values(array_filter(array_column($kycIdRows, 'id')));
+            if (!empty($kycIds)) {
+                $phList = [];
+                $kParams = [];
+                foreach ($kycIds as $kIdx => $kId) {
+                    $phList[] = ':kid_' . $kIdx;
+                    $kParams['kid_' . $kIdx] = $kId;
+                }
+                $kycRows = $this->db->fetchAll(
+                    'SELECT * FROM kyc_submissions WHERE id IN (' . implode(', ', $phList) . ')',
+                    $kParams
+                );
+                $kMap = array_flip($kycIds);
+                usort($kycRows, static fn($a, $b) => ($kMap[$a['id']] ?? PHP_INT_MAX) <=> ($kMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
         $row['kyc_documents'] = array_map(function ($k) {
             return [
                 'id' => $k['id'],
@@ -1062,10 +1080,28 @@ class AdminController
             ['uid' => $customerId]
         );
 
-        $kycSubmissions = $this->db->fetchAll(
-            'SELECT * FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC',
+        $kycIdRows = $this->db->fetchAll(
+            'SELECT id FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC',
             ['uid' => $customerId]
         );
+        $kycSubmissions = [];
+        if (!empty($kycIdRows)) {
+            $kycIds = array_values(array_filter(array_column($kycIdRows, 'id')));
+            if (!empty($kycIds)) {
+                $phList = [];
+                $kParams = [];
+                foreach ($kycIds as $kIdx => $kId) {
+                    $phList[] = ':kid_' . $kIdx;
+                    $kParams['kid_' . $kIdx] = $kId;
+                }
+                $kycSubmissions = $this->db->fetchAll(
+                    'SELECT * FROM kyc_submissions WHERE id IN (' . implode(', ', $phList) . ')',
+                    $kParams
+                );
+                $kMap = array_flip($kycIds);
+                usort($kycSubmissions, static fn($a, $b) => ($kMap[$a['id']] ?? PHP_INT_MAX) <=> ($kMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
         $kyc = $kycSubmissions[0] ?? null;
 
         $supportTickets = $this->db->fetchAll(
@@ -3836,22 +3872,33 @@ class AdminController
         $providerName = strtolower(trim((string)($activeSetting['setting_value'] ?? '2sureverify')));
         $veripine = new VeripineAdapter();
         $twosure = new TwoSureVerifyAdapter();
+        $order = ($providerName === 'veripine') ? ['veripine', '2sureverify'] : ['2sureverify', 'veripine'];
 
-        $hasTwoSureKey = !empty(getenv('TWOSUREVERIFY_API_KEY'));
-        if ($providerName === 'veripine' && !$veripine->hasCredentials() && $hasTwoSureKey) {
-            $providerName = '2sureverify';
-        } elseif ($providerName === '2sureverify' && !$hasTwoSureKey && $veripine->hasCredentials()) {
-            $providerName = 'veripine';
+        $providerRes = null;
+        foreach ($order as $candProv) {
+            if ($candProv === '2sureverify' && $twosure->hasCredentials()) {
+                $attempt = $twosure->verify(
+                    $nin !== '' ? 'api/v1/nin_v1.php' : 'api/v1/bvn_v1.php',
+                    $nin !== '' ? ['nin' => $nin, 'slip_type' => 'ninStandard'] : ['bvn' => $bvn, 'slip_type' => 'bvnBasic']
+                );
+            } elseif ($candProv === 'veripine' && $veripine->hasCredentials()) {
+                $attempt = $veripine->verify(
+                    $nin !== '' ? '/nin-verification' : '/bvn-verification',
+                    $nin !== '' ? ['nin' => $nin] : ['bvn' => $bvn]
+                );
+            } else {
+                continue;
+            }
+            $isAttemptOk = !empty($attempt['success']) || (($attempt['status'] ?? '') === 'success');
+            if ($isAttemptOk) {
+                $providerName = $candProv;
+                $providerRes = $attempt;
+                break;
+            }
+            $providerRes = $providerRes ?? $attempt;
         }
 
-        $endpoint = $nin !== '' ? '/nin-verification' : '/bvn-verification';
-        $payload = $nin !== '' ? ['nin' => $nin] : ['bvn' => $bvn];
-
-        $providerRes = ($providerName === '2sureverify')
-            ? $twosure->verify($nin !== '' ? 'api/v1/nin_v1.php' : 'api/v1/bvn_v1.php', $nin !== '' ? ['nin' => $nin, 'slip_type' => 'ninStandard'] : ['bvn' => $bvn, 'slip_type' => 'bvnBasic'])
-            : $veripine->verify($endpoint, $payload);
-
-        $isOk = !empty($providerRes['success']) || (($providerRes['status'] ?? '') === 'success');
+        $isOk = is_array($providerRes) && (!empty($providerRes['success']) || (($providerRes['status'] ?? '') === 'success'));
         if (!$isOk) {
             $code = (int)($providerRes['code'] ?? 502);
             Response::error((string)($providerRes['message'] ?? 'Automated identity lookup failed.'), $code >= 400 ? $code : 502);

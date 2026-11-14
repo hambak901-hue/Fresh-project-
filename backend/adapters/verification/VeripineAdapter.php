@@ -304,7 +304,7 @@ class VeripineAdapter implements VerificationAdapterInterface
                 'consent' => true,
             ],
             '/bvn-phone' => [
-                'phone' => $cleanPhone($payload['phone'] ?? $payload['search_value'] ?? ''),
+                'phone' => $cleanPhone($payload['phone'] ?? $payload['phone_number'] ?? $payload['search_value'] ?? ''),
                 'consent' => true,
             ],
             '/nin-modification' => array_filter([
@@ -325,7 +325,9 @@ class VeripineAdapter implements VerificationAdapterInterface
                 'reference_id' => trim((string)($payload['reference_id'] ?? $payload['reference'] ?? '')),
             ],
             default => [
-                'nin' => preg_replace('/\D/', '', (string)($payload['nin'] ?? $payload['vnin'] ?? $payload['search_value'] ?? '')),
+                'nin' => strtolower((string)($payload['service_key'] ?? '')) === 'vnin_verification'
+                    ? preg_replace('/[^A-Za-z0-9]/', '', (string)($payload['nin'] ?? $payload['vnin'] ?? $payload['search_value'] ?? ''))
+                    : preg_replace('/\D/', '', (string)($payload['nin'] ?? $payload['vnin'] ?? $payload['search_value'] ?? '')),
                 'consent' => true,
             ],
         };

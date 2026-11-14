@@ -22,6 +22,7 @@ export interface NormalizedIdentityReport {
   address: string | null;
   state: string | null;
   lga: string | null;
+  nationality: string | null;
   trackingId: string | null;
   enrollmentBank: string | null;
   enrollmentBranch: string | null;
@@ -68,29 +69,36 @@ export function extractVerificationReport(record: any): NormalizedIdentityReport
   const serviceKeyLower = String(record?.service_key ?? '').toLowerCase();
   const typeLower = String(record?.type ?? '').toLowerCase();
 
-  const nin = cleanField(
+  const rawNin = cleanField(
     nested.nin ??
       nested.NIN ??
       (serviceKeyLower.includes('nin') && !serviceKeyLower.includes('bvn') ? record?.search_value : null)
   );
-  const bvn = cleanField(
+  const rawBvn = cleanField(
     nested.bvn ??
       nested.BVN ??
-      ((serviceKeyLower === 'bvn_v1' || serviceKeyLower === 'bvn_v2' || serviceKeyLower === 'bvn_v3')
-        ? record?.search_value
+      (serviceKeyLower.startsWith('bvn') || typeLower.includes('bvn')
+        ? nested.idNumber ?? (serviceKeyLower !== 'bvn_retrieval' ? record?.search_value : null)
         : null)
   );
   const isBvnReport = Boolean(
-    bvn ||
-      serviceKeyLower.startsWith('bvn') ||
+    serviceKeyLower.startsWith('bvn') ||
       typeLower === 'bvn' ||
-      typeLower.includes('bvn')
+      typeLower.includes('bvn') ||
+      (!serviceKeyLower.includes('nin') && !typeLower.includes('nin') && rawBvn)
   );
 
-  const dateOfBirth = cleanField(nested.birthdate ?? nested.dateOfBirth ?? nested.date_of_birth ?? nested.dob);
+  // Strict domain separation: BVN reports never display NIN; NIN reports never display BVN banking fields
+  const bvn = isBvnReport ? rawBvn : null;
+  const nin = isBvnReport ? null : rawNin;
+
+  const dateOfBirth = cleanField(
+    nested.birthdate ?? nested.birthDate ?? nested.dateOfBirth ?? nested.date_of_birth ?? nested.dob
+  );
   const gender = cleanField(nested.gender ?? nested.sex);
   const phoneNumber = cleanField(
     nested.telephoneno ??
+      nested.telephoneNo ??
       nested.phone ??
       nested.phoneNumber ??
       nested.phoneNumber1 ??
@@ -108,20 +116,31 @@ export function extractVerificationReport(record: any): NormalizedIdentityReport
       nested.residence_AdressLine1
   );
   const state = cleanField(
-    nested.residence_state ?? nested.stateOfResidence ?? nested.state ?? nested.stateOfOrigin
+    nested.residence_state ??
+      nested.state_of_residence ??
+      nested.stateOfResidence ??
+      nested.state ??
+      nested.state_of_origin ??
+      nested.stateOfOrigin
   );
   const lga = cleanField(
-    nested.residence_lga ?? nested.lgaOfResidence ?? nested.lga ?? nested.lgaOfOrigin
+    nested.residence_lga ??
+      nested.lga_of_residence ??
+      nested.lgaOfResidence ??
+      nested.lga ??
+      nested.lga_of_origin ??
+      nested.lgaOfOrigin
   );
-  const trackingId = cleanField(nested.tracking_id ?? nested.trackingId);
+  const nationality = cleanField(nested.nationality ?? nested.birthcountry ?? nested.country);
+  const trackingId = isBvnReport ? null : cleanField(nested.tracking_id ?? nested.trackingId);
 
-  const enrollmentBank = cleanField(nested.enrollment_bank ?? nested.enrollmentBank);
-  const enrollmentBranch = cleanField(nested.enrollment_branch ?? nested.enrollmentBranch);
-  const levelOfAccount = cleanField(nested.level_of_account ?? nested.levelOfAccount);
-  const watchListed = cleanField(nested.watch_listed ?? nested.watchListed ?? nested.watchlisted);
+  const enrollmentBank = isBvnReport ? cleanField(nested.enrollment_bank ?? nested.enrollmentBank) : null;
+  const enrollmentBranch = isBvnReport ? cleanField(nested.enrollment_branch ?? nested.enrollmentBranch) : null;
+  const levelOfAccount = isBvnReport ? cleanField(nested.level_of_account ?? nested.levelOfAccount) : null;
+  const watchListed = isBvnReport ? cleanField(nested.watch_listed ?? nested.watchListed ?? nested.watchlisted) : null;
   const maritalStatus = cleanField(nested.marital_status ?? nested.maritalStatus);
-  const nameOnCard = cleanField(nested.name_on_card ?? nested.nameOnCard);
-  const registrationDate = cleanField(nested.registration_date ?? nested.registrationDate);
+  const nameOnCard = isBvnReport ? cleanField(nested.name_on_card ?? nested.nameOnCard) : null;
+  const registrationDate = isBvnReport ? cleanField(nested.registration_date ?? nested.registrationDate) : null;
 
   let photo = cleanField(nested.photo ?? nested.base64Image ?? nested.image ?? nested.avatar);
   if (photo) {
@@ -158,9 +177,15 @@ export function extractVerificationReport(record: any): NormalizedIdentityReport
     : new Date().toLocaleString('en-NG');
 
   const status = cleanField(record?.status) || 'VERIFIED';
+  const rawSlipType = cleanField(record?.slip_name ?? record?.slip_type ?? nested.slip_type);
   const slipTypeName =
-    cleanField(record?.slip_name ?? record?.slip_type ?? nested.slip_type) ||
-    (isBvnReport ? 'BVN Verification Report' : 'Standard Verification Report');
+    rawSlipType &&
+    !(isBvnReport && rawSlipType.toLowerCase().startsWith('nin')) &&
+    !(!isBvnReport && rawSlipType.toLowerCase().includes('bvn'))
+      ? rawSlipType
+      : isBvnReport
+      ? 'BVN Verification Report'
+      : 'NIN Verification Report';
 
   return {
     firstName,
@@ -177,6 +202,7 @@ export function extractVerificationReport(record: any): NormalizedIdentityReport
     address,
     state,
     lga,
+    nationality,
     trackingId,
     enrollmentBank,
     enrollmentBranch,
@@ -234,7 +260,7 @@ export async function downloadVerificationReportPdf(
     a.href = report.pdfUrl;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
-    a.download = `HAMBAKTECH_ORIGINAL_SLIP_${report.bvn || report.nin || report.reference}.pdf`;
+    a.download = `${report.isBvnReport ? 'HAMBAKTECH_ORIGINAL_BVN_SLIP_' : 'HAMBAKTECH_ORIGINAL_NIN_SLIP_'}${report.bvn || report.nin || report.reference}.pdf`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -253,7 +279,7 @@ export async function downloadVerificationReportPdf(
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `HAMBAKTECH_ORIGINAL_SLIP_${report.bvn || report.nin || report.reference}.pdf`;
+      a.download = `${report.isBvnReport ? 'HAMBAKTECH_ORIGINAL_BVN_SLIP_' : 'HAMBAKTECH_ORIGINAL_NIN_SLIP_'}${report.bvn || report.nin || report.reference}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -285,7 +311,7 @@ export async function downloadVerificationReportPdf(
   doc.setFontSize(10);
   doc.setTextColor(148, 163, 184);
   doc.text(
-    report.isBvnReport ? 'BANK VERIFICATION NUMBER (BVN) REPORT' : 'DIGITAL IDENTITY VERIFICATION REPORT',
+    report.isBvnReport ? 'BANK VERIFICATION NUMBER (BVN) REPORT' : 'NATIONAL IDENTITY (NIN) VERIFICATION REPORT',
     15,
     22
   );
@@ -336,6 +362,7 @@ export async function downloadVerificationReportPdf(
     ['Phone Number', report.phoneNumber],
     ['Email Address', report.email],
     ['Residential Address', [report.address, report.lga, report.state].filter(Boolean).join(', ') || null],
+    ['Nationality', report.nationality],
     ['Enrollment Bank', report.enrollmentBank],
     ['Enrollment Branch', report.enrollmentBranch],
     ['Account Level', report.levelOfAccount],
@@ -350,7 +377,7 @@ export async function downloadVerificationReportPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(15, 23, 42);
-  doc.text(report.isBvnReport ? 'Verified BVN Identity Summary' : 'Verified Identity Summary', textStartX, y + 4);
+  doc.text(report.isBvnReport ? 'Verified BVN Identity Summary' : 'Verified NIN Identity Summary', textStartX, y + 4);
   let fieldY = y + 12;
 
   fields.forEach(([label, value], index) => {
@@ -395,6 +422,6 @@ export async function downloadVerificationReportPdf(
   );
   doc.text(disclaimer, 15, footerY + 5);
 
-  doc.save(`HAMBAKTECH_VERIFICATION_REPORT_${report.bvn || report.nin || report.reference}.pdf`);
+  doc.save(`${report.isBvnReport ? 'HAMBAKTECH_BVN_REPORT_' : 'HAMBAKTECH_NIN_REPORT_'}${report.bvn || report.nin || report.reference}.pdf`);
   return 'generated_report_pdf';
 }

@@ -38,11 +38,6 @@ class AuthController
         $email = strtolower($inputIdent);
         $phoneDigits = preg_replace('/[^0-9]/', '', $inputIdent);
 
-        // Map alias hambak901 to hambak901@gmail.com
-        if ($email === 'hambak901' || $email === 'hambak') {
-            $email = 'hambak901@gmail.com';
-        }
-
         try {
             $user = $this->db->fetchOne(
                 'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
@@ -584,9 +579,6 @@ class AuthController
     public function forgotPassword(Request $request): void
     {
         $inputEmail = strtolower(trim((string)$request->input('email', '')));
-        if ($inputEmail === 'hambak901' || $inputEmail === 'hambak') {
-            $inputEmail = 'hambak901@gmail.com';
-        }
         $phoneDigits = preg_replace('/[^0-9]/', '', $inputEmail);
 
         $user = $this->db->fetchOne(
@@ -651,9 +643,6 @@ class AuthController
     public function verifyOtp(Request $request): void
     {
         $email = strtolower(trim((string)$request->input('email', '')));
-        if ($email === 'hambak901' || $email === 'hambak') {
-            $email = 'hambak901@gmail.com';
-        }
         $otp = trim((string)$request->input('otp_code', $request->input('otp', '')));
 
         if (empty($email) || empty($otp)) {
@@ -699,9 +688,6 @@ class AuthController
     public function resetPassword(Request $request): void
     {
         $email = strtolower(trim((string)$request->input('email', '')));
-        if ($email === 'hambak901' || $email === 'hambak') {
-            $email = 'hambak901@gmail.com';
-        }
         $otp = trim((string)$request->input('otp_code', $request->input('otp', '')));
         $token = trim((string)$request->input('token', ''));
         $newPassword = (string)$request->input('new_password', $request->input('password', ''));

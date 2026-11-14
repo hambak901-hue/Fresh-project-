@@ -565,10 +565,17 @@ export const api = {
   },
 
   async verifyIdentity(type: string, identifier: string): Promise<{ success: boolean; newBalance: number; result: any }> {
+    const isBvn = String(type || '').toUpperCase() === 'BVN';
     return request('/api/verification/verify', {
       method: 'POST',
       timeoutMs: 55000,
-      body: JSON.stringify({ serviceKey: type === 'BVN' ? 'bvn_v1' : 'nin_v1', payload: { nin: identifier, bvn: identifier, slip_type: 'ninStandard' }, consent: true }),
+      body: JSON.stringify({
+        serviceKey: isBvn ? 'bvn_v1' : 'nin_v1',
+        payload: isBvn
+          ? { bvn: identifier, slip_type: 'bvnBasic' }
+          : { nin: identifier, slip_type: 'ninStandard' },
+        consent: true,
+      }),
     });
   },
 

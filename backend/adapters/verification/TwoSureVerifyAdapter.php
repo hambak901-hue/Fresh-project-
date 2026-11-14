@@ -56,14 +56,19 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
     private function buildRequestPayload(string $endpoint, array $payload): array
     {
         $ep = strtolower(trim($endpoint));
-        $slipType = trim((string)($payload['slip_type'] ?? 'ninStandard'));
-        $tier = trim((string)($payload['tier'] ?? 'basic'));
+        $serviceKey = strtolower(trim((string)($payload['service_key'] ?? '')));
+        $slipType = trim((string)($payload['slip_type'] ?? ''));
+        $tier = strtolower(trim((string)($payload['tier'] ?? '')));
         $nin = preg_replace('/\D/', '', (string)($payload['nin'] ?? $payload['search_value'] ?? '')) ?? '';
+        $rawVnin = preg_replace('/[^A-Za-z0-9]/', '', (string)($payload['nin'] ?? $payload['vnin'] ?? $payload['search_value'] ?? '')) ?? '';
         $phone = preg_replace('/\D/', '', (string)($payload['phone'] ?? $payload['phone_number'] ?? $payload['search_value'] ?? '')) ?? '';
         $bvn = preg_replace('/\D/', '', (string)($payload['bvn'] ?? $payload['search_value'] ?? '')) ?? '';
 
         $shortGender = strtolower(trim((string)($payload['gender'] ?? 'm')));
         $shortGender = ($shortGender === 'female' || $shortGender === 'f') ? 'f' : 'm';
+
+        $validNinSlips = ['ninBasic', 'ninRegular', 'ninStandard', 'ninPremium', 'ninVnin', 'ninSpecial'];
+        $safeNinSlip = in_array($slipType, $validNinSlips, true) ? $slipType : 'ninStandard';
 
         // Map internal HAMBAKTECH BVN slip code 'bankBvn' to 2SureVerify's supported slip_type
         $bvnSlipMap = [
@@ -74,23 +79,54 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ];
         $providerBvnSlip = $bvnSlipMap[$slipType] ?? 'bvnBasic';
 
+        $ninSlipToV2Tier = [
+            'ninBasic' => 'basic',
+            'ninRegular' => 'regular',
+            'ninStandard' => 'standard',
+            'ninPremium' => 'premium',
+            'ninVnin' => 'vnin',
+            'ninSpecial' => 'vip',
+        ];
+        $phoneSlipToV2Tier = [
+            'ninBasic' => 'regular',
+            'ninRegular' => 'regular',
+            'ninStandard' => 'standard',
+            'ninPremium' => 'premium',
+            'ninVnin' => 'vnin',
+            'ninSpecial' => 'premium',
+        ];
+
         if (str_contains($ep, 'nin_v1.php')) {
-            return ['nin' => $nin, 'slip_type' => $slipType];
+            return ['nin' => $nin, 'slip_type' => $safeNinSlip];
         }
         if (str_contains($ep, 'phone_v1.php')) {
-            return ['phone' => $phone, 'slip_type' => $slipType];
+            return ['phone' => $phone, 'slip_type' => $safeNinSlip];
         }
-        if (str_contains($ep, 'nin_v2.php')) {
-            return ['nin' => $nin, 'tier' => $tier];
+        if (str_contains($ep, 'nin_v2.php') || str_contains($ep, 'vnin')) {
+            if ($serviceKey === 'vnin_verification' || str_contains($ep, 'vnin')) {
+                $v2Tier = 'vnin';
+                $targetNin = $rawVnin !== '' ? $rawVnin : $nin;
+            } else {
+                $v2Tier = in_array($tier, ['basic', 'standard', 'premium', 'regular', 'vnin', 'vip'], true)
+                    ? $tier
+                    : ($ninSlipToV2Tier[$safeNinSlip] ?? 'basic');
+                $targetNin = $v2Tier === 'vnin' && $rawVnin !== '' ? $rawVnin : $nin;
+            }
+            return ['nin' => $targetNin, 'tier' => $v2Tier];
         }
         if (str_contains($ep, 'phone_v2.php')) {
-            return ['phone' => $phone, 'tier' => $tier];
+            $v2PhoneTier = in_array($tier, ['lookup', 'premium', 'standard', 'regular', 'vnin'], true)
+                ? $tier
+                : ($phoneSlipToV2Tier[$safeNinSlip] ?? 'standard');
+            return ['phone' => $phone, 'tier' => $v2PhoneTier];
         }
         if (str_contains($ep, 'nin_v3.php')) {
-            return ['nin' => $nin, 'tier' => $tier ?: 'v1', 'slip_type' => $slipType];
+            $v3Tier = in_array($tier, ['v1', 'v2', 'v3', 'v4', 'v5'], true) ? $tier : 'v1';
+            return ['nin' => $nin, 'tier' => $v3Tier, 'slip_type' => $safeNinSlip];
         }
         if (str_contains($ep, 'phone_v3.php')) {
-            return ['phone' => $phone, 'tier' => $tier ?: 'v1', 'slip_type' => $slipType];
+            $v3Tier = in_array($tier, ['v1', 'v2', 'v3', 'v4', 'v5'], true) ? $tier : 'v1';
+            return ['phone' => $phone, 'tier' => $v3Tier, 'slip_type' => $safeNinSlip];
         }
         if (str_contains($ep, 'demo_v1.php')) {
             return [
@@ -98,7 +134,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 'lastname' => trim((string)($payload['lastname'] ?? $payload['surname'] ?? $payload['last_name'] ?? '')),
                 'dob' => trim((string)($payload['dob'] ?? $payload['birthdate'] ?? '')),
                 'gender' => strtoupper($shortGender),
-                'slip_type' => $slipType,
+                'slip_type' => $safeNinSlip,
             ];
         }
         if (str_contains($ep, 'demo_v2.php')) {
@@ -116,17 +152,14 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 'dob' => trim((string)($payload['dob'] ?? $payload['birthdate'] ?? '')),
                 'gender' => $shortGender,
                 'tier' => in_array($tier, ['v1', 'v2'], true) ? $tier : 'v1',
-                'slip_type' => $slipType,
+                'slip_type' => $safeNinSlip,
             ];
-        }
-        if (str_contains($ep, 'vnin')) {
-            return ['nin' => trim((string)($payload['nin'] ?? $payload['search_value'] ?? '')), 'slip_type' => $slipType];
         }
         if (str_contains($ep, 'bvn_retrieval.php')) {
             return [
                 'first_name' => trim((string)($payload['first_name'] ?? $payload['firstname'] ?? '')),
                 'last_name' => trim((string)($payload['last_name'] ?? $payload['lastname'] ?? $payload['surname'] ?? '')),
-                'phone' => $phone,
+                'phone_number' => $phone,
             ];
         }
         if (str_contains($ep, 'bvn_v1.php')) {
@@ -265,33 +298,41 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             ];
         }
 
+        if (str_contains(strtolower($endpoint), 'vnin_verification')) {
+            $endpoint = '/api/v1/nin_v2.php';
+            $payload['tier'] = 'vnin';
+        }
+
         $result = $this->executeSingleCall($endpoint, $payload, $reference);
         if (!empty($result['success'])) {
             return $result;
         }
 
-        // If a _v1.php endpoint specifically asks callers to try V2 or V3 (or reports upstream unavailability), fail over internally
-        $msgLower = strtolower((string)($result['message'] ?? ''));
-        $isVersionFailoverPrompt = str_contains($msgLower, 'try a different version')
-            || str_contains($msgLower, 'could not be completed right now')
-            || str_contains($msgLower, 'currently unavailable')
-            || str_contains($msgLower, 'temporarily unavailable')
-            || str_contains($msgLower, 'service unavailable');
-        if ($isVersionFailoverPrompt && preg_match('/^(.*)_v1\.php$/i', $endpoint, $m)) {
+        $isTransientFail = static function (array $res): bool {
+            $msgLower = strtolower((string)($res['message'] ?? ''));
+            $code = (int)($res['code'] ?? 0);
+            if (str_contains($msgLower, 'insufficient') || str_contains($msgLower, 'no record found') || str_contains($msgLower, 'not found in nimc')) {
+                return false;
+            }
+            return str_contains($msgLower, 'try a different version')
+                || str_contains($msgLower, 'could not be completed right now')
+                || str_contains($msgLower, 'currently unavailable')
+                || str_contains($msgLower, 'temporarily unavailable')
+                || str_contains($msgLower, 'service unavailable')
+                || str_contains($msgLower, 'maintenance')
+                || $code === 404
+                || $code >= 500;
+        };
+
+        // If a _v1.php endpoint fails transiently or asks callers to try V2 or V3, fail over internally
+        if ($isTransientFail($result) && preg_match('/^(.*)_v1\.php$/i', $endpoint, $m)) {
             $prefix = $m[1];
             foreach ([$prefix . '_v3.php', $prefix . '_v2.php'] as $idx => $fallbackEp) {
                 $fbRes = $this->executeSingleCall($fallbackEp, $payload, $reference . '_VFB' . ($idx + 1));
                 if (!empty($fbRes['success'])) {
                     return $fbRes;
                 }
-                $fbMsgLower = strtolower((string)($fbRes['message'] ?? ''));
-                $shouldContinueFailover = str_contains($fbMsgLower, 'try a different version')
-                    || str_contains($fbMsgLower, 'could not be completed right now')
-                    || str_contains($fbMsgLower, 'currently unavailable')
-                    || str_contains($fbMsgLower, 'temporarily unavailable')
-                    || str_contains($fbMsgLower, 'service unavailable');
-                // Stop failover immediately on definitive registry results (e.g. No record found)
-                if (!$shouldContinueFailover) {
+                if (!$isTransientFail($fbRes)) {
                     return $fbRes;
                 }
             }

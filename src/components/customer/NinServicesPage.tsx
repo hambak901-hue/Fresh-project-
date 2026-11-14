@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 
 type HubCategory = 'nin_verify' | 'bvn_verify' | 'nin_mod' | 'enrolment' | 'additional' | 'history';
-type NinSearchType = 'nin_v1' | 'phone_v1' | 'demo_v1';
+type NinSearchType = 'nin_v1' | 'phone_v1' | 'demo_v1' | 'vnin_verification';
 type BvnSearchMode = 'bvn_number' | 'bvn_retrieval';
 
 const PENDING_RECOVERY_KEY = 'hambak_pending_nin_recovery';
@@ -244,6 +244,45 @@ export const NinServicesPage: React.FC = () => {
     return activeBvnSlips.find(s => s.id === selectedBvnSlipId || s.slip_code === selectedBvnSlipId) || activeBvnSlips[0] || null;
   }, [activeBvnSlips, selectedBvnSlipId]);
 
+  const enabledServices = useMemo(() => {
+    return services.filter(s => s.enabled !== false);
+  }, [services]);
+
+  const ninNumberServiceKey = useMemo(() => {
+    for (const k of ['nin_v1', 'nin_v2', 'nin_v3']) {
+      if (enabledServices.some(s => s.key === k)) return k;
+    }
+    return 'nin_v1';
+  }, [enabledServices]);
+
+  const ninPhoneServiceKey = useMemo(() => {
+    for (const k of ['phone_v1', 'phone_v2', 'phone_v3']) {
+      if (enabledServices.some(s => s.key === k)) return k;
+    }
+    return 'phone_v1';
+  }, [enabledServices]);
+
+  const ninDemoServiceKey = useMemo(() => {
+    for (const k of ['demo_v1', 'demo_v2', 'demo_v3']) {
+      if (enabledServices.some(s => s.key === k)) return k;
+    }
+    return 'demo_v1';
+  }, [enabledServices]);
+
+  const vninAvailable = useMemo(() => {
+    if (services.length === 0) return false;
+    return enabledServices.some(s => s.key === 'vnin_verification');
+  }, [services.length, enabledServices]);
+
+  const ninTargetServiceKey =
+    ninSearchType === 'phone_v1'
+      ? ninPhoneServiceKey
+      : ninSearchType === 'demo_v1'
+      ? ninDemoServiceKey
+      : ninSearchType === 'vnin_verification'
+      ? 'vnin_verification'
+      : ninNumberServiceKey;
+
   const bvnServicesList = useMemo(() => {
     return (categories.bvn_verification || services.filter(s => s.category === 'bvn_verification'))
       .filter(s => s.enabled !== false);
@@ -266,12 +305,12 @@ export const NinServicesPage: React.FC = () => {
 
   const demoVerificationAvailable = useMemo(() => {
     if (services.length === 0) return true;
-    return services.some(s => s.key === 'demo_v1' && s.enabled !== false);
-  }, [services]);
+    return ['demo_v1', 'demo_v2', 'demo_v3'].some(k => enabledServices.some(s => s.key === k));
+  }, [services.length, enabledServices]);
 
   const activeServiceKey =
     activeCategory === 'nin_verify'
-      ? ninSearchType
+      ? ninTargetServiceKey
       : activeCategory === 'bvn_verify'
       ? bvnTargetServiceKey
       : selectedServiceKey;
@@ -282,10 +321,12 @@ export const NinServicesPage: React.FC = () => {
       services[0] || {
         key: activeServiceKey,
         name:
-          activeServiceKey === 'phone_v1'
+          ninSearchType === 'phone_v1'
             ? 'NIN Search via Phone Number'
-            : activeServiceKey === 'demo_v1'
+            : ninSearchType === 'demo_v1'
             ? 'NIN Verification via Demographic Data'
+            : ninSearchType === 'vnin_verification'
+            ? 'Virtual NIN (VNIN) Verification'
             : activeServiceKey === 'bvn_retrieval'
             ? 'BVN Retrieval via Phone Number'
             : activeServiceKey.startsWith('bvn_')
@@ -294,9 +335,9 @@ export const NinServicesPage: React.FC = () => {
         category: activeCategory === 'bvn_verify' ? 'bvn_verification' : 'nin_verification',
         price: activeServiceKey === 'bvn_retrieval' ? 1200 : activeCategory === 'bvn_verify' ? 250 : 200,
         required_fields:
-          activeServiceKey === 'phone_v1' || activeServiceKey === 'bvn_retrieval'
+          activeServiceKey.startsWith('phone_') || activeServiceKey === 'bvn_retrieval'
             ? ['phone', 'slip_type']
-            : activeServiceKey === 'demo_v1'
+            : activeServiceKey.startsWith('demo_')
             ? ['firstname', 'lastname', 'dob', 'gender', 'slip_type']
             : activeServiceKey.startsWith('bvn_')
             ? ['bvn', 'slip_type']
@@ -305,10 +346,10 @@ export const NinServicesPage: React.FC = () => {
           activeCategory === 'bvn_verify'
             ? 'Verify Bank Verification Number details and generate an authorized BVN slip report.'
             : 'Verify National Identification Number details.',
-        slip_type_supported: true,
+        slip_type_supported: activeServiceKey !== 'vnin_verification',
       }
     );
-  }, [services, activeServiceKey, activeCategory]);
+  }, [services, activeServiceKey, activeCategory, ninSearchType]);
 
   const computeBvnSlipPrice = (slip: SlipTemplateItem | null): number => {
     const servicePrice = Number((currentService as any).price ?? (currentService as any).selling_price ?? 0);
@@ -319,11 +360,18 @@ export const NinServicesPage: React.FC = () => {
     if (bvnSearchMode === 'bvn_retrieval') {
       return Math.max(servicePrice || 1200, slipPrice);
     }
+    if ((currentService as any).slip_type_supported === false && servicePrice > 0) {
+      return servicePrice;
+    }
     return slipPrice > 0 ? slipPrice : servicePrice;
   };
 
   const finalCharge = useMemo(() => {
+    const servicePrice = Number((currentService as any).price ?? (currentService as any).selling_price ?? 0);
     if (activeCategory === 'nin_verify') {
+      if ((currentService as any).slip_type_supported === false && servicePrice > 0) {
+        return servicePrice;
+      }
       if (selectedNinSlip?.price !== null && selectedNinSlip?.price !== undefined && Number(selectedNinSlip.price) > 0) {
         return Number(selectedNinSlip.price);
       }
@@ -331,7 +379,7 @@ export const NinServicesPage: React.FC = () => {
     if (activeCategory === 'bvn_verify') {
       return computeBvnSlipPrice(selectedBvnSlip);
     }
-    return Number((currentService as any).price ?? (currentService as any).selling_price ?? 0);
+    return servicePrice;
   }, [activeCategory, selectedNinSlip, selectedBvnSlip, currentService, bvnSearchMode]);
 
   const walletBalance = Number(user?.wallet_balance ?? 0);
@@ -349,11 +397,12 @@ export const NinServicesPage: React.FC = () => {
 
   const handleSwitchCategory = (cat: HubCategory) => {
     setActiveCategory(cat);
+    setVerifiedRecord(null);
     setError(null);
     setSuccessMessage(null);
     resetIdempotency();
 
-    if (cat === 'nin_verify') setSelectedServiceKey(ninSearchType);
+    if (cat === 'nin_verify') setSelectedServiceKey(ninTargetServiceKey);
     if (cat === 'bvn_verify') setSelectedServiceKey(bvnTargetServiceKey);
     if (cat === 'nin_mod') {
       const firstMod = (categories.nin_modification || [])[0];
@@ -382,7 +431,7 @@ export const NinServicesPage: React.FC = () => {
     }
 
     if (activeCategory === 'nin_verify') {
-      if (!selectedNinSlip) {
+      if ((currentService as any).slip_type_supported !== false && !selectedNinSlip) {
         setError('No active slip format is currently available. Please contact support.');
         return;
       }
@@ -393,6 +442,12 @@ export const NinServicesPage: React.FC = () => {
         }
         if (!/^\d{4}-\d{2}-\d{2}$/.test(demoDob)) {
           setError('Please select a valid Date of Birth (YYYY-MM-DD) for Demographic Verification.');
+          return;
+        }
+      } else if (ninSearchType === 'vnin_verification') {
+        const digitsOnly = ninInputValue.replace(/\s+/g, '');
+        if (!/^\d{11}$/.test(digitsOnly)) {
+          setError('Please enter a valid 11-digit NIN for VNIN slip verification.');
           return;
         }
       } else {
@@ -570,7 +625,7 @@ export const NinServicesPage: React.FC = () => {
         : String(formData.nin || formData.bvn || formData.phone || '').trim();
     const targetKey =
       activeCategory === 'nin_verify'
-        ? ninSearchType
+        ? ninTargetServiceKey
         : activeCategory === 'bvn_verify'
         ? bvnTargetServiceKey
         : currentService.key;
@@ -581,13 +636,13 @@ export const NinServicesPage: React.FC = () => {
       searchValue: cleanSearchVal,
       slipType:
         activeCategory === 'nin_verify'
-          ? selectedNinSlip?.slip_code
+          ? (ninSearchType === 'vnin_verification' ? 'ninVnin' : selectedNinSlip?.slip_code)
           : activeCategory === 'bvn_verify'
           ? selectedBvnSlip?.slip_code
           : formData.slip_type,
       slipName:
         activeCategory === 'nin_verify'
-          ? selectedNinSlip?.name
+          ? (ninSearchType === 'vnin_verification' ? 'VNIN Slip' : selectedNinSlip?.name)
           : activeCategory === 'bvn_verify'
           ? selectedBvnSlip?.name
           : currentService.name,
@@ -609,6 +664,15 @@ export const NinServicesPage: React.FC = () => {
                 slip_template_id: selectedNinSlip?.id,
                 idempotency_key: activeIkey,
               }
+            : ninSearchType === 'vnin_verification'
+            ? {
+                search_type: 'vnin',
+                tier: 'vnin',
+                nin: cleanSearchVal,
+                slip_type: 'ninVnin',
+                slip_template_id: selectedNinSlip?.id,
+                idempotency_key: activeIkey,
+              }
             : {
                 search_type: ninSearchType === 'phone_v1' ? 'phone' : 'nin',
                 nin: ninSearchType === 'nin_v1' ? cleanSearchVal : undefined,
@@ -622,6 +686,7 @@ export const NinServicesPage: React.FC = () => {
               search_type: bvnSearchMode === 'bvn_retrieval' ? 'phone' : 'bvn',
               bvn: bvnSearchMode === 'bvn_number' ? cleanSearchVal : undefined,
               phone: bvnSearchMode === 'bvn_retrieval' ? cleanSearchVal : undefined,
+              phone_number: bvnSearchMode === 'bvn_retrieval' ? cleanSearchVal : undefined,
               first_name: bvnSearchMode === 'bvn_retrieval' ? bvnFirstName.trim().toUpperCase() : undefined,
               last_name: bvnSearchMode === 'bvn_retrieval' ? bvnLastName.trim().toUpperCase() : undefined,
               slip_type: selectedBvnSlip?.slip_code || 'bvnBasic',
@@ -782,6 +847,7 @@ export const NinServicesPage: React.FC = () => {
         { label: 'NIN Number', value: report.nin, mono: true },
         { label: 'Date of Birth', value: report.dateOfBirth, mono: true },
         { label: 'Gender', value: report.gender },
+        { label: 'Nationality', value: report.nationality },
         { label: 'Phone Number', value: report.phoneNumber, mono: true },
         { label: 'Email Address', value: report.email },
         { label: 'Residential Address', value: [report.address, report.lga, report.state].filter(Boolean).join(', ') || null },
@@ -961,6 +1027,9 @@ export const NinServicesPage: React.FC = () => {
                       {demoVerificationAvailable && (
                         <option value="demo_v1">Demographic Verification (Name, DOB &amp; Gender)</option>
                       )}
+                      {vninAvailable && (
+                        <option value="vnin_verification">Virtual NIN (VNIN)</option>
+                      )}
                     </select>
                   </div>
 
@@ -1063,33 +1132,39 @@ export const NinServicesPage: React.FC = () => {
                           htmlFor="nin-search-value"
                           className="block text-xs font-bold text-slate-700 dark:text-slate-200"
                         >
-                          {ninSearchType === 'nin_v1' ? 'NIN Number (11 Digits)' : 'Phone Number (11 Digits)'}
+                          {ninSearchType === 'nin_v1'
+                            ? 'NIN Number (11 Digits)'
+                            : ninSearchType === 'vnin_verification'
+                            ? 'NIN Number for VNIN Slip (11 Digits)'
+                            : 'Phone Number (11 Digits)'}
                         </label>
                         <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                           {ninInputValue.replace(/\D/g, '').length}/11 digits
                         </span>
                       </div>
                       <div className="relative">
-                        {ninSearchType === 'nin_v1' ? (
-                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                        ) : (
+                        {ninSearchType === 'phone_v1' ? (
                           <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                        ) : (
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                         )}
                         <input
                           id="nin-search-value"
-                          type={ninSearchType === 'nin_v1' ? 'text' : 'tel'}
+                          type={ninSearchType === 'phone_v1' ? 'tel' : 'text'}
                           inputMode="numeric"
                           maxLength={11}
                           value={ninInputValue}
                           onChange={e => {
-                            const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
-                            setNinInputValue(digits);
+                            const val = e.target.value.replace(/\D/g, '').slice(0, 11);
+                            setNinInputValue(val);
                             setError(null);
                             resetIdempotency();
                           }}
                           placeholder={
                             ninSearchType === 'nin_v1'
                               ? 'Enter 11-digit NIN number'
+                              : ninSearchType === 'vnin_verification'
+                              ? 'Enter 11-digit NIN for VNIN slip'
                               : 'e.g. 08012345678'
                           }
                           className="w-full min-h-[44px] pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
@@ -1936,7 +2011,7 @@ export const NinServicesPage: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-2 flex-wrap mt-0.5">
                         <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                          Verification Report &bull; {report.slipTypeName}
+                          {report.isBvnReport ? 'BVN Verification Report' : 'NIN Verification Report'} &bull; {report.slipTypeName}
                         </span>
                         <span
                           className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold ${

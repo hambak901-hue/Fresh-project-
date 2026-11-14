@@ -10,7 +10,7 @@ namespace HambakTech\Core;
 
 use PDO;
 use PDOStatement;
-use Exception;
+use Throwable;
 use HambakTech\Config\DatabaseConfig;
 
 class Database
@@ -83,7 +83,7 @@ class Database
             $result = $callback($this);
             $this->pdo->commit();
             return $result;
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }

@@ -71,6 +71,7 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
     { label: 'Phone Number', value: report.phoneNumber, mono: true },
     { label: 'Email Address', value: report.email },
     { label: 'Address / Location', value: [report.address, report.lga, report.state].filter(Boolean).join(', ') || null },
+    { label: 'Nationality', value: report.nationality },
     { label: 'Enrollment Bank', value: report.enrollmentBank },
     { label: 'Enrollment Branch', value: report.enrollmentBranch },
     { label: 'Account Level', value: report.levelOfAccount },
@@ -154,7 +155,7 @@ export const IdentitySlipModal: React.FC<IdentitySlipModalProps> = ({
                     {companyName}
                   </h2>
                   <p className="text-xs font-semibold text-blue-700 dark:text-blue-400">
-                    {report.isBvnReport ? 'Bank Verification Number (BVN) Report' : 'Digital Identity Verification Report'} &bull; {report.slipTypeName}
+                    {report.isBvnReport ? 'Bank Verification Number (BVN) Report' : 'NIN Digital Identity Verification Report'} &bull; {report.slipTypeName}
                   </p>
                 </div>
               </div>

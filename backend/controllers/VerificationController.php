@@ -404,7 +404,7 @@ class VerificationController
         return 'nin_verification';
     }
 
-    private function extractNormalizedIdentity(array $providerResult): array
+    private function extractNormalizedIdentity(array $providerResult, bool $isBvnContext = false, bool $isNinContext = false): array
     {
         $raw = $providerResult['data'] ?? $providerResult;
         if (isset($raw['user_data']) && is_array($raw['user_data'])) {
@@ -421,10 +421,11 @@ class VerificationController
         $middle = $merged['middlename'] ?? $merged['middleName'] ?? $merged['middle_name'] ?? null;
         $surname = $merged['surname'] ?? $merged['lastName'] ?? $merged['last_name'] ?? $merged['lastname'] ?? null;
         $nin = $merged['nin'] ?? $merged['NIN'] ?? null;
-        $bvn = $merged['bvn'] ?? $merged['BVN'] ?? null;
-        $dob = $merged['birthdate'] ?? $merged['dateOfBirth'] ?? $merged['date_of_birth'] ?? $merged['dob'] ?? null;
+        $bvn = $merged['bvn'] ?? $merged['BVN'] ?? ($isBvnContext ? ($merged['idNumber'] ?? null) : null);
+        $dob = $merged['birthdate'] ?? $merged['birthDate'] ?? $merged['dateOfBirth'] ?? $merged['date_of_birth'] ?? $merged['dob'] ?? null;
         $gender = $merged['gender'] ?? $merged['sex'] ?? null;
         $phone = $merged['telephoneno']
+            ?? $merged['telephoneNo']
             ?? $merged['phone']
             ?? $merged['phoneNumber']
             ?? $merged['phoneNumber1']
@@ -437,8 +438,21 @@ class VerificationController
             ?? $merged['residentialAddress']
             ?? $merged['residence_AdressLine1']
             ?? null;
-        $state = $merged['residence_state'] ?? $merged['stateOfResidence'] ?? $merged['state'] ?? $merged['stateOfOrigin'] ?? null;
-        $lga = $merged['residence_lga'] ?? $merged['lgaOfResidence'] ?? $merged['lga'] ?? $merged['lgaOfOrigin'] ?? null;
+        $state = $merged['residence_state']
+            ?? $merged['state_of_residence']
+            ?? $merged['stateOfResidence']
+            ?? $merged['state']
+            ?? $merged['state_of_origin']
+            ?? $merged['stateOfOrigin']
+            ?? null;
+        $lga = $merged['residence_lga']
+            ?? $merged['lga_of_residence']
+            ?? $merged['lgaOfResidence']
+            ?? $merged['lga']
+            ?? $merged['lga_of_origin']
+            ?? $merged['lgaOfOrigin']
+            ?? null;
+        $nationality = $merged['nationality'] ?? $merged['birthcountry'] ?? $merged['country'] ?? null;
         $tracking = $merged['tracking_id'] ?? $merged['trackingId'] ?? null;
         $photo = $merged['photo'] ?? $merged['base64Image'] ?? $merged['image'] ?? $merged['avatar'] ?? null;
 
@@ -468,6 +482,7 @@ class VerificationController
         if ($address !== null) $merged['address'] = (string)$address;
         if ($state !== null) $merged['residence_state'] = (string)$state;
         if ($lga !== null) $merged['residence_lga'] = (string)$lga;
+        if ($nationality !== null && $nationality !== '') $merged['nationality'] = (string)$nationality;
         if ($tracking !== null) $merged['tracking_id'] = (string)$tracking;
         if ($photo !== null) $merged['photo'] = $photo;
 
@@ -498,7 +513,50 @@ class VerificationController
         }
 
         unset($merged['user_data']);
-        return $merged;
+        return $this->stripCrossTypeFields($merged, $isBvnContext, $isNinContext);
+    }
+
+    private function stripCrossTypeFields(array $data, bool $isBvnContext, bool $isNinContext): array
+    {
+        if ($isBvnContext) {
+            // BVN lookups must return BVN data only and NEVER expose echoed/bogus NIN fields
+            unset($data['nin'], $data['NIN'], $data['tracking_id'], $data['trackingId']);
+        } elseif ($isNinContext) {
+            // NIN lookups must stay strictly separated from BVN banking fields
+            unset(
+                $data['bvn'],
+                $data['BVN'],
+                $data['enrollment_bank'],
+                $data['enrollmentBank'],
+                $data['enrollment_branch'],
+                $data['enrollmentBranch'],
+                $data['level_of_account'],
+                $data['levelOfAccount'],
+                $data['watch_listed'],
+                $data['watchListed'],
+                $data['watchlisted'],
+                $data['name_on_card'],
+                $data['nameOnCard'],
+                $data['registration_date'],
+                $data['registrationDate']
+            );
+        }
+        return $data;
+    }
+
+    private function detectRecordDomain(string $serviceKey = '', string $type = ''): array
+    {
+        $sk = strtolower(trim($serviceKey));
+        $tp = strtolower(trim($type));
+        $isBvn = str_starts_with($sk, 'bvn') || $tp === 'bvn' || str_contains($tp, 'bvn');
+        $isNin = !$isBvn && (
+            str_starts_with($sk, 'nin_')
+            || str_starts_with($sk, 'phone_')
+            || str_starts_with($sk, 'demo_')
+            || $sk === 'vnin_verification'
+            || in_array($tp, ['nin', 'phone', 'demo', 'nin_verification'], true)
+        );
+        return [$isBvn, $isNin];
     }
 
     private function sanitizeCustomerError(string $message): string
@@ -508,7 +566,7 @@ class VerificationController
         return trim($clean) ?: 'Identity verification could not be completed at this moment.';
     }
 
-    private function sanitizeResultForCustomer(array $data): array
+    private function sanitizeResultForCustomer(array $data, string $serviceKey = '', string $type = ''): array
     {
         unset(
             $data['provider'],
@@ -527,6 +585,8 @@ class VerificationController
             $data['commission'],
             $data['charge']
         );
+        [$isBvn, $isNin] = $this->detectRecordDomain($serviceKey, $type);
+        $data = $this->stripCrossTypeFields($data, $isBvn, $isNin);
         if (!empty($data['photo']) && is_string($data['photo'])) {
             $p = trim($data['photo']);
             $isUrlOrAsset = str_starts_with($p, 'data:')
@@ -668,28 +728,55 @@ class VerificationController
         $nestedPayload = $request->input('payload', []);
         $allInputs = array_merge($request->getBody(), is_array($nestedPayload) ? $nestedPayload : []);
 
+        $pickFirstActiveKey = function (array $candidates): string {
+            try {
+                $placeholders = implode(', ', array_fill(0, count($candidates), '?'));
+                $rows = $this->db->fetchAll(
+                    "SELECT service_key FROM service_catalogue WHERE service_key IN ({$placeholders}) AND is_active = 1",
+                    $candidates
+                );
+                $activeKeys = array_column($rows, 'service_key');
+                foreach ($candidates as $cand) {
+                    if (in_array($cand, $activeKeys, true)) {
+                        return $cand;
+                    }
+                }
+            } catch (Throwable) {
+            }
+            return $candidates[0];
+        };
+
         $serviceKey = trim((string)($request->input('serviceKey') ?? $request->input('service_key', '')));
         $searchType = strtolower(trim((string)($allInputs['search_type'] ?? $request->input('search_type', ''))));
         if ($serviceKey === '' || $serviceKey === 'nin_verify') {
-            if (in_array($searchType, ['demo', 'demographic', 'demo_v1'], true)) {
-                $serviceKey = 'demo_v1';
-            } elseif (in_array($searchType, ['phone', 'phone_number', 'phone_v1'], true)) {
-                $serviceKey = 'phone_v1';
+            if (in_array($searchType, ['demo', 'demographic', 'demo_v1', 'demo_v2', 'demo_v3'], true)) {
+                $serviceKey = $pickFirstActiveKey(['demo_v1', 'demo_v2', 'demo_v3']);
+            } elseif (in_array($searchType, ['phone', 'phone_number', 'phone_v1', 'phone_v2', 'phone_v3'], true)) {
+                $serviceKey = $pickFirstActiveKey(['phone_v1', 'phone_v2', 'phone_v3']);
+            } elseif (in_array($searchType, ['vnin', 'vnin_verification'], true)) {
+                $serviceKey = 'vnin_verification';
             } else {
-                $serviceKey = 'nin_v1';
+                $serviceKey = $pickFirstActiveKey(['nin_v1', 'nin_v2', 'nin_v3']);
             }
         } elseif ($serviceKey === 'bvn_verify') {
             if (in_array($searchType, ['phone', 'phone_number', 'bvn_phone', 'bvn_retrieval'], true)) {
                 $serviceKey = 'bvn_retrieval';
             } else {
-                $serviceKey = 'bvn_v1';
+                $serviceKey = $pickFirstActiveKey(['bvn_v1', 'bvn_v2', 'bvn_v3']);
             }
         }
 
+        $isBvnInputKey = str_starts_with(strtolower($serviceKey), 'bvn_') || str_contains(strtolower($serviceKey), 'bvn');
         $slipTemplateId = trim((string)($allInputs['slip_template_id'] ?? $request->input('slip_template_id', '')));
-        $defaultSlipFallback = str_starts_with(strtolower($serviceKey), 'bvn_') ? 'bvnBasic' : 'ninStandard';
-        $slipTypeInput = trim((string)($allInputs['slip_type'] ?? $request->input('slip_type', $defaultSlipFallback)));
-        $tier = trim((string)($allInputs['tier'] ?? $request->input('tier', 'standard')));
+        $defaultSlipFallback = $isBvnInputKey ? 'bvnBasic' : 'ninStandard';
+        $slipTypeInput = trim((string)($allInputs['slip_type'] ?? $request->input('slip_type', '')));
+        if ($slipTypeInput === '') {
+            $slipTypeInput = $defaultSlipFallback;
+        }
+        $tier = trim((string)($allInputs['tier'] ?? $request->input('tier', '')));
+        if ($serviceKey === 'vnin_verification') {
+            $tier = 'vnin';
+        }
         $idempotencyKey = trim((string)($allInputs['idempotency_key'] ?? $request->input('idempotency_key', '')));
 
         $searchValue = trim((string)(
@@ -723,6 +810,13 @@ class VerificationController
             }
             $searchValue = $cleanNin;
             $allInputs['nin'] = $cleanNin;
+        } elseif ($serviceKey === 'vnin_verification') {
+            $cleanVnin = preg_replace('/\s+/', '', $searchValue) ?? '';
+            if (!preg_match('/^\d{11}$/', $cleanVnin)) {
+                Response::error('Please enter a valid 11-digit NIN for VNIN slip verification.', 422);
+            }
+            $searchValue = $cleanVnin;
+            $allInputs['nin'] = $cleanVnin;
         } elseif (in_array($serviceKey, ['bvn_v1', 'bvn_v2', 'bvn_v3'], true)) {
             $cleanBvn = preg_replace('/\s+/', '', $searchValue) ?? '';
             if (!preg_match('/^\d{11}$/', $cleanBvn)) {
@@ -750,6 +844,7 @@ class VerificationController
             $allInputs['first_name'] = strtoupper($fn);
             $allInputs['last_name'] = strtoupper($ln);
             $allInputs['phone'] = $cleanPhone;
+            $allInputs['phone_number'] = $cleanPhone;
             $searchValue = $cleanPhone;
         } elseif (in_array($serviceKey, ['demo_v1', 'demo_v2', 'demo_v3'], true)) {
             $fn = trim((string)($allInputs['firstname'] ?? $allInputs['first_name'] ?? ''));
@@ -789,7 +884,23 @@ class VerificationController
         $isBvnVerification = ($categoryKey === 'bvn_verification');
         $expectedSlipCategory = $isBvnVerification ? 'BVN' : 'NIN';
 
-        $resolvedSlipCode = $slipTypeInput ?: ($isBvnVerification ? 'bvnBasic' : 'ninStandard');
+        $validBvnSlipCodes = ['bvnBasic', 'bvnAdvanced', 'plasticBvn', 'bankBvn'];
+        $validNinSlipCodes = ['ninBasic', 'ninRegular', 'ninStandard', 'ninPremium', 'ninVnin', 'ninSpecial'];
+
+        // Strictly reject cross-domain slip templates (NIN slip on BVN or BVN slip on NIN)
+        $slipLower = strtolower($slipTypeInput);
+        if ($isBvnVerification && (str_starts_with($slipLower, 'nin') || str_starts_with($slipLower, 'tpl_nin'))) {
+            Response::error('NIN slip templates cannot be used for BVN verification. Please select a valid BVN slip format.', 422);
+        }
+        if ($isNinVerification && (str_contains($slipLower, 'bvn') || str_starts_with($slipLower, 'tpl_bvn'))) {
+            Response::error('BVN slip templates cannot be used for NIN verification. Please select a valid NIN slip format.', 422);
+        }
+
+        $resolvedSlipCode = $isBvnVerification
+            ? (in_array($slipTypeInput, $validBvnSlipCodes, true) ? $slipTypeInput : 'bvnBasic')
+            : ($serviceKey === 'vnin_verification'
+                ? 'ninVnin'
+                : (in_array($slipTypeInput, $validNinSlipCodes, true) ? $slipTypeInput : 'ninStandard'));
         $resolvedSlipName = null;
 
         if ($isNinVerification || $isBvnVerification || $slipTemplateId !== '' || !empty($service['slip_type_supported'])) {
@@ -804,6 +915,12 @@ class VerificationController
                 $tpl = $this->db->fetchOne(
                     'SELECT * FROM slip_templates WHERE (slip_code = :code OR id = :id) AND UPPER(category) = :cat LIMIT 1',
                     ['code' => $slipTypeInput, 'id' => $slipTypeInput, 'cat' => $expectedSlipCategory]
+                );
+            }
+            if (!$tpl && ($isNinVerification || $isBvnVerification) && $slipTemplateId === '') {
+                $tpl = $this->db->fetchOne(
+                    'SELECT * FROM slip_templates WHERE slip_code = :code AND UPPER(category) = :cat LIMIT 1',
+                    ['code' => $resolvedSlipCode, 'cat' => $expectedSlipCategory]
                 );
             }
 
@@ -823,7 +940,7 @@ class VerificationController
                     $cost = (float)$tpl['price'];
                 }
             } elseif (($isNinVerification || $isBvnVerification) && $slipTemplateId !== '') {
-                Response::error('Selected slip type was not found.', 422);
+                Response::error("Selected {$expectedSlipCategory} slip template was not found.", 422);
             }
         }
 
@@ -841,8 +958,12 @@ class VerificationController
                 if ($existing) {
                     if ($existing['status'] === 'completed') {
                         $decodedRes = json_decode((string)$existing['result_data'], true) ?: [];
-                        if (!$isAdmin && is_array($decodedRes)) {
-                            $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
+                        if (is_array($decodedRes)) {
+                            [$exBvn, $exNin] = $this->detectRecordDomain((string)($existing['service_key'] ?? ''), (string)($existing['type'] ?? ''));
+                            $decodedRes = $this->stripCrossTypeFields($decodedRes, $exBvn, $exNin);
+                            if (!$isAdmin) {
+                                $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($existing['service_key'] ?? ''), (string)($existing['type'] ?? ''));
+                            }
                         }
                         $wallet = $this->db->fetchOne('SELECT balance FROM wallets WHERE user_id = :uid', ['uid' => $user['id']]);
                         $bal = $wallet ? (float)$wallet['balance'] : (float)($user['wallet_balance'] ?? 0);
@@ -1005,13 +1126,13 @@ class VerificationController
                 throw new Exception($lastErrorMsg);
             }
 
-            $resultData = $this->extractNormalizedIdentity($providerResult);
+            $resultData = $this->extractNormalizedIdentity($providerResult, $isBvnVerification, $isNinVerification);
             $actualProviderCost = (float)($providerResult['provider_cost'] ?? $wholesaleCost);
             $verifiedAt = date('c');
 
             $customerSafeResult = $resultData;
             if (!$isAdmin && is_array($customerSafeResult)) {
-                $customerSafeResult = $this->sanitizeResultForCustomer($customerSafeResult);
+                $customerSafeResult = $this->sanitizeResultForCustomer($customerSafeResult, $serviceKey, $recordTypeLabel);
             }
 
             // 7. Update verification_records to completed
@@ -1187,8 +1308,10 @@ class VerificationController
             if (!empty($r['result']) && is_string($r['result'])) {
                 $decodedRes = json_decode($r['result'], true);
                 if (is_array($decodedRes)) {
+                    [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($r['service_key'] ?? ''), (string)($r['type'] ?? ''));
+                    $decodedRes = $this->stripCrossTypeFields($decodedRes, $rowBvn, $rowNin);
                     if (!$isAdmin) {
-                        $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
+                        $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($r['service_key'] ?? ''), (string)($r['type'] ?? ''));
                     }
                     $r['has_original_pdf'] = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
                     $r['has_photo'] = !empty($decodedRes['photo']);
@@ -1297,8 +1420,12 @@ class VerificationController
 
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
             $decodedRes = json_decode($record['result_data'], true);
-            if (!$isAdmin && is_array($decodedRes)) {
-                $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
+            if (is_array($decodedRes)) {
+                [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+                $decodedRes = $this->stripCrossTypeFields($decodedRes, $rowBvn, $rowNin);
+                if (!$isAdmin) {
+                    $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+                }
             }
             if (is_array($decodedRes)) {
                 $record['has_original_pdf'] = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
@@ -1375,8 +1502,12 @@ class VerificationController
         $decodedRes = null;
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
             $decodedRes = json_decode($record['result_data'], true);
-            if (!$isAdmin && is_array($decodedRes)) {
-                $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
+            if (is_array($decodedRes)) {
+                [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+                $decodedRes = $this->stripCrossTypeFields($decodedRes, $rowBvn, $rowNin);
+                if (!$isAdmin) {
+                    $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+                }
             }
         }
         $hasOriginalPdf = is_array($decodedRes) && (!empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']));
@@ -1456,8 +1587,12 @@ class VerificationController
         $record['has_original_pdf'] = false;
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
             $decodedRes = json_decode($record['result_data'], true);
-            if (!$isAdmin && is_array($decodedRes)) {
-                $decodedRes = $this->sanitizeResultForCustomer($decodedRes);
+            if (is_array($decodedRes)) {
+                [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+                $decodedRes = $this->stripCrossTypeFields($decodedRes, $rowBvn, $rowNin);
+                if (!$isAdmin) {
+                    $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+                }
             }
             if (is_array($decodedRes)) {
                 $record['has_original_pdf'] = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
@@ -1486,7 +1621,7 @@ class VerificationController
         $id = trim((string)($params['id'] ?? ''));
         $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
 
-        $record = $this->db->fetchOne('SELECT id, user_id, reference, result_data FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1', ['id' => $id, 'ref' => $id]);
+        $record = $this->db->fetchOne('SELECT id, user_id, type, service_key, reference, result_data FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1', ['id' => $id, 'ref' => $id]);
         if (!$record) {
             Response::notFound('Verification record not found.');
         }
@@ -1505,10 +1640,12 @@ class VerificationController
             Response::error('Stored PDF document could not be decoded.', 500);
         }
 
+        [$isBvnDoc] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+        $prefix = $isBvnDoc ? 'HAMBAKTECH_BVN_SLIP_' : 'HAMBAKTECH_NIN_SLIP_';
         $safeRef = preg_replace('/[^A-Za-z0-9_-]/', '_', (string)($record['reference'] ?: $record['id']));
         header('Access-Control-Allow-Origin: *');
         header('Content-Type: application/pdf');
-        header('Content-Disposition: attachment; filename="HAMBAKTECH_VERIFICATION_' . $safeRef . '.pdf"');
+        header('Content-Disposition: attachment; filename="' . $prefix . $safeRef . '.pdf"');
         header('Content-Length: ' . strlen($binary));
         header('X-Content-Type-Options: nosniff');
         echo $binary;

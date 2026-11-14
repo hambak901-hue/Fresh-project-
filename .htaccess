@@ -26,9 +26,9 @@ Options -Indexes +FollowSymLinks
 
     # Block direct access to protected server assets and sensitive files
     RewriteRule ^\.(.*)$ - [F,L]
-    RewriteRule ^error_log$ - [F,L]
+    RewriteRule (^|/)error_log$ - [F,L]
     RewriteRule ^(database|backend|logs|config|storage|\.env) - [F,L]
-    RewriteRule \.(sql|lock|md|log|sh|bak|prev_backup)$ - [F,L]
+    RewriteRule \.(sql|lock|md|log|sh|bak|prev_backup|py|ts|tsx)$ - [F,L]
 
     # 1. API Route Handling (PHP Backend)
     RewriteCond %{REQUEST_FILENAME} !-f

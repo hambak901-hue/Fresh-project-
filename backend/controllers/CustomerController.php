@@ -298,10 +298,13 @@ class CustomerController
 
         $activeSubmission = null;
         try {
-            $activeSubmission = $this->db->fetchOne(
-                'SELECT * FROM kyc_submissions WHERE user_id = :uid ORDER BY COALESCE(submitted_at, created_at) DESC LIMIT 1',
+            $activeSubmissionMeta = $this->db->fetchOne(
+                'SELECT id FROM kyc_submissions WHERE user_id = :uid ORDER BY COALESCE(submitted_at, created_at) DESC LIMIT 1',
                 ['uid' => $user['id']]
             );
+            $activeSubmission = $activeSubmissionMeta
+                ? $this->db->fetchOne('SELECT * FROM kyc_submissions WHERE id = :id LIMIT 1', ['id' => $activeSubmissionMeta['id']])
+                : null;
             if ($activeSubmission) {
                 if (!empty($activeSubmission['automated_verification_result']) && is_string($activeSubmission['automated_verification_result'])) {
                     $decodedAuto = json_decode($activeSubmission['automated_verification_result'], true);
@@ -393,32 +396,31 @@ class CustomerController
             try {
                 $veripine = new VeripineAdapter();
                 $twoSure = new TwoSureVerifyAdapter();
-                $cfg = file_exists(__DIR__ . '/../config/config.php') ? require __DIR__ . '/../config/config.php' : [];
-                $hasTwoSureKey = !empty(getenv('TWOSUREVERIFY_API_KEY')) || !empty($cfg['providers']['2sureverify']['api_key']);
-                if (!$hasTwoSureKey) {
-                    $r = $this->db->fetchOne('SELECT api_key FROM providers WHERE id = "2sureverify"');
-                    $hasTwoSureKey = !empty($r['api_key']);
-                }
-
                 $actRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_verification_provider"');
                 $primary = strtolower(trim((string)($actRow['setting_value'] ?? '2sureverify')));
-                if ($primary === 'veripine' && !$veripine->hasCredentials() && $hasTwoSureKey) {
-                    $primary = '2sureverify';
-                } elseif ($primary === '2sureverify' && !$hasTwoSureKey && $veripine->hasCredentials()) {
-                    $primary = 'veripine';
+                $order = ($primary === 'veripine') ? ['veripine', '2sureverify'] : ['2sureverify', 'veripine'];
+
+                $res = null;
+                foreach ($order as $prov) {
+                    if ($prov === 'veripine' && $veripine->hasCredentials()) {
+                        $endpoint = $nin ? '/nin-verification' : '/bvn-verification';
+                        $payload = $nin ? ['nin' => $nin] : ['bvn' => $bvn];
+                        $attempt = $veripine->verify($endpoint, $payload);
+                    } elseif ($prov === '2sureverify' && $twoSure->hasCredentials()) {
+                        $endpoint = $nin ? 'api/v1/nin_v1.php' : 'api/v1/bvn_v1.php';
+                        $payload = $nin ? ['nin' => $nin, 'slip_type' => 'ninStandard'] : ['bvn' => $bvn, 'slip_type' => 'bvnBasic'];
+                        $attempt = $twoSure->verify($endpoint, $payload);
+                    } else {
+                        continue;
+                    }
+                    if (!empty($attempt['success']) && empty($attempt['is_simulated'])) {
+                        $res = $attempt;
+                        break;
+                    }
+                    $res = $res ?? $attempt;
                 }
 
-                if ($primary === 'veripine' && $veripine->hasCredentials()) {
-                    $endpoint = $nin ? '/nin-verification' : '/bvn-verification';
-                    $payload = $nin ? ['nin' => $nin] : ['bvn' => $bvn];
-                    $res = $veripine->verify($endpoint, $payload);
-                } else {
-                    $endpoint = $nin ? 'api/v1/nin_v1.php' : 'api/v1/bvn_v1.php';
-                    $payload = $nin ? ['nin' => $nin, 'slip_type' => 'ninStandard'] : ['bvn' => $bvn, 'slip_type' => 'bvnBasic'];
-                    $res = $twoSure->verify($endpoint, $payload);
-                }
-
-                if (!empty($res['success']) && empty($res['is_simulated'])) {
+                if (is_array($res) && !empty($res['success']) && empty($res['is_simulated'])) {
                     $verifRef = $res['reference'] ?? null;
                     $autoResult = $res['data'] ?? $res;
                     if (is_array($autoResult)) {
