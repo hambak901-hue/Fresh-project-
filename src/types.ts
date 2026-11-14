@@ -1021,4 +1021,178 @@ export interface AdminCreateCustomerPayload {
   consent_obtained?: boolean;
 }
 
+// Stage 3 — Manual NIN & BVN Modification Types
+
+export interface ModificationRequiredDocument {
+  key: string;
+  label: string;
+  required: boolean;
+  description?: string;
+  accepted_formats?: string[];
+  max_size_mb?: number;
+  provider_file_param?: string;
+}
+
+export interface ModificationFormFieldOption {
+  value: string;
+  label: string;
+}
+
+export interface ModificationFieldCondition {
+  field: string;
+  values: string[];
+}
+
+export interface ModificationFormField {
+  key: string;
+  label: string;
+  type: 'text' | 'tel' | 'email' | 'password' | 'date' | 'select' | 'textarea' | 'bvn_enrollment_type';
+  required: boolean;
+  placeholder?: string;
+  help_text?: string;
+  helper?: string;
+  maxLength?: number;
+  conditional_on?: ModificationFieldCondition;
+  provider_param?: string;
+  validation_hint?: string;
+  options?: ModificationFormFieldOption[];
+}
+
+export interface ModificationPayloadMappingSpec {
+  service_key: string;
+  endpoint: string;
+  method: string;
+  provider_schema_verified: boolean;
+  verification_note?: string;
+  fields: Record<string, string>;
+  files: Record<string, string>;
+  field_trace?: Array<{
+    customer_field: string;
+    internal_field: string;
+    provider_param: string;
+    required: boolean;
+  }>;
+  file_trace?: Array<{
+    doc_key: string;
+    provider_file_param: string;
+    required: boolean;
+  }>;
+}
+
+export interface ModificationServiceItem {
+  id: string;
+  key: string;
+  service_key: string;
+  category: 'nin_modification' | 'bvn_modification' | string;
+  identity_type: 'NIN' | 'BVN';
+  name: string;
+  description: string;
+  selling_price: number;
+  price: number;
+  is_active: boolean;
+  enabled: boolean;
+  processing_type: 'manual' | string;
+  manual_label: string;
+  estimated_turnaround: string;
+  supported_notes?: string;
+  required_fields: string[];
+  required_documents: ModificationRequiredDocument[];
+  form_schema: ModificationFormField[];
+  updated_at?: string | null;
+  // Admin-only private fields
+  provider_id?: string;
+  provider?: string;
+  endpoint?: string;
+  wholesale_cost?: number;
+  profit?: number;
+  margin_percent?: number;
+  provider_schema_verified?: boolean;
+  payload_mapping?: ModificationPayloadMappingSpec;
+}
+
+export interface ModificationBvnTypeItem {
+  id: string;
+  enrollment_type: string;
+  label: string;
+  selling_price: number;
+  is_active: boolean;
+  provider_synced_at?: string | null;
+  // Admin-only private fields
+  wholesale_cost?: number;
+  profit?: number;
+}
+
+export interface ModificationDocumentAttachment {
+  id: string;
+  doc_key: string;
+  doc_label?: string;
+  file_name?: string;
+  original_name?: string;
+  mime_type?: string;
+  size_bytes?: number;
+  file_size?: number;
+  file_url: string;
+}
+
+export type ModificationRequestStatus =
+  | 'pending'
+  | 'processing'
+  | 'query_required'
+  | 'completed'
+  | 'failed'
+  | 'rejected'
+  | 'refunded';
+
+export interface ModificationRequestItem {
+  id: string;
+  request_number: string;
+  user_id: string;
+  identity_type: 'NIN' | 'BVN';
+  service_key: string;
+  service_name: string;
+  masked_identifier: string;
+  submitted_fields: Record<string, any>;
+  supporting_documents: ModificationDocumentAttachment[];
+  enrollment_type?: string | null;
+  customer_price: number;
+  payment_reference: string;
+  refund_reference?: string | null;
+  provider_reference?: string | null;
+  provider_status?: string | null;
+  provider_remarks?: string | null;
+  estimated_completion_text: string;
+  status: ModificationRequestStatus | string;
+  reviewed_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  // Admin-only fields
+  customer_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  provider_cost?: number;
+  profit?: number;
+  provider_id?: string;
+  endpoint?: string;
+  admin_notes?: string | null;
+  reviewed_by?: string | null;
+  provider_response?: any;
+}
+
+export interface ModificationAdminStats {
+  total_all: number;
+  nin_count: number;
+  bvn_count: number;
+  pending_count: number;
+  processing_count: number;
+  query_count: number;
+  completed_count: number;
+  failed_count: number;
+  refunded_count: number;
+  total_revenue: number;
+  total_provider_cost: number;
+  total_margin: number;
+}
+
+
 

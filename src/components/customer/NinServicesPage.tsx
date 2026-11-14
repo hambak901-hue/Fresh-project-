@@ -10,9 +10,16 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
-import { VerificationRecord, IdentityService, SlipTemplateItem } from '../../types';
+import {
+  VerificationRecord,
+  IdentityService,
+  SlipTemplateItem,
+  ModificationServiceItem,
+  ModificationRequestItem,
+} from '../../types';
 import { IdentitySlipModal } from './IdentitySlipModal';
 import { TransactionPinModal } from './TransactionPinModal';
+import { ModificationSection, getModificationStatusStyle } from './ModificationSection';
 import { downloadVerificationReportPdf, extractVerificationReport } from '../../lib/pdfReport';
 import {
   ShieldCheck,
@@ -36,7 +43,7 @@ import {
   Lock,
 } from 'lucide-react';
 
-type HubCategory = 'nin_verify' | 'bvn_verify' | 'nin_mod' | 'enrolment' | 'additional' | 'history';
+type HubCategory = 'nin_verify' | 'bvn_verify' | 'nin_mod' | 'bvn_mod' | 'enrolment' | 'additional' | 'history';
 type NinSearchType = 'nin_v1' | 'phone_v1' | 'demo_v1' | 'vnin_verification';
 type BvnSearchMode = 'bvn_number' | 'bvn_retrieval';
 
@@ -121,6 +128,11 @@ export const NinServicesPage: React.FC = () => {
   const [photoLoadError, setPhotoLoadError] = useState<boolean>(false);
 
   const [history, setHistory] = useState<VerificationRecord[]>([]);
+  const [modHistory, setModHistory] = useState<ModificationRequestItem[]>([]);
+  const [historyTabFilter, setHistoryTabFilter] = useState<'instant' | 'nin_mod' | 'bvn_mod'>('instant');
+  const [ninModServices, setNinModServices] = useState<ModificationServiceItem[]>([]);
+  const [bvnModServices, setBvnModServices] = useState<ModificationServiceItem[]>([]);
+  const [loadingModServices, setLoadingModServices] = useState<boolean>(true);
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
   const [loadingRecordId, setLoadingRecordId] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState<string>('');
@@ -143,7 +155,15 @@ export const NinServicesPage: React.FC = () => {
   const loadCatalog = async () => {
     try {
       setLoadingServices(true);
-      const res = await api.getVerificationServices();
+      setLoadingModServices(true);
+      const [res, modRes] = await Promise.all([
+        api.getVerificationServices(),
+        api.getModificationServices().catch(() => null),
+      ]);
+      if (modRes?.success) {
+        setNinModServices(modRes.nin_modification || []);
+        setBvnModServices(modRes.bvn_modification || []);
+      }
       if (res.success) {
         setServices(res.services || []);
         setCategories(res.categories || {});
@@ -176,15 +196,26 @@ export const NinServicesPage: React.FC = () => {
       console.warn('Unable to load identity services catalog:', e);
     } finally {
       setLoadingServices(false);
+      setLoadingModServices(false);
     }
   };
 
   const loadHistory = async () => {
     try {
       setHistoryLoading(true);
-      const res = await api.getVerificationHistory(undefined, historySearch.trim() || undefined);
-      if (res && res.success) {
-        setHistory(res.verifications || []);
+      const [verRes, modRes] = await Promise.all([
+        api.getVerificationHistory(undefined, historySearch.trim() || undefined),
+        api.getModificationHistory({
+          identity_type: 'ALL',
+          search: historySearch.trim() || undefined,
+          limit: 50,
+        }).catch(() => null),
+      ]);
+      if (verRes && verRes.success) {
+        setHistory(verRes.verifications || []);
+      }
+      if (modRes && modRes.success) {
+        setModHistory(modRes.requests || []);
       }
     } catch {
       setHistory([]);
@@ -901,9 +932,10 @@ export const NinServicesPage: React.FC = () => {
           { id: 'nin_verify', label: 'NIN Verification', icon: ShieldCheck },
           { id: 'bvn_verify', label: 'BVN Verification', icon: UserCheck },
           { id: 'nin_mod', label: 'NIN Modification', icon: Edit3 },
+          { id: 'bvn_mod', label: 'BVN Modification', icon: Briefcase },
           { id: 'enrolment', label: 'Enrolment', icon: GraduationCap },
           { id: 'additional', label: 'Additional Services', icon: Briefcase },
-          { id: 'history', label: 'Verification History', icon: FileText, count: history.length },
+          { id: 'history', label: 'Verification History', icon: FileText, count: history.length + modHistory.length },
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeCategory === tab.id;
@@ -937,7 +969,27 @@ export const NinServicesPage: React.FC = () => {
       </div>
 
       {/* Main Workspace */}
-      {activeCategory !== 'history' ? (
+      {activeCategory === 'nin_mod' ? (
+        <ModificationSection
+          mode="NIN"
+          services={ninModServices}
+          loadingServices={loadingModServices}
+          onOpenHistoryTab={() => {
+            setHistoryTabFilter('nin_mod');
+            handleSwitchCategory('history');
+          }}
+        />
+      ) : activeCategory === 'bvn_mod' ? (
+        <ModificationSection
+          mode="BVN"
+          services={bvnModServices}
+          loadingServices={loadingModServices}
+          onOpenHistoryTab={() => {
+            setHistoryTabFilter('bvn_mod');
+            handleSwitchCategory('history');
+          }}
+        />
+      ) : activeCategory !== 'history' ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
           {/* Left Column: Clean Form */}
           <div className="no-print lg:col-span-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-5 shadow-sm">
@@ -1682,7 +1734,7 @@ export const NinServicesPage: React.FC = () => {
                 </form>
               </>
             ) : (
-              /* Modification / Enrolment / Additional Services */
+              /* Enrolment / Additional Services */
               <>
                 <div>
                   <span className="text-[10px] font-mono uppercase tracking-wider text-blue-600 dark:text-emerald-400 font-bold">
@@ -1697,11 +1749,7 @@ export const NinServicesPage: React.FC = () => {
                   <div className="grid grid-cols-1 gap-1.5 max-h-52 overflow-y-auto pr-1">
                     {(() => {
                       const catList: IdentityService[] = (categories as any)[
-                        activeCategory === 'nin_mod'
-                          ? 'nin_modification'
-                          : activeCategory === 'enrolment'
-                          ? 'enrolment'
-                          : 'additional_services'
+                        activeCategory === 'enrolment' ? 'enrolment' : 'additional_services'
                       ] || [];
                       const filteredList =
                         activeCategory === 'additional'
@@ -2175,13 +2223,13 @@ export const NinServicesPage: React.FC = () => {
           </div>
         </div>
       ) : (
-        /* Verification History & Reports */
+        /* Verification & Modification History */
         <div className="no-print rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-6 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Verification History</h2>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Verification &amp; Modification History</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Search previous verifications, view reports, download PDF copies, or print slips.
+                Search instant verification reports or inspect separated NIN Modification and BVN Modification statuses.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -2204,82 +2252,177 @@ export const NinServicesPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-semibold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">Type</th>
-                  <th className="py-3 px-4">Search Value</th>
-                  <th className="py-3 px-4">Reference</th>
-                  <th className="py-3 px-4">Amount</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">Date</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
-                {history.length === 0 ? (
+          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 w-fit overflow-x-auto">
+            {[
+              { id: 'instant', label: `Instant Verifications (${history.length})` },
+              { id: 'nin_mod', label: `NIN Modifications (${modHistory.filter(m => m.identity_type === 'NIN').length})` },
+              { id: 'bvn_mod', label: `BVN Modifications (${modHistory.filter(m => m.identity_type === 'BVN').length})` },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setHistoryTabFilter(tab.id as any)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  historyTabFilter === tab.id
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {historyTabFilter === 'instant' ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-semibold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-500 font-sans">
-                      No verification records found yet.
-                    </td>
+                    <th className="py-3 px-4">Type</th>
+                    <th className="py-3 px-4">Search Value</th>
+                    <th className="py-3 px-4">Reference</th>
+                    <th className="py-3 px-4">Amount</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Date</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
-                ) : (
-                  history.map(item => (
-                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                      <td className="py-3.5 px-4 font-sans font-bold text-slate-900 dark:text-white">
-                        {item.type}
-                      </td>
-                      <td className="py-3.5 px-4 text-blue-700 dark:text-emerald-400 font-bold">{item.search_value}</td>
-                      <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[150px]">
-                        {item.reference || item.id}
-                      </td>
-                      <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">₦{item.cost.toLocaleString()}</td>
-                      <td className="py-3.5 px-4">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            item.status === 'completed'
-                              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
-                              : item.status === 'pending'
-                              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20'
-                              : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20'
-                          }`}
-                        >
-                          {item.status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 font-sans text-[11px]">
-                        {new Date(item.created_at).toLocaleString('en-NG')}
-                      </td>
-                      <td className="py-3.5 px-4 text-right space-x-2">
-                        {item.status === 'pending' && (
-                          <button
-                            type="button"
-                            onClick={() => handlePollStatus(item.reference || item.id)}
-                            disabled={pollingRef === (item.reference || item.id)}
-                            className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[11px] font-sans hover:bg-amber-500/25 transition"
-                          >
-                            {pollingRef === (item.reference || item.id) ? 'Checking...' : 'Check Status'}
-                          </button>
-                        )}
-                        {item.status === 'completed' && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenHistoryRecord(item)}
-                            disabled={loadingRecordId === item.id}
-                            className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-60 text-slate-800 dark:text-slate-200 text-[11px] font-sans font-semibold inline-flex items-center gap-1 transition"
-                          >
-                            {loadingRecordId === item.id && <Loader2 className="w-3 h-3 animate-spin" />}
-                            <span>{loadingRecordId === item.id ? 'Loading...' : 'View Report'}</span>
-                          </button>
-                        )}
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                  {history.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-500 font-sans">
+                        No verification records found yet.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ) : (
+                    history.map(item => (
+                      <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="py-3.5 px-4 font-sans font-bold text-slate-900 dark:text-white">
+                          {item.type}
+                        </td>
+                        <td className="py-3.5 px-4 text-blue-700 dark:text-emerald-400 font-bold">{item.search_value}</td>
+                        <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[150px]">
+                          {item.reference || item.id}
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">₦{item.cost.toLocaleString()}</td>
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              item.status === 'completed'
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                                : item.status === 'pending'
+                                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20'
+                                : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20'
+                            }`}
+                          >
+                            {item.status.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 font-sans text-[11px]">
+                          {new Date(item.created_at).toLocaleString('en-NG')}
+                        </td>
+                        <td className="py-3.5 px-4 text-right space-x-2">
+                          {item.status === 'pending' && (
+                            <button
+                              type="button"
+                              onClick={() => handlePollStatus(item.reference || item.id)}
+                              disabled={pollingRef === (item.reference || item.id)}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[11px] font-sans hover:bg-amber-500/25 transition"
+                            >
+                              {pollingRef === (item.reference || item.id) ? 'Checking...' : 'Check Status'}
+                            </button>
+                          )}
+                          {item.status === 'completed' && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenHistoryRecord(item)}
+                              disabled={loadingRecordId === item.id}
+                              className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-60 text-slate-800 dark:text-slate-200 text-[11px] font-sans font-semibold inline-flex items-center gap-1 transition"
+                            >
+                              {loadingRecordId === item.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                              <span>{loadingRecordId === item.id ? 'Loading...' : 'View Report'}</span>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-semibold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="py-3 px-4">Request #</th>
+                    <th className="py-3 px-4">Service</th>
+                    <th className="py-3 px-4">Masked ID</th>
+                    <th className="py-3 px-4">Charge</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Submitted</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {(() => {
+                    const targetDomain = historyTabFilter === 'bvn_mod' ? 'BVN' : 'NIN';
+                    const scopedMods = modHistory.filter(m => m.identity_type === targetDomain);
+                    if (scopedMods.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={7} className="py-12 text-center text-slate-500">
+                            No {targetDomain} modification requests found yet.
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return scopedMods.map(item => {
+                      const st = getModificationStatusStyle(item.status);
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
+                            {item.request_number}
+                          </td>
+                          <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white">
+                            <div>{item.service_name}</div>
+                            {item.refund_reference && (
+                              <div className="text-[10px] font-mono text-purple-600 dark:text-purple-300 mt-0.5">
+                                Refund: {item.refund_reference}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-blue-700 dark:text-emerald-400">
+                            {item.masked_identifier}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
+                            ₦{Number(item.customer_price).toLocaleString('en-NG')}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${st.classes}`}>
+                              {st.label}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px]">
+                            {new Date(item.created_at).toLocaleString('en-NG')}
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchCategory(targetDomain === 'BVN' ? 'bvn_mod' : 'nin_mod')}
+                              className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-semibold"
+                            >
+                              Open Tracker
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

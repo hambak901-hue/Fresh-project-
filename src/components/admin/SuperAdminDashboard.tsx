@@ -76,6 +76,7 @@ import { AdminKycManagement } from './AdminKycManagement';
 import { SupportManagement } from './SupportManagement';
 import { NotificationManagement } from './NotificationManagement';
 import { GlobalSettingsManagement } from './GlobalSettingsManagement';
+import { ModificationManagement } from './ModificationManagement';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
@@ -94,6 +95,7 @@ export type AdminTabKey =
   | 'website'
   | 'modules'
   | 'services'
+  | 'modifications_admin'
   | 'digital_services'
   | 'store_admin'
   | 'academy_admin'
@@ -562,6 +564,7 @@ export function SuperAdminDashboard({
       title: 'Commercial & Services',
       items: [
         { id: 'services', label: 'Core Services & Pricing', icon: Cpu },
+        { id: 'modifications_admin', label: 'NIN & BVN Modifications', icon: ShieldCheck, badge: 'Stage 3' },
         { id: 'digital_services', label: 'Digital Utilities (Cable & Disco)', icon: Tv, badge: 'Phase 8' },
         { id: 'store_admin', label: 'Hardware Store', icon: ShoppingBag, badge: 'Catalog' },
         { id: 'academy_admin', label: 'Digital Training Academy', icon: GraduationCap, badge: '12 Courses' },
@@ -807,6 +810,8 @@ export function SuperAdminDashboard({
             {activeTab === 'modules' && <DashboardModuleManagement />}
 
             {activeTab === 'services' && <ServiceManagement />}
+
+            {activeTab === 'modifications_admin' && <ModificationManagement />}
 
             {activeTab === 'digital_services' && <DigitalServicesManagement />}
 

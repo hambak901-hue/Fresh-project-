@@ -16,6 +16,7 @@ use HambakTech\Core\Request;
 use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
+use HambakTech\Core\SchemaSync;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
@@ -395,9 +396,18 @@ class VerificationController
     private function mapCategoryKey(string $categoryName): string
     {
         $c = strtolower(trim($categoryName));
-        if (str_contains($c, 'bvn')) return 'bvn_verification';
-        if (str_contains($c, 'mod')) return 'nin_modification';
-        if (str_contains($c, 'enrol')) return 'enrolment';
+        if ((str_contains($c, 'bvn') && str_contains($c, 'mod')) || $c === 'bvn_modification') {
+            return 'bvn_modification';
+        }
+        if (str_contains($c, 'bvn')) {
+            return 'bvn_verification';
+        }
+        if (str_contains($c, 'mod')) {
+            return 'nin_modification';
+        }
+        if (str_contains($c, 'enrol')) {
+            return 'enrolment';
+        }
         if (str_contains($c, 'add') || str_contains($c, 'ipe') || str_contains($c, 'clearance') || str_contains($c, 'personal')) {
             return 'additional_services';
         }
@@ -605,6 +615,7 @@ class VerificationController
     public function services(Request $request): void
     {
         self::ensureSlipSchemaAndDefaults($this->db);
+        SchemaSync::syncModificationCatalog($this->db);
 
         $user = Auth::user($request);
         $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
@@ -614,7 +625,9 @@ class VerificationController
             $rows = $this->db->fetchAll(
                 'SELECT s.service_key as `key`, s.name, s.description, s.wholesale_cost, s.selling_price,
                         s.provider_id as provider, s.endpoint, s.is_active as enabled,
-                        s.required_fields, s.slip_type_supported, c.name as category_name, c.code as category_code
+                        s.required_fields, s.slip_type_supported, s.processing_type, s.manual_label,
+                        s.estimated_turnaround, s.required_documents, s.form_schema, s.supported_notes,
+                        c.name as category_name, c.code as category_code
                  FROM service_catalogue s
                  LEFT JOIN service_categories c ON c.id = s.category_id
                  WHERE s.is_active = 1
@@ -623,7 +636,10 @@ class VerificationController
         } else {
             $rows = $this->db->fetchAll(
                 'SELECT s.service_key as `key`, s.name, s.description, s.selling_price,
-                        s.is_active as enabled, s.required_fields, s.slip_type_supported, c.name as category_name, c.code as category_code
+                        s.is_active as enabled, s.required_fields, s.slip_type_supported,
+                        s.processing_type, s.manual_label, s.estimated_turnaround,
+                        s.required_documents, s.form_schema, s.supported_notes,
+                        c.name as category_name, c.code as category_code
                  FROM service_catalogue s
                  LEFT JOIN service_categories c ON c.id = s.category_id
                  WHERE s.is_active = 1
@@ -635,6 +651,7 @@ class VerificationController
             'nin_verification' => [],
             'bvn_verification' => [],
             'nin_modification' => [],
+            'bvn_modification' => [],
             'enrolment' => [],
             'additional_services' => [],
         ];
@@ -648,8 +665,10 @@ class VerificationController
                 $r['wholesale_cost'] = (float)$r['wholesale_cost'];
                 $r['margin'] = round($r['selling_price'] - $r['wholesale_cost'], 2);
             }
-            if (is_string($r['required_fields'])) {
-                $r['required_fields'] = json_decode($r['required_fields'], true) ?: [];
+            foreach (['required_fields', 'required_documents', 'form_schema'] as $jsonField) {
+                if (isset($r[$jsonField]) && is_string($r[$jsonField])) {
+                    $r[$jsonField] = json_decode($r[$jsonField], true) ?: [];
+                }
             }
             $catKey = !empty($r['category_code']) ? $this->mapCategoryKey((string)$r['category_code']) : $this->mapCategoryKey((string)($r['category_name'] ?? ''));
             $r['category'] = $catKey;
@@ -1365,17 +1384,51 @@ class VerificationController
      */
     public function modificationBanks(Request $request): void
     {
-        $banks = [
-            ['bank_name' => 'Access Bank', 'price' => 4500],
-            ['bank_name' => 'First Bank of Nigeria', 'price' => 4500],
-            ['bank_name' => 'Guaranty Trust Bank (GTBank)', 'price' => 4500],
-            ['bank_name' => 'United Bank for Africa (UBA)', 'price' => 4500],
-            ['bank_name' => 'Zenith Bank', 'price' => 4500],
-            ['bank_name' => 'Fidelity Bank', 'price' => 4500],
-            ['bank_name' => 'Union Bank', 'price' => 4500],
-            ['bank_name' => 'Sterling Bank', 'price' => 4500],
-            ['bank_name' => 'Wema Bank', 'price' => 4500],
-        ];
+        SchemaSync::syncModificationCatalog($this->db);
+
+        $rows = $this->db->fetchAll(
+            'SELECT enrollment_type, label, selling_price FROM modification_bvn_types WHERE is_active = 1 ORDER BY label ASC'
+        );
+
+        if (empty($rows)) {
+            $adapter = new TwoSureVerifyAdapter();
+            if ($adapter->hasCredentials()) {
+                $res = $adapter->getBvnModificationBanks();
+                $list = $res['data'] ?? $res['banks'] ?? $res['enrollment_types'] ?? [];
+                if (!empty($res['success']) && is_array($list)) {
+                    $banks = [];
+                    foreach ($list as $entry) {
+                        if (!is_array($entry)) {
+                            continue;
+                        }
+                        $typeCode = trim((string)($entry['enrollment_type'] ?? $entry['bank_code'] ?? $entry['code'] ?? $entry['name'] ?? $entry['bank_name'] ?? ''));
+                        $label = trim((string)($entry['label'] ?? $entry['name'] ?? $entry['bank_name'] ?? $typeCode));
+                        if ($typeCode === '') {
+                            continue;
+                        }
+                        $wholesale = is_numeric($entry['price'] ?? $entry['cost'] ?? null) ? (float)($entry['price'] ?? $entry['cost']) : 0.0;
+                        $selling = $wholesale > 0 ? round($wholesale + max(2500.0, $wholesale * 0.25), -2) : 12000.0;
+                        $banks[] = [
+                            'enrollment_type' => $typeCode,
+                            'bank_name' => $label,
+                            'price' => $selling,
+                        ];
+                    }
+                    if (!empty($banks)) {
+                        Response::success(['data' => $banks]);
+                    }
+                }
+            }
+        }
+
+        $banks = array_map(static function ($r) {
+            return [
+                'enrollment_type' => (string)$r['enrollment_type'],
+                'bank_name' => (string)$r['label'],
+                'price' => (float)$r['selling_price'],
+            ];
+        }, $rows);
+
         Response::success(['data' => $banks]);
     }
 
@@ -1384,13 +1437,40 @@ class VerificationController
      */
     public function enrollmentBanks(Request $request): void
     {
-        $banks = [
-            ['bank_name' => 'First Bank BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'Access Bank BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'UBA BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'Zenith Bank BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'Wema Bank BVN Enrolment', 'price' => 3500],
-        ];
+        $banks = [];
+        $adapter = new TwoSureVerifyAdapter();
+        if ($adapter->hasCredentials()) {
+            $res = $adapter->getBvnEnrollmentBanks();
+            $list = $res['data'] ?? $res['banks'] ?? [];
+            if (!empty($res['success']) && is_array($list)) {
+                foreach ($list as $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+                    $name = trim((string)($entry['bank_name'] ?? $entry['name'] ?? $entry['bank'] ?? ''));
+                    if ($name === '') {
+                        continue;
+                    }
+                    $wholesale = is_numeric($entry['price'] ?? $entry['cost'] ?? null) ? (float)($entry['price'] ?? $entry['cost']) : 0.0;
+                    $selling = $wholesale > 0 ? round($wholesale + max(1500.0, $wholesale * 0.25), -2) : 5000.0;
+                    $banks[] = [
+                        'bank_name' => $name,
+                        'price' => $selling,
+                    ];
+                }
+            }
+        }
+
+        if (empty($banks)) {
+            $banks = [
+                ['bank_name' => 'Access Bank BVN Enrolment', 'price' => 5000],
+                ['bank_name' => 'First Bank BVN Enrolment', 'price' => 5000],
+                ['bank_name' => 'GTBank BVN Enrolment', 'price' => 5000],
+                ['bank_name' => 'UBA BVN Enrolment', 'price' => 5000],
+                ['bank_name' => 'Zenith Bank BVN Enrolment', 'price' => 5000],
+            ];
+        }
+
         Response::success(['data' => $banks]);
     }
 

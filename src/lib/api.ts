@@ -2220,6 +2220,242 @@ export const api = {
       method: 'POST',
     });
   },
+
+  // ─── Stage 3: Manual NIN & BVN Modifications ──────────────────────────────
+  async getModificationServices(): Promise<{
+    success: boolean;
+    nin_modification: import('../types').ModificationServiceItem[];
+    bvn_modification: import('../types').ModificationServiceItem[];
+    counts: { nin: number; bvn: number };
+  }> {
+    return request('/api/modifications/services');
+  },
+
+  async getModificationBvnTypes(refresh = false): Promise<{
+    success: boolean;
+    bvn_types: import('../types').ModificationBvnTypeItem[];
+    count: number;
+    live_synced: boolean;
+    sync_note?: string;
+  }> {
+    return request(`/api/modifications/bvn-types${refresh ? '?refresh=1' : ''}`);
+  },
+
+  async uploadModificationDocument(file: File, docKey: string): Promise<{
+    success: boolean;
+    message: string;
+    document: import('../types').ModificationDocumentAttachment;
+  }> {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('doc_key', docKey);
+    return request('/api/modifications/upload-document', {
+      method: 'POST',
+      body: fd,
+      timeoutMs: 60000,
+    });
+  },
+
+  async submitModificationRequest(payload: {
+    identity_type: 'NIN' | 'BVN';
+    service_key: string;
+    fields: Record<string, any>;
+    document_ids?: Record<string, string>;
+    supporting_documents?: Array<{ id: string; doc_key: string }>;
+    consent: boolean;
+    pin?: string;
+    idempotency_key: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').ModificationRequestItem;
+    pending?: boolean;
+    status?: string;
+    balance_after?: number;
+    newBalance?: number;
+    payment_reference?: string;
+    provider_reference?: string;
+    idempotent_replay?: boolean;
+  }> {
+    return request('/api/modifications/submit', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      timeoutMs: 45000,
+    });
+  },
+
+  async getModificationHistory(params: {
+    identity_type?: 'NIN' | 'BVN' | 'ALL';
+    status?: string;
+    search?: string;
+    limit?: number;
+  } = {}): Promise<{
+    success: boolean;
+    count: number;
+    requests: import('../types').ModificationRequestItem[];
+  }> {
+    const q = new URLSearchParams();
+    if (params.identity_type) q.set('identity_type', params.identity_type);
+    if (params.status && params.status !== 'all') q.set('status', params.status);
+    if (params.search) q.set('search', params.search);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return request(`/api/modifications/history${qs ? `?${qs}` : ''}`);
+  },
+
+  async pollModificationStatus(id: string): Promise<{
+    success: boolean;
+    message: string;
+    updated: boolean;
+    request: import('../types').ModificationRequestItem;
+    refund?: any;
+  }> {
+    return request(`/api/modifications/${encodeURIComponent(id)}/poll`, {
+      method: 'POST',
+    });
+  },
+
+  async submitModificationAdditionalInfo(id: string, payload: {
+    note?: string;
+    document_ids?: Record<string, string>;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').ModificationRequestItem;
+  }> {
+    return request(`/api/modifications/${encodeURIComponent(id)}/submit-info`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async fetchProtectedDocumentBlob(url: string): Promise<string> {
+    const token = getStoredToken();
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      throw new Error('Unable to load protected document.');
+    }
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  },
+
+  // Admin Modification Endpoints
+  async getAdminModifications(params: {
+    identity_type?: 'NIN' | 'BVN' | 'ALL';
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{
+    success: boolean;
+    requests: import('../types').ModificationRequestItem[];
+    pagination: { total: number; page: number; limit: number; total_pages: number };
+    stats: import('../types').ModificationAdminStats;
+  }> {
+    const q = new URLSearchParams();
+    if (params.identity_type) q.set('identity_type', params.identity_type);
+    if (params.status && params.status !== 'all') q.set('status', params.status);
+    if (params.search) q.set('search', params.search);
+    if (params.page) q.set('page', String(params.page));
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return request(`/api/admin/modifications${qs ? `?${qs}` : ''}`);
+  },
+
+  async getAdminModificationDetail(id: string): Promise<{
+    success: boolean;
+    request: import('../types').ModificationRequestItem;
+  }> {
+    return request(`/api/admin/modifications/${encodeURIComponent(id)}`);
+  },
+
+  async pollAdminModificationStatus(id: string): Promise<{
+    success: boolean;
+    message: string;
+    updated: boolean;
+    request: import('../types').ModificationRequestItem;
+    refund?: any;
+  }> {
+    return request(`/api/admin/modifications/${encodeURIComponent(id)}/poll`, {
+      method: 'POST',
+    });
+  },
+
+  async updateAdminModificationRequest(id: string, payload: {
+    status: string;
+    provider_remarks?: string;
+    admin_notes?: string;
+    estimated_completion_text?: string;
+    trigger_refund?: boolean;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').ModificationRequestItem;
+    refund?: any;
+  }> {
+    return request(`/api/admin/modifications/${encodeURIComponent(id)}/update`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminModificationServices(): Promise<{
+    success: boolean;
+    nin_modification: import('../types').ModificationServiceItem[];
+    bvn_modification: import('../types').ModificationServiceItem[];
+    services: import('../types').ModificationServiceItem[];
+  }> {
+    return request('/api/admin/modifications/services');
+  },
+
+  async updateAdminModificationService(key: string, payload: Partial<import('../types').ModificationServiceItem>): Promise<{
+    success: boolean;
+    message: string;
+    service: import('../types').ModificationServiceItem;
+  }> {
+    return request(`/api/admin/modifications/services/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminModificationBvnTypes(refresh = false): Promise<{
+    success: boolean;
+    bvn_types: import('../types').ModificationBvnTypeItem[];
+    live_synced: boolean;
+    sync_note?: string;
+  }> {
+    return request(`/api/admin/modifications/bvn-types${refresh ? '?refresh=1' : ''}`);
+  },
+
+  async updateAdminModificationBvnType(id: string, payload: {
+    label?: string;
+    selling_price?: number;
+    wholesale_cost?: number;
+    is_active?: boolean;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    bvn_type: import('../types').ModificationBvnTypeItem;
+  }> {
+    return request(`/api/admin/modifications/bvn-types/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async syncAdminModificationCatalog(): Promise<{
+    success: boolean;
+    message: string;
+    updated_services: number;
+    bvn_types_count: number;
+    bvn_live_synced: boolean;
+    sync_note?: string;
+  }> {
+    return request('/api/admin/modifications/sync-catalog', {
+      method: 'POST',
+    });
+  },
 };
-
-

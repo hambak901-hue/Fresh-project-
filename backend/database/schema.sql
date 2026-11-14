@@ -34,6 +34,8 @@ DROP TABLE IF EXISTS data_pin_denominations;
 DROP TABLE IF EXISTS airtime_pin_denominations;
 DROP TABLE IF EXISTS telecom_orders;
 DROP TABLE IF EXISTS telecom_plans;
+DROP TABLE IF EXISTS modification_bvn_types;
+DROP TABLE IF EXISTS modification_requests;
 DROP TABLE IF EXISTS verification_records;
 DROP TABLE IF EXISTS provider_logs;
 DROP TABLE IF EXISTS provider_service_mappings;
@@ -307,6 +309,12 @@ CREATE TABLE service_catalogue (
     wholesale_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
     selling_price DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
     required_fields JSON NOT NULL,
+    processing_type ENUM('instant', 'manual') NOT NULL DEFAULT 'instant',
+    manual_label VARCHAR(80) NOT NULL DEFAULT 'Manual Processing',
+    estimated_turnaround VARCHAR(120) NULL,
+    required_documents JSON NULL,
+    form_schema JSON NULL,
+    supported_notes TEXT NULL,
     slip_type_supported TINYINT(1) NOT NULL DEFAULT 0,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -363,6 +371,57 @@ CREATE TABLE verification_records (
     INDEX idx_vr_user (user_id),
     INDEX idx_vr_search (search_value),
     INDEX idx_vr_idemp (user_id, idempotency_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE modification_requests (
+    id VARCHAR(36) PRIMARY KEY,
+    request_number VARCHAR(64) NOT NULL UNIQUE,
+    user_id VARCHAR(36) NOT NULL,
+    identity_type ENUM('NIN', 'BVN') NOT NULL,
+    service_key VARCHAR(100) NOT NULL,
+    service_name VARCHAR(191) NOT NULL,
+    masked_identifier VARCHAR(40) NOT NULL,
+    submitted_fields JSON NOT NULL,
+    supporting_documents JSON NULL,
+    enrollment_type VARCHAR(150) NULL,
+    customer_price DECIMAL(15, 2) NOT NULL,
+    provider_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    profit DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    provider_id VARCHAR(50) NOT NULL DEFAULT '2sureverify',
+    endpoint VARCHAR(150) NOT NULL,
+    payment_reference VARCHAR(120) NOT NULL UNIQUE,
+    refund_reference VARCHAR(120) NULL UNIQUE,
+    idempotency_key VARCHAR(120) NULL,
+    provider_reference VARCHAR(120) NULL,
+    provider_status VARCHAR(64) NULL,
+    provider_remarks TEXT NULL,
+    provider_response JSON NULL,
+    admin_notes TEXT NULL,
+    reviewed_by VARCHAR(100) NULL,
+    reviewed_at DATETIME NULL,
+    estimated_completion_text VARCHAR(150) NULL,
+    status ENUM('pending', 'processing', 'query_required', 'completed', 'failed', 'rejected', 'refunded') NOT NULL DEFAULT 'pending',
+    completed_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_mr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_mr_user (user_id),
+    INDEX idx_mr_type_status (identity_type, status),
+    INDEX idx_mr_prov_ref (provider_reference),
+    INDEX idx_mr_idemp (user_id, idempotency_key),
+    INDEX idx_mr_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE modification_bvn_types (
+    id VARCHAR(50) PRIMARY KEY,
+    enrollment_type VARCHAR(150) NOT NULL UNIQUE,
+    label VARCHAR(191) NOT NULL,
+    wholesale_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    selling_price DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    provider_synced_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------

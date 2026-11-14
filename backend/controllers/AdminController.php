@@ -1677,14 +1677,16 @@ class AdminController
     public function verificationServices(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
+        \HambakTech\Core\SchemaSync::syncModificationCatalog($this->db);
 
         $rows = $this->db->fetchAll(
             'SELECT s.service_key as `key`, s.name, s.selling_price as price, s.wholesale_cost, 
                     s.provider_id as provider, s.endpoint as endpoint, s.is_active,
+                    s.processing_type, s.manual_label, s.estimated_turnaround,
                     COALESCE(c.code, c.name, "nin_verification") as category, c.name as category_name
              FROM service_catalogue s
              LEFT JOIN service_categories c ON c.id = s.category_id
-             ORDER BY s.selling_price ASC'
+             ORDER BY c.display_order ASC, s.selling_price ASC'
         );
 
         foreach ($rows as &$r) {
@@ -1754,7 +1756,49 @@ class AdminController
     public function syncWholesalePrices(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        Response::success(['updatedCount' => 0], 'Wholesale tariffs checked against local service catalogue.');
+        \HambakTech\Core\SchemaSync::syncModificationCatalog($this->db);
+
+        $adapter = new \HambakTech\Adapters\Verification\TwoSureVerifyAdapter();
+        if (!$adapter->hasCredentials()) {
+            Response::success(['updatedCount' => 0], '2SureVerify API credentials not configured on this server; local wholesale catalog verified.');
+        }
+
+        $res = $adapter->getServicesCatalog();
+        $list = $res['data'] ?? $res['services'] ?? [];
+        $updatedCount = 0;
+
+        if (!empty($res['success']) && is_array($list)) {
+            $localRows = $this->db->fetchAll('SELECT id, service_key, endpoint FROM service_catalogue');
+            foreach ($list as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $ep = strtolower(trim((string)($entry['endpoint'] ?? $entry['url'] ?? '')));
+                $sk = strtolower(trim((string)($entry['service_key'] ?? $entry['key'] ?? $entry['code'] ?? '')));
+                $price = $entry['price'] ?? $entry['cost'] ?? $entry['amount'] ?? null;
+                if (!is_numeric($price) || (float)$price <= 0) {
+                    continue;
+                }
+                foreach ($localRows as $lr) {
+                    $localEp = strtolower((string)$lr['endpoint']);
+                    $localSk = strtolower((string)$lr['service_key']);
+                    if (($ep !== '' && (str_contains($ep, basename($localEp)) || $ep === $localEp)) || ($sk !== '' && $sk === $localSk)) {
+                        $this->db->execute(
+                            'UPDATE service_catalogue SET wholesale_cost = :wc, updated_at = NOW() WHERE id = :id',
+                            ['wc' => (float)$price, 'id' => $lr['id']]
+                        );
+                        $updatedCount++;
+                    }
+                }
+            }
+        }
+
+        Response::success(
+            ['updatedCount' => $updatedCount],
+            $updatedCount > 0
+                ? "Synchronized {$updatedCount} wholesale tariffs from live 2SureVerify catalog."
+                : 'Checked live 2SureVerify catalog; wholesale tariffs are already up to date.'
+        );
     }
 
     private function maskSecret(string $val): string

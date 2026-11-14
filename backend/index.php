@@ -28,6 +28,7 @@ use HambakTech\Controllers\SupportController;
 use HambakTech\Controllers\SettingsController;
 use HambakTech\Controllers\NotificationController;
 use HambakTech\Controllers\AcademyController;
+use HambakTech\Controllers\ModificationController;
 
 $request = new Request();
 $router = new Router();
@@ -127,6 +128,20 @@ $router->get('/api/verification/status/:ref', [VerificationController::class, 'c
 $router->get('/api/verification/recover', [VerificationController::class, 'recover']);
 $router->get('/api/verification/record/:id', [VerificationController::class, 'getRecord']);
 $router->get('/api/verification/record/:id/pdf', [VerificationController::class, 'downloadPdf']);
+
+// -----------------------------------------------------------------------------
+// 5B. MANUAL NIN & BVN MODIFICATIONS (STAGE 3)
+// -----------------------------------------------------------------------------
+$router->get('/api/modifications/services', [ModificationController::class, 'services']);
+$router->get('/api/modifications/bvn-types', [ModificationController::class, 'bvnTypes']);
+$router->post('/api/modifications/upload-document', [ModificationController::class, 'uploadDocument']);
+$router->get('/api/modifications/document/:id', [ModificationController::class, 'getDocument']);
+$router->post('/api/modifications/submit', [ModificationController::class, 'submit']);
+$router->get('/api/modifications/history', [ModificationController::class, 'history']);
+$router->get('/api/modifications/:id/status', [ModificationController::class, 'requestStatus']);
+$router->post('/api/modifications/:id/poll', [ModificationController::class, 'pollStatus']);
+$router->post('/api/modifications/:id/submit-info', [ModificationController::class, 'submitAdditionalInfo']);
+$router->post('/api/modifications/webhook', [ModificationController::class, 'webhook']);
 
 // -----------------------------------------------------------------------------
 // 6. TELECOMMUNICATIONS (DATA, AIRTIME, BILLS, PINS, EXAMS, SWAP, BULKSMS)
@@ -255,6 +270,17 @@ $router->put('/api/admin/services/providers', [AdminController::class, 'updatePr
 $router->get('/api/admin/services/verification', [AdminController::class, 'verificationServices']);
 $router->put('/api/admin/services/verification/:key', [AdminController::class, 'updateVerificationService']);
 $router->post('/api/admin/services/verification/sync-wholesale', [AdminController::class, 'syncWholesalePrices']);
+
+// Admin NIN & BVN Modification Operations (Stage 3)
+$router->get('/api/admin/modifications', [ModificationController::class, 'adminList']);
+$router->get('/api/admin/modifications/services', [ModificationController::class, 'adminServices']);
+$router->put('/api/admin/modifications/services/:key', [ModificationController::class, 'adminUpdateService']);
+$router->get('/api/admin/modifications/bvn-types', [ModificationController::class, 'adminBvnTypes']);
+$router->put('/api/admin/modifications/bvn-types/:id', [ModificationController::class, 'adminUpdateBvnType']);
+$router->post('/api/admin/modifications/sync-catalog', [ModificationController::class, 'adminSyncCatalog']);
+$router->get('/api/admin/modifications/:id', [ModificationController::class, 'adminDetail']);
+$router->post('/api/admin/modifications/:id/poll', [ModificationController::class, 'adminPollStatus']);
+$router->post('/api/admin/modifications/:id/update', [ModificationController::class, 'adminUpdateRequest']);
 
 // Store & Academy aliases under /api/admin/services/*
 $router->post('/api/admin/services/store', [AdminController::class, 'saveStoreItem']);

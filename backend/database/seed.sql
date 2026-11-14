@@ -41,13 +41,14 @@ INSERT INTO service_categories (id, code, name, icon, display_order, is_active) 
 ('cat_nin', 'nin_verification', 'NIN Verification', 'ShieldCheck', 1, 1),
 ('cat_bvn', 'bvn_verification', 'BVN Verification', 'CreditCard', 2, 1),
 ('cat_mod', 'nin_modification', 'NIN Modification', 'Edit3', 3, 1),
-('cat_prs', 'personalisation', 'Personalisation', 'UserCheck', 4, 1),
-('cat_enr', 'enrolment', 'Enrolment', 'FilePlus', 5, 1),
-('cat_add', 'additional_services', 'Additional Services', 'Layers', 6, 1)
-ON DUPLICATE KEY UPDATE name=VALUES(name);
+('cat_bvn_mod', 'bvn_modification', 'BVN Modification', 'UserCog', 4, 1),
+('cat_prs', 'personalisation', 'Personalisation', 'UserCheck', 5, 1),
+('cat_enr', 'enrolment', 'Enrolment', 'FilePlus', 6, 1),
+('cat_add', 'additional_services', 'Additional Services', 'Layers', 7, 1)
+ON DUPLICATE KEY UPDATE name=VALUES(name), code=VALUES(code), display_order=VALUES(display_order);
 
 -- -----------------------------------------------------------------------------
--- 4. SERVICE CATALOGUE SEED (42 SOVEREIGN IDENTITY SERVICES)
+-- 4. SERVICE CATALOGUE SEED (IDENTITY VERIFICATION & MANUAL MODIFICATION)
 -- -----------------------------------------------------------------------------
 INSERT INTO service_catalogue (id, category_id, service_key, name, description, provider_id, endpoint, wholesale_cost, selling_price, required_fields, slip_type_supported, is_active) VALUES
 ('srv_nin_v1', 'cat_nin', 'nin_v1', 'NIN Verification (V1 Standard)', 'Direct NIMC lookup with slip style selection (ninBasic, ninStandard, ninPremium, ninVnin, ninSpecial).', '2sureverify', '/api/v1/nin_v1.php', 85.00, 200.00, '["nin", "slip_type"]', 1, 1),
@@ -67,19 +68,19 @@ INSERT INTO service_catalogue (id, category_id, service_key, name, description, 
 ('srv_mod_name', 'cat_mod', 'nin_mod_name', 'NIN Name Modification', 'Official correction of first name, middle name, or surname.', '2sureverify', '/api/v1/nin_mod_name.php', 4000.00, 6000.00, '["nin", "first_name", "last_name"]', 0, 1),
 ('srv_mod_phone', 'cat_mod', 'nin_mod_phone', 'NIN Phone Number Modification', 'Update telephone number registered on NIMC database.', '2sureverify', '/api/v1/nin_mod_phone.php', 4000.00, 6000.00, '["nin", "phone"]', 0, 1),
 ('srv_mod_addr', 'cat_mod', 'nin_mod_address', 'NIN Address Modification', 'Update residential address, state, or LGA.', '2sureverify', '/api/v1/nin_mod_address.php', 4000.00, 6000.00, '["nin", "address", "state", "lga"]', 0, 1),
-('srv_mod_dob', 'cat_mod', 'nin_mod_dob', 'NIN Date of Birth Modification', 'Official NIMC date of birth modification with affidavit.', '2sureverify', '/api/v1/nin_mod_dob.php', 53000.00, 65000.00, '["nin", "dob"]', 0, 1),
+('srv_mod_dob', 'cat_mod', 'nin_mod_dob', 'NIN Date of Birth Modification', 'Official NIMC date of birth modification with affidavit and birth proof.', '2sureverify', '/api/v1/nin_mod_dob.php', 53000.00, 65000.00, '["nin", "dob"]', 0, 1),
 ('srv_mod_dob_name', 'cat_mod', 'nin_mod_dob_name', 'NIN Name & DOB Modification', 'Simultaneous correction of full names and date of birth.', '2sureverify', '/api/v1/nin_mod_dob_name.php', 58000.00, 72000.00, '["nin", "first_name", "last_name", "dob"]', 0, 1),
 ('srv_mod_name_phone', 'cat_mod', 'nin_mod_name_phone', 'NIN Name & Phone Modification', 'Simultaneous update of names and registered telephone number.', '2sureverify', '/api/v1/nin_mod_name_phone.php', 8000.00, 12000.00, '["nin", "first_name", "last_name", "phone"]', 0, 1),
 ('srv_mod_gender', 'cat_mod', 'gender_modification', 'NIN Gender Modification', 'Correction of gender classification on identity record.', '2sureverify', '/api/v1/gender_modification.php', 5000.00, 7500.00, '["nin", "gender"]', 0, 1),
 ('srv_mod_susp', 'cat_mod', 'suspended_modification', 'Suspended NIN Modification', 'Rectification and lifting of suspension on flagged NIN.', '2sureverify', '/api/v1/suspended_modification.php', 23000.00, 30000.00, '["nin", "tracking_id"]', 0, 1),
 ('srv_mod_bvn_gen', 'cat_mod', 'bvn_generated_modification', 'BVN Generated NIN Modification', 'Upgrade and bio-capture modification for auto-generated BVN-NINs.', '2sureverify', '/api/v1/bvn_generated_modification.php', 22000.00, 28000.00, '["nin", "bvn"]', 0, 1),
 ('srv_mod_child', 'cat_mod', 'child_modification', 'Child NIN Modification', 'Update child identity record with parental consent linkage.', '2sureverify', '/api/v1/child_modification.php', 13000.00, 18000.00, '["nin", "parent_nin"]', 0, 1),
-('srv_mod_overage', 'cat_mod', 'nin_over_age', 'Over-Age NIN Modification', 'Age bracket adjustment (5-9, 10-15, 15-20 years).', '2sureverify', '/api/v1/nin_over_age.php', 10000.00, 15000.00, '["nin", "age_range"]', 0, 1),
+('srv_mod_overage', 'cat_mod', 'nin_over_age', 'Over-Age NIN Modification', 'Age bracket adjustment (5-9, 10-15, 15-20 years).', '2sureverify', '/api/v1/nin_over_age.php', 10000.00, 15000.00, '["nin", "age_range", "dob"]', 0, 1),
 ('srv_mod_sec_name', 'cat_mod', 'second_nin_mod_name', 'Second NIN Name Mod (No Email/Pass)', 'Secondary NIN name modification without email or password auth.', '2sureverify', '/api/v1/second_nin_mod_name.php', 70000.00, 85000.00, '["nin", "first_name", "last_name"]', 0, 1),
 ('srv_mod_sec_phone', 'cat_mod', 'second_nin_mod_phone', 'Second NIN Phone Mod (No Email/Pass)', 'Secondary NIN phone number modification without email or password auth.', '2sureverify', '/api/v1/second_nin_mod_phone.php', 18000.00, 25000.00, '["nin", "phone"]', 0, 1),
-('srv_mod_sec_name_pass', 'cat_mod', 'second_nin_mod_name_pass', 'Second NIN Name Mod (With Email/Pass)', 'Secondary NIN name modification with authenticated credentials.', '2sureverify', '/api/v1/second_nin_mod_name_pass.php', 28000.00, 36000.00, '["nin", "first_name", "last_name", "email", "password"]', 0, 1),
-('srv_mod_sec_phone_pass', 'cat_mod', 'second_nin_mod_phone_pass', 'Second NIN Phone Mod (With Email/Pass)', 'Secondary NIN phone modification with authenticated credentials.', '2sureverify', '/api/v1/second_nin_mod_phone_pass.php', 15000.00, 20000.00, '["nin", "phone", "email", "password"]', 0, 1),
-('srv_mod_bvn_mod', 'cat_mod', 'bvn_modification', 'BVN Modification Service', 'Direct update and correction of NIBSS BVN records.', '2sureverify', '/api/v1/bvn_modification.php', 8000.00, 12000.00, '["bvn", "field_to_modify", "new_value"]', 0, 1)
+('srv_mod_sec_name_pass', 'cat_mod', 'second_nin_mod_name_auth', 'Second NIN Name Mod (With Email/Pass)', 'Secondary NIN name modification with authenticated credentials.', '2sureverify', '/api/v1/second_nin_mod_name_auth.php', 10000.00, 15000.00, '["nin", "first_name", "last_name", "email", "password"]', 0, 1),
+('srv_mod_sec_phone_pass', 'cat_mod', 'second_nin_mod_phone_auth', 'Second NIN Phone Mod (With Email/Pass)', 'Secondary NIN phone modification with authenticated credentials.', '2sureverify', '/api/v1/second_nin_mod_phone_auth.php', 10000.00, 15000.00, '["nin", "phone", "email", "password"]', 0, 1),
+('srv_mod_bvn_mod', 'cat_bvn_mod', 'bvn_modification', 'BVN Modification Service', 'Manual update and correction of NIBSS Bank Verification Number (BVN) records by bank/enrollment type.', '2sureverify', '/api/v1/bvn_modification.php', 8000.00, 12000.00, '["bvn", "enrollment_type", "field_to_modify", "new_value"]', 0, 1)
 ON DUPLICATE KEY UPDATE selling_price=VALUES(selling_price);
 
 -- -----------------------------------------------------------------------------

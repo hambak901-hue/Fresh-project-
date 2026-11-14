@@ -284,6 +284,701 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ];
     }
 
+    /**
+     * Execute authenticated GET request against 2SureVerify v1 helper endpoints
+     */
+    public function executeGet(string $endpoint): array
+    {
+        if (empty($this->apiKey)) {
+            return [
+                'success' => false,
+                'status' => 'unconfigured',
+                'code' => 503,
+                'message' => '2SureVerify API key is not configured on this server.',
+            ];
+        }
+
+        $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
+        $startTime = microtime(true);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'Authorization: Bearer ' . $this->apiKey,
+                'X-Api-Key: ' . $this->apiKey,
+            ],
+            CURLOPT_CONNECTTIMEOUT => 12,
+            CURLOPT_TIMEOUT => $this->timeout,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+
+        $responseBody = curl_exec($ch);
+        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErrno = curl_errno($ch);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
+        $this->logTransaction($endpoint, ['method' => 'GET'], $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, null, 'GET');
+
+        if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
+            $decoded = json_decode($responseBody, true);
+            if (is_array($decoded)) {
+                return array_merge(['success' => !isset($decoded['success']) || (bool)$decoded['success']], $decoded);
+            }
+        }
+
+        return [
+            'success' => false,
+            'status' => 'error',
+            'code' => $curlErrno === CURLE_OPERATION_TIMEDOUT ? 504 : ($statusCode ?: 502),
+            'message' => $curlError ?: ('2SureVerify GET request failed (HTTP ' . $statusCode . ')'),
+            'raw_error' => $responseBody ?: $curlError,
+        ];
+    }
+
+    public function getServicesCatalog(): array
+    {
+        return $this->executeGet('/api/v1/services.php');
+    }
+
+    public function getBvnModificationBanks(): array
+    {
+        return $this->executeGet('/api/v1/bvn_modification_banks.php');
+    }
+
+    public function getBvnEnrollmentBanks(): array
+    {
+        return $this->executeGet('/api/v1/bvn_enrollment_banks.php');
+    }
+
+    public function checkStatus(string $reference): array
+    {
+        $cleanRef = trim($reference);
+        if ($cleanRef === '') {
+            return ['success' => false, 'status' => 'error', 'code' => 422, 'message' => 'Reference is required for status lookup.'];
+        }
+        return $this->executeGet('/api/v1/status.php?reference=' . rawurlencode($cleanRef));
+    }
+
+    /**
+     * Central 2SureVerify modification parameter & multipart file mapping registry.
+     * Note: https://2sureverify.com/api_docs.php documents endpoint URLs, methods, prices, and Manual behavior,
+     * while stating exact per-endpoint parameter names come from per-file headers / OpenAPI spec on request.
+     * Therefore `provider_schema_verified` is explicitly false until confirmed against 2SureVerify OpenAPI/headers,
+     * and every mapping can be overridden without code changes via Admin Service Config (`provider_param` / `provider_file_param`).
+     */
+    public static function getAllModificationMappingSpecs(): array
+    {
+        return [
+            'nin_mod_name' => [
+                'endpoint' => '/api/v1/nin_mod_name.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'first_name' => 'first_name',
+                    'middle_name' => 'middle_name',
+                    'last_name' => 'last_name',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'affidavit' => 'affidavit',
+                    'newspaper_pub' => 'newspaper_pub',
+                ],
+            ],
+            'nin_mod_phone' => [
+                'endpoint' => '/api/v1/nin_mod_phone.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'phone' => 'phone',
+                    'previous_phone' => 'previous_phone',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'passport_photo' => 'passport_photo',
+                ],
+            ],
+            'nin_mod_address' => [
+                'endpoint' => '/api/v1/nin_mod_address.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'address' => 'address',
+                    'state' => 'state',
+                    'lga' => 'lga',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'address_proof' => 'address_proof',
+                ],
+            ],
+            'nin_mod_dob' => [
+                'endpoint' => '/api/v1/nin_mod_dob.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'dob' => 'dob',
+                    'first_name' => 'first_name',
+                    'last_name' => 'last_name',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'birth_certificate' => 'birth_certificate',
+                    'affidavit' => 'affidavit',
+                ],
+            ],
+            'nin_mod_dob_name' => [
+                'endpoint' => '/api/v1/nin_mod_dob_name.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'first_name' => 'first_name',
+                    'middle_name' => 'middle_name',
+                    'last_name' => 'last_name',
+                    'dob' => 'dob',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'birth_certificate' => 'birth_certificate',
+                    'affidavit' => 'affidavit',
+                    'newspaper_pub' => 'newspaper_pub',
+                ],
+            ],
+            'nin_mod_name_phone' => [
+                'endpoint' => '/api/v1/nin_mod_name_phone.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'first_name' => 'first_name',
+                    'middle_name' => 'middle_name',
+                    'last_name' => 'last_name',
+                    'phone' => 'phone',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'affidavit' => 'affidavit',
+                    'newspaper_pub' => 'newspaper_pub',
+                ],
+            ],
+            'gender_modification' => [
+                'endpoint' => '/api/v1/gender_modification.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'gender' => 'gender',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'gender_proof' => 'gender_proof',
+                    'passport_photo' => 'passport_photo',
+                ],
+            ],
+            'suspended_modification' => [
+                'endpoint' => '/api/v1/suspended_modification.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'tracking_id' => 'tracking_id',
+                    'first_name' => 'first_name',
+                    'last_name' => 'last_name',
+                    'phone' => 'phone',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'affidavit' => 'affidavit',
+                    'passport_photo' => 'passport_photo',
+                ],
+            ],
+            'bvn_generated_modification' => [
+                'endpoint' => '/api/v1/bvn_generated_modification.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'bvn' => 'bvn',
+                    'first_name' => 'first_name',
+                    'last_name' => 'last_name',
+                    'phone' => 'phone',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'bvn_slip' => 'bvn_slip',
+                    'affidavit' => 'affidavit',
+                ],
+            ],
+            'child_modification' => [
+                'endpoint' => '/api/v1/child_modification.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'parent_nin' => 'parent_nin',
+                    'first_name' => 'first_name',
+                    'last_name' => 'last_name',
+                    'dob' => 'dob',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'birth_certificate' => 'birth_certificate',
+                    'parent_nin_slip' => 'parent_nin_slip',
+                ],
+            ],
+            'nin_over_age' => [
+                'endpoint' => '/api/v1/nin_over_age.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'age_range' => 'age_range',
+                    'dob' => 'dob',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'birth_certificate' => 'birth_certificate',
+                    'affidavit' => 'affidavit',
+                ],
+            ],
+            'second_nin_mod_name' => [
+                'endpoint' => '/api/v1/second_nin_mod_name.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'first_name' => 'first_name',
+                    'middle_name' => 'middle_name',
+                    'last_name' => 'last_name',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'affidavit' => 'affidavit',
+                    'newspaper_pub' => 'newspaper_pub',
+                ],
+            ],
+            'second_nin_mod_phone' => [
+                'endpoint' => '/api/v1/second_nin_mod_phone.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'phone' => 'phone',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'passport_photo' => 'passport_photo',
+                ],
+            ],
+            'second_nin_mod_name_auth' => [
+                'endpoint' => '/api/v1/second_nin_mod_name_auth.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'first_name' => 'first_name',
+                    'middle_name' => 'middle_name',
+                    'last_name' => 'last_name',
+                    'email' => 'email',
+                    'password' => 'password',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'affidavit' => 'affidavit',
+                    'newspaper_pub' => 'newspaper_pub',
+                ],
+            ],
+            'second_nin_mod_phone_auth' => [
+                'endpoint' => '/api/v1/second_nin_mod_phone_auth.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'nin' => 'nin',
+                    'phone' => 'phone',
+                    'email' => 'email',
+                    'password' => 'password',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'nin_slip' => 'nin_slip',
+                    'passport_photo' => 'passport_photo',
+                ],
+            ],
+            'bvn_modification' => [
+                'endpoint' => '/api/v1/bvn_modification.php',
+                'method' => 'POST',
+                'provider_schema_verified' => false,
+                'fields' => [
+                    'bvn' => 'bvn',
+                    'enrollment_type' => 'enrollment_type',
+                    'field_to_modify' => 'field_to_modify',
+                    'old_value' => 'old_value',
+                    'new_value' => 'new_value',
+                    'new_dob' => 'dob',
+                    'email' => 'email',
+                    'phone' => 'phone',
+                    'reason' => 'reason',
+                ],
+                'files' => [
+                    'bvn_slip' => 'bvn_slip',
+                    'valid_id' => 'valid_id',
+                    'affidavit' => 'affidavit',
+                ],
+            ],
+        ];
+    }
+
+    public static function getModificationMappingSpec(string $serviceKey, array $formSchema = [], array $requiredDocs = []): array
+    {
+        $all = self::getAllModificationMappingSpecs();
+        $base = $all[$serviceKey] ?? [
+            'endpoint' => '',
+            'method' => 'POST',
+            'provider_schema_verified' => false,
+            'fields' => [],
+            'files' => [],
+        ];
+
+        $fieldMap = $base['fields'];
+        $fieldTrace = [];
+        foreach ($formSchema as $fDef) {
+            if (!is_array($fDef) || empty($fDef['key'])) {
+                continue;
+            }
+            $ck = (string)$fDef['key'];
+            $pp = trim((string)($fDef['provider_param'] ?? ($fieldMap[$ck] ?? $ck)));
+            $fieldMap[$ck] = $pp;
+            $fieldTrace[] = [
+                'customer_field' => $ck,
+                'internal_field' => $ck,
+                'provider_param' => $pp,
+                'required' => !empty($fDef['required']),
+            ];
+        }
+        if (empty($fieldTrace)) {
+            foreach ($fieldMap as $ck => $pp) {
+                $fieldTrace[] = [
+                    'customer_field' => $ck,
+                    'internal_field' => $ck,
+                    'provider_param' => $pp,
+                    'required' => false,
+                ];
+            }
+        }
+
+        $fileMap = $base['files'];
+        $fileTrace = [];
+        foreach ($requiredDocs as $dDef) {
+            if (!is_array($dDef) || empty($dDef['key'])) {
+                continue;
+            }
+            $dk = (string)$dDef['key'];
+            $pfp = trim((string)($dDef['provider_file_param'] ?? ($fileMap[$dk] ?? $dk)));
+            $fileMap[$dk] = $pfp;
+            $fileTrace[] = [
+                'doc_key' => $dk,
+                'provider_file_param' => $pfp,
+                'required' => !empty($dDef['required']),
+            ];
+        }
+        if (empty($fileTrace)) {
+            foreach ($fileMap as $dk => $pfp) {
+                $fileTrace[] = [
+                    'doc_key' => $dk,
+                    'provider_file_param' => $pfp,
+                    'required' => false,
+                ];
+            }
+        }
+
+        return [
+            'service_key' => $serviceKey,
+            'endpoint' => $base['endpoint'],
+            'method' => $base['method'],
+            'provider_schema_verified' => (bool)$base['provider_schema_verified'],
+            'verification_note' => '2SureVerify api_docs.php verifies endpoint URL, POST method, Manual status, and price, but explicitly defers exact per-endpoint parameter names to file headers/OpenAPI on request. Update provider_param or provider_file_param in Admin Config if upstream requires different keys.',
+            'fields' => $fieldMap,
+            'files' => $fileMap,
+            'field_trace' => $fieldTrace,
+            'file_trace' => $fileTrace,
+        ];
+    }
+
+    /**
+     * Transform internal customer fields & document attachments into allowlisted 2SureVerify parameters.
+     */
+    public function mapModificationPayload(
+        string $serviceKey,
+        array $fields,
+        array $files = [],
+        array $formSchema = [],
+        array $requiredDocs = []
+    ): array {
+        $spec = self::getModificationMappingSpec($serviceKey, $formSchema, $requiredDocs);
+        $fieldMap = $spec['fields'];
+        $fileMap = $spec['files'];
+        $blockedKeys = ['service_key', 'consent', 'idempotency_key', 'pin', 'transaction_pin', 'document_ids', 'supporting_documents'];
+
+        $mappedFields = [];
+        $appliedFieldTrace = [];
+        foreach ($fields as $k => $v) {
+            $key = (string)$k;
+            if (in_array($key, $blockedKeys, true) || !is_scalar($v)) {
+                continue;
+            }
+            $strVal = trim((string)$v);
+            if ($strVal === '') {
+                continue;
+            }
+            // Enforce strict allowlist when mapping spec or schema is defined
+            if (!empty($fieldMap) && !array_key_exists($key, $fieldMap)) {
+                continue;
+            }
+            $providerKey = preg_replace('/[^a-zA-Z0-9_]/', '_', (string)($fieldMap[$key] ?? $key)) ?: $key;
+            $mappedFields[$providerKey] = $strVal;
+            $appliedFieldTrace[] = [
+                'internal_field' => $key,
+                'provider_param' => $providerKey,
+            ];
+        }
+
+        $mappedFiles = [];
+        foreach ($files as $idx => $fileItem) {
+            if (!is_array($fileItem)) {
+                continue;
+            }
+            $docKey = (string)($fileItem['doc_key'] ?? ('document_' . $idx));
+            $targetParam = preg_replace('/[^a-zA-Z0-9_]/', '_', (string)($fileMap[$docKey] ?? $docKey)) ?: ('document_' . $idx);
+            $mappedFiles[] = array_merge($fileItem, [
+                'provider_file_param' => $targetParam,
+            ]);
+        }
+
+        return [
+            'payload' => $mappedFields,
+            'files' => $mappedFiles,
+            'provider_schema_verified' => $spec['provider_schema_verified'],
+            'mapping_trace' => $appliedFieldTrace,
+        ];
+    }
+
+    /**
+     * Submit Manual NIN/BVN Modification Request to 2SureVerify.
+     * Supports multipart/form-data when local uploaded files exist or JSON otherwise.
+     * IMPORTANT: Detects `pending` responses FIRST so manual pending requests are NEVER treated as failures.
+     */
+    public function submitModification(
+        string $endpoint,
+        array $fields,
+        array $files = [],
+        ?string $reference = null,
+        ?string $serviceKey = null,
+        array $formSchema = [],
+        array $requiredDocs = []
+    ): array {
+        $ref = $reference ?: ('2SV_MOD_' . strtoupper(bin2hex(random_bytes(6))));
+
+        if (empty($this->apiKey)) {
+            return [
+                'success' => false,
+                'pending' => false,
+                'status' => 'failed',
+                'code' => 503,
+                'message' => '2SureVerify API key is not configured on the production host.',
+                'reference' => $ref,
+            ];
+        }
+
+        $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
+        $startTime = microtime(true);
+
+        $resolvedKey = trim((string)($serviceKey ?? ($fields['service_key'] ?? '')));
+        if ($resolvedKey !== '' || !empty($formSchema)) {
+            $mapped = $this->mapModificationPayload($resolvedKey, $fields, $files, $formSchema, $requiredDocs);
+            $cleanFields = $mapped['payload'];
+            $resolvedFiles = $mapped['files'];
+        } else {
+            $cleanFields = [];
+            foreach ($fields as $k => $v) {
+                if (in_array($k, ['service_key', 'consent', 'idempotency_key', 'pin', 'transaction_pin', 'document_ids', 'supporting_documents'], true)) {
+                    continue;
+                }
+                if (is_scalar($v) && trim((string)$v) !== '') {
+                    $cleanFields[(string)$k] = trim((string)$v);
+                }
+            }
+            $resolvedFiles = $files;
+        }
+        $cleanFields['reference'] = $cleanFields['reference'] ?? $ref;
+
+        $curlFiles = [];
+        $fileIndex = 0;
+        foreach ($resolvedFiles as $fileItem) {
+            if (!is_array($fileItem)) {
+                continue;
+            }
+            $filePath = (string)($fileItem['file_path'] ?? '');
+            if ($filePath !== '' && is_file($filePath) && is_readable($filePath)) {
+                $mime = (string)($fileItem['mime_type'] ?? 'application/octet-stream');
+                $origName = basename((string)($fileItem['original_name'] ?? ('document_' . $fileIndex)));
+                $rawParam = (string)($fileItem['provider_file_param'] ?? $fileItem['doc_key'] ?? ('document_' . $fileIndex));
+                $fieldKey = preg_replace('/[^a-zA-Z0-9_]/', '_', $rawParam) ?: ('document_' . $fileIndex);
+                if (isset($curlFiles[$fieldKey])) {
+                    $fieldKey .= '_' . $fileIndex;
+                }
+                $curlFiles[$fieldKey] = new \CURLFile($filePath, $mime, $origName);
+                $fileIndex++;
+            }
+        }
+
+        $ch = curl_init($url);
+        if (!empty($curlFiles)) {
+            $postBody = array_merge($cleanFields, ['api_key' => $this->apiKey], $curlFiles);
+            $headers = [
+                'Accept: application/json',
+                'Authorization: Bearer ' . $this->apiKey,
+                'X-Api-Key: ' . $this->apiKey,
+            ];
+        } else {
+            $postBody = json_encode(array_merge($cleanFields, ['api_key' => $this->apiKey]));
+            $headers = [
+                'Content-Type: application/json',
+                'Accept: application/json',
+                'Authorization: Bearer ' . $this->apiKey,
+                'X-Api-Key: ' . $this->apiKey,
+            ];
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $postBody,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_CONNECTTIMEOUT => 12,
+            CURLOPT_TIMEOUT => $this->timeout,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+
+        $responseBody = curl_exec($ch);
+        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErrno = curl_errno($ch);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
+        $logPayload = $cleanFields;
+        if (!empty($curlFiles)) {
+            $logPayload['_attached_files'] = array_keys($curlFiles);
+        }
+        $this->logTransaction($endpoint, $logPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $ref, 'POST');
+
+        if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
+            $decoded = json_decode($responseBody, true);
+            if (is_array($decoded)) {
+                $provRef = (string)($decoded['reference'] ?? $decoded['data']['reference'] ?? $decoded['request_id'] ?? $ref);
+                $statusLower = strtolower(trim((string)($decoded['status'] ?? $decoded['data']['status'] ?? '')));
+                $pendingFlag = $decoded['pending'] ?? $decoded['data']['pending'] ?? null;
+                $isPending = ($pendingFlag === true || $pendingFlag === 1 || strtolower((string)$pendingFlag) === 'true' || in_array($statusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true));
+
+                $providerCost = 0.0;
+                foreach (['amount_charged', 'charge', 'cost', 'price'] as $costKey) {
+                    if (isset($decoded[$costKey]) && is_numeric($decoded[$costKey])) {
+                        $providerCost = (float)$decoded[$costKey];
+                        break;
+                    }
+                    if (isset($decoded['data'][$costKey]) && is_numeric($decoded['data'][$costKey])) {
+                        $providerCost = (float)$decoded['data'][$costKey];
+                        break;
+                    }
+                }
+
+                // 1. Check PENDING FIRST before interpreting success/failure!
+                if ($isPending) {
+                    return [
+                        'success' => true,
+                        'pending' => true,
+                        'status' => 'pending',
+                        'provider_status' => $statusLower !== '' ? $statusLower : 'pending',
+                        'reference' => $provRef,
+                        'provider_cost' => $providerCost,
+                        'message' => (string)($decoded['message'] ?? 'Request received by 2SureVerify and queued for manual processing.'),
+                        'raw' => $decoded,
+                    ];
+                }
+
+                // 2. Check explicit failure
+                $explicitSuccess = $decoded['success'] ?? null;
+                $isFailed = ($explicitSuccess === false || strtolower((string)$explicitSuccess) === 'false' || in_array($statusLower, ['failed', 'error', 'rejected', 'declined'], true));
+                if (!$isFailed) {
+                    return [
+                        'success' => true,
+                        'pending' => false,
+                        'status' => in_array($statusLower, ['completed', 'success', 'approved'], true) ? 'completed' : 'pending',
+                        'provider_status' => $statusLower !== '' ? $statusLower : 'submitted',
+                        'reference' => $provRef,
+                        'provider_cost' => $providerCost,
+                        'message' => (string)($decoded['message'] ?? 'Modification request accepted.'),
+                        'raw' => $decoded,
+                    ];
+                }
+
+                return [
+                    'success' => false,
+                    'pending' => false,
+                    'status' => 'failed',
+                    'code' => $statusCode,
+                    'reference' => $provRef,
+                    'message' => (string)($decoded['message'] ?? $decoded['error'] ?? 'Provider rejected modification request.'),
+                    'raw' => $decoded,
+                ];
+            }
+        }
+
+        $errorMsg = 'Provider modification request failed.';
+        if ($curlErrno === CURLE_OPERATION_TIMEDOUT) {
+            $errorMsg = 'Gateway timed out while submitting modification request.';
+        } elseif ($responseBody) {
+            $decodedErr = json_decode($responseBody, true);
+            if (is_array($decodedErr) && !empty($decodedErr['message'])) {
+                $errorMsg = (string)$decodedErr['message'];
+            }
+        } elseif ($curlError) {
+            $errorMsg = 'Connection error: ' . $curlError;
+        }
+
+        return [
+            'success' => false,
+            'pending' => false,
+            'status' => 'failed',
+            'code' => $curlErrno === CURLE_OPERATION_TIMEDOUT ? 504 : ($statusCode ?: 502),
+            'message' => $errorMsg,
+            'reference' => $ref,
+            'raw_error' => $responseBody ?: $curlError,
+        ];
+    }
+
     public function verify(string $endpoint, array $payload): array
     {
         $reference = (string)($payload['reference'] ?? ('2SV_' . strtoupper(bin2hex(random_bytes(6)))));
@@ -379,20 +1074,54 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ];
     }
 
+    private function sanitizeLogResponse(?string $responseBody): ?string
+    {
+        if ($responseBody === null || $responseBody === '') {
+            return $responseBody;
+        }
+        $decoded = json_decode($responseBody, true);
+        if (is_array($decoded)) {
+            $redactRecursive = static function (array $node) use (&$redactRecursive): array {
+                foreach ($node as $k => $v) {
+                    $kl = strtolower((string)$k);
+                    if (in_array($kl, ['pdf_base64', 'photo', 'base64image', 'signature', 'image', 'token', 'api_key', 'secret', 'secret_key', 'password'], true)) {
+                        $node[$k] = is_string($v) && strlen($v) > 32 ? '[REDACTED:' . strlen($v) . 'B]' : '[REDACTED]';
+                    } elseif (is_array($v)) {
+                        $node[$k] = $redactRecursive($v);
+                    }
+                }
+                return $node;
+            };
+            return json_encode($redactRecursive($decoded)) ?: substr($responseBody, 0, 4000);
+        }
+        return strlen($responseBody) > 4000 ? substr($responseBody, 0, 4000) . '...[TRUNCATED]' : $responseBody;
+    }
+
     private function logTransaction(
         string $endpoint,
         array $requestBody,
         ?string $responseBody,
         int $statusCode,
         int $latencyMs,
-        ?string $reference
+        ?string $reference,
+        string $method = 'POST'
     ): void {
         try {
             $safeReq = $requestBody;
-            foreach (['nin', 'bvn', 'phone', 'phone_number'] as $k) {
+            foreach (['nin', 'bvn', 'parent_nin', 'phone', 'phone_number', 'previous_phone'] as $k) {
                 if (!empty($safeReq[$k])) {
                     $v = (string)$safeReq[$k];
                     $safeReq[$k] = strlen($v) > 5 ? substr($v, 0, 3) . '•••••' . substr($v, -2) : 'REDACTED';
+                }
+            }
+            foreach (['password', 'api_key', 'secret_key', 'pin', 'transaction_pin'] as $sk) {
+                if (isset($safeReq[$sk]) && $safeReq[$sk] !== '') {
+                    $safeReq[$sk] = '[REDACTED]';
+                }
+            }
+            foreach ($safeReq as $k => $v) {
+                if ($v instanceof \CURLFile) {
+                    $safeReq[$k] = '[FILE:' . basename($v->getPostFilename() ?: $v->getFilename()) . ']';
                 }
             }
             $db = Database::getInstance();
@@ -401,13 +1130,14 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 'INSERT INTO provider_logs 
                  (id, provider_id, endpoint, method, status_code, request_body, response_body, latency_ms, reference, created_at)
                  VALUES 
-                 (:id, "2sureverify", :endpoint, "POST", :status, :req, :res, :latency, :ref, NOW())',
+                 (:id, "2sureverify", :endpoint, :method, :status, :req, :res, :latency, :ref, NOW())',
                 [
                     'id' => $logId,
                     'endpoint' => $endpoint,
+                    'method' => $method,
                     'status' => $statusCode,
                     'req' => json_encode($safeReq),
-                    'res' => $responseBody,
+                    'res' => $this->sanitizeLogResponse($responseBody),
                     'latency' => $latencyMs,
                     'ref' => $reference,
                 ]

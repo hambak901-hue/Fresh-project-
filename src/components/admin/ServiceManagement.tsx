@@ -619,7 +619,8 @@ export function ServiceManagement() {
                   { id: 'all', label: `All (${identityServices.length})` },
                   { id: 'nin_verification', label: 'NIN' },
                   { id: 'bvn_verification', label: 'BVN' },
-                  { id: 'nin_modification', label: 'Modifications' },
+                  { id: 'nin_modification', label: 'NIN Modification' },
+                  { id: 'bvn_modification', label: 'BVN Modification' },
                   { id: 'enrolment', label: 'Enrolment' },
                   { id: 'additional_services', label: 'Additional' },
                 ].map(cat => (
@@ -684,7 +685,11 @@ export function ServiceManagement() {
                               {srv.endpoint && (
                                 <>
                                   <span>&bull;</span>
-                                  <span className="text-indigo-400">api/v1/{srv.endpoint}</span>
+                                  <span className="text-indigo-400">
+                                    {String(srv.endpoint).replace(/^\/+/, '').startsWith('api/v1/')
+                                      ? String(srv.endpoint).replace(/^\/+/, '')
+                                      : `api/v1/${String(srv.endpoint).replace(/^\/+/, '')}`}
+                                  </span>
                                 </>
                               )}
                             </div>

@@ -5,7 +5,7 @@ import { api } from '../../lib/api';
 interface TransactionPinModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (verifiedPin?: string) => void;
   title?: string;
   description?: string;
   amount?: number;
@@ -53,7 +53,7 @@ export function TransactionPinModal({
       const res = await api.verifyPin(pinToVerify);
       if (res.success && res.verified) {
         setPin('');
-        onSuccess();
+        onSuccess(pinToVerify);
       } else {
         setError('Incorrect PIN. Please try again.');
         setPin('');
