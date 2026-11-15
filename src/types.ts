@@ -53,6 +53,14 @@ export interface User {
   tx_count?: number;
   orders_count?: number;
   verifications_count?: number;
+  mfa_enabled?: boolean;
+  mfa_method?: string;
+  pin_is_locked?: boolean;
+  pin_failed_attempts?: number;
+  pin_locked_until?: string | null;
+  referred_by_user_id?: string | null;
+  referral_source?: string | null;
+  referral_campaign_code?: string | null;
   virtual_account?: {
     status: 'unassigned' | 'pending_kyc' | 'active' | 'suspended';
     account_number?: string;
@@ -1091,6 +1099,7 @@ export interface AdminCreateCustomerPayload {
   id_number?: string;
   nin?: string;
   bvn?: string;
+  referral_code?: string;
   kyc_consent?: boolean;
   consent_obtained?: boolean;
 }
@@ -1385,6 +1394,370 @@ export interface EnrolmentUnverifiedNotice {
   status: string;
   reason: string;
 }
+
+// Phase 11 — Compulsory Transaction PIN, MFA, Sessions, Referrals & Withdrawal Centre
+
+export interface PinPolicy {
+  enforce_transaction_pin: boolean;
+  require_pin_activation_for_all_customers: boolean;
+  pin_length: 4 | 5 | 6;
+  allow_weak_pins: boolean;
+  pin_max_attempts: number;
+  pin_lockout_minutes: number;
+  otp_reset_expiry_minutes: number;
+  protected_categories: {
+    nin_verification?: boolean;
+    bvn_verification?: boolean;
+    nin_modification?: boolean;
+    bvn_modification?: boolean;
+    nin_enrolment?: boolean;
+    telecom_data?: boolean;
+    telecom_airtime?: boolean;
+    telecom_pins?: boolean;
+    telecom_bills?: boolean;
+    telecom_sms?: boolean;
+    wallet_transfer?: boolean;
+    referral_wallet_conversion?: boolean;
+    referral_withdrawal?: boolean;
+    [key: string]: boolean | undefined;
+  };
+}
+
+export interface PinUserStatusRow {
+  id: string;
+  full_name: string;
+  email: string;
+  phone_number: string;
+  status: string;
+  kyc_level: number;
+  has_transaction_pin: boolean | number;
+  pin_failed_attempts: number;
+  pin_locked_until?: string | null;
+  pin_set_at?: string | null;
+  pin_updated_by_admin_at?: string | null;
+  created_at: string;
+}
+
+export interface MfaChallengeResponse {
+  challenge_token: string;
+  method: 'email_otp' | 'totp' | string;
+  masked_email: string;
+  expires_in_minutes: number;
+  otp_preview?: string;
+}
+
+export interface MfaStatus {
+  enabled: boolean;
+  preferred_method: 'email_otp' | 'totp' | string;
+  totp_configured: boolean;
+  recovery_codes_remaining: number;
+  required_by_policy: boolean;
+}
+
+export interface MfaPolicy {
+  enforce_mfa_for_superadmin: boolean;
+  enforce_mfa_for_admin: boolean;
+  allow_customer_mfa: boolean;
+  allow_email_otp: boolean;
+  allow_totp: boolean;
+  otp_expiry_minutes: number;
+  totp_issuer: string;
+}
+
+export interface SessionSecuritySettings {
+  session_timeout_minutes: number;
+  admin_session_timeout_minutes: number;
+  bind_user_agent: boolean;
+  login_max_attempts: number;
+  login_lockout_minutes: number;
+  enforce_cors_allowlist?: boolean;
+  allowed_origins?: string;
+}
+
+export interface UserSessionItem {
+  id: string;
+  user_id?: string;
+  ip_address: string;
+  device_label: string;
+  is_current?: boolean;
+  last_seen_at: string;
+  expires_at: string;
+  created_at: string;
+  full_name?: string;
+  email?: string;
+  role?: string;
+}
+
+export interface ReferralQualifyingServices {
+  nin_verification: boolean;
+  bvn_verification: boolean;
+  nin_modification: boolean;
+  bvn_modification: boolean;
+  nin_enrolment: boolean;
+  telecom_data: boolean;
+  telecom_airtime: boolean;
+  telecom_pins: boolean;
+  telecom_bills: boolean;
+  academy: boolean;
+  [key: string]: boolean;
+}
+
+export interface ReferralPublicProgram {
+  enabled: boolean;
+  program_name: string;
+  reward_mode: 'fixed' | 'percent_of_spend' | 'percent_of_margin' | 'points' | 'hybrid';
+  trigger_mode: 'first_qualifying_tx' | 'every_qualifying_tx' | 'up_to_n_tx';
+  flat_reward_naira: number;
+  percent_of_spend: number;
+  percent_of_margin: number;
+  points_per_qualifying_tx: number;
+  points_per_1000_naira: number;
+  point_value_naira: number;
+  min_qualifying_spend: number;
+  settlement_hold_hours: number;
+  max_rewards_per_referee: number;
+  qualifying_services: ReferralQualifyingServices;
+  wallet_conversion_enabled: boolean;
+  min_wallet_conversion_naira: number;
+  min_points_conversion: number;
+  wallet_conversion_fee_naira: number;
+  withdrawal_enabled: boolean;
+  min_withdrawal_naira: number;
+  max_withdrawal_naira: number;
+  daily_withdrawal_limit_naira: number;
+  withdrawal_fee_type: 'flat' | 'percent';
+  withdrawal_fee_value: number;
+  require_kyc_level_for_withdrawal: number;
+  terms_summary: string;
+  whatsapp_share_template: string;
+}
+
+export interface ReferralProgramConfig extends ReferralPublicProgram {
+  code_prefix: string;
+  code_length: number;
+  min_net_margin_naira: number;
+  monthly_reward_cap_naira: number;
+  block_self_referral: boolean;
+  block_same_ip_signup: boolean;
+  max_signups_per_ip_24h: number;
+  notify_email_on_reward: boolean;
+  notify_email_on_withdrawal: boolean;
+}
+
+export interface ReferralCampaign {
+  id: string;
+  campaign_code: string;
+  name: string;
+  description?: string;
+  reward_mode: string;
+  reward_value: number;
+  points_bonus: number;
+  min_spend: number;
+  budget_cap: number;
+  spent_budget: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  is_active: boolean | number;
+  created_at?: string;
+}
+
+export interface ReferralTier {
+  id: string;
+  tier_key: string;
+  name: string;
+  min_qualified_referrals: number;
+  min_referred_volume: number;
+  reward_multiplier: number;
+  bonus_cash: number;
+  bonus_points: number;
+  reseller_only: boolean | number;
+  display_order: number;
+  is_active: boolean | number;
+}
+
+export interface ReferralRecordItem {
+  id: string;
+  status: 'registered' | 'qualified' | 'flagged' | 'blocked';
+  attribution_channel: string;
+  campaign_code?: string | null;
+  qualifying_tx_count: number;
+  qualifying_spend_total: number;
+  reward_earned_total: number;
+  qualified_at?: string | null;
+  created_at: string;
+  customer_label?: string;
+  phone_masked?: string;
+  // Admin fields
+  referrer_name?: string;
+  referrer_email?: string;
+  referrer_code?: string;
+  referred_name?: string;
+  referred_email?: string;
+  referred_phone?: string;
+  referral_code_used?: string;
+  signup_ip?: string;
+  flag_reason?: string | null;
+}
+
+export interface ReferralRewardItem {
+  id: string;
+  service_category: string;
+  service_key?: string | null;
+  source_reference: string;
+  gross_amount: number;
+  reward_mode: string;
+  reward_cash: number;
+  reward_points: number;
+  status: 'pending' | 'available' | 'reversed' | 'rejected' | 'paid_out' | 'skipped';
+  status_reason?: string | null;
+  settles_at?: string | null;
+  settled_at?: string | null;
+  reversed_at?: string | null;
+  created_at: string;
+  referred_customer?: string;
+  // Admin fields
+  referrer_name?: string;
+  referrer_email?: string;
+  referred_name?: string;
+  referred_email?: string;
+  wholesale_cost?: number;
+  net_margin?: number;
+}
+
+export interface ReferralPointsEntry {
+  id: string;
+  entry_type: 'CREDIT' | 'DEBIT' | 'REVERSAL';
+  points: number;
+  balance_before: number;
+  balance_after: number;
+  reference: string;
+  naira_value: number;
+  conversion_rate: number;
+  description: string;
+  created_at: string;
+}
+
+export interface ReferralWithdrawalItem {
+  id: string;
+  withdrawal_number: string;
+  bank_name: string;
+  account_number: string;
+  account_name: string;
+  gross_amount: number;
+  fee_amount: number;
+  net_amount: number;
+  status: 'pending' | 'approved' | 'processing' | 'paid' | 'rejected' | 'failed' | 'cancelled';
+  payment_reference?: string | null;
+  rejection_reason?: string | null;
+  admin_note?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  paid_by?: string | null;
+  paid_at?: string | null;
+  created_at: string;
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  kyc_level?: number;
+}
+
+export interface ReferralDashboardData {
+  referral_code: string;
+  referral_link: string;
+  balance: {
+    pending_balance: number;
+    available_balance: number;
+    reserved_for_withdrawal: number;
+    transferred_to_wallet_total: number;
+    total_withdrawn: number;
+    reversed_total: number;
+    points_balance: number;
+    points_redeemed_total: number;
+  };
+  stats: {
+    total_referrals: number;
+    qualified_referrals: number;
+    pending_referrals: number;
+    referred_volume: number;
+    lifetime_earned: number;
+  };
+  current_tier: ReferralTier | null;
+  tiers: ReferralTier[];
+  referred_users: ReferralRecordItem[];
+  rewards: ReferralRewardItem[];
+  withdrawals: ReferralWithdrawalItem[];
+  points_ledger: ReferralPointsEntry[];
+  trend: Array<{
+    day: string;
+    referrals_count: number;
+    qualified_count: number;
+    rewards_total: number;
+  }>;
+  config: ReferralPublicProgram;
+  pin_policy?: PinPolicy;
+}
+
+export interface ReferralGrowthReport {
+  generated_at: string;
+  summary: {
+    total_referrals: number;
+    qualified_referrals: number;
+    flagged_referrals: number;
+    blocked_referrals: number;
+    active_referrers: number;
+    conversion_rate_percent: number;
+    qualifying_transactions: number;
+    referred_revenue: number;
+    wholesale_cost: number;
+    gateway_fees: number;
+    pending_reward_liability: number;
+    approved_rewards_naira: number;
+    reversed_rewards_naira: number;
+    total_reward_cost: number;
+    net_referral_contribution: number;
+    roi_percent: number;
+    total_converted_to_wallet: number;
+    total_cash_paid_out: number;
+    pending_withdrawal_amount: number;
+    pending_withdrawal_count: number;
+    outstanding_available_balances: number;
+    outstanding_points_liability: number;
+  };
+  service_breakdown: Array<{
+    service_category: string;
+    tx_count: number;
+    revenue: number;
+    wholesale_cost: number;
+    net_margin: number;
+    rewards_cost: number;
+  }>;
+  top_referrers: Array<{
+    id: string;
+    full_name: string;
+    email: string;
+    referral_code: string;
+    total_referred: number;
+    qualified_count: number;
+    generated_revenue: number;
+    rewards_earned: number;
+    available_balance: number;
+    points_balance: number;
+  }>;
+  campaigns: Array<{
+    id: string;
+    campaign_code: string;
+    name: string;
+    reward_mode: string;
+    reward_value: number;
+    budget_cap: number;
+    spent_budget: number;
+    is_active: number | boolean;
+    signups: number;
+    qualified_signups: number;
+    generated_revenue: number;
+  }>;
+}
+
 
 
 

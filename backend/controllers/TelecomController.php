@@ -19,6 +19,8 @@ use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
+use HambakTech\Services\PinSecurityService;
+use HambakTech\Services\ReferralEngineService;
 use HambakTech\Adapters\Telecom\TelecomAdapterInterface;
 use HambakTech\Adapters\Telecom\UlamaDataAdapter;
 use HambakTech\Adapters\Telecom\VtpassAdapter;
@@ -628,6 +630,9 @@ class TelecomController
 
         $reference = 'HT_DAT_' . strtoupper(bin2hex(random_bytes(6)));
 
+        // Enforce compulsory Transaction PIN before wallet debit
+        $this->verifyTransactionPinOrFail($user, $request, 'telecom_data', 'data');
+
         // 1. Atomic Wallet Debit
         try {
             $debitResult = $this->walletService->debit(
@@ -706,6 +711,10 @@ class TelecomController
                 'plan' => $planLabel,
             ]);
 
+            if ($orderStatus === 'successful') {
+                $this->triggerReferralReward((string)$user['id'], 'data', 'data', 'TEL_' . $orderId, $price, $wholesaleCost);
+            }
+
             $msg = $orderStatus === 'pending'
                 ? "{$plan['size']} Data order for {$phone} is processing and will complete shortly."
                 : "{$plan['size']} Data successfully delivered to {$phone}!";
@@ -767,6 +776,9 @@ class TelecomController
         if (empty($network) || empty($phone) || $amount < 50) {
             Response::error('Network, valid phone number, and minimum ₦50 airtime amount are required.', 422);
         }
+
+        // Enforce compulsory Transaction PIN before wallet debit
+        $this->verifyTransactionPinOrFail($user, $request, 'telecom_airtime', 'airtime');
 
         // Apply Admin-configured platform discount dynamically
         $discountPercent = $this->getAirtimeDiscountPercent();
@@ -835,6 +847,8 @@ class TelecomController
                 'discount_percent' => $discountPercent,
             ]);
 
+            $this->triggerReferralReward((string)$user['id'], 'airtime', 'airtime', 'TEL_' . $orderId, $discountedPrice, $wholesaleCost);
+
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
@@ -876,22 +890,41 @@ class TelecomController
         }
     }
 
-    private function verifyTransactionPinOrFail(array $user, Request $request): bool
+    private function triggerReferralReward(string $userId, string $category, string $serviceKey, string $sourceRef, float $gross, float $wholesale): void
     {
-        $pin = trim((string)($request->input('transaction_pin') ?? $request->input('pin') ?? ''));
-        $row = $this->db->fetchOne('SELECT transaction_pin_hash FROM users WHERE id = :id LIMIT 1', ['id' => $user['id']]);
-        if (!$row || empty($row['transaction_pin_hash'])) {
-            Response::error('Please set your 4-digit Transaction PIN in Security Settings before purchasing PINs.', 403);
-            return false;
+        try {
+            (new ReferralEngineService($this->db))->recordQualifyingTransaction([
+                'user_id' => $userId,
+                'service_category' => $category,
+                'service_key' => $serviceKey,
+                'source_reference' => $sourceRef,
+                'gross_amount' => $gross,
+                'wholesale_cost' => $wholesale,
+                'gateway_fee' => 0.0,
+            ]);
+        } catch (Throwable) {
         }
-        if ($pin === '' || !preg_match('/^\d{4}$/', $pin)) {
-            Response::error('Your 4-digit Transaction PIN is required to authorize PIN generation.', 422);
-            return false;
-        }
-        if (!Security::verifyPin($pin, (string)$row['transaction_pin_hash'])) {
-            Response::error('Incorrect Transaction PIN. Please try again.', 403);
-            return false;
-        }
+    }
+
+    private function mapTelecomReferralCategory(string $serviceType): string
+    {
+        return match ($serviceType) {
+            'data' => 'data',
+            'airtime' => 'airtime',
+            'airtime_pin' => 'airtime_pin',
+            'data_pin' => 'data_pin',
+            'cable' => 'cable',
+            'electricity' => 'electricity',
+            'exam' => 'exam_pin',
+            'bulksms' => 'bulksms',
+            default => $serviceType,
+        };
+    }
+
+    private function verifyTransactionPinOrFail(array $user, Request $request, string $categoryKey = 'telecom_pins', ?string $serviceKey = null): bool
+    {
+        $pinService = new PinSecurityService($this->db);
+        $pinService->requireValidPin($user, $request->getBody(), $categoryKey, $serviceKey);
         return true;
     }
 
@@ -1000,7 +1033,7 @@ class TelecomController
     {
         $this->ensureDataSchema();
         $user = Auth::requireAuth($request);
-        if (!$this->verifyTransactionPinOrFail($user, $request)) {
+        if (!$this->verifyTransactionPinOrFail($user, $request, 'telecom_pins', 'airtime_pin')) {
             return;
         }
 
@@ -1362,6 +1395,8 @@ class TelecomController
                 'denomination' => $faceValue,
             ]);
 
+            $this->triggerReferralReward((string)$user['id'], 'airtime_pin', 'airtime_pin', 'TEL_' . $orderId, $totalPrice, $totalCost);
+
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $customerSafeRef,
@@ -1415,7 +1450,7 @@ class TelecomController
     {
         $this->ensureDataSchema();
         $user = Auth::requireAuth($request);
-        if (!$this->verifyTransactionPinOrFail($user, $request)) {
+        if (!$this->verifyTransactionPinOrFail($user, $request, 'telecom_pins', 'data_pin')) {
             return;
         }
 
@@ -1706,6 +1741,7 @@ class TelecomController
             ];
 
             $this->logFootprint($user, 'data_pin', 'DATA_PIN_VENDED', $reference, $totalPrice, 'successful', $this->activeProviderId);
+            $this->triggerReferralReward((string)$user['id'], 'data_pin', 'data_pin', 'TEL_' . $orderId, $totalPrice, $totalCost);
 
             Response::success([
                 'order_id' => $orderId,
@@ -1766,6 +1802,9 @@ class TelecomController
         if (empty($network) || empty($phone) || $amount < 500) {
             Response::error('Network, phone number and minimum ₦500 amount required.', 422);
         }
+
+        // Enforce compulsory Transaction PIN before initiating swap
+        $this->verifyTransactionPinOrFail($user, $request, 'telecom_swap', 'airtime_swap');
 
         try {
             $dispatch = $this->adapter->processAirtimeSwap($network, $phone, $amount);
@@ -1869,6 +1908,9 @@ class TelecomController
             Response::error('Smartcard/IUC number and package selection are required.', 422);
         }
 
+        // Enforce compulsory Transaction PIN before wallet debit
+        $this->verifyTransactionPinOrFail($user, $request, 'telecom_bills', 'cable');
+
         $reference = 'UD_CAB_' . strtoupper(bin2hex(random_bytes(6)));
         try {
             $debitResult = $this->walletService->debit(
@@ -1920,6 +1962,7 @@ class TelecomController
             ];
 
             $this->logFootprint($user, 'cable', 'CABLE_RENEWED', $reference, $amount, 'successful', $this->activeProviderId);
+            $this->triggerReferralReward((string)$user['id'], 'cable', 'cable', 'TEL_' . $orderId, $amount, max(0.0, $amount - 100.0));
 
             Response::success([
                 'order_id' => $orderId,
@@ -1998,6 +2041,9 @@ class TelecomController
             Response::error('Meter number and minimum ₦500 amount are required.', 422);
         }
 
+        // Enforce compulsory Transaction PIN before wallet debit
+        $this->verifyTransactionPinOrFail($user, $request, 'telecom_bills', 'electricity');
+
         $reference = 'UD_ELE_' . strtoupper(bin2hex(random_bytes(6)));
         try {
             $debitResult = $this->walletService->debit(
@@ -2054,6 +2100,7 @@ class TelecomController
             ];
 
             $this->logFootprint($user, 'electricity', 'ELECTRICITY_VENDED', $reference, $amount, 'successful', $this->activeProviderId);
+            $this->triggerReferralReward((string)$user['id'], 'electricity', 'electricity', 'TEL_' . $orderId, $amount, max(0.0, $amount - 50.0));
 
             Response::success([
                 'order_id' => $orderId,
@@ -2103,6 +2150,9 @@ class TelecomController
         if (!$exam) {
             Response::error('Selected examination package is unavailable.', 404);
         }
+
+        // Enforce compulsory Transaction PIN before wallet debit
+        $this->verifyTransactionPinOrFail($user, $request, 'telecom_bills', 'exam_pin');
 
         $totalPrice = (float)$exam['price'] * $quantity;
         $reference = 'UD_EXM_' . strtoupper(bin2hex(random_bytes(6)));
@@ -2156,6 +2206,7 @@ class TelecomController
             ];
 
             $this->logFootprint($user, 'exam', 'EXAM_PIN_VENDED', $reference, $totalPrice, 'successful', $this->activeProviderId);
+            $this->triggerReferralReward((string)$user['id'], 'exam_pin', 'exam_pin', 'TEL_' . $orderId, $totalPrice, (float)$exam['wholesale_cost'] * $quantity);
 
             Response::success([
                 'order_id' => $orderId,
@@ -2202,6 +2253,9 @@ class TelecomController
         if (empty($recipients) || empty($message)) {
             Response::error('Valid recipients and message content are required.', 422);
         }
+
+        // Enforce compulsory Transaction PIN before wallet debit
+        $this->verifyTransactionPinOrFail($user, $request, 'telecom_bulksms', 'bulksms');
 
         $units = count($recipients) * (int)ceil(strlen($message) / 160);
         $totalCost = $units * 3.50; // ₦3.50 per SMS unit
@@ -2257,6 +2311,7 @@ class TelecomController
             ];
 
             $this->logFootprint($user, 'bulksms', 'BULKSMS_SENT', $reference, $totalCost, 'successful', $this->activeProviderId);
+            $this->triggerReferralReward((string)$user['id'], 'bulksms', 'bulksms', 'TEL_' . $orderId, $totalCost, $units * 2.50);
 
             Response::success([
                 'order_id' => $orderId,
@@ -2355,6 +2410,7 @@ class TelecomController
                             'UPDATE telecom_orders SET status = "successful", profit = :profit, metadata = :meta, updated_at = NOW() WHERE id = :id',
                             ['id' => $order['id'], 'profit' => $profit, 'meta' => json_encode($existingMeta)]
                         );
+                        $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
                     } catch (Throwable $vx) {
                         $existingMeta['incomplete_vouchers'] = true;
                         $existingMeta['integrity_error'] = $vx->getMessage();
@@ -2376,6 +2432,7 @@ class TelecomController
                     'UPDATE telecom_orders SET status = "successful", metadata = :meta, updated_at = NOW() WHERE id = :id',
                     ['id' => $order['id'], 'meta' => json_encode($existingMeta)]
                 );
+                $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
             }
         } elseif ($isFailed && !in_array($order['status'], ['failed', 'refunded'], true)) {
             $this->db->execute(
@@ -2393,6 +2450,10 @@ class TelecomController
                     $refundRef,
                     "Automated refund for failed telecom order {$order['id']}"
                 );
+            }
+            try {
+                (new ReferralEngineService($this->db))->reverseRewardsForSource('TEL_' . $order['id'], 'Telecom webhook failure refund');
+            } catch (Throwable) {
             }
         }
 
@@ -2790,6 +2851,7 @@ class TelecomController
                                 ['id' => $order['id'], 'profit' => $profit]
                             );
                             $order['status'] = 'successful';
+                            $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
                         } else {
                             $existingMeta['incomplete_vouchers'] = true;
                             $existingMeta['integrity_error'] = $parsed['error'];
@@ -2801,6 +2863,7 @@ class TelecomController
                     } else {
                         $this->db->execute('UPDATE telecom_orders SET status = "successful", updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
                         $order['status'] = 'successful';
+                        $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
                     }
                 } elseif (in_array($upStatus, ['failed', 'fail', 'error', 'reversed'], true)) {
                     $this->db->execute('UPDATE telecom_orders SET status = "failed", profit = 0.00, updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
@@ -2808,6 +2871,10 @@ class TelecomController
                     $alreadyRefunded = $this->db->fetchOne('SELECT id FROM wallet_transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
                     if (!$alreadyRefunded) {
                         $this->walletService->credit($order['user_id'], (float)$order['amount'], 'manual_adjustment', $refundRef, "Refund for failed telecom order {$order['id']}");
+                    }
+                    try {
+                        (new ReferralEngineService($this->db))->reverseRewardsForSource('TEL_' . $order['id'], 'Telecom transaction verify refund');
+                    } catch (Throwable) {
                     }
                     $order['status'] = 'failed';
                 }
@@ -3815,9 +3882,14 @@ class TelecomController
         $st = strtolower((string)($tx['status'] ?? $data['status'] ?? ''));
         if (in_array($st, ['delivered', 'successful', 'success'], true)) {
             $this->db->execute('UPDATE telecom_orders SET status = "successful", updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
+            $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
         } elseif (in_array($st, ['failed', 'reversed'], true) && $order['status'] !== 'failed') {
             $this->db->execute('UPDATE telecom_orders SET status = "failed", updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
             $this->walletService->credit($order['user_id'], (float)$order['amount'], 'manual_adjustment', 'REFUND_VT_' . $order['provider_ref'], "Automated VTpass refund for {$order['provider_ref']}");
+            try {
+                (new ReferralEngineService($this->db))->reverseRewardsForSource('TEL_' . $order['id'], 'VTpass webhook failure refund');
+            } catch (Throwable) {
+            }
         }
 
         Response::success(['status' => 'reconciled', 'reference' => $ref]);

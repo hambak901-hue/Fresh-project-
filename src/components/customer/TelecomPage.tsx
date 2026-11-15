@@ -63,7 +63,7 @@ type TelecomTab =
   | 'history';
 
 export const TelecomPage: React.FC = () => {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, openPinSetupModal } = useAuth();
   const [activeTab, setActiveTab] = useState<TelecomTab>('airtime');
 
   // Wallet & service status
@@ -361,6 +361,24 @@ export const TelecomPage: React.FC = () => {
     setTimeout(() => setCopiedText(null), 2500);
   };
 
+  const launchWithPin = (
+    title: string,
+    description: string,
+    amount: number | undefined,
+    action: (verifiedPin?: string) => Promise<void>
+  ) => {
+    if (!user?.has_transaction_pin || user?.requires_pin_setup) {
+      setError('Please activate your Transaction PIN first to authorize purchases.');
+      openPinSetupModal();
+      return;
+    }
+    setPinModalTitle(title);
+    setPinModalDesc(description);
+    setPinModalAmount(amount);
+    setPendingPinAction(() => action);
+    setIsPinModalOpen(true);
+  };
+
   // 1. Purchase Airtime
   const handlePurchaseAirtime = (e: React.FormEvent) => {
     e.preventDefault();
@@ -376,26 +394,28 @@ export const TelecomPage: React.FC = () => {
       return;
     }
 
-    setPinModalTitle('Authorize Airtime Top-Up');
-    setPinModalDesc(`Enter your 4-digit security PIN to authorize ₦${airtimeAmount.toLocaleString()} recharge on ${airtimeNetwork} for ${cleanPhone}.`);
-    setPinModalAmount(airtimeAmount);
-    setPendingPinAction(() => async () => {
-      try {
-        setLoading(true);
-        const res = await api.purchaseAirtime(airtimeNetwork, cleanPhone, airtimeAmount);
-        if (res.success) {
-          setSuccessMsg(res.message);
-          setAirtimePhone('');
-          await refreshUser();
-          await loadOrders();
+    const pinLen = user?.pin_length || 4;
+    launchWithPin(
+      'Authorize Airtime Top-Up',
+      `Enter your ${pinLen}-digit security PIN to authorize ₦${airtimeAmount.toLocaleString()} recharge on ${airtimeNetwork} for ${cleanPhone}.`,
+      airtimeAmount,
+      async (verifiedPin?: string) => {
+        try {
+          setLoading(true);
+          const res = await api.purchaseAirtime(airtimeNetwork, cleanPhone, airtimeAmount, verifiedPin);
+          if (res.success) {
+            setSuccessMsg(res.message);
+            setAirtimePhone('');
+            await refreshUser();
+            await loadOrders();
+          }
+        } catch (err: any) {
+          setError(err.message || 'Failed to recharge airtime.');
+        } finally {
+          setLoading(false);
         }
-      } catch (err: any) {
-        setError(err.message || 'Failed to recharge airtime.');
-      } finally {
-        setLoading(false);
       }
-    });
-    setIsPinModalOpen(true);
+    );
   };
 
   // 2. Purchase Data (10-Step Flow)
@@ -435,48 +455,49 @@ export const TelecomPage: React.FC = () => {
     const price = selectedDataPlan.price || 0;
     const planSnapshot = selectedDataPlan;
     const idempotencyKey = `DATA_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const pinLen = user?.pin_length || 4;
 
-    setPinModalTitle('Authorize Data Bundle');
-    setPinModalDesc(
-      `Enter your 4-digit security PIN to send ${planSnapshot.network} ${planSnapshot.size} (${planSnapshot.type} • ${planSnapshot.validity}) to ${verifiedPhone} for ₦${price.toLocaleString()}.`
-    );
-    setPinModalAmount(price);
-    setPendingPinAction(() => async () => {
-      try {
-        setLoading(true);
-        const res = await api.purchaseData(
-          planSnapshot.id,
-          verifiedPhone,
-          dataNetwork,
-          idempotencyKey
-        );
-        const orderStatus = res.status || res.order?.status || 'successful';
-        const ref = res.reference || res.order?.provider_ref || res.order?.id || '';
-        setDataOrderResult({
-          status: orderStatus,
-          reference: ref,
-          plan: res.order?.plan || `${planSnapshot.network} ${planSnapshot.size} (${planSnapshot.type})`,
-          network: dataNetwork,
-          phone: verifiedPhone,
-          amount: res.order?.amount ?? price,
-          message: res.message,
-        });
-        if (res.success) {
-          setSuccessMsg(res.message);
-          setDataPhone('');
-          setPhoneValidation(null);
-          await refreshUser();
-          await loadOrders();
+    launchWithPin(
+      'Authorize Data Bundle',
+      `Enter your ${pinLen}-digit security PIN to send ${planSnapshot.network} ${planSnapshot.size} (${planSnapshot.type} • ${planSnapshot.validity}) to ${verifiedPhone} for ₦${price.toLocaleString()}.`,
+      price,
+      async (verifiedPin?: string) => {
+        try {
+          setLoading(true);
+          const res = await api.purchaseData(
+            planSnapshot.id,
+            verifiedPhone,
+            dataNetwork,
+            idempotencyKey,
+            verifiedPin
+          );
+          const orderStatus = res.status || res.order?.status || 'successful';
+          const ref = res.reference || res.order?.provider_ref || res.order?.id || '';
+          setDataOrderResult({
+            status: orderStatus,
+            reference: ref,
+            plan: res.order?.plan || `${planSnapshot.network} ${planSnapshot.size} (${planSnapshot.type})`,
+            network: dataNetwork,
+            phone: verifiedPhone,
+            amount: res.order?.amount ?? price,
+            message: res.message,
+          });
+          if (res.success) {
+            setSuccessMsg(res.message);
+            setDataPhone('');
+            setPhoneValidation(null);
+            await refreshUser();
+            await loadOrders();
+          }
+        } catch (err: any) {
+          setError(err.message || 'Failed to dispatch data. Check wallet balance.');
+          await refreshUser().catch(() => {});
+          await loadOrders().catch(() => {});
+        } finally {
+          setLoading(false);
         }
-      } catch (err: any) {
-        setError(err.message || 'Failed to dispatch data. Check wallet balance.');
-        await refreshUser().catch(() => {});
-        await loadOrders().catch(() => {});
-      } finally {
-        setLoading(false);
       }
-    });
-    setIsPinModalOpen(true);
+    );
   };
 
   // 3. Purchase Airtime PINs
@@ -512,48 +533,48 @@ export const TelecomPage: React.FC = () => {
     const unitPrice = chosen.selling_price ?? chosen.price;
     const totalAmount = Math.round(unitPrice * pinQuantity * 100) / 100;
     const idempotencyKey = `APIN_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const pinLen = user?.pin_length || 4;
 
-    setPinModalTitle('Authorize Airtime PIN Generation');
-    setPinModalDesc(
-      `Enter your 4-digit security PIN to generate ${pinQuantity}x ${pinNetwork} ₦${chosen.denomination.toLocaleString()} Recharge PIN(s) at ₦${unitPrice.toLocaleString()}/card (Total: ₦${totalAmount.toLocaleString()}).`
-    );
-    setPinModalAmount(totalAmount);
-    setPendingPinAction(() => async (verifiedPin?: string) => {
-      try {
-        setLoading(true);
-        const res = await api.purchaseAirtimePin(
-          {
-            denominationId: chosen.id,
-            network: chosen.network,
-            denomination: chosen.denomination,
-            quantity: pinQuantity,
-            businessName: cleanBiz,
-            card_name: cleanBiz,
-            transaction_pin: verifiedPin || '',
-            idempotency_key: idempotencyKey,
-          },
-          idempotencyKey
-        );
-        if (res.status === 'pending' || res.incomplete_vouchers) {
-          setPendingAirtimePinOrder(res.order);
-          setSuccessMsg(res.message || 'Airtime PIN order is pending verification.');
-        } else if (res.success) {
-          setSuccessMsg(res.message);
-          setGeneratedAirtimePins(res.vouchers || res.pins || []);
+    launchWithPin(
+      'Authorize Airtime PIN Generation',
+      `Enter your ${pinLen}-digit security PIN to generate ${pinQuantity}x ${pinNetwork} ₦${chosen.denomination.toLocaleString()} Recharge PIN(s) at ₦${unitPrice.toLocaleString()}/card (Total: ₦${totalAmount.toLocaleString()}).`,
+      totalAmount,
+      async (verifiedPin?: string) => {
+        try {
+          setLoading(true);
+          const res = await api.purchaseAirtimePin(
+            {
+              denominationId: chosen.id,
+              network: chosen.network,
+              denomination: chosen.denomination,
+              quantity: pinQuantity,
+              businessName: cleanBiz,
+              card_name: cleanBiz,
+              transaction_pin: verifiedPin || '',
+              idempotency_key: idempotencyKey,
+            },
+            idempotencyKey
+          );
+          if (res.status === 'pending' || res.incomplete_vouchers) {
+            setPendingAirtimePinOrder(res.order);
+            setSuccessMsg(res.message || 'Airtime PIN order is pending verification.');
+          } else if (res.success) {
+            setSuccessMsg(res.message);
+            setGeneratedAirtimePins(res.vouchers || res.pins || []);
+          }
+          await refreshUser();
+          await loadAirtimePins();
+          await loadOrders();
+        } catch (err: any) {
+          setError(err.message || 'Airtime PIN generation failed.');
+          await refreshUser().catch(() => {});
+          await loadAirtimePins().catch(() => {});
+          await loadOrders().catch(() => {});
+        } finally {
+          setLoading(false);
         }
-        await refreshUser();
-        await loadAirtimePins();
-        await loadOrders();
-      } catch (err: any) {
-        setError(err.message || 'Airtime PIN generation failed.');
-        await refreshUser().catch(() => {});
-        await loadAirtimePins().catch(() => {});
-        await loadOrders().catch(() => {});
-      } finally {
-        setLoading(false);
       }
-    });
-    setIsPinModalOpen(true);
+    );
   };
 
   // 4. Purchase Data PINs
@@ -584,51 +605,51 @@ export const TelecomPage: React.FC = () => {
     const unitPrice = chosen.selling_price ?? chosen.price;
     const totalAmount = Math.round(unitPrice * dataPinQuantity * 100) / 100;
     const idempotencyKey = `DPIN_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const pinLen = user?.pin_length || 4;
 
-    setPinModalTitle('Authorize Data PIN Generation');
-    setPinModalDesc(
-      `Enter your 4-digit security PIN to generate ${dataPinQuantity}x ${dataPinNetwork} ${chosen.size} Data PIN card(s) at ₦${unitPrice.toLocaleString()}/card (Total: ₦${totalAmount.toLocaleString()}).`
-    );
-    setPinModalAmount(totalAmount);
-    setPendingPinAction(() => async (verifiedPin?: string) => {
-      try {
-        setLoading(true);
-        const res = await api.purchaseDataPin(
-          {
-            network: chosen.network,
-            planId: chosen.id,
-            quantity: dataPinQuantity,
-            businessName: cleanBiz,
-            card_name: cleanBiz,
-            transaction_pin: verifiedPin || '',
-            idempotency_key: idempotencyKey,
-          },
-          idempotencyKey
-        );
-        if (res.status === 'pending' || res.incomplete_vouchers) {
-          setPendingDataPinOrder(res.order);
-          setSuccessMsg(res.message || 'Data PIN order is pending verification.');
-        } else if (res.success) {
-          setSuccessMsg(res.message);
-          setGeneratedDataPins(res.vouchers || res.pins || []);
+    launchWithPin(
+      'Authorize Data PIN Generation',
+      `Enter your ${pinLen}-digit security PIN to generate ${dataPinQuantity}x ${dataPinNetwork} ${chosen.size} Data PIN card(s) at ₦${unitPrice.toLocaleString()}/card (Total: ₦${totalAmount.toLocaleString()}).`,
+      totalAmount,
+      async (verifiedPin?: string) => {
+        try {
+          setLoading(true);
+          const res = await api.purchaseDataPin(
+            {
+              network: chosen.network,
+              planId: chosen.id,
+              quantity: dataPinQuantity,
+              businessName: cleanBiz,
+              card_name: cleanBiz,
+              transaction_pin: verifiedPin || '',
+              idempotency_key: idempotencyKey,
+            },
+            idempotencyKey
+          );
+          if (res.status === 'pending' || res.incomplete_vouchers) {
+            setPendingDataPinOrder(res.order);
+            setSuccessMsg(res.message || 'Data PIN order is pending verification.');
+          } else if (res.success) {
+            setSuccessMsg(res.message);
+            setGeneratedDataPins(res.vouchers || res.pins || []);
+          }
+          await refreshUser();
+          await loadDataPins();
+          await loadOrders();
+        } catch (err: any) {
+          setError(err.message || 'Data PIN generation failed.');
+          await refreshUser().catch(() => {});
+          await loadDataPins().catch(() => {});
+          await loadOrders().catch(() => {});
+        } finally {
+          setLoading(false);
         }
-        await refreshUser();
-        await loadDataPins();
-        await loadOrders();
-      } catch (err: any) {
-        setError(err.message || 'Data PIN generation failed.');
-        await refreshUser().catch(() => {});
-        await loadDataPins().catch(() => {});
-        await loadOrders().catch(() => {});
-      } finally {
-        setLoading(false);
       }
-    });
-    setIsPinModalOpen(true);
+    );
   };
 
   // 5. Initiate Airtime Swap
-  const handleInitiateSwap = async (e: React.FormEvent) => {
+  const handleInitiateSwap = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -640,27 +661,36 @@ export const TelecomPage: React.FC = () => {
       return;
     }
 
-    try {
-      setLoading(true);
-      const res = await api.initiateAirtimeSwap({
-        network: swapNetwork,
-        phone: cleanPhone,
-        amount: swapAmount,
-        bankName: swapBankName,
-        accountNumber: swapAccountNumber,
-        accountName: swapAccountName,
-      });
-      if (res.success) {
-        setSuccessMsg(res.message);
-        setSwapResult(res.swapDetails);
-        await refreshUser();
-        await loadOrders();
+    const pinLen = user?.pin_length || 4;
+    launchWithPin(
+      'Authorize Airtime Swap',
+      `Enter your ${pinLen}-digit security PIN to initiate ₦${swapAmount.toLocaleString()} ${swapNetwork} airtime swap.`,
+      swapAmount,
+      async (verifiedPin?: string) => {
+        try {
+          setLoading(true);
+          const res = await api.initiateAirtimeSwap({
+            network: swapNetwork,
+            phone: cleanPhone,
+            amount: swapAmount,
+            bankName: swapBankName,
+            accountNumber: swapAccountNumber,
+            accountName: swapAccountName,
+            transaction_pin: verifiedPin,
+          });
+          if (res.success) {
+            setSuccessMsg(res.message);
+            setSwapResult(res.swapDetails);
+            await refreshUser();
+            await loadOrders();
+          }
+        } catch (err: any) {
+          setError(err.message || 'Airtime swap request failed.');
+        } finally {
+          setLoading(false);
+        }
       }
-    } catch (err: any) {
-      setError(err.message || 'Airtime swap request failed.');
-    } finally {
-      setLoading(false);
-    }
+    );
   };
 
   // 6. Cable TV Validation & Purchase
@@ -683,7 +713,7 @@ export const TelecomPage: React.FC = () => {
     }
   };
 
-  const handlePurchaseCable = async (e: React.FormEvent) => {
+  const handlePurchaseCable = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -693,25 +723,35 @@ export const TelecomPage: React.FC = () => {
       return;
     }
 
-    try {
-      setLoading(true);
-      const res = await api.purchaseCable({
-        provider: cableProvider,
-        smartcardNumber,
-        packageId: selectedCablePackageId,
-      });
-      if (res.success) {
-        setSuccessMsg(res.message);
-        setSmartcardCustomer(null);
-        setSmartcardNumber('');
-        await refreshUser();
-        await loadOrders();
+    const pkg = (cablePackages[cableProvider] || []).find(p => p.id === selectedCablePackageId);
+    const pinLen = user?.pin_length || 4;
+    launchWithPin(
+      'Authorize Cable TV Subscription',
+      `Enter your ${pinLen}-digit security PIN to renew ${cableProvider} (${pkg?.name || selectedCablePackageId}) for smartcard ${smartcardNumber}.`,
+      pkg?.price,
+      async (verifiedPin?: string) => {
+        try {
+          setLoading(true);
+          const res = await api.purchaseCable({
+            provider: cableProvider,
+            smartcardNumber,
+            packageId: selectedCablePackageId,
+            transaction_pin: verifiedPin,
+          });
+          if (res.success) {
+            setSuccessMsg(res.message);
+            setSmartcardCustomer(null);
+            setSmartcardNumber('');
+            await refreshUser();
+            await loadOrders();
+          }
+        } catch (err: any) {
+          setError(err.message || 'Cable renewal failed.');
+        } finally {
+          setLoading(false);
+        }
       }
-    } catch (err: any) {
-      setError(err.message || 'Cable renewal failed.');
-    } finally {
-      setLoading(false);
-    }
+    );
   };
 
   // 7. Electricity Validation & Purchase
@@ -734,7 +774,7 @@ export const TelecomPage: React.FC = () => {
     }
   };
 
-  const handlePurchaseElectricity = async (e: React.FormEvent) => {
+  const handlePurchaseElectricity = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -745,88 +785,123 @@ export const TelecomPage: React.FC = () => {
       return;
     }
 
-    try {
-      setLoading(true);
-      const res = await api.purchaseElectricity({
-        discoId: selectedDiscoId,
-        meterNumber,
-        meterType,
-        amount: meterAmount,
-      });
-      if (res.success) {
-        setSuccessMsg(res.message);
-        setElectricityReceipt({
-          token: res.token,
-          units: res.units,
-          meterNumber,
-          discoId: selectedDiscoId,
-          amount: meterAmount,
-          customerName: meterCustomer.customerName,
-          address: meterCustomer.address,
-        });
-        setMeterCustomer(null);
-        setMeterNumber('');
-        await refreshUser();
-        await loadOrders();
+    const pinLen = user?.pin_length || 4;
+    const customerSnapshot = meterCustomer;
+    const meterNumSnapshot = meterNumber;
+    const discoSnapshot = selectedDiscoId;
+    const amtSnapshot = meterAmount;
+
+    launchWithPin(
+      'Authorize Electricity Payment',
+      `Enter your ${pinLen}-digit security PIN to vend ₦${amtSnapshot.toLocaleString()} electricity token for meter ${meterNumSnapshot}.`,
+      amtSnapshot,
+      async (verifiedPin?: string) => {
+        try {
+          setLoading(true);
+          const res = await api.purchaseElectricity({
+            discoId: discoSnapshot,
+            meterNumber: meterNumSnapshot,
+            meterType,
+            amount: amtSnapshot,
+            transaction_pin: verifiedPin,
+          });
+          if (res.success) {
+            setSuccessMsg(res.message);
+            setElectricityReceipt({
+              token: res.token,
+              units: res.units,
+              meterNumber: meterNumSnapshot,
+              discoId: discoSnapshot,
+              amount: amtSnapshot,
+              customerName: customerSnapshot.customerName,
+              address: customerSnapshot.address,
+            });
+            setMeterCustomer(null);
+            setMeterNumber('');
+            await refreshUser();
+            await loadOrders();
+          }
+        } catch (err: any) {
+          setError(err.message || 'Electricity payment failed.');
+        } finally {
+          setLoading(false);
+        }
       }
-    } catch (err: any) {
-      setError(err.message || 'Electricity payment failed.');
-    } finally {
-      setLoading(false);
-    }
+    );
   };
 
   // 8. Exam Scratch Card Purchase
-  const handlePurchaseExam = async (e: React.FormEvent) => {
+  const handlePurchaseExam = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
     setGeneratedExamPins([]);
 
-    try {
-      setLoading(true);
-      const res = await api.purchaseExamPin({
-        examId: selectedExamId,
-        quantity: examQuantity,
-      });
-      if (res.success) {
-        setSuccessMsg(res.message);
-        setGeneratedExamPins(res.pins || []);
-        await refreshUser();
-        await loadOrders();
+    const examPkg = examPackages.find(ex => ex.id === selectedExamId);
+    const totalAmount = examPkg ? Math.round(examPkg.price * examQuantity * 100) / 100 : undefined;
+    const pinLen = user?.pin_length || 4;
+
+    launchWithPin(
+      'Authorize Exam Scratch Card',
+      `Enter your ${pinLen}-digit security PIN to purchase ${examQuantity}x ${examPkg?.name || selectedExamId} PIN(s).`,
+      totalAmount,
+      async (verifiedPin?: string) => {
+        try {
+          setLoading(true);
+          const res = await api.purchaseExamPin({
+            examId: selectedExamId,
+            quantity: examQuantity,
+            transaction_pin: verifiedPin,
+          });
+          if (res.success) {
+            setSuccessMsg(res.message);
+            setGeneratedExamPins(res.pins || []);
+            await refreshUser();
+            await loadOrders();
+          }
+        } catch (err: any) {
+          setError(err.message || 'Exam token generation failed.');
+        } finally {
+          setLoading(false);
+        }
       }
-    } catch (err: any) {
-      setError(err.message || 'Exam token generation failed.');
-    } finally {
-      setLoading(false);
-    }
+    );
   };
 
   // 9. Bulk SMS Send
-  const handleSendBulkSms = async (e: React.FormEvent) => {
+  const handleSendBulkSms = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
 
-    try {
-      setLoading(true);
-      const res = await api.sendBulkSms({
-        senderId: smsSenderId,
-        recipients: smsRecipients,
-        message: smsMessage,
-      });
-      if (res.success) {
-        setSuccessMsg(res.message);
-        setSmsMessage('');
-        setSmsRecipients('');
-        await refreshUser();
-        await loadOrders();
+    const pinLen = user?.pin_length || 4;
+    launchWithPin(
+      'Authorize Bulk SMS Dispatch',
+      `Enter your ${pinLen}-digit security PIN to dispatch Bulk SMS campaign from Sender ID "${smsSenderId}".`,
+      undefined,
+      async (verifiedPin?: string) => {
+        try {
+          setLoading(true);
+          const res = await api.sendBulkSms({
+            senderId: smsSenderId,
+            recipients: smsRecipients,
+            message: smsMessage,
+            transaction_pin: verifiedPin,
+          });
+          if (res.success) {
+            setSuccessMsg(res.message);
+            setSmsMessage('');
+            setSmsRecipients('');
+            await refreshUser();
+            await loadOrders();
+          }
+        } catch (err: any) {
+          setError(err.message || 'Bulk SMS dispatch failed.');
+        } finally {
+          setLoading(false);
+        }
       }
-    } catch (err: any) {
-      setError(err.message || 'Bulk SMS dispatch failed.');
-    } finally {
-      setLoading(false);
-    }
+    );
   };
 
   // 10. Query Transaction Status

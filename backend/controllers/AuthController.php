@@ -13,8 +13,13 @@ use HambakTech\Core\Request;
 use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
+use HambakTech\Core\SchemaSync;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\MailService;
+use HambakTech\Services\MfaService;
+use HambakTech\Services\PinSecurityService;
+use HambakTech\Services\ReferralEngineService;
+use RuntimeException;
 use Throwable;
 
 class AuthController
@@ -24,6 +29,7 @@ class AuthController
     public function __construct()
     {
         $this->db = Database::getInstance();
+        SchemaSync::syncSecurityAndReferralSchema($this->db);
     }
 
     public function login(Request $request): void
@@ -37,22 +43,49 @@ class AuthController
 
         $email = strtolower($inputIdent);
         $phoneDigits = preg_replace('/[^0-9]/', '', $inputIdent);
+        $normPhone = ReferralEngineService::normalizePhone($inputIdent);
+        $ip = $request->getIp();
+
+        // Enforce brute-force lockout protection on identifier or IP
+        $secCfg = Auth::getSecuritySettings();
+        $maxLoginAttempts = max(3, (int)($secCfg['login_max_attempts'] ?? 5));
+        $lockoutMins = max(5, (int)($secCfg['login_lockout_minutes'] ?? 15));
+        try {
+            $lockRow = $this->db->fetchOne(
+                'SELECT attempt_count, locked_until FROM login_attempts
+                 WHERE identifier = :ident AND ip_address = :ip LIMIT 1',
+                ['ident' => $email, 'ip' => $ip]
+            );
+            if ($lockRow && !empty($lockRow['locked_until']) && strtotime((string)$lockRow['locked_until']) > time()) {
+                $minsLeft = max(1, (int)ceil((strtotime((string)$lockRow['locked_until']) - time()) / 60));
+                Response::error(
+                    "Too many unsuccessful sign-in attempts. For your security, login is temporarily locked for {$minsLeft} minute(s).",
+                    429,
+                    ['locked_minutes' => $minsLeft],
+                    'LOGIN_RATE_LIMITED'
+                );
+            }
+        } catch (Throwable) {
+        }
 
         try {
             $user = $this->db->fetchOne(
                 'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
                         w.balance AS live_balance, p.nin, p.bvn, p.address, p.state, p.lga, p.bio, p.date_of_birth,
-                        p.notification_preferences, p.security_settings
+                        p.notification_preferences, p.security_settings, p.assigned_permissions AS profile_permissions
                  FROM users u
                  LEFT JOIN wallets w ON w.user_id = u.id
                  LEFT JOIN user_profiles p ON p.user_id = u.id
                  WHERE LOWER(u.email) = :email
                     OR u.phone_number = :ident
+                    OR (:nphone != "" AND u.phone_normalized = :nphone2)
                     OR (:phone != "" AND REPLACE(REPLACE(REPLACE(u.phone_number, " ", ""), "-", ""), "+234", "0") = :phone)
                  ORDER BY (u.role = "superadmin") DESC, u.created_at ASC LIMIT 1',
                 [
                     'email' => $email,
                     'ident' => $inputIdent,
+                    'nphone' => $normPhone,
+                    'nphone2' => $normPhone,
                     'phone' => $phoneDigits,
                 ]
             );
@@ -75,20 +108,65 @@ class AuthController
             );
         }
 
+        $recordAttempt = function (bool $ok) use ($email, $ip, $maxLoginAttempts, $lockoutMins): void {
+            try {
+                if ($ok) {
+                    $this->db->execute(
+                        'DELETE FROM login_attempts WHERE identifier = :ident AND ip_address = :ip',
+                        ['ident' => substr($email, 0, 190), 'ip' => $ip]
+                    );
+                    return;
+                }
+                $existing = $this->db->fetchOne(
+                    'SELECT id, attempt_count, last_attempt_at FROM login_attempts WHERE identifier = :ident AND ip_address = :ip LIMIT 1',
+                    ['ident' => substr($email, 0, 190), 'ip' => $ip]
+                );
+                $stale = $existing && !empty($existing['last_attempt_at']) && strtotime((string)$existing['last_attempt_at']) < (time() - ($lockoutMins * 60));
+                $nextCount = (!$existing || $stale) ? 1 : ((int)$existing['attempt_count'] + 1);
+                $lockedUntil = $nextCount >= $maxLoginAttempts ? date('Y-m-d H:i:s', time() + ($lockoutMins * 60)) : null;
+
+                if ($existing) {
+                    $this->db->execute(
+                        'UPDATE login_attempts SET attempt_count = :cnt, locked_until = :lu, last_attempt_at = NOW() WHERE id = :id',
+                        ['cnt' => $nextCount, 'lu' => $lockedUntil, 'id' => $existing['id']]
+                    );
+                } else {
+                    $this->db->execute(
+                        'INSERT INTO login_attempts (id, identifier, ip_address, attempt_count, locked_until, last_attempt_at, created_at)
+                         VALUES (:id, :ident, :ip, :cnt, :lu, NOW(), NOW())',
+                        [
+                            'id' => Security::generateUuid(),
+                            'ident' => substr($email, 0, 190),
+                            'ip' => $ip,
+                            'cnt' => $nextCount,
+                            'lu' => $lockedUntil,
+                        ]
+                    );
+                }
+            } catch (Throwable) {
+            }
+        };
+
         if (!$user) {
-            FootprintService::record('security', 'LOGIN_FAILED', null, null, null, null, 'failed', null, 'User identifier not found', ['identifier' => $inputIdent], $request->getIp());
+            $recordAttempt(false);
+            FootprintService::record('security', 'LOGIN_FAILED', null, null, null, null, 'failed', null, 'User identifier not found', ['identifier' => $inputIdent], $ip);
             Response::error('Invalid email or password.', 401);
         }
 
         if ($user['status'] === 'suspended') {
-            FootprintService::record('security', 'LOGIN_BLOCKED_SUSPENDED', ['id' => $user['id'], 'email' => $user['email']], null, null, null, 'failed', null, 'Account is suspended', null, $request->getIp());
+            $recordAttempt(false);
+            FootprintService::record('security', 'LOGIN_BLOCKED_SUSPENDED', ['id' => $user['id'], 'email' => $user['email']], null, null, null, 'failed', null, 'Account is suspended', null, $ip);
             Response::error('Your account is currently suspended. Please contact HambakTech Enterprise Support.', 403);
         }
 
         if (!Security::verifyPassword($password, $user['password_hash'], $user['email'])) {
-            FootprintService::record('security', 'LOGIN_FAILED', ['id' => $user['id'], 'email' => $user['email']], null, null, null, 'failed', null, 'Invalid password attempt', null, $request->getIp());
+            $recordAttempt(false);
+            FootprintService::record('security', 'LOGIN_FAILED', ['id' => $user['id'], 'email' => $user['email']], null, null, null, 'failed', null, 'Invalid password attempt', null, $ip);
             Response::error('Invalid email or password.', 401);
         }
+
+        // Record successful password authentication
+        $recordAttempt(true);
 
         // Seamlessly upgrade legacy or non-standard hash to modern Bcrypt
         if (!str_starts_with($user['password_hash'], '$2y$12$')) {
@@ -96,18 +174,76 @@ class AuthController
             $this->db->execute('UPDATE users SET password_hash = :hash WHERE id = :id', ['hash' => $newHash, 'id' => $user['id']]);
         }
 
-        $token = Auth::generateToken($user);
+        // Check MFA requirement before issuing full session JWT
+        $mfaService = new MfaService($this->db);
+        $requiredMfaMethod = $mfaService->getRequiredMethodForUser($user);
+        if ($requiredMfaMethod !== null) {
+            $challenge = $mfaService->createChallenge(
+                $user,
+                $requiredMfaMethod,
+                $ip,
+                (string)($request->header('User-Agent') ?? '')
+            );
+            FootprintService::record(
+                'auth',
+                'MFA_CHALLENGE_ISSUED',
+                ['id' => $user['id'], 'email' => $user['email'], 'full_name' => $user['full_name'] ?? 'User'],
+                null,
+                null,
+                null,
+                'pending',
+                null,
+                null,
+                ['method' => $requiredMfaMethod, 'role' => $user['role']],
+                $ip
+            );
+            Response::success([
+                'mfa_required' => true,
+                'challenge' => $challenge,
+            ], 'Multi-factor verification required to complete login.');
+            return;
+        }
+
+        $this->db->execute('UPDATE users SET last_login_at = NOW(), last_login_ip = :ip WHERE id = :id', [
+            'ip' => $ip,
+            'id' => $user['id'],
+        ]);
+
+        $token = Auth::generateToken($user, $request);
+        $pinService = new PinSecurityService($this->db);
+
         $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
         $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
         $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
         $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
+        $user['pin_is_locked'] = !empty($user['pin_locked_until']) && strtotime((string)$user['pin_locked_until']) > time();
         if (isset($user['notification_preferences']) && is_string($user['notification_preferences'])) {
             $user['notification_preferences'] = json_decode($user['notification_preferences'], true);
         }
         if (isset($user['security_settings']) && is_string($user['security_settings'])) {
             $user['security_settings'] = json_decode($user['security_settings'], true);
         }
-        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
+        $perms = [];
+        foreach ([$user['assigned_permissions'] ?? null, $user['profile_permissions'] ?? null] as $rawP) {
+            if (is_string($rawP) && $rawP !== '') {
+                $dp = json_decode($rawP, true);
+                if (is_array($dp)) {
+                    $perms = $dp;
+                    break;
+                }
+            } elseif (is_array($rawP)) {
+                $perms = $rawP;
+                break;
+            }
+        }
+        if ($user['role'] === 'superadmin') {
+            $perms = ['*'];
+        } elseif ($user['role'] === 'admin' && empty($perms)) {
+            $perms = ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'];
+        }
+        $user['permissions'] = $perms;
+        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance'], $user['assigned_permissions'], $user['profile_permissions']);
 
         // Log audit event and activity footprint
         FootprintService::record(
@@ -121,7 +257,7 @@ class AuthController
             null,
             null,
             ['role' => $user['role']],
-            $request->getIp()
+            $ip
         );
 
         $this->db->execute(
@@ -132,13 +268,14 @@ class AuthController
                 'uid' => $user['id'],
                 'email' => $user['email'],
                 'details' => json_encode(['role' => $user['role']]),
-                'ip' => $request->getIp(),
+                'ip' => $ip,
             ]
         );
 
         Response::success([
             'user' => $user,
             'token' => $token,
+            'pin_policy' => $pinService->getPublicPolicy(),
         ], 'Login successful');
     }
 
@@ -188,31 +325,50 @@ class AuthController
         }
         $initialKycStatus = $hasIdentitySubmission ? 'pending' : 'unverified';
 
-        $existing = $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $email]);
+        $existing = $this->db->fetchOne('SELECT id FROM users WHERE LOWER(email) = :email LIMIT 1', ['email' => $email]);
         if ($existing) {
             Response::error('An account with this email address already exists. Please log in.', 409);
         }
 
+        $phoneNormalized = ReferralEngineService::normalizePhone($phoneNumber);
+        if ($phoneNormalized !== '') {
+            $existingPhone = $this->db->fetchOne(
+                'SELECT id FROM users WHERE phone_normalized = :pn OR phone_number = :raw LIMIT 1',
+                ['pn' => $phoneNormalized, 'raw' => $phoneNumber]
+            );
+            if ($existingPhone) {
+                Response::error('An account with this phone number already exists. Please log in.', 409);
+            }
+        }
+
+        $referralService = new ReferralEngineService($this->db);
+        $pinService = new PinSecurityService($this->db);
+
+        $inputRefCode = strtoupper(trim((string)($request->input('referral_code') ?? $request->input('referred_by') ?? $request->input('ref', ''))));
+        $inputCampaignCode = strtoupper(trim((string)($request->input('campaign_code') ?? $request->input('campaign', ''))));
+        $attributionChannel = trim((string)($request->input('referral_channel', $inputCampaignCode !== '' ? 'campaign' : 'referral_link')));
+
         $userId = Security::generateUuid();
         $kycId = Security::generateUuid();
-        $referralCode = 'HAMBAK-' . strtoupper(substr(md5($email . microtime()), 0, 6));
+        $referralCode = $referralService->generateUniqueCode();
         $passwordHash = Security::hashPassword($password);
 
         $this->db->withTransaction(function (Database $db) use (
-            $userId, $kycId, $email, $passwordHash, $fullName, $phoneNumber, $referralCode,
+            $userId, $kycId, $email, $passwordHash, $fullName, $phoneNumber, $phoneNormalized, $referralCode,
             $dateOfBirth, $residentialAddress, $state, $lga, $nin, $bvn, $idType, $idNumber,
             $hasIdentitySubmission, $initialKycStatus
         ) {
             // 1. Create User at KYC Level 1 (Tier 1 Basic Profile)
             $db->execute(
-                'INSERT INTO users (id, email, password_hash, full_name, phone_number, role, kyc_status, tier, referral_code, status, created_at)
-                 VALUES (:id, :email, :pass, :name, :phone, "customer", :ks, 1, :ref, "active", NOW())',
+                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, kyc_status, tier, referral_code, status, created_at)
+                 VALUES (:id, :email, :pass, :name, :phone, :pnorm, "customer", :ks, 1, :ref, "active", NOW())',
                 [
                     'id' => $userId,
                     'email' => $email,
                     'pass' => $passwordHash,
                     'name' => $fullName,
                     'phone' => $phoneNumber,
+                    'pnorm' => $phoneNormalized ?: null,
                     'ks' => $initialKycStatus,
                     'ref' => $referralCode,
                 ]
@@ -320,7 +476,26 @@ class AuthController
             );
         });
 
-        // 6. Admin Registration Notification & Email Dispatch
+        // 6. Bind Referral Attribution (Self-referral & anti-fraud protected)
+        $referralBinding = null;
+        if ($inputRefCode !== '') {
+            try {
+                $referralBinding = $referralService->bindReferralOnSignup(
+                    $userId,
+                    $email,
+                    $phoneNumber,
+                    $inputRefCode,
+                    $attributionChannel,
+                    $inputCampaignCode !== '' ? $inputCampaignCode : null,
+                    $request->getIp(),
+                    (string)($request->header('User-Agent') ?? '')
+                );
+            } catch (Throwable $e) {
+                error_log('[Referral Bind Error] ' . $e->getMessage());
+            }
+        }
+
+        // 7. Admin Registration Notification & Email Dispatch
         $nowStr = date('Y-m-d H:i:s');
         try {
             $dupCheck = $this->db->fetchOne(
@@ -387,7 +562,7 @@ class AuthController
             error_log('[Registration Admin Email Error] ' . $e->getMessage());
         }
 
-        // 7. Record Activity Footprint
+        // 8. Record Activity Footprint
         FootprintService::record(
             'auth',
             'CUSTOMER_REGISTRATION',
@@ -398,7 +573,7 @@ class AuthController
             'successful',
             null,
             null,
-            ['phone' => $phoneNumber, 'state' => $state ?: null, 'lga' => $lga ?: null, 'referral_code' => $referralCode, 'kyc_level' => 1, 'kyc_status' => $initialKycStatus],
+            ['phone' => $phoneNumber, 'state' => $state ?: null, 'lga' => $lga ?: null, 'referral_code' => $referralCode, 'referred_by' => $referralBinding['referral_code_used'] ?? null, 'kyc_level' => 1, 'kyc_status' => $initialKycStatus],
             $request->getIp()
         );
 
@@ -416,23 +591,32 @@ class AuthController
             $user = $this->db->fetchOne('SELECT * FROM users WHERE id = :id', ['id' => $userId]);
         }
 
-        $token = Auth::generateToken($user);
+        $token = Auth::generateToken($user, $request);
         $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
         $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
         $user['tier'] = (int)($user['tier'] ?? 1);
         $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        $user['mfa_enabled'] = false;
+        $user['pin_is_locked'] = false;
+        $user['permissions'] = [];
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
 
         Response::success([
             'user' => $user,
             'token' => $token,
+            'pin_policy' => $pinService->getPublicPolicy(),
+            'referral_bound' => $referralBinding !== null,
         ], 'Account created at KYC Level 1. Welcome to HAMBAKTECH!', 201);
     }
 
     public function me(Request $request): void
     {
         $user = Auth::requireAuth($request);
-        Response::success(['user' => $user]);
+        $pinService = new PinSecurityService($this->db);
+        Response::success([
+            'user' => $user,
+            'pin_policy' => $pinService->getPublicPolicy(),
+        ]);
     }
 
     public function updateProfile(Request $request): void
@@ -519,7 +703,12 @@ class AuthController
             ['hash' => $newHash, 'id' => $currentUser['id']]
         );
 
-        Response::success(null, 'Password updated successfully');
+        // Invalidate existing sessions after password rotation and issue a fresh token for current device
+        Auth::revokeAllUserSessions((string)$currentUser['id'], 'password_changed', true);
+        $freshUser = $this->db->fetchOne('SELECT * FROM users WHERE id = :id LIMIT 1', ['id' => $currentUser['id']]) ?: $currentUser;
+        $freshToken = Auth::generateToken($freshUser, $request);
+
+        Response::success(['token' => $freshToken], 'Password updated successfully');
     }
 
     public function setPin(Request $request): void
@@ -528,91 +717,73 @@ class AuthController
         $pin = trim((string)($request->input('pin') ?? $request->input('newPin') ?? $request->input('new_pin', '')));
         $currentPin = trim((string)($request->input('current_pin') ?? $request->input('currentPin', '')));
 
-        if (!preg_match('/^[0-9]{4}$/', $pin)) {
-            Response::error('Transaction PIN must be exactly 4 digits.', 422);
+        try {
+            $pinService = new PinSecurityService($this->db);
+            $res = $pinService->setOrUpdatePin(
+                (string)$currentUser['id'],
+                $pin,
+                $currentPin !== '' ? $currentPin : null,
+                true
+            );
+            FootprintService::record('security', 'TRANSACTION_PIN_UPDATED', $currentUser, null, null, null, 'successful', null, null, [], $request->getIp());
+            Response::success($res, 'Transaction PIN activated successfully');
+        } catch (RuntimeException $e) {
+            Response::error($e->getMessage(), 422);
         }
-
-        $row = $this->db->fetchOne('SELECT transaction_pin_hash FROM users WHERE id = :id', ['id' => $currentUser['id']]);
-        $existingHash = $row['transaction_pin_hash'] ?? null;
-        if (!empty($existingHash)) {
-            if (empty($currentPin) || !Security::verifyPin($currentPin, $existingHash)) {
-                Response::error('Invalid current transaction PIN.', 401);
-            }
-        }
-
-        $pinHash = Security::hashPin($pin);
-        $this->db->execute(
-            'UPDATE users SET transaction_pin_hash = :hash, updated_at = NOW() WHERE id = :id',
-            ['hash' => $pinHash, 'id' => $currentUser['id']]
-        );
-
-        Response::success(['has_transaction_pin' => true], 'Transaction PIN updated successfully');
     }
 
     public function verifyPin(Request $request): void
     {
         $currentUser = Auth::requireAuth($request);
         $pin = trim((string)$request->input('pin', ''));
-
-        if (!preg_match('/^[0-9]{4}$/', $pin)) {
-            Response::error('Transaction PIN must be exactly 4 digits.', 422);
-        }
-
-        $row = $this->db->fetchOne('SELECT transaction_pin_hash FROM users WHERE id = :id', ['id' => $currentUser['id']]);
-        $hash = $row['transaction_pin_hash'] ?? null;
-
-        if (!$hash) {
-            Response::error('No transaction PIN configured. Please set your 4-digit PIN first.', 400);
-        }
-
-        if (!Security::verifyPin($pin, $hash)) {
-            Response::error('Invalid transaction PIN.', 401);
-        }
-
+        $pinService = new PinSecurityService($this->db);
+        $pinService->requireValidPin($currentUser, ['transaction_pin' => $pin], 'verify_check');
         Response::success(['valid' => true, 'verified' => true], 'Transaction PIN verified');
     }
 
     /**
      * POST /api/auth/forgot-password
-     * Dispatches secure 6-digit OTP code and reset token
+     * Dispatches secure 6-digit OTP code without leaking whether account exists (anti-enumeration).
      */
     public function forgotPassword(Request $request): void
     {
         $inputEmail = strtolower(trim((string)$request->input('email', '')));
         $phoneDigits = preg_replace('/[^0-9]/', '', $inputEmail);
+        $normPhone = ReferralEngineService::normalizePhone($inputEmail);
+        $neutralMsg = 'If a registered account matches the provided contact details, a 6-digit verification code has been dispatched.';
+
+        if ($inputEmail === '') {
+            Response::error('Please provide an email address or registered phone number.', 422);
+        }
 
         $user = $this->db->fetchOne(
             'SELECT id, email, full_name, role, status FROM users 
              WHERE LOWER(email) = :email 
                 OR phone_number = :ident 
+                OR (:nphone != "" AND phone_normalized = :nphone2)
                 OR (:phone != "" AND REPLACE(REPLACE(REPLACE(phone_number, " ", ""), "-", ""), "+234", "0") = :phone)
              ORDER BY (role = "superadmin") DESC, created_at ASC LIMIT 1',
             [
                 'email' => $inputEmail,
                 'ident' => $inputEmail,
+                'nphone' => $normPhone,
+                'nphone2' => $normPhone,
                 'phone' => $phoneDigits,
             ]
         );
 
-        if (!$user) {
-            Response::error('No registered account was found with this email address or phone number.', 404);
+        if (!$user || ($user['status'] ?? 'active') === 'suspended') {
+            Response::success(['expires_in_minutes' => 15], $neutralMsg);
+            return;
         }
 
         $email = strtolower($user['email']);
-
-        if ($user['status'] === 'suspended') {
-            Response::error('This account is currently suspended. Please contact enterprise support.', 403);
-        }
-
-        // Generate 6-digit OTP code and secure reset token
-        $otp = str_pad((string)mt_rand(100000, 999999), 6, '0', STR_PAD_LEFT);
+        $otp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
         $resetToken = bin2hex(random_bytes(24));
         $resetId = Security::generateUuid();
 
-        // Invalidate prior unused tokens
         $this->db->execute('DELETE FROM password_resets WHERE email = :email', ['email' => $email]);
 
-        // Insert new reset OTP with 15-minute validity
         $this->db->execute(
             'INSERT INTO password_resets (id, email, otp_code, token, attempts, is_used, expires_at, created_at)
              VALUES (:id, :email, :otp, :tok, 0, 0, DATE_ADD(NOW(), INTERVAL 15 MINUTE), NOW())',
@@ -624,16 +795,16 @@ class AuthController
             ]
         );
 
-        // Dispatch OTP via MailService
-        $mailService = new \HambakTech\Services\MailService();
-        $mailResult = $mailService->sendPasswordResetOtp($email, (string)($user['full_name'] ?? 'Customer'), $otp, $resetToken);
+        try {
+            $mailService = new MailService();
+            $mailService->sendPasswordResetOtp($email, (string)($user['full_name'] ?? 'Customer'), $otp, $resetToken);
+        } catch (Throwable $e) {
+            error_log('[ForgotPassword Mail Error] ' . $e->getMessage());
+        }
 
         Response::success([
-            'email' => $email,
-            'token' => $resetToken,
             'expires_in_minutes' => 15,
-            'delivery' => $mailResult,
-        ], 'A 6-digit verification code has been dispatched to your email address.');
+        ], $neutralMsg);
     }
 
     /**
@@ -743,11 +914,26 @@ class AuthController
             ['email' => $email]
         );
 
-        $jwtToken = Auth::generateToken($user);
+        // Revoke all previously issued sessions before issuing fresh session token
+        Auth::revokeAllUserSessions((string)$user['id'], 'password_reset', true);
+        $user = $this->db->fetchOne(
+            'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
+                    w.balance as live_balance 
+             FROM users u 
+             LEFT JOIN wallets w ON w.user_id = u.id 
+             WHERE u.email = :email',
+            ['email' => $email]
+        );
+
+        $jwtToken = Auth::generateToken($user, $request);
+        $pinService = new PinSecurityService($this->db);
+
         $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
         $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
         $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
         $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
+        $user['pin_is_locked'] = false;
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
 
         // Log audit event
@@ -766,6 +952,7 @@ class AuthController
         Response::success([
             'user' => $user,
             'token' => $jwtToken,
+            'pin_policy' => $pinService->getPublicPolicy(),
         ], 'Your password has been reset successfully. You are now logged in.');
     }
 }

@@ -133,6 +133,13 @@ async function request<T>(endpoint: string, options: ApiRequestOptions = {}): Pr
   }
 
   if (!response.ok) {
+    if (
+      response.status === 403 &&
+      (data?.code === 'PIN_SETUP_REQUIRED' || data?.requires_pin_setup || data?.data?.requires_pin_setup) &&
+      typeof window !== 'undefined'
+    ) {
+      window.dispatchEvent(new CustomEvent('hambak:pin-setup-required', { detail: data }));
+    }
     throw new ApiError(
       data?.error || data?.message || `Request failed with status ${response.status}`,
       { statusCode: response.status, payload: data }
@@ -155,17 +162,52 @@ async function request<T>(endpoint: string, options: ApiRequestOptions = {}): Pr
 
 export const api = {
   // Auth
-  async login(email: string, password: string): Promise<{ success: boolean; token: string; user: User }> {
+  async login(
+    email: string,
+    password: string
+  ): Promise<{
+    success: boolean;
+    token?: string;
+    user?: User;
+    mfa_required?: boolean;
+    challenge?: import('../types').MfaChallengeResponse;
+    pin_policy?: import('../types').PinPolicy;
+  }> {
     const res = await request<any>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
+    });
+    if (res.mfa_required || res.data?.mfa_required) {
+      return {
+        success: true,
+        mfa_required: true,
+        challenge: res.challenge || res.data?.challenge,
+      };
+    }
+    const token = res.token || res.data?.token || '';
+    const user = res.user || res.data?.user;
+    if (token && token !== 'undefined') {
+      setStoredToken(token);
+    }
+    return { success: true, token, user, pin_policy: res.pin_policy || res.data?.pin_policy };
+  },
+
+  async verifyMfaChallenge(challengeToken: string, code: string): Promise<{
+    success: boolean;
+    token: string;
+    user: User;
+    pin_policy?: import('../types').PinPolicy;
+  }> {
+    const res = await request<any>('/api/auth/mfa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ challenge_token: challengeToken, code }),
     });
     const token = res.token || res.data?.token || '';
     const user = res.user || res.data?.user;
     if (token && token !== 'undefined') {
       setStoredToken(token);
     }
-    return { success: true, token, user };
+    return { success: true, token, user, pin_policy: res.pin_policy || res.data?.pin_policy };
   },
 
   async register(data: {
@@ -184,8 +226,9 @@ export const api = {
     consent_obtained?: boolean;
     agree_terms?: boolean;
     referral_code?: string;
+    campaign_code?: string;
     [key: string]: any;
-  }): Promise<{ success: boolean; token: string; user: User }> {
+  }): Promise<{ success: boolean; token: string; user: User; pin_policy?: import('../types').PinPolicy }> {
     const res = await request<any>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -195,17 +238,143 @@ export const api = {
     if (token && token !== 'undefined') {
       setStoredToken(token);
     }
-    return { success: true, token, user };
+    return { success: true, token, user, pin_policy: res.pin_policy || res.data?.pin_policy };
   },
 
-  async getMe(): Promise<{ success: boolean; user: User }> {
+  async getMe(): Promise<{ success: boolean; user: User; pin_policy?: import('../types').PinPolicy }> {
     const res = await request<any>('/api/auth/me');
     const user = res.user || res.data?.user;
-    return { success: true, user };
+    return { success: true, user, pin_policy: res.pin_policy || res.data?.pin_policy };
   },
 
-  logout(): void {
+  async logout(): Promise<void> {
+    const token = getStoredToken();
+    try {
+      if (token && token !== 'undefined' && token !== 'null') {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({}),
+        });
+      }
+    } catch {
+      // Clear local session cleanly even if network call fails
+    } finally {
+      clearStoredToken();
+    }
+  },
+
+  async logoutAll(): Promise<{ success: boolean; message?: string }> {
+    const res = await request<{ success: boolean; message?: string }>('/api/auth/logout-all', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
     clearStoredToken();
+    return res;
+  },
+
+  async getPinPolicy(): Promise<{
+    success: boolean;
+    pin_policy: import('../types').PinPolicy;
+    has_transaction_pin?: boolean;
+    pin_is_locked?: boolean;
+    pin_locked_until?: string | null;
+  }> {
+    return request('/api/auth/pin-policy');
+  },
+
+  async setTransactionPin(pin: string, currentPin?: string): Promise<{
+    success: boolean;
+    message?: string;
+    has_transaction_pin?: boolean;
+  }> {
+    return request('/api/auth/set-pin', {
+      method: 'POST',
+      body: JSON.stringify({ pin, current_pin: currentPin }),
+    });
+  },
+
+  async requestPinResetOtp(): Promise<{
+    success: boolean;
+    message: string;
+    expires_in_minutes?: number;
+    otp_preview?: string;
+  }> {
+    return request('/api/auth/pin/request-otp', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  async confirmPinResetOtp(otpCode: string, newPin: string): Promise<{
+    success: boolean;
+    message: string;
+    has_transaction_pin?: boolean;
+  }> {
+    return request('/api/auth/pin/reset-otp', {
+      method: 'POST',
+      body: JSON.stringify({ otp_code: otpCode, new_pin: newPin }),
+    });
+  },
+
+  async listSessions(): Promise<{ success: boolean; sessions: import('../types').UserSessionItem[] }> {
+    return request('/api/auth/sessions');
+  },
+
+  async revokeOwnSession(id: string): Promise<{ success: boolean; message?: string }> {
+    return request(`/api/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  async getMfaStatus(): Promise<{
+    success: boolean;
+    mfa: import('../types').MfaStatus;
+    policy: import('../types').MfaPolicy;
+  }> {
+    return request('/api/auth/mfa/status');
+  },
+
+  async beginTotpSetup(): Promise<{
+    success: boolean;
+    secret: string;
+    otpauth_url: string;
+    qr_url?: string;
+    issuer?: string;
+    message?: string;
+  }> {
+    return request('/api/auth/mfa/totp/setup', { method: 'POST', body: JSON.stringify({}) });
+  },
+
+  async confirmTotpSetup(code: string): Promise<{
+    success: boolean;
+    recovery_codes?: string[];
+    message?: string;
+  }> {
+    return request('/api/auth/mfa/totp/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  async setEmailMfa(enabled: boolean): Promise<{
+    success: boolean;
+    recovery_codes?: string[];
+    message?: string;
+  }> {
+    return request('/api/auth/mfa/email', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+  },
+
+  async disableMfa(password: string): Promise<{ success: boolean; message?: string }> {
+    return request('/api/auth/mfa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
   },
 
   async forgotPassword(email: string): Promise<{
@@ -501,7 +670,8 @@ export const api = {
     serviceKey: string,
     payload: any,
     consent: boolean = true,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    pin?: string
   ): Promise<{
     success: boolean;
     pending?: boolean;
@@ -524,6 +694,7 @@ export const api = {
         serviceKey,
         payload,
         consent,
+        pin: pin || payload?.pin,
         idempotency_key: idempotencyKey || payload?.idempotency_key,
       }),
     });
@@ -650,7 +821,8 @@ export const api = {
     planId: string,
     phone: string,
     network?: string,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    transactionPin?: string
   ): Promise<{
     success: boolean;
     message: string;
@@ -673,6 +845,7 @@ export const api = {
         planId,
         phone,
         network,
+        transaction_pin: transactionPin,
         idempotency_key: idempotencyKey,
       }),
     });
@@ -779,10 +952,15 @@ export const api = {
     return request(`/api/admin/telecom/orders${query ? `?${query}` : ''}`);
   },
 
-  async purchaseAirtime(network: string, phone: string, amount: number): Promise<{ success: boolean; message: string; order: TelecomOrder; discountSaved: number; newBalance: number }> {
+  async purchaseAirtime(
+    network: string,
+    phone: string,
+    amount: number,
+    transactionPin?: string
+  ): Promise<{ success: boolean; message: string; order: TelecomOrder; discountSaved: number; newBalance: number }> {
     return request('/api/telecom/purchase-airtime', {
       method: 'POST',
-      body: JSON.stringify({ network, phone, amount }),
+      body: JSON.stringify({ network, phone, amount, transaction_pin: transactionPin }),
     });
   },
 
@@ -845,6 +1023,7 @@ export const api = {
     bankName?: string;
     accountNumber?: string;
     accountName?: string;
+    transaction_pin?: string;
   }): Promise<{
     success: boolean;
     message: string;
@@ -876,7 +1055,7 @@ export const api = {
     });
   },
 
-  async purchaseCable(data: { provider: string; smartcardNumber: string; packageId: string; phone?: string }): Promise<{
+  async purchaseCable(data: { provider: string; smartcardNumber: string; packageId: string; phone?: string; transaction_pin?: string }): Promise<{
     success: boolean;
     message: string;
     order: TelecomOrder;
@@ -935,7 +1114,7 @@ export const api = {
     });
   },
 
-  async sendBulkSms(data: { senderId: string; recipients: string[] | string; message: string }): Promise<{
+  async sendBulkSms(data: { senderId: string; recipients: string[] | string; message: string; transaction_pin?: string }): Promise<{
     success: boolean;
     message: string;
     messageId: string;
@@ -970,7 +1149,7 @@ export const api = {
     });
   },
 
-  async purchaseElectricity(data: { discoId: string; meterNumber: string; meterType?: string; amount: number; phone?: string }): Promise<{
+  async purchaseElectricity(data: { discoId: string; meterNumber: string; meterType?: string; amount: number; phone?: string; transaction_pin?: string }): Promise<{
     success: boolean;
     message: string;
     token: string;
@@ -988,7 +1167,7 @@ export const api = {
     return request('/api/telecom/exam-packages');
   },
 
-  async purchaseExamPin(data: { examId: string; quantity: number; phone?: string }): Promise<{
+  async purchaseExamPin(data: { examId: string; quantity: number; phone?: string; transaction_pin?: string }): Promise<{
     success: boolean;
     message: string;
     pins: Array<{ serial: string; pin: string; exam: string }>;
@@ -3020,4 +3199,328 @@ export const api = {
       method: 'POST',
     });
   },
+
+  // ---------------------------------------------------------------------------
+  // Phase 11 — Referral, Rewards, Points, Cash Withdrawal, PIN & Security Admin
+  // ---------------------------------------------------------------------------
+  async getReferralPublicConfig(): Promise<{
+    success: boolean;
+    program: import('../types').ReferralPublicProgram;
+    pin_policy: import('../types').PinPolicy;
+  }> {
+    return request('/api/referrals/public-config');
+  },
+
+  async validateReferralCode(code: string): Promise<{
+    success: boolean;
+    valid: boolean;
+    code?: string;
+    referrer_name_masked?: string;
+    program?: import('../types').ReferralPublicProgram;
+    message?: string;
+  }> {
+    return request(`/api/referrals/validate-code?code=${encodeURIComponent(code)}`);
+  },
+
+  async getReferralDashboard(): Promise<
+    { success: boolean } & import('../types').ReferralDashboardData
+  > {
+    return request('/api/referrals/dashboard');
+  },
+
+  async convertReferralToWallet(
+    amount: number,
+    pin: string,
+    idempotencyKey?: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    converted_amount: number;
+    fee_amount?: number;
+    net_credited?: number;
+    new_wallet_balance?: number;
+  }> {
+    return request('/api/referrals/convert-to-wallet', {
+      method: 'POST',
+      body: JSON.stringify({ amount, pin, transaction_pin: pin, idempotency_key: idempotencyKey }),
+    });
+  },
+
+  async convertReferralPoints(
+    points: number,
+    pin: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    points_converted: number;
+    naira_credited: number;
+    new_wallet_balance?: number;
+  }> {
+    return request('/api/referrals/convert-points', {
+      method: 'POST',
+      body: JSON.stringify({ points, pin, transaction_pin: pin }),
+    });
+  },
+
+  async listCustomerWithdrawals(): Promise<{
+    success: boolean;
+    withdrawals: import('../types').ReferralWithdrawalItem[];
+  }> {
+    return request('/api/referrals/withdrawals');
+  },
+
+  async requestReferralWithdrawal(payload: {
+    amount: number;
+    bank_name: string;
+    account_number: string;
+    account_name: string;
+    pin: string;
+    idempotency_key?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    withdrawal: import('../types').ReferralWithdrawalItem;
+  }> {
+    return request('/api/referrals/withdrawals', {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, transaction_pin: payload.pin }),
+    });
+  },
+
+  async cancelReferralWithdrawal(id: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    return request(`/api/referrals/withdrawals/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  // Admin & Super Admin Referrals
+  async getAdminReferralOverview(): Promise<{
+    success: boolean;
+    config: import('../types').ReferralProgramConfig;
+    campaigns: import('../types').ReferralCampaign[];
+    tiers: import('../types').ReferralTier[];
+    referrals: import('../types').ReferralRecordItem[];
+    rewards: import('../types').ReferralRewardItem[];
+    audit_logs: any[];
+    report: import('../types').ReferralGrowthReport;
+  }> {
+    return request('/api/admin/referrals/overview');
+  },
+
+  async updateAdminReferralConfig(
+    config: Partial<import('../types').ReferralProgramConfig>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    config: import('../types').ReferralProgramConfig;
+  }> {
+    return request('/api/admin/referrals/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
+
+  async saveAdminReferralCampaign(
+    payload: Partial<import('../types').ReferralCampaign>,
+    id?: string
+  ): Promise<{ success: boolean; message: string; campaign: import('../types').ReferralCampaign }> {
+    return request(id ? `/api/admin/referrals/campaigns/${encodeURIComponent(id)}` : '/api/admin/referrals/campaigns', {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteAdminReferralCampaign(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/referrals/campaigns/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async saveAdminReferralTier(
+    payload: Partial<import('../types').ReferralTier>,
+    id?: string
+  ): Promise<{ success: boolean; message: string; tier: import('../types').ReferralTier }> {
+    return request(id ? `/api/admin/referrals/tiers/${encodeURIComponent(id)}` : '/api/admin/referrals/tiers', {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteAdminReferralTier(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/referrals/tiers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async adminReferralRewardAction(
+    id: string,
+    action: 'settle' | 'reverse' | 'flag',
+    reason?: string
+  ): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/referrals/rewards/${encodeURIComponent(id)}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ action, reason }),
+    });
+  },
+
+  async adminUpdateReferralStatus(
+    id: string,
+    status: 'registered' | 'qualified' | 'flagged' | 'blocked',
+    reason?: string
+  ): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/referrals/${encodeURIComponent(id)}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status, reason }),
+    });
+  },
+
+  async adminSettleMatureReferrals(): Promise<{
+    success: boolean;
+    message: string;
+    settled_count: number;
+  }> {
+    return request('/api/admin/referrals/settle', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  // Admin Withdrawals Queue
+  async getAdminWithdrawals(status?: string): Promise<{
+    success: boolean;
+    withdrawals: import('../types').ReferralWithdrawalItem[];
+    stats: {
+      pending_count: number;
+      pending_payout_total: number;
+      processing_count: number;
+      paid_count: number;
+      paid_total: number;
+      rejected_count: number;
+    };
+  }> {
+    const qs = status && status !== 'all' ? `?status=${encodeURIComponent(status)}` : '';
+    return request(`/api/admin/withdrawals${qs}`);
+  },
+
+  async adminProcessWithdrawal(
+    id: string,
+    action: 'approve' | 'process' | 'mark_paid' | 'reject' | 'fail',
+    payload: {
+      payment_reference?: string;
+      rejection_reason?: string;
+      admin_note?: string;
+      receipt_url?: string;
+    }
+  ): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/withdrawals/${encodeURIComponent(id)}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ action, ...payload }),
+    });
+  },
+
+  // Admin PIN Governance & MFA/Session Security
+  async getAdminPinOverview(): Promise<{
+    success: boolean;
+    policy: import('../types').PinPolicy;
+    summary: {
+      total_customers: number;
+      pin_activated_count: number;
+      pin_missing_count: number;
+      pin_locked_count: number;
+    };
+    users: import('../types').PinUserStatusRow[];
+  }> {
+    return request('/api/admin/pin/overview');
+  },
+
+  async updateAdminPinPolicy(
+    policy: Partial<import('../types').PinPolicy>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    policy: import('../types').PinPolicy;
+  }> {
+    return request('/api/admin/pin/policy', {
+      method: 'PUT',
+      body: JSON.stringify(policy),
+    });
+  },
+
+  async adminUnlockUserPin(userId: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/pin/users/${encodeURIComponent(userId)}/unlock`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  async adminResetUserPin(
+    userId: string,
+    mode: 'force_reactivate' | 'set_temp_pin',
+    newPin?: string
+  ): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/pin/users/${encodeURIComponent(userId)}/reset`, {
+      method: 'POST',
+      body: JSON.stringify({ mode, new_pin: newPin }),
+    });
+  },
+
+  async getAdminSecurityOverview(): Promise<{
+    success: boolean;
+    security_settings: import('../types').SessionSecuritySettings;
+    mfa_policy: import('../types').MfaPolicy;
+    pin_policy: import('../types').PinPolicy;
+    active_sessions: import('../types').UserSessionItem[];
+    failed_logins: any[];
+    mfa_stats: {
+      admin_mfa_enabled: number;
+      total_admins: number;
+      customer_mfa_enabled: number;
+    };
+    caller_is_superadmin: boolean;
+  }> {
+    return request('/api/admin/security/overview');
+  },
+
+  async adminRevokeSession(sessionId: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/security/sessions/${encodeURIComponent(sessionId)}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  async updateAdminMfaSecurityPolicy(payload: {
+    mfa_policy?: Partial<import('../types').MfaPolicy>;
+    security_settings?: Partial<import('../types').SessionSecuritySettings>;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    mfa_policy: import('../types').MfaPolicy;
+    security_settings: import('../types').SessionSecuritySettings;
+  }> {
+    return request('/api/admin/security/mfa-policy', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminReferralGrowthReport(params?: {
+    date_from?: string;
+    date_to?: string;
+    campaign_code?: string;
+  }): Promise<{
+    success: boolean;
+    report: import('../types').ReferralGrowthReport;
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.date_from) qs.set('date_from', params.date_from);
+    if (params?.date_to) qs.set('date_to', params.date_to);
+    if (params?.campaign_code) qs.set('campaign_code', params.campaign_code);
+    const str = qs.toString();
+    return request(`/api/admin/reports/referral-growth${str ? `?${str}` : ''}`);
+  },
 };
+

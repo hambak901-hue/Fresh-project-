@@ -19,6 +19,8 @@ use HambakTech\Core\Auth;
 use HambakTech\Core\SchemaSync;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
+use HambakTech\Services\PinSecurityService;
+use HambakTech\Services\ReferralEngineService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Verification\VeripineAdapter;
 
@@ -1046,6 +1048,10 @@ class VerificationController
         $wholesaleCost = (float)$service['wholesale_cost'];
         $endpoint = (string)($service['endpoint'] ?? $serviceKey);
 
+        // Enforce compulsory Transaction PIN verification BEFORE touching wallet
+        $pinService = new PinSecurityService($this->db);
+        $pinService->requireValidPin($user, $allInputs, 'identity_verification', $serviceKey);
+
         // 5. Atomic Wallet Debit
         $debitCategory = $isBvnVerification ? 'bvn_verification' : 'nin_verification';
         $recordTypeLabel = $isBvnVerification
@@ -1190,6 +1196,21 @@ class VerificationController
                     'search_type' => $recordTypeLabel,
                 ],
             ]);
+
+            // Trigger referral & loyalty points reward if user was referred
+            try {
+                (new ReferralEngineService($this->db))->recordQualifyingTransaction([
+                    'user_id' => (string)$user['id'],
+                    'service_category' => $isBvnVerification ? 'bvn_verification' : 'nin_verification',
+                    'service_key' => $serviceKey,
+                    'source_reference' => $reference,
+                    'gross_amount' => $cost,
+                    'wholesale_cost' => $actualProviderCost,
+                    'gateway_fee' => 0.0,
+                ]);
+            } catch (Throwable $refEx) {
+                error_log('[Verification Referral Hook Error] ' . $refEx->getMessage());
+            }
 
             $hasOriginalPdf = is_array($customerSafeResult)
                 && (!empty($customerSafeResult['pdf_base64']) || !empty($customerSafeResult['pdf_url']));

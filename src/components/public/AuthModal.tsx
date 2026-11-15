@@ -5,9 +5,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, MfaChallengeRequiredError } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
 import { api } from '../../lib/api';
+import { MfaChallengeResponse, ReferralPublicProgram } from '../../types';
 import {
   X,
   Lock,
@@ -24,6 +25,7 @@ import {
   ArrowLeft,
   RefreshCw,
   Send,
+  Gift,
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -39,9 +41,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialMode = 'login',
   onSuccess,
 }) => {
-  const { login, register, refreshUser } = useAuth();
+  const { login, completeMfaLogin, register, refreshUser } = useAuth();
   const { branding } = useCms();
-  const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'verify_otp' | 'reset_password'>(initialMode);
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'verify_otp' | 'reset_password' | 'mfa_challenge'>(initialMode);
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
@@ -54,12 +56,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [campaignCode, setCampaignCode] = useState('');
+  const [referralCheck, setReferralCheck] = useState<{ status: 'idle' | 'checking' | 'valid' | 'invalid'; message?: string }>({ status: 'idle' });
+  const [publicProgram, setPublicProgram] = useState<ReferralPublicProgram | null>(null);
   const [agreeTerms, setAgreeTerms] = useState(false);
 
   const [otpCode, setOtpCode] = useState('');
   const [resetToken, setResetToken] = useState('');
   const [otpPreview, setOtpPreview] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  const [mfaChallenge, setMfaChallenge] = useState<MfaChallengeResponse | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -74,8 +82,68 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setMode(initialMode);
       setError(null);
       setSuccessMsg(null);
+      setMfaChallenge(null);
+      setMfaCode('');
+      try {
+        const storedRef = (sessionStorage.getItem('hambak_referral_code') || '').trim().toUpperCase();
+        const storedCampaign = (sessionStorage.getItem('hambak_referral_campaign') || '').trim().toUpperCase();
+        if (storedRef && !referralCode) {
+          setReferralCode(storedRef);
+        }
+        if (storedCampaign && !campaignCode) {
+          setCampaignCode(storedCampaign);
+        }
+      } catch {
+        // Ignore sessionStorage errors
+      }
     }
   }, [isOpen, initialMode]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== 'register') return;
+    let active = true;
+    api.getReferralPublicConfig()
+      .then((res) => {
+        if (active && res.success && res.program) {
+          setPublicProgram(res.program);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isOpen, mode]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== 'register') return;
+    const clean = referralCode.trim().toUpperCase();
+    if (!clean) {
+      setReferralCheck({ status: 'idle' });
+      return;
+    }
+    if (clean.length < 4) {
+      setReferralCheck({ status: 'invalid', message: 'Referral code appears too short.' });
+      return;
+    }
+    setReferralCheck({ status: 'checking' });
+    const t = window.setTimeout(() => {
+      api.validateReferralCode(clean)
+        .then((res) => {
+          if (res.valid) {
+            setReferralCheck({
+              status: 'valid',
+              message: res.referrer_name_masked ? `Referred by ${res.referrer_name_masked}` : 'Valid referral code',
+            });
+          } else {
+            setReferralCheck({ status: 'invalid', message: res.message || 'Referral code not found.' });
+          }
+        })
+        .catch(() => {
+          setReferralCheck({ status: 'idle' });
+        });
+    }, 350);
+    return () => window.clearTimeout(t);
+  }, [isOpen, mode, referralCode]);
 
   if (!isOpen) return null;
 
@@ -97,7 +165,40 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         if (onSuccess) onSuccess(loggedUser);
       }, 350);
     } catch (err: any) {
-      setError(err.message || 'Sign in failed. Please check your credentials or reset your password.');
+      if (err instanceof MfaChallengeRequiredError) {
+        setMfaChallenge(err.challenge);
+        setMfaCode('');
+        setMode('mfa_challenge');
+        setSuccessMsg(
+          err.challenge.method === 'totp'
+            ? 'Enter the 6-digit code from your authenticator app (or a recovery code).'
+            : `We sent a 6-digit verification code to ${err.challenge.masked_email}.`
+        );
+      } else {
+        setError(err.message || 'Sign in failed. Please check your credentials or reset your password.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!mfaChallenge || !mfaCode.trim()) {
+      setError('Please enter your verification code.');
+      return;
+    }
+    try {
+      setLoading(true);
+      const loggedUser = await completeMfaLogin(mfaChallenge.challenge_token, mfaCode.trim());
+      setSuccessMsg('Security check verified! Signing in...');
+      setTimeout(() => {
+        onClose();
+        if (onSuccess) onSuccess(loggedUser);
+      }, 300);
+    } catch (err: any) {
+      setError(err?.message || 'Invalid or expired MFA verification code.');
     } finally {
       setLoading(false);
     }
@@ -139,9 +240,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         email: email.trim().toLowerCase(),
         phone_number: phone.trim(),
         password,
-        referral_code: referralCode.trim() || undefined,
+        referral_code: referralCode.trim().toUpperCase() || undefined,
+        campaign_code: campaignCode.trim().toUpperCase() || undefined,
         agree_terms: true,
       });
+      try {
+        sessionStorage.removeItem('hambak_referral_code');
+        sessionStorage.removeItem('hambak_referral_campaign');
+      } catch {
+        // Ignore sessionStorage errors
+      }
       setSuccessMsg(`Account created at KYC Level 1! Welcome to ${brandLabel}.`);
       setTimeout(() => {
         onClose();
@@ -261,6 +369,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {mode === 'forgot' && 'Password Recovery'}
               {mode === 'verify_otp' && 'Code Verification'}
               {mode === 'reset_password' && 'Set New Password'}
+              {mode === 'mfa_challenge' && 'Two-Factor Verification'}
             </span>
           </div>
 
@@ -270,6 +379,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode === 'forgot' && 'Reset Your Password'}
             {mode === 'verify_otp' && 'Enter Verification Code'}
             {mode === 'reset_password' && 'Create New Password'}
+            {mode === 'mfa_challenge' && 'Security Verification'}
           </h2>
 
           <p className="text-xs text-slate-600 dark:text-slate-400">
@@ -278,6 +388,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode === 'forgot' && 'Enter your registered email to receive a 6-digit password recovery code.'}
             {mode === 'verify_otp' && `Enter the 6-digit OTP dispatched to ${email || 'your email'}.`}
             {mode === 'reset_password' && 'Choose a strong password of at least 8 characters.'}
+            {mode === 'mfa_challenge' && (
+              mfaChallenge?.method === 'totp'
+                ? 'Open your authenticator app and enter the 6-digit code or a backup recovery code.'
+                : `Enter the 6-digit code sent to ${mfaChallenge?.masked_email || email}.`
+            )}
           </p>
         </div>
 
@@ -316,13 +431,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        {(mode === 'forgot' || mode === 'verify_otp' || mode === 'reset_password') && (
+        {(mode === 'forgot' || mode === 'verify_otp' || mode === 'reset_password' || mode === 'mfa_challenge') && (
           <button
             type="button"
             onClick={() => {
               setMode('login');
               setError(null);
               setSuccessMsg(null);
+              setMfaChallenge(null);
             }}
             className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-blue-700 dark:hover:text-blue-400 transition-colors"
           >
@@ -550,10 +666,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <input
                 type="text"
                 value={referralCode}
-                onChange={(e) => setReferralCode(e.target.value)}
-                placeholder="Optional referral code"
+                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                placeholder="e.g. HBK-ABC123"
                 className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white uppercase font-mono"
               />
+              {referralCheck.status === 'checking' && (
+                <p className="text-[11px] text-slate-500 mt-1">Verifying referral code...</p>
+              )}
+              {referralCheck.status === 'valid' && (
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium mt-1 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>{referralCheck.message}</span>
+                </p>
+              )}
+              {referralCheck.status === 'invalid' && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">
+                  {referralCheck.message}
+                </p>
+              )}
+              {publicProgram?.enabled && (
+                <div className="mt-2 p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+                  <Gift className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>
+                    <span className="font-semibold">{publicProgram.program_name}:</span> {publicProgram.terms_summary || 'Invite friends after signup to earn rewards and loyalty points on qualifying transactions.'}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-start gap-2 pt-1">
@@ -736,6 +874,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               className="w-full py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-600 disabled:opacity-60 text-white text-xs font-bold transition-colors flex items-center justify-center gap-2"
             >
               {loading ? <span>Updating Password...</span> : <span>Reset Password &amp; Sign In</span>}
+            </button>
+          </form>
+        )}
+
+        {mode === 'mfa_challenge' && mfaChallenge && (
+          <form onSubmit={handleVerifyMfa} className="space-y-4">
+            {mfaChallenge.otp_preview && (
+              <div className="p-3 rounded-xl bg-blue-50 dark:bg-cyan-500/10 border border-blue-200 dark:border-cyan-500/30 text-blue-900 dark:text-cyan-300 text-xs">
+                Verification Code Preview:{' '}
+                <span className="font-mono font-bold tracking-wider">{mfaChallenge.otp_preview}</span>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                {mfaChallenge.method === 'totp' ? 'Authenticator or Recovery Code' : '6-Digit Email Security Code'}
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  maxLength={20}
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value.trim())}
+                  placeholder={mfaChallenge.method === 'totp' ? '123456 or ABCD-EFGH' : '123456'}
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm font-mono tracking-widest text-blue-700 dark:text-amber-400 font-bold focus:outline-none focus:border-blue-600"
+                  required
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || !mfaCode.trim()}
+              className="w-full py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-600 disabled:opacity-60 text-white text-xs font-bold transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? <span>Verifying...</span> : <span>Verify &amp; Sign In</span>}
             </button>
           </form>
         )}

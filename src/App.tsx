@@ -29,6 +29,7 @@ import { CustomerDashboard } from './components/customer/CustomerDashboard';
 import { CustomerLoginScreen } from './components/customer/CustomerLoginScreen';
 import { SuperAdminDashboard } from './components/admin/SuperAdminDashboard';
 import { NinServicesPage } from './components/customer/NinServicesPage';
+import { MandatoryPinSetupModal } from './components/customer/MandatoryPinSetupModal';
 import { Calculator, ShieldCheck, Shield, Fingerprint, Loader2 } from 'lucide-react';
 
 function normalizePublicPageKey(raw: string): string {
@@ -85,7 +86,8 @@ function isExplicitPublicHash(): boolean {
 }
 
 function MainAppContent() {
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout, pinPolicy } = useAuth();
+  const [forcePinSetupOpen, setForcePinSetupOpen] = useState<boolean>(false);
 
   // URL path / hash detection for direct deep-linking
   const getInitialPhase = (): string => {
@@ -235,6 +237,42 @@ function MainAppContent() {
   const [cmsStudioOpen, setCmsStudioOpen] = useState<boolean>(false);
   const [walletModalOpen, setWalletModalOpen] = useState<boolean>(false);
 
+  // Capture referral & campaign deep-link params (?ref=CODE&campaign=CAMP) and auto-open registration when unauthenticated
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const urlParams = new URLSearchParams(window.location.search || '');
+      const hashParts = (window.location.hash || '').split('?');
+      const hashParams = new URLSearchParams(hashParts[1] || '');
+      const refCode = (urlParams.get('ref') || hashParams.get('ref') || '').trim().toUpperCase();
+      const campaignCode = (urlParams.get('campaign') || hashParams.get('campaign') || '').trim().toUpperCase();
+      if (refCode) {
+        sessionStorage.setItem('hambak_referral_code', refCode);
+      }
+      if (campaignCode) {
+        sessionStorage.setItem('hambak_referral_campaign', campaignCode);
+      }
+      if (refCode && !authLoading && !user) {
+        setAuthMode('register');
+        setAuthModalOpen(true);
+      }
+    } catch {
+      // Ignore malformed query strings
+    }
+  }, [authLoading, user]);
+
+  // Listen for server-enforced 403 PIN_SETUP_REQUIRED events from api.ts
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onPinSetupRequired = () => {
+      setForcePinSetupOpen(true);
+    };
+    window.addEventListener('hambak:pin-setup-required', onPinSetupRequired);
+    return () => {
+      window.removeEventListener('hambak:pin-setup-required', onPinSetupRequired);
+    };
+  }, []);
+
   const handleOpenAuth = (mode: 'login' | 'register') => {
     setAuthMode(mode);
     setAuthModalOpen(true);
@@ -289,7 +327,9 @@ function MainAppContent() {
   };
 
   const handleCustomerLogout = () => {
-    logout();
+    setForcePinSetupOpen(false);
+    setWalletModalOpen(false);
+    void logout();
     manualPublicBrowseRef.current = false;
     setActivePhase('06');
     window.history.replaceState(null, '', '#login');
@@ -542,6 +582,18 @@ function MainAppContent() {
 
       {/* Wallet Modal */}
       <WalletModal isOpen={walletModalOpen} onClose={() => setWalletModalOpen(false)} />
+
+      {/* Compulsory Transaction PIN Activation Overlay */}
+      <MandatoryPinSetupModal
+        isOpen={Boolean(
+          user &&
+          user.role === 'customer' &&
+          !user.has_transaction_pin &&
+          (pinPolicy?.require_pin_activation_for_all_customers || forcePinSetupOpen)
+        )}
+        onCompleted={() => setForcePinSetupOpen(false)}
+        onLogout={handleCustomerLogout}
+      />
     </div>
   );
 }

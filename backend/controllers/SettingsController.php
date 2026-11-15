@@ -14,6 +14,10 @@ use HambakTech\Core\Request;
 use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
+use HambakTech\Core\SchemaSync;
+use HambakTech\Services\MfaService;
+use HambakTech\Services\PinSecurityService;
+use HambakTech\Services\ReferralEngineService;
 
 class SettingsController
 {
@@ -22,15 +26,16 @@ class SettingsController
     public function __construct()
     {
         $this->db = Database::getInstance();
+        SchemaSync::syncSecurityAndReferralSchema($this->db);
     }
 
     /**
      * 1. GET /api/admin/settings/all
-     * Retrieves all 22 comprehensive platform settings categories from MySQL
+     * Retrieves all comprehensive platform settings categories from MySQL
      */
     public function getAllSettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
 
         $rows = $this->db->fetchAll('SELECT setting_key, setting_value, category, description, updated_at FROM system_settings');
         $settingsMap = [];
@@ -270,6 +275,15 @@ class SettingsController
                 'version' => '2.8.0-STAGE8',
                 'database_engine' => 'MySQL 8.0 / InnoDB',
             ],
+
+            // 23. Referral & Rewards Engine
+            'referral' => (new ReferralEngineService($this->db))->getConfig(),
+
+            // 24. Transaction PIN Policy
+            'pin_policy' => (new PinSecurityService($this->db))->getPolicy(),
+
+            // 25. Multi-Factor Authentication Policy
+            'mfa' => (new MfaService($this->db))->getPolicy(),
         ];
 
         Response::success([
@@ -284,12 +298,46 @@ class SettingsController
      */
     public function updateSettings(Request $request): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
         $category = trim((string)$request->input('category', 'general'));
+        $superAdminCategories = [
+            'security', 'auth', 'admin_dashboard', 'api', 'provider_integration', 'providers',
+            'smtp', 'payment_gateways', 'system_config', 'pin_policy', 'mfa', 'referral',
+        ];
+        if (in_array($category, $superAdminCategories, true)) {
+            $admin = Auth::requireSuperAdmin($request);
+        } else {
+            $admin = Auth::requirePermission($request, 'settings');
+        }
         $settingsData = $request->input('values') ?? $request->input('data') ?? $request->input('settings', []);
 
         if (empty($settingsData) || !is_array($settingsData)) {
             Response::error('Invalid settings payload provided.', 422);
+        }
+
+        // Enforce server-side clamping on security/PIN/MFA/referral parameters
+        if ($category === 'security') {
+            $settingsData = array_merge(Auth::getSecuritySettings(), $settingsData);
+            $settingsData['session_timeout_minutes'] = max(15, min(10080, (int)($settingsData['session_timeout_minutes'] ?? 1440)));
+            $settingsData['admin_session_timeout_minutes'] = max(10, min(720, (int)($settingsData['admin_session_timeout_minutes'] ?? 60)));
+            $settingsData['login_max_attempts'] = max(3, min(15, (int)($settingsData['login_max_attempts'] ?? 5)));
+            $settingsData['login_lockout_minutes'] = max(5, min(180, (int)($settingsData['login_lockout_minutes'] ?? 15)));
+            $settingsData['pin_max_attempts'] = max(3, min(10, (int)($settingsData['pin_max_attempts'] ?? 5)));
+            $settingsData['pin_lockout_minutes'] = max(5, min(120, (int)($settingsData['pin_lockout_minutes'] ?? 15)));
+        } elseif ($category === 'pin_policy') {
+            $curPin = (new PinSecurityService($this->db))->getPolicy();
+            $settingsData = array_merge($curPin, $settingsData);
+            $settingsData['pin_length'] = max(4, min(6, (int)($settingsData['pin_length'] ?? 4)));
+            $settingsData['pin_max_attempts'] = max(3, min(10, (int)($settingsData['pin_max_attempts'] ?? 5)));
+            $settingsData['pin_lockout_minutes'] = max(5, min(120, (int)($settingsData['pin_lockout_minutes'] ?? 15)));
+        } elseif ($category === 'mfa') {
+            $curMfa = (new MfaService($this->db))->getPolicy();
+            $settingsData = array_merge($curMfa, $settingsData);
+            $settingsData['otp_expiry_minutes'] = max(3, min(30, (int)($settingsData['otp_expiry_minutes'] ?? 10)));
+        } elseif ($category === 'referral') {
+            $curRef = (new ReferralEngineService($this->db))->getConfig();
+            $settingsData = array_merge($curRef, $settingsData);
+            $settingsData['min_withdrawal_naira'] = max(500.0, (float)($settingsData['min_withdrawal_naira'] ?? 2000));
+            $settingsData['max_withdrawal_naira'] = max((float)$settingsData['min_withdrawal_naira'], (float)($settingsData['max_withdrawal_naira'] ?? 100000));
         }
 
         $settingKey = $category . '_settings';

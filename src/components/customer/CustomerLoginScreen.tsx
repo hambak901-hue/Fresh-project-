@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, MfaChallengeRequiredError } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
 import { api } from '../../lib/api';
 import { ThemeToggle } from '../ThemeToggle';
@@ -26,7 +26,7 @@ import {
   UserPlus,
   Shield,
 } from 'lucide-react';
-import { User } from '../../types';
+import { MfaChallengeResponse, User } from '../../types';
 
 interface CustomerLoginScreenProps {
   onSuccess: (user?: User | null) => void;
@@ -43,10 +43,10 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
   onSwitchToAdmin,
   notice,
 }) => {
-  const { login, refreshUser } = useAuth();
+  const { login, completeMfaLogin, refreshUser } = useAuth();
   const { branding } = useCms();
 
-  const [mode, setMode] = useState<'login' | 'forgot' | 'verify_otp' | 'reset_password'>('login');
+  const [mode, setMode] = useState<'login' | 'forgot' | 'verify_otp' | 'reset_password' | 'mfa_challenge'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -58,6 +58,9 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
   const [otpCode, setOtpCode] = useState('');
   const [resetToken, setResetToken] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  const [mfaChallenge, setMfaChallenge] = useState<MfaChallengeResponse | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
 
   const brandName = branding?.short_brand_name || 'HAMBAKTECH';
   const companyName = branding?.company_name || 'HAMBAK TECH & SERVICES';
@@ -84,7 +87,36 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
       const loggedUser = await login(email.trim().toLowerCase(), password);
       onSuccess(loggedUser);
     } catch (err: any) {
-      setError(err?.message || 'Sign in failed. Please check your credentials and try again.');
+      if (err instanceof MfaChallengeRequiredError) {
+        setMfaChallenge(err.challenge);
+        setMfaCode('');
+        setMode('mfa_challenge');
+        setSuccessMsg(
+          err.challenge.method === 'totp'
+            ? 'Enter the 6-digit code from your authenticator app or a recovery code.'
+            : `We dispatched a 6-digit verification code to ${err.challenge.masked_email}.`
+        );
+      } else {
+        setError(err?.message || 'Sign in failed. Please check your credentials and try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!mfaChallenge || !mfaCode.trim()) {
+      setError('Please enter your verification code.');
+      return;
+    }
+    try {
+      setLoading(true);
+      const loggedUser = await completeMfaLogin(mfaChallenge.challenge_token, mfaCode.trim());
+      onSuccess(loggedUser);
+    } catch (err: any) {
+      setError(err?.message || 'Invalid or expired MFA code.');
     } finally {
       setLoading(false);
     }
@@ -190,12 +222,18 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
             {mode === 'forgot' && 'Password Recovery'}
             {mode === 'verify_otp' && 'Verify Security Code'}
             {mode === 'reset_password' && 'Set New Password'}
+            {mode === 'mfa_challenge' && 'Two-Factor Verification'}
           </h1>
           <p className="text-xs text-slate-600 dark:text-slate-400">
             {mode === 'login' && 'Sign in to access your Naira wallet, identity verification, telecom bundles, and Academy services.'}
             {mode === 'forgot' && 'Enter your registered email address to receive a 6-digit recovery code.'}
             {mode === 'verify_otp' && `Enter the 6-digit code sent to ${email || 'your email'}.`}
             {mode === 'reset_password' && 'Choose a strong password of at least 8 characters.'}
+            {mode === 'mfa_challenge' && (
+              mfaChallenge?.method === 'totp'
+                ? 'Enter the 6-digit authenticator code or a backup recovery code.'
+                : `Enter the 6-digit code sent to ${mfaChallenge?.masked_email || email}.`
+            )}
           </p>
         </div>
 
@@ -422,6 +460,41 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
               className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Reset Password &amp; Sign In</span>}
+            </button>
+          </form>
+        )}
+
+        {mode === 'mfa_challenge' && mfaChallenge && (
+          <form onSubmit={handleVerifyMfa} className="space-y-4">
+            {mfaChallenge.otp_preview && (
+              <div className="p-3 rounded-xl bg-blue-50 dark:bg-cyan-500/10 border border-blue-200 dark:border-cyan-500/30 text-blue-900 dark:text-cyan-300 text-xs">
+                Code Preview: <span className="font-mono font-bold">{mfaChallenge.otp_preview}</span>
+              </div>
+            )}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                {mfaChallenge.method === 'totp' ? 'Authenticator or Recovery Code' : '6-Digit Email Security Code'}
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  required
+                  maxLength={20}
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value.trim())}
+                  placeholder={mfaChallenge.method === 'totp' ? '123456 or ABCD-EFGH' : '123456'}
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-sm font-mono tracking-widest text-blue-700 dark:text-amber-400 font-bold focus:outline-none focus:border-blue-600"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={loading || !mfaCode.trim()}
+              className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Verify &amp; Sign In</span>}
             </button>
           </form>
         )}

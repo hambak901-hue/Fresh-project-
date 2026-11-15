@@ -399,6 +399,21 @@ class SchemaSync
         $columnAlterations = [
             'users' => [
                 'kyc_level' => 'ADD COLUMN kyc_level INT NOT NULL DEFAULT 1',
+                'phone_normalized' => 'ADD COLUMN phone_normalized VARCHAR(32) NULL',
+                'token_version' => 'ADD COLUMN token_version INT NOT NULL DEFAULT 1',
+                'assigned_permissions' => 'ADD COLUMN assigned_permissions TEXT NULL',
+                'referred_by_user_id' => 'ADD COLUMN referred_by_user_id VARCHAR(36) NULL',
+                'referral_source' => 'ADD COLUMN referral_source VARCHAR(64) NULL',
+                'referral_campaign_code' => 'ADD COLUMN referral_campaign_code VARCHAR(64) NULL',
+                'referral_bound_at' => 'ADD COLUMN referral_bound_at DATETIME NULL',
+                'pin_failed_attempts' => 'ADD COLUMN pin_failed_attempts INT NOT NULL DEFAULT 0',
+                'pin_locked_until' => 'ADD COLUMN pin_locked_until DATETIME NULL',
+                'pin_set_at' => 'ADD COLUMN pin_set_at DATETIME NULL',
+                'pin_updated_by_admin_at' => 'ADD COLUMN pin_updated_by_admin_at DATETIME NULL',
+                'mfa_enabled' => 'ADD COLUMN mfa_enabled TINYINT(1) NOT NULL DEFAULT 0',
+                'mfa_method' => 'ADD COLUMN mfa_method VARCHAR(24) NOT NULL DEFAULT "email_otp"',
+                'last_login_at' => 'ADD COLUMN last_login_at DATETIME NULL',
+                'last_login_ip' => 'ADD COLUMN last_login_ip VARCHAR(45) NULL',
             ],
             'user_profiles' => [
                 'date_of_birth' => 'ADD COLUMN date_of_birth VARCHAR(32) NULL',
@@ -592,6 +607,15 @@ class SchemaSync
             $errors = array_merge($errors, $enrSync['errors'] ?? []);
         } catch (Throwable $e) {
             $errors[] = 'syncEnrolmentCatalog => ' . $e->getMessage();
+        }
+
+        // Ensure Stage 5 Referral, Rewards, Compulsory PIN & Session/MFA Security tables exist
+        try {
+            $secRefSync = self::syncSecurityAndReferralSchema($db, true);
+            $applied = array_merge($applied, $secRefSync['applied'] ?? []);
+            $errors = array_merge($errors, $secRefSync['errors'] ?? []);
+        } catch (Throwable $e) {
+            $errors[] = 'syncSecurityAndReferralSchema => ' . $e->getMessage();
         }
 
         return [
@@ -1527,4 +1551,474 @@ class SchemaSync
 
         return ['applied' => $applied, 'errors' => $errors];
     }
+
+    public static function syncSecurityAndReferralSchema(Database $db, bool $force = false): array
+    {
+        static $syncedSecRef = false;
+        if ($syncedSecRef && !$force) {
+            return ['applied' => [], 'errors' => []];
+        }
+        $syncedSecRef = true;
+
+        $applied = [];
+        $errors = [];
+
+        $userCols = [
+            'kyc_level' => 'ADD COLUMN kyc_level INT NOT NULL DEFAULT 1',
+            'phone_normalized' => 'ADD COLUMN phone_normalized VARCHAR(32) NULL',
+            'token_version' => 'ADD COLUMN token_version INT NOT NULL DEFAULT 1',
+            'assigned_permissions' => 'ADD COLUMN assigned_permissions TEXT NULL',
+            'referred_by_user_id' => 'ADD COLUMN referred_by_user_id VARCHAR(36) NULL',
+            'referral_source' => 'ADD COLUMN referral_source VARCHAR(64) NULL',
+            'referral_campaign_code' => 'ADD COLUMN referral_campaign_code VARCHAR(64) NULL',
+            'referral_bound_at' => 'ADD COLUMN referral_bound_at DATETIME NULL',
+            'pin_failed_attempts' => 'ADD COLUMN pin_failed_attempts INT NOT NULL DEFAULT 0',
+            'pin_locked_until' => 'ADD COLUMN pin_locked_until DATETIME NULL',
+            'pin_set_at' => 'ADD COLUMN pin_set_at DATETIME NULL',
+            'pin_updated_by_admin_at' => 'ADD COLUMN pin_updated_by_admin_at DATETIME NULL',
+            'mfa_enabled' => 'ADD COLUMN mfa_enabled TINYINT(1) NOT NULL DEFAULT 0',
+            'mfa_method' => 'ADD COLUMN mfa_method VARCHAR(24) NOT NULL DEFAULT "email_otp"',
+            'last_login_at' => 'ADD COLUMN last_login_at DATETIME NULL',
+            'last_login_ip' => 'ADD COLUMN last_login_ip VARCHAR(45) NULL',
+        ];
+        foreach ($userCols as $col => $clause) {
+            try {
+                $exists = $db->fetchOne(
+                    'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "users" AND COLUMN_NAME = :col',
+                    ['col' => $col]
+                );
+                if (!$exists) {
+                    $db->execute("ALTER TABLE users {$clause}");
+                    $applied[] = "col:users.{$col}";
+                }
+            } catch (Throwable $e) {
+                $errors[] = "col:users.{$col} => " . $e->getMessage();
+            }
+        }
+
+        // Safe backfill for phone_normalized (canonical 2348XXXXXXXXX / digits)
+        try {
+            $db->execute(
+                'UPDATE users SET phone_normalized = CASE
+                    WHEN REGEXP_REPLACE(phone_number, "[^0-9]", "") LIKE "0%" AND CHAR_LENGTH(REGEXP_REPLACE(phone_number, "[^0-9]", "")) = 11
+                        THEN CONCAT("234", SUBSTRING(REGEXP_REPLACE(phone_number, "[^0-9]", ""), 2))
+                    WHEN CHAR_LENGTH(REGEXP_REPLACE(phone_number, "[^0-9]", "")) = 10
+                        THEN CONCAT("234", REGEXP_REPLACE(phone_number, "[^0-9]", ""))
+                    ELSE REGEXP_REPLACE(phone_number, "[^0-9]", "")
+                 END
+                 WHERE (phone_normalized IS NULL OR phone_normalized = "") AND phone_number IS NOT NULL AND phone_number != ""'
+            );
+        } catch (Throwable) {
+            // Fallback for MySQL 5.7/MariaDB without REGEXP_REPLACE
+            try {
+                $rows = $db->fetchAll('SELECT id, phone_number FROM users WHERE (phone_normalized IS NULL OR phone_normalized = "") AND phone_number IS NOT NULL LIMIT 500');
+                foreach ($rows as $r) {
+                    $digits = preg_replace('/\D/', '', (string)($r['phone_number'] ?? '')) ?? '';
+                    if (strlen($digits) === 11 && str_starts_with($digits, '0')) {
+                        $digits = '234' . substr($digits, 1);
+                    } elseif (strlen($digits) === 10) {
+                        $digits = '234' . $digits;
+                    }
+                    if ($digits !== '') {
+                        $db->execute('UPDATE users SET phone_normalized = :pn WHERE id = :id', ['pn' => $digits, 'id' => $r['id']]);
+                    }
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        $tables = [
+            'user_sessions' => 'CREATE TABLE IF NOT EXISTS user_sessions (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                jti VARCHAR(64) NOT NULL UNIQUE,
+                token_version INT NOT NULL DEFAULT 1,
+                ip_address VARCHAR(45) NULL,
+                user_agent VARCHAR(255) NULL,
+                device_label VARCHAR(120) NULL,
+                is_revoked TINYINT(1) NOT NULL DEFAULT 0,
+                revoked_reason VARCHAR(120) NULL,
+                revoked_at DATETIME NULL,
+                last_seen_at DATETIME NULL,
+                expires_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_us_user (user_id, is_revoked),
+                INDEX idx_us_exp (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'login_attempts' => 'CREATE TABLE IF NOT EXISTS login_attempts (
+                id VARCHAR(36) PRIMARY KEY,
+                identifier VARCHAR(191) NOT NULL,
+                ip_address VARCHAR(45) NOT NULL,
+                attempt_count INT NOT NULL DEFAULT 0,
+                locked_until DATETIME NULL,
+                last_attempt_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_la_ident_ip (identifier, ip_address),
+                INDEX idx_la_locked (locked_until)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'mfa_challenges' => 'CREATE TABLE IF NOT EXISTS mfa_challenges (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                challenge_token VARCHAR(128) NOT NULL UNIQUE,
+                method ENUM("email_otp", "totp") NOT NULL DEFAULT "email_otp",
+                otp_hash VARCHAR(255) NULL,
+                attempts INT NOT NULL DEFAULT 0,
+                max_attempts INT NOT NULL DEFAULT 5,
+                ip_address VARCHAR(45) NULL,
+                user_agent VARCHAR(255) NULL,
+                is_verified TINYINT(1) NOT NULL DEFAULT 0,
+                expires_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_mfa_user (user_id, is_verified),
+                INDEX idx_mfa_exp (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'user_mfa_configs' => 'CREATE TABLE IF NOT EXISTS user_mfa_configs (
+                user_id VARCHAR(36) PRIMARY KEY,
+                totp_secret_encrypted TEXT NULL,
+                totp_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                email_otp_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                recovery_codes_hash JSON NULL,
+                enabled_at DATETIME NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'pin_reset_requests' => 'CREATE TABLE IF NOT EXISTS pin_reset_requests (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                email VARCHAR(191) NOT NULL,
+                otp_hash VARCHAR(255) NOT NULL,
+                attempts INT NOT NULL DEFAULT 0,
+                max_attempts INT NOT NULL DEFAULT 5,
+                is_used TINYINT(1) NOT NULL DEFAULT 0,
+                expires_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_prr_user (user_id, is_used),
+                INDEX idx_prr_exp (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'referral_campaigns' => 'CREATE TABLE IF NOT EXISTS referral_campaigns (
+                id VARCHAR(36) PRIMARY KEY,
+                campaign_code VARCHAR(64) NOT NULL UNIQUE,
+                name VARCHAR(150) NOT NULL,
+                description TEXT NULL,
+                reward_mode VARCHAR(32) NOT NULL DEFAULT "fixed",
+                reward_value DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                points_bonus INT NOT NULL DEFAULT 0,
+                min_spend DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                budget_cap DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                spent_budget DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                starts_at DATETIME NULL,
+                ends_at DATETIME NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_by VARCHAR(36) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_rc_active (is_active, starts_at, ends_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'referral_tiers' => 'CREATE TABLE IF NOT EXISTS referral_tiers (
+                id VARCHAR(36) PRIMARY KEY,
+                tier_key VARCHAR(50) NOT NULL UNIQUE,
+                name VARCHAR(100) NOT NULL,
+                min_qualified_referrals INT NOT NULL DEFAULT 0,
+                min_referred_volume DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                reward_multiplier DECIMAL(8, 4) NOT NULL DEFAULT 1.0000,
+                bonus_cash DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                bonus_points INT NOT NULL DEFAULT 0,
+                reseller_only TINYINT(1) NOT NULL DEFAULT 0,
+                display_order INT NOT NULL DEFAULT 1,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'referrals' => 'CREATE TABLE IF NOT EXISTS referrals (
+                id VARCHAR(36) PRIMARY KEY,
+                referrer_user_id VARCHAR(36) NOT NULL,
+                referred_user_id VARCHAR(36) NOT NULL UNIQUE,
+                referral_code_used VARCHAR(64) NOT NULL,
+                attribution_channel VARCHAR(32) NOT NULL DEFAULT "referral_link",
+                campaign_code VARCHAR(64) NULL,
+                risk_fingerprint VARCHAR(128) NULL,
+                signup_ip VARCHAR(45) NULL,
+                status ENUM("registered", "qualified", "flagged", "blocked") NOT NULL DEFAULT "registered",
+                flag_reason TEXT NULL,
+                qualifying_tx_count INT NOT NULL DEFAULT 0,
+                qualifying_spend_total DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                reward_earned_total DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                qualified_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_ref_referrer (referrer_user_id, status),
+                INDEX idx_ref_campaign (campaign_code),
+                INDEX idx_ref_created (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'referral_balances' => 'CREATE TABLE IF NOT EXISTS referral_balances (
+                user_id VARCHAR(36) PRIMARY KEY,
+                pending_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                available_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                reserved_for_withdrawal DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                transferred_to_wallet_total DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                total_withdrawn DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                reversed_total DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                points_balance INT NOT NULL DEFAULT 0,
+                points_redeemed_total INT NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'referral_rewards' => 'CREATE TABLE IF NOT EXISTS referral_rewards (
+                id VARCHAR(36) PRIMARY KEY,
+                referrer_user_id VARCHAR(36) NOT NULL,
+                referred_user_id VARCHAR(36) NOT NULL,
+                referral_id VARCHAR(36) NULL,
+                campaign_code VARCHAR(64) NULL,
+                service_category VARCHAR(64) NOT NULL,
+                service_key VARCHAR(100) NULL,
+                source_reference VARCHAR(120) NOT NULL UNIQUE,
+                gross_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                wholesale_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                gateway_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                net_margin DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                reward_mode VARCHAR(32) NOT NULL DEFAULT "fixed",
+                reward_cash DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                reward_points INT NOT NULL DEFAULT 0,
+                status ENUM("pending", "available", "reversed", "rejected", "paid_out", "skipped") NOT NULL DEFAULT "pending",
+                status_reason TEXT NULL,
+                settles_at DATETIME NULL,
+                settled_at DATETIME NULL,
+                reversed_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_rr_referrer (referrer_user_id, status),
+                INDEX idx_rr_referred (referred_user_id),
+                INDEX idx_rr_settle (status, settles_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'referral_points_ledger' => 'CREATE TABLE IF NOT EXISTS referral_points_ledger (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                entry_type ENUM("CREDIT", "DEBIT", "REVERSAL") NOT NULL,
+                points INT NOT NULL,
+                balance_before INT NOT NULL DEFAULT 0,
+                balance_after INT NOT NULL DEFAULT 0,
+                reference VARCHAR(120) NOT NULL UNIQUE,
+                naira_value DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                conversion_rate DECIMAL(15, 4) NOT NULL DEFAULT 1.0000,
+                description VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_rpl_user (user_id, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'referral_withdrawals' => 'CREATE TABLE IF NOT EXISTS referral_withdrawals (
+                id VARCHAR(36) PRIMARY KEY,
+                withdrawal_number VARCHAR(64) NOT NULL UNIQUE,
+                user_id VARCHAR(36) NOT NULL,
+                bank_name VARCHAR(120) NOT NULL,
+                account_number VARCHAR(30) NOT NULL,
+                account_name VARCHAR(191) NOT NULL,
+                gross_amount DECIMAL(15, 2) NOT NULL,
+                fee_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                net_amount DECIMAL(15, 2) NOT NULL,
+                status ENUM("pending", "approved", "processing", "paid", "rejected", "failed", "cancelled") NOT NULL DEFAULT "pending",
+                idempotency_key VARCHAR(120) NULL,
+                payment_reference VARCHAR(120) NULL,
+                receipt_url VARCHAR(500) NULL,
+                admin_note TEXT NULL,
+                rejection_reason TEXT NULL,
+                reviewed_by VARCHAR(100) NULL,
+                reviewed_at DATETIME NULL,
+                paid_by VARCHAR(100) NULL,
+                paid_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_rw_user (user_id, status),
+                INDEX idx_rw_status (status, created_at),
+                INDEX idx_rw_idemp (user_id, idempotency_key)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'referral_audit_logs' => 'CREATE TABLE IF NOT EXISTS referral_audit_logs (
+                id VARCHAR(36) PRIMARY KEY,
+                actor_user_id VARCHAR(36) NULL,
+                actor_email VARCHAR(191) NULL,
+                target_user_id VARCHAR(36) NULL,
+                action VARCHAR(100) NOT NULL,
+                entity_type VARCHAR(64) NOT NULL,
+                entity_id VARCHAR(64) NULL,
+                details JSON NULL,
+                ip_address VARCHAR(45) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_ral_action (action, created_at),
+                INDEX idx_ral_target (target_user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+        ];
+
+        foreach ($tables as $name => $ddl) {
+            try {
+                $db->execute($ddl);
+                $applied[] = "table:{$name}";
+            } catch (Throwable $e) {
+                $errors[] = "table:{$name} => " . $e->getMessage();
+            }
+        }
+
+        // Seed starter referral tiers cleanly (idempotent)
+        $defaultTiers = [
+            ['tier_bronze', 'bronze', 'Bronze Starter', 0, 0.00, 1.0000, 0.00, 0, 0, 1],
+            ['tier_silver', 'silver', 'Silver Partner', 5, 10000.00, 1.1500, 250.00, 50, 0, 2],
+            ['tier_gold', 'gold', 'Gold Ambassador', 15, 50000.00, 1.3000, 750.00, 150, 0, 3],
+            ['tier_platinum', 'platinum', 'Platinum Leader', 40, 150000.00, 1.5000, 2000.00, 400, 0, 4],
+        ];
+        foreach ($defaultTiers as $t) {
+            try {
+                $db->execute(
+                    'INSERT IGNORE INTO referral_tiers
+                     (id, tier_key, name, min_qualified_referrals, min_referred_volume, reward_multiplier, bonus_cash, bonus_points, reseller_only, display_order, is_active)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)',
+                    $t
+                );
+            } catch (Throwable) {
+            }
+        }
+
+        // Seed default configurable settings ONLY if missing (never overwrite existing Admin values)
+        $defaultSettingConfigs = [
+            'referral_settings' => [
+                'category' => 'referral',
+                'description' => 'HAMBAKTECH Referral, Rewards, Points, Conversion & Withdrawal Rules',
+                'value' => [
+                    'enabled' => true,
+                    'program_name' => 'HAMBAKTECH Partner & Referral Program',
+                    'code_prefix' => 'HAMBAK',
+                    'code_length' => 6,
+                    'reward_mode' => 'fixed', // fixed, percent_of_spend, percent_of_margin, milestone, points, campaign, tier, hybrid
+                    'trigger_mode' => 'first_qualifying_transaction', // signup_verified, first_qualifying_transaction, every_qualifying_transaction
+                    'flat_reward_naira' => 100.00,
+                    'percent_of_spend' => 1.5,
+                    'percent_of_margin' => 15.0,
+                    'points_per_qualifying_tx' => 50,
+                    'points_per_1000_naira' => 25,
+                    'point_value_naira' => 1.00,
+                    'min_qualifying_spend' => 500.00,
+                    'min_net_margin_naira' => 10.00,
+                    'protect_negative_margin' => true,
+                    'settlement_hold_hours' => 24,
+                    'monthly_reward_cap_naira' => 50000.00,
+                    'max_rewards_per_referee' => 1,
+                    'qualifying_services' => [
+                        'data' => true,
+                        'airtime' => true,
+                        'airtime_pin' => true,
+                        'data_pin' => true,
+                        'cable' => true,
+                        'electricity' => true,
+                        'exam_pin' => true,
+                        'bulksms' => true,
+                        'nin_verification' => true,
+                        'bvn_verification' => true,
+                        'nin_modification' => true,
+                        'bvn_modification' => true,
+                        'enrolment' => true,
+                    ],
+                    'wallet_conversion_enabled' => true,
+                    'min_wallet_conversion_naira' => 500.00,
+                    'min_points_conversion' => 100,
+                    'wallet_conversion_fee_naira' => 0.00,
+                    'withdrawal_enabled' => true,
+                    'min_withdrawal_naira' => 2000.00,
+                    'max_withdrawal_naira' => 100000.00,
+                    'daily_withdrawal_limit_naira' => 100000.00,
+                    'withdrawal_fee_type' => 'flat', // flat | percent
+                    'withdrawal_fee_value' => 50.00,
+                    'require_kyc_level_for_withdrawal' => 1,
+                    'block_self_referral' => true,
+                    'block_same_ip_signup' => true,
+                    'max_signups_per_ip_24h' => 3,
+                    'notify_email_on_reward' => true,
+                    'notify_email_on_withdrawal' => true,
+                    'terms_summary' => 'Earn rewards when friends sign up using your referral code and complete qualifying transactions above the minimum spend threshold. Rewards enter a settlement hold window before becoming available for instant wallet conversion or bank withdrawal.',
+                    'whatsapp_share_template' => 'Join HAMBAKTECH for instant Data, Airtime, Bills & Identity Services using my referral link: {referral_link} (Code: {referral_code})',
+                ],
+            ],
+            'pin_policy_settings' => [
+                'category' => 'security',
+                'description' => 'Compulsory Transaction PIN Activation & Server Enforcement Policy',
+                'value' => [
+                    'enforce_transaction_pin' => true,
+                    'require_pin_activation_for_all_customers' => true,
+                    'pin_length' => 4, // 4, 5, or 6
+                    'allow_weak_pins' => false,
+                    'pin_max_attempts' => 5,
+                    'pin_lockout_minutes' => 15,
+                    'otp_reset_expiry_minutes' => 15,
+                    'protected_categories' => [
+                        'telecom_data' => true,
+                        'telecom_airtime' => true,
+                        'telecom_pins' => true,
+                        'telecom_swap' => true,
+                        'telecom_bills' => true,
+                        'telecom_bulksms' => true,
+                        'identity_verification' => true,
+                        'identity_modification' => true,
+                        'identity_enrolment' => true,
+                        'referral_wallet_conversion' => true,
+                        'referral_withdrawal' => true,
+                    ],
+                ],
+            ],
+            'mfa_settings' => [
+                'category' => 'security',
+                'description' => 'Multi-Factor Authentication Policy for Admins and Customers',
+                'value' => [
+                    'require_mfa_for_superadmin' => false,
+                    'require_mfa_for_admin' => false,
+                    'allow_customer_mfa_opt_in' => true,
+                    'default_mfa_method' => 'email_otp',
+                    'otp_expiry_minutes' => 10,
+                    'max_otp_attempts' => 5,
+                ],
+            ],
+            'security_settings' => [
+                'category' => 'security',
+                'description' => 'Platform Session, Login Brute-Force & CORS Security Settings',
+                'value' => [
+                    'enforce_transaction_pin' => true,
+                    'pin_max_attempts' => 5,
+                    'pin_lockout_minutes' => 15,
+                    'jwt_expiry_days' => 7,
+                    'admin_session_timeout_minutes' => 60,
+                    'customer_session_timeout_minutes' => 10080,
+                    'max_failed_login_attempts' => 5,
+                    'login_lockout_minutes' => 15,
+                    'ip_rate_limiting_enabled' => true,
+                    'bind_session_user_agent' => true,
+                    'allowed_cors_origins' => ['https://hambaktech.com.ng', 'https://www.hambaktech.com.ng'],
+                ],
+            ],
+        ];
+
+        foreach ($defaultSettingConfigs as $sKey => $cfg) {
+            try {
+                $db->execute(
+                    'INSERT IGNORE INTO system_settings (id, setting_key, setting_value, category, description, updated_at)
+                     VALUES (:id, :skey, :val, :cat, :desc, NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'skey' => $sKey,
+                        'val' => json_encode($cfg['value'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                        'cat' => $cfg['category'],
+                        'desc' => $cfg['description'],
+                    ]
+                );
+            } catch (Throwable $e) {
+                $errors[] = "setting:{$sKey} => " . $e->getMessage();
+            }
+        }
+
+        return ['applied' => $applied, 'errors' => $errors];
+    }
 }
+

@@ -127,8 +127,8 @@ export function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
                 {copiedRef ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
               </button>
             </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Earn ₦50 on every referee's first data top-up.
+            <p className="text-[11px] text-slate-400 mt-1">
+              Share your code or referral link in the Referrals &amp; Rewards Centre to earn cash bonuses &amp; points.
             </p>
           </div>
         </div>

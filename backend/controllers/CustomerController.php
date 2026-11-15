@@ -17,6 +17,7 @@ use HambakTech\Core\Auth;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\AnnouncementEmailService;
+use HambakTech\Services\PinSecurityService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Verification\VeripineAdapter;
 
@@ -633,16 +634,10 @@ class CustomerController
             Response::error("Transaction amount exceeds the service daily limit of ₦" . number_format((float)$rule['daily_limit'], 2) . ".", 403);
         }
 
-        // Check PIN if required
+        // Check PIN if required via centralized PinSecurityService (enforces setup, lockout, & configured length)
         if (!empty($rule['requires_pin'])) {
-            $pinRow = $this->db->fetchOne('SELECT transaction_pin_hash FROM users WHERE id = :id', ['id' => $user['id']]);
-            $hash = $pinRow['transaction_pin_hash'] ?? null;
-            if (empty($hash)) {
-                Response::error('Transaction PIN not configured. Please set a 4-digit PIN under Security & PIN.', 400);
-            }
-            if (empty($pin) || !Security::verifyPin($pin, $hash)) {
-                Response::error('Invalid transaction PIN.', 401);
-            }
+            $pinService = new PinSecurityService($this->db);
+            $pinService->requireValidPin($user, $request->getBody(), $serviceKey, $serviceKey);
         }
 
         // Check wallet balance

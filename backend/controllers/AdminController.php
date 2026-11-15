@@ -15,9 +15,11 @@ use HambakTech\Core\Request;
 use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
+use HambakTech\Core\SchemaSync;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\MailService;
+use HambakTech\Services\ReferralEngineService;
 use HambakTech\Adapters\Verification\VeripineAdapter;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Telecom\UlamaDataAdapter;
@@ -35,6 +37,7 @@ class AdminController
     {
         $this->db = Database::getInstance();
         $this->walletService = new WalletService();
+        SchemaSync::syncSecurityAndReferralSchema($this->db);
     }
 
     private function hydrateCustomerRow(string $customerId): ?array
@@ -274,7 +277,7 @@ class AdminController
 
     public function customers(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'customers');
 
         $search = trim((string)$request->query('search', ''));
         $status = trim((string)$request->query('status', ''));
@@ -381,7 +384,7 @@ class AdminController
 
     public function updateCustomerStatus(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'customers');
         $customerId = $params['id'] ?? '';
         $newStatus = strtolower(trim((string)$request->input('status', 'active')));
         $reason = trim((string)$request->input('reason', ''));
@@ -395,6 +398,13 @@ class AdminController
             Response::error('Customer account not found.', 404);
         }
 
+        if (in_array(strtolower((string)$existing['role']), ['admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can modify an administrator account.');
+        }
+        if ($customerId === $admin['id'] && $newStatus === 'suspended') {
+            Response::forbidden('You cannot suspend your own active administrator account.');
+        }
+
         $explicitTier = $request->input('tier');
         $newTier = ($explicitTier !== null && $explicitTier !== '') ? max(1, min(3, (int)$explicitTier)) : (int)($existing['tier'] ?? 1);
 
@@ -402,6 +412,10 @@ class AdminController
             'UPDATE users SET status = :st, tier = :tier, updated_at = NOW() WHERE id = :id',
             ['st' => $newStatus, 'tier' => $newTier, 'id' => $customerId]
         );
+
+        if ($newStatus === 'suspended') {
+            Auth::revokeAllUserSessions($customerId, 'account_suspended', true);
+        }
 
         $this->db->execute(
             'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
@@ -435,7 +449,7 @@ class AdminController
 
     public function creditDebitUser(Request $request): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'wallet');
         $customerId = (string)$request->input('user_id', '');
         $type = strtolower((string)$request->input('type', 'credit'));
         $amount = (float)$request->input('amount', 0);
@@ -448,6 +462,9 @@ class AdminController
         $targetUser = $this->db->fetchOne('SELECT * FROM users WHERE id = :id', ['id' => $customerId]);
         if (!$targetUser) {
             Response::error('Customer not found.', 404);
+        }
+        if (in_array(strtolower((string)$targetUser['role']), ['admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can adjust privileged administrator wallets.');
         }
 
         $reference = 'ADMIN_ADJ_' . strtoupper(bin2hex(random_bytes(6)));
@@ -479,7 +496,7 @@ class AdminController
 
     public function manualFundingRequests(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'wallet');
 
         $idRows = $this->db->fetchAll(
             'SELECT id FROM manual_funding_requests m
@@ -524,7 +541,7 @@ class AdminController
 
     public function approveFunding(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'wallet');
         $requestId = $params['id'] ?? '';
         $action = strtolower((string)$request->input('action', 'approve')); // approve or reject
         $reason = trim((string)$request->input('reason', 'Receipt verification could not be validated with receiving bank records'));
@@ -637,7 +654,7 @@ class AdminController
 
     public function rejectFunding(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'wallet');
         $requestId = $params['id'] ?? '';
         $reason = trim((string)$request->input('reason', 'Receipt verification could not be validated with receiving bank records'));
 
@@ -693,7 +710,7 @@ class AdminController
      */
     public function reverseTransaction(Request $request): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requireSuperAdmin($request);
         $txId = (string)$request->input('transaction_id', '');
         $reason = trim((string)$request->input('reason', 'Administrative financial correction'));
 
@@ -714,7 +731,7 @@ class AdminController
      */
     public function financialReports(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'reports');
 
         $fundingStats = $this->db->fetchOne(
             'SELECT 
@@ -830,7 +847,7 @@ class AdminController
      */
     public function detailedReports(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'reports');
 
         // 1. Customer Report
         $customerSummary = $this->db->fetchOne(
@@ -1026,6 +1043,11 @@ class AdminController
                     'total_audit_events' => (int)($staffActivitySummary['total_logs'] ?? 0),
                     'recent_events' => $recentLogs,
                 ],
+                // 12. Referral Growth & ROI Report
+                'referral_growth_report' => (new ReferralEngineService($this->db))->getReferralGrowthReport([
+                    'start_date' => trim((string)$request->query('start_date', '')),
+                    'end_date' => trim((string)$request->query('end_date', '')),
+                ]),
             ]
         ]);
     }
@@ -1035,7 +1057,7 @@ class AdminController
     // =========================================================================
     public function customerDetail(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'customers');
         $customerId = $params['id'] ?? '';
 
         $user = $this->hydrateCustomerRow($customerId);
@@ -1153,7 +1175,7 @@ class AdminController
 
     public function updateCustomer(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'customers');
         $customerId = $params['id'] ?? '';
         $body = $request->getBody();
 
@@ -1161,6 +1183,9 @@ class AdminController
         if (!$existing) {
             Response::error('Customer not found.', 404);
             return;
+        }
+        if (in_array(strtolower((string)$existing['role']), ['admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can update an administrator account.');
         }
 
         $fullName = isset($body['full_name']) ? trim((string)$body['full_name']) : null;
@@ -1198,8 +1223,20 @@ class AdminController
             $paramsDb['em'] = $email;
         }
         if ($phoneNumber !== null && $phoneNumber !== '') {
+            $phoneNorm = ReferralEngineService::normalizePhone($phoneNumber);
+            if ($phoneNorm !== '') {
+                $dupPhone = $this->db->fetchOne(
+                    'SELECT id FROM users WHERE (phone_number = :p OR phone_normalized = :pn) AND id != :id',
+                    ['p' => $phoneNumber, 'pn' => $phoneNorm, 'id' => $customerId]
+                );
+                if ($dupPhone) {
+                    Response::error('Another account already uses this phone number.', 409);
+                }
+            }
             $updates[] = 'phone_number = :pn';
             $paramsDb['pn'] = $phoneNumber;
+            $updates[] = 'phone_normalized = :pnorm';
+            $paramsDb['pnorm'] = $phoneNorm ?: null;
         }
         if ($tier !== null) {
             $updates[] = 'tier = :tr';
@@ -1237,6 +1274,9 @@ class AdminController
                     $this->db->execute('UPDATE users SET kyc_level = :kl WHERE id = :id', ['kl' => $tier, 'id' => $customerId]);
                 } catch (Throwable) {
                 }
+            }
+            if ($status === 'suspended' || $newPassword !== '') {
+                Auth::revokeAllUserSessions($customerId, $status === 'suspended' ? 'account_suspended' : 'admin_password_reset', true);
             }
         }
 
@@ -1294,7 +1334,7 @@ class AdminController
 
     public function deleteCustomer(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'customers');
         $customerId = trim((string)($params['id'] ?? ''));
         $force = (bool)($request->input('force', false) || $request->query('force', '') === 'true' || $request->query('force', '') === '1');
 
@@ -1343,6 +1383,17 @@ class AdminController
             $db->execute('DELETE FROM customer_messages WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM user_profiles WHERE user_id = :uid', ['uid' => $customerId]);
             $db->execute('DELETE FROM notifications WHERE user_id = :uid', ['uid' => $customerId]);
+            foreach (['user_sessions', 'mfa_challenges', 'user_mfa_configs', 'pin_reset_requests', 'referral_balances', 'referral_points_ledger', 'referral_withdrawals'] as $tbl) {
+                try {
+                    $db->execute("DELETE FROM {$tbl} WHERE user_id = :uid", ['uid' => $customerId]);
+                } catch (Throwable) {
+                }
+            }
+            try {
+                $db->execute('DELETE FROM referral_rewards WHERE referrer_user_id = :u1 OR referred_user_id = :u2', ['u1' => $customerId, 'u2' => $customerId]);
+                $db->execute('DELETE FROM referrals WHERE referrer_user_id = :u1 OR referred_user_id = :u2', ['u1' => $customerId, 'u2' => $customerId]);
+            } catch (Throwable) {
+            }
             if (!empty($target['email'])) {
                 $db->execute('DELETE FROM password_resets WHERE email = :em', ['em' => strtolower((string)$target['email'])]);
             }
@@ -1380,7 +1431,7 @@ class AdminController
 
     public function customerWalletAdjust(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'wallet');
         $customerId = $params['id'] ?? ($request->input('user_id') ?? '');
         $type = strtolower((string)$request->input('type', 'credit'));
         $amount = (float)$request->input('amount', 0);
@@ -1389,6 +1440,15 @@ class AdminController
         if (empty($customerId) || $amount <= 0) {
             Response::error('Valid customer ID and positive amount required.', 422);
             return;
+        }
+
+        $targetUser = $this->db->fetchOne('SELECT id, role FROM users WHERE id = :id LIMIT 1', ['id' => $customerId]);
+        if (!$targetUser) {
+            Response::error('Customer not found.', 404);
+            return;
+        }
+        if (in_array(strtolower((string)$targetUser['role']), ['admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can adjust privileged administrator wallets.');
         }
 
         $reference = 'ADMIN_ADJ_' . strtoupper(bin2hex(random_bytes(6)));
@@ -1424,7 +1484,7 @@ class AdminController
 
     public function reviewCustomerKyc(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'kyc');
         $customerId = $params['id'] ?? '';
         $status = strtolower(trim((string)$request->input('status', 'verified')));
         $tier = max(1, min(3, (int)$request->input('tier', $status === 'verified' ? 2 : 1)));
@@ -3498,14 +3558,35 @@ class AdminController
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
         $staff = $this->db->fetchAll(
-            'SELECT id, email, full_name, phone_number, role, kyc_status, tier, status, created_at
-             FROM users 
-             WHERE role IN ("admin", "superadmin") 
-             ORDER BY role DESC, full_name ASC'
+            'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.kyc_status, u.tier, u.status,
+                    u.assigned_permissions, u.mfa_enabled, u.last_login_at, u.created_at,
+                    p.assigned_permissions AS profile_permissions
+             FROM users u
+             LEFT JOIN user_profiles p ON p.user_id = u.id
+             WHERE u.role IN ("admin", "superadmin")
+             ORDER BY u.role DESC, u.full_name ASC'
         );
 
+        $defaultAdminPerms = ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'];
         foreach ($staff as &$s) {
-            $s['permissions'] = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports'];
+            $perms = [];
+            foreach ([$s['assigned_permissions'] ?? null, $s['profile_permissions'] ?? null] as $raw) {
+                if (is_string($raw) && $raw !== '') {
+                    $decoded = json_decode($raw, true);
+                    if (is_array($decoded)) {
+                        $perms = $decoded;
+                        break;
+                    }
+                }
+            }
+            if (($s['role'] ?? '') === 'superadmin') {
+                $perms = ['*'];
+            } elseif (empty($perms)) {
+                $perms = $defaultAdminPerms;
+            }
+            $s['permissions'] = array_values(array_unique($perms));
+            $s['mfa_enabled'] = (bool)($s['mfa_enabled'] ?? false);
+            unset($s['assigned_permissions'], $s['profile_permissions']);
         }
 
         Response::success(['staff' => $staff]);
@@ -3513,77 +3594,192 @@ class AdminController
 
     public function createStaff(Request $request): void
     {
-        $super = Auth::requireRole($request, ['superadmin']);
+        $super = Auth::requireSuperAdmin($request);
         $fullName = trim((string)$request->input('full_name', ''));
         $email = trim(strtolower((string)$request->input('email', '')));
         $password = (string)$request->input('password', '');
-        $phone = (string)$request->input('phone_number', '+2348000000000');
-        $role = (string)$request->input('role', 'admin');
+        $phone = trim((string)$request->input('phone_number', '+2348000000000'));
+        $role = strtolower(trim((string)$request->input('role', 'admin')));
+        $rawPerms = $request->input('permissions', $request->input('assigned_permissions', null));
 
         if (empty($fullName) || empty($email) || empty($password)) {
             Response::error('Name, email, and password are required.', 422);
             return;
         }
+        if (strlen($password) < 8) {
+            Response::error('Staff password must be at least 8 characters long.', 422);
+            return;
+        }
 
-        $existing = $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $email]);
+        $phoneNorm = ReferralEngineService::normalizePhone($phone);
+        $existing = $this->db->fetchOne('SELECT id FROM users WHERE LOWER(email) = :email', ['email' => $email]);
         if ($existing) {
             Response::error('A user with this email already exists.', 409);
             return;
         }
 
+        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security'];
+        $cleanPerms = ['customers', 'wallet', 'kyc', 'support', 'reports'];
+        if (is_array($rawPerms)) {
+            $filtered = array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
+            if (!empty($filtered)) {
+                $cleanPerms = $filtered;
+            }
+        }
+        $dbRole = in_array($role, ['admin', 'superadmin'], true) ? $role : 'admin';
+        if ($dbRole === 'superadmin') {
+            $cleanPerms = ['*'];
+        }
+        $permsJson = json_encode($cleanPerms);
+
         $id = Security::generateUuid();
         $hash = password_hash($password, PASSWORD_BCRYPT);
+        $refCode = (new ReferralEngineService($this->db))->generateUniqueCode('STF', 6);
+
+        $this->db->withTransaction(function (Database $db) use ($id, $email, $hash, $fullName, $phone, $phoneNorm, $dbRole, $refCode, $permsJson) {
+            $db->execute(
+                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, wallet_balance, kyc_status, tier, kyc_level, referral_code, assigned_permissions, status, email_verified, token_version, created_at)
+                 VALUES (:id, :email, :hash, :name, :phone, :pnorm, :role, 0.00, "verified", 3, 3, :ref, :perms, "active", 1, 1, NOW())',
+                [
+                    'id' => $id,
+                    'email' => $email,
+                    'hash' => $hash,
+                    'name' => $fullName,
+                    'phone' => $phone,
+                    'pnorm' => $phoneNorm ?: null,
+                    'role' => $dbRole,
+                    'ref' => $refCode,
+                    'perms' => $permsJson,
+                ]
+            );
+            $db->execute(
+                'INSERT INTO user_profiles (user_id, assigned_permissions, created_at, updated_at)
+                 VALUES (:uid, :perms, NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE assigned_permissions = :perms2, updated_at = NOW()',
+                ['uid' => $id, 'perms' => $permsJson, 'perms2' => $permsJson]
+            );
+            $db->execute(
+                'INSERT IGNORE INTO wallets (id, user_id, balance, currency, ledger_version, status, created_at)
+                 VALUES (:wid, :uid, 0.00, "NGN", 0, "active", NOW())',
+                ['wid' => Security::generateUuid(), 'uid' => $id]
+            );
+        });
 
         $this->db->execute(
-            'INSERT INTO users (id, email, password_hash, full_name, phone_number, role, wallet_balance, kyc_status, tier, referral_code, status, created_at)
-             VALUES (:id, :email, :hash, :name, :phone, :role, 0.00, "verified", 3, :ref, "active", NOW())',
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, :uid, :email, "STAFF_CREATED", :det, :ip, NOW())',
             [
-                'id' => $id,
-                'email' => $email,
-                'hash' => $hash,
-                'name' => $fullName,
-                'phone' => $phone,
-                'role' => in_array($role, ['admin', 'superadmin'], true) ? $role : 'admin',
-                'ref' => 'STAFF-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 5)),
+                'id' => Security::generateUuid(),
+                'uid' => $super['id'],
+                'email' => $super['email'],
+                'det' => json_encode(['staff_id' => $id, 'staff_email' => $email, 'role' => $dbRole, 'permissions' => $cleanPerms]),
+                'ip' => $request->getIp(),
             ]
         );
 
-        $row = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, status FROM users WHERE id = :id', ['id' => $id]);
+        $row = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, status, assigned_permissions FROM users WHERE id = :id', ['id' => $id]);
+        if ($row) {
+            $row['permissions'] = $cleanPerms;
+            unset($row['assigned_permissions']);
+        }
         Response::success(['staff' => $row], "Staff member {$fullName} created successfully", 201);
     }
 
     public function updateStaff(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['superadmin']);
+        $super = Auth::requireSuperAdmin($request);
         $id = $params['id'] ?? '';
         $body = $request->getBody();
 
+        $existing = $this->db->fetchOne('SELECT id, email, role, status, assigned_permissions FROM users WHERE id = :id LIMIT 1', ['id' => $id]);
+        if (!$existing) {
+            Response::notFound('Staff account not found.');
+        }
+
+        if ($id === $super['id'] && (
+            (isset($body['status']) && $body['status'] === 'suspended') ||
+            (isset($body['role']) && $body['role'] !== 'superadmin')
+        )) {
+            Response::forbidden('You cannot demote or suspend your own active Super Admin account.');
+        }
+
         $updates = [];
         $paramsDb = ['id' => $id];
+        $securitySensitiveChanged = false;
 
         if (isset($body['role']) && in_array($body['role'], ['admin', 'superadmin', 'customer'], true)) {
+            if ($body['role'] !== $existing['role']) {
+                $securitySensitiveChanged = true;
+            }
             $updates[] = 'role = :r';
             $paramsDb['r'] = $body['role'];
         }
         if (isset($body['status']) && in_array($body['status'], ['active', 'suspended'], true)) {
+            if ($body['status'] !== $existing['status']) {
+                $securitySensitiveChanged = true;
+            }
             $updates[] = 'status = :st';
             $paramsDb['st'] = $body['status'];
         }
         if (!empty($body['full_name'])) {
             $updates[] = 'full_name = :fn';
-            $paramsDb['fn'] = $body['full_name'];
+            $paramsDb['fn'] = trim((string)$body['full_name']);
         }
         if (!empty($body['phone_number'])) {
             $updates[] = 'phone_number = :pn';
-            $paramsDb['pn'] = $body['phone_number'];
+            $paramsDb['pn'] = trim((string)$body['phone_number']);
+            $updates[] = 'phone_normalized = :pnorm';
+            $paramsDb['pnorm'] = ReferralEngineService::normalizePhone((string)$body['phone_number']) ?: null;
+        }
+
+        $rawPerms = $body['permissions'] ?? ($body['assigned_permissions'] ?? null);
+        $cleanPerms = null;
+        if (is_array($rawPerms)) {
+            $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security'];
+            $effectiveRole = $paramsDb['r'] ?? $existing['role'];
+            $cleanPerms = ($effectiveRole === 'superadmin')
+                ? ['*']
+                : array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
+            $permsJson = json_encode($cleanPerms);
+            $updates[] = 'assigned_permissions = :perms';
+            $paramsDb['perms'] = $permsJson;
+            $securitySensitiveChanged = true;
         }
 
         if (!empty($updates)) {
             $updates[] = 'updated_at = NOW()';
             $this->db->execute('UPDATE users SET ' . implode(', ', $updates) . ' WHERE id = :id', $paramsDb);
+            if ($cleanPerms !== null) {
+                $this->db->execute(
+                    'INSERT INTO user_profiles (user_id, assigned_permissions, created_at, updated_at)
+                     VALUES (:uid, :perms, NOW(), NOW())
+                     ON DUPLICATE KEY UPDATE assigned_permissions = :perms2, updated_at = NOW()',
+                    ['uid' => $id, 'perms' => json_encode($cleanPerms), 'perms2' => json_encode($cleanPerms)]
+                );
+            }
+            if ($securitySensitiveChanged) {
+                Auth::revokeAllUserSessions($id, 'staff_role_or_permissions_updated', true);
+            }
         }
 
-        $updated = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, status FROM users WHERE id = :id', ['id' => $id]);
+        $this->db->execute(
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, :uid, :email, "STAFF_UPDATED", :det, :ip, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $super['id'],
+                'email' => $super['email'],
+                'det' => json_encode(['staff_id' => $id, 'staff_email' => $existing['email'], 'changes' => array_keys($body)]),
+                'ip' => $request->getIp(),
+            ]
+        );
+
+        $updated = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, status, assigned_permissions FROM users WHERE id = :id', ['id' => $id]);
+        if ($updated) {
+            $decoded = is_string($updated['assigned_permissions'] ?? null) ? json_decode($updated['assigned_permissions'], true) : [];
+            $updated['permissions'] = ($updated['role'] === 'superadmin') ? ['*'] : (is_array($decoded) ? $decoded : []);
+            unset($updated['assigned_permissions']);
+        }
         Response::success(['staff' => $updated], 'Staff account updated');
     }
 
@@ -3651,7 +3847,7 @@ class AdminController
     // =========================================================================
     public function kycSubmissions(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'kyc');
         $status = trim((string)$request->query('status', ''));
         $level = trim((string)$request->query('level', ''));
         $search = trim((string)$request->query('search', ''));
@@ -3793,7 +3989,7 @@ class AdminController
 
     public function reviewKycSubmission(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'kyc');
         $id = $params['id'] ?? '';
         $action = strtolower(trim((string)$request->input('action', 'approve')));
         $notes = trim((string)$request->input('notes', $request->input('review_notes', 'Compliance review completed')));
@@ -4089,7 +4285,7 @@ class AdminController
 
     public function updateServiceSecurityRule(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requireSuperAdmin($request);
         $key = $params['key'] ?? '';
         $body = $request->getBody();
 
@@ -4579,7 +4775,7 @@ class AdminController
      */
     public function createCustomer(Request $request): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'customers');
 
         $fullName = trim((string)$request->input('full_name', ''));
         $email = strtolower(trim((string)$request->input('email', '')));
@@ -4590,6 +4786,8 @@ class AdminController
         $password = (string)$request->input('password', '');
         $initialBalance = max(0, (float)$request->input('initial_balance', 0));
         $notifyCustomer = (bool)$request->input('notify_customer', true);
+        $referredByCode = strtoupper(trim((string)($request->input('referral_code') ?? $request->input('referred_by', ''))));
+        $campaignCode = strtoupper(trim((string)$request->input('campaign_code', '')));
 
         // Optional KYC / Profile fields (not required for Level 1 onboarding; required only if Tier 2+ chosen)
         $dateOfBirth = trim((string)($request->input('date_of_birth') ?? $request->input('dob', '')));
@@ -4611,6 +4809,9 @@ class AdminController
 
         if (!in_array($role, ['customer', 'agent', 'staff', 'admin'], true)) {
             $role = 'customer';
+        }
+        if (in_array($role, ['admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can create administrator accounts.');
         }
 
         if (!in_array($status, ['active', 'pending', 'suspended'], true)) {
@@ -4643,13 +4844,17 @@ class AdminController
             Response::error('Providing Tier 2+ verified status requires an 11-digit NIN/BVN or official ID number.', 422);
         }
 
-        // Duplicate checks
-        $existingEmail = $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $email]);
+        // Duplicate checks including canonical normalized phone number
+        $phoneNorm = ReferralEngineService::normalizePhone($phone);
+        $existingEmail = $this->db->fetchOne('SELECT id FROM users WHERE LOWER(email) = :email', ['email' => $email]);
         if ($existingEmail) {
             Response::error('An account with this email address already exists.', 409);
         }
 
-        $existingPhone = $this->db->fetchOne('SELECT id FROM users WHERE phone_number = :phone', ['phone' => $phone]);
+        $existingPhone = $this->db->fetchOne(
+            'SELECT id FROM users WHERE phone_number = :phone OR (phone_normalized IS NOT NULL AND phone_normalized = :pnorm)',
+            ['phone' => $phone, 'pnorm' => $phoneNorm ?: '__none__']
+        );
         if ($existingPhone) {
             Response::error('An account with this phone number already exists.', 409);
         }
@@ -4658,6 +4863,7 @@ class AdminController
             $password = 'Hambak@' . random_int(100000, 999999);
         }
 
+        $refEngine = new ReferralEngineService($this->db);
         $userId = Security::generateUuid();
         $kycId = Security::generateUuid();
         $dbRole = in_array($role, ['admin', 'superadmin'], true) ? $role : 'customer';
@@ -4665,23 +4871,24 @@ class AdminController
         $emailVerified = ($status === 'active') ? 1 : 0;
         $kycStatus = ($tier >= 2) ? 'verified' : ($hasIdentityDocs ? 'pending' : 'unverified');
         $passwordHash = Security::hashPassword($password);
-        $referralCode = 'HAMBAK-' . strtoupper(substr(md5($email . microtime()), 0, 6));
+        $referralCode = $refEngine->generateUniqueCode();
 
         $this->db->withTransaction(function (Database $db) use (
-            $userId, $kycId, $email, $passwordHash, $fullName, $phone, $dbRole, $dbStatus, $tier, $kycStatus,
+            $userId, $kycId, $email, $passwordHash, $fullName, $phone, $phoneNorm, $dbRole, $dbStatus, $tier, $kycStatus,
             $referralCode, $emailVerified, $initialBalance, $admin,
             $dateOfBirth, $residentialAddress, $state, $lga, $nin, $bvn, $idType, $idNumber
         ) {
             // 1. Create User
             $db->execute(
-                'INSERT INTO users (id, email, password_hash, full_name, phone_number, role, kyc_status, tier, referral_code, status, email_verified, created_at)
-                 VALUES (:id, :email, :pass, :name, :phone, :role, :ks, :tier, :ref, :st, :ev, NOW())',
+                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, kyc_status, tier, referral_code, status, email_verified, created_at)
+                 VALUES (:id, :email, :pass, :name, :phone, :pnorm, :role, :ks, :tier, :ref, :st, :ev, NOW())',
                 [
                     'id' => $userId,
                     'email' => $email,
                     'pass' => $passwordHash,
                     'name' => $fullName,
                     'phone' => $phone,
+                    'pnorm' => $phoneNorm ?: null,
                     'role' => $dbRole,
                     'ks' => $kycStatus,
                     'tier' => $tier,
@@ -4816,6 +5023,24 @@ class AdminController
                 ]
             );
         });
+
+        // 6B. Optional referral attribution for admin-created customer
+        if ($referredByCode !== '' && $dbRole === 'customer') {
+            try {
+                $refEngine->bindReferralOnSignup(
+                    $userId,
+                    $email,
+                    $phone,
+                    $referredByCode,
+                    'admin_create',
+                    $campaignCode !== '' ? $campaignCode : null,
+                    $request->getIp(),
+                    (string)($request->header('User-Agent') ?? '')
+                );
+            } catch (Throwable $e) {
+                error_log('[createCustomer Referral Bind Error] ' . $e->getMessage());
+            }
+        }
 
         // 7. Admin notification & email alert for new registration
         $nowStr = date('Y-m-d H:i:s');

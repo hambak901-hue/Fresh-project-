@@ -115,7 +115,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
   loadingServices = false,
   onOpenHistoryTab,
 }) => {
-  const { user, refreshUser, updateBalance } = useAuth();
+  const { user, refreshUser, updateBalance, openPinSetupModal } = useAuth();
 
   // Strictly scope services to active identity domain (NIN or BVN only)
   const domainServices = useMemo(() => {
@@ -580,11 +580,12 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
       return;
     }
 
-    if (user?.has_transaction_pin) {
-      setPinModalOpen(true);
-    } else {
-      executeSubmit();
+    if (!user?.has_transaction_pin || user?.requires_pin_setup) {
+      setFormError('Please activate your Transaction PIN first before submitting modification orders.');
+      openPinSetupModal();
+      return;
     }
+    setPinModalOpen(true);
   };
 
   const executeSubmit = async (verifiedPin?: string) => {
@@ -1896,7 +1897,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
           void executeSubmit(pin);
         }}
         title={`Authorize ${mode} Modification`}
-        description={`Enter your 4-digit Transaction PIN to submit this manual request and debit ₦${finalCharge.toLocaleString('en-NG')}.`}
+        description={`Enter your ${user?.pin_length || 4}-digit Transaction PIN to submit this manual request and debit ₦${finalCharge.toLocaleString('en-NG')}.`}
         amount={finalCharge}
       />
 

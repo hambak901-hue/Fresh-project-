@@ -23,6 +23,8 @@ use HambakTech\Core\SchemaSync;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\MailService;
+use HambakTech\Services\PinSecurityService;
+use HambakTech\Services\ReferralEngineService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 
 class ModificationController
@@ -1035,15 +1037,8 @@ class ModificationController
         } catch (Throwable) {
         }
 
-        $suppliedPin = trim((string)($body['transaction_pin'] ?? $body['pin'] ?? ''));
-        if (!empty($userRow['transaction_pin_hash'])) {
-            if ($suppliedPin === '') {
-                Response::error('Please enter your 4-digit Transaction PIN to authorize this debit.', 422, ['requires_pin' => true]);
-            }
-            if (!Security::verifyPin($suppliedPin, (string)$userRow['transaction_pin_hash'])) {
-                Response::error('Invalid 4-digit Transaction PIN.', 401);
-            }
-        }
+        $pinService = new PinSecurityService($this->db);
+        $pinService->requireValidPin($userRow, $body, 'identity_modification', $serviceKey);
 
         // 6. Resolve exact price (dynamic for BVN enrollment_type when configured in modification_bvn_types)
         $enrollmentType = null;
@@ -1234,6 +1229,21 @@ class ModificationController
                 $requestNumber,
                 ['request_number' => $requestNumber, 'status' => $newStatus, 'service_name' => $serviceRow['name']]
             );
+
+            if ($newStatus === 'completed') {
+                try {
+                    (new ReferralEngineService($this->db))->recordQualifyingTransaction([
+                        'user_id' => (string)$user['id'],
+                        'service_category' => $serviceDomain === 'BVN' ? 'bvn_modification' : 'nin_modification',
+                        'service_key' => $serviceKey,
+                        'source_reference' => $paymentRef,
+                        'gross_amount' => $customerPrice,
+                        'wholesale_cost' => $actualCost,
+                        'gateway_fee' => 0.0,
+                    ]);
+                } catch (Throwable) {
+                }
+            }
 
             $savedRow = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $requestId]);
 
@@ -1480,6 +1490,24 @@ class ModificationController
                 (string)$row['request_number'],
                 ['request_number' => $row['request_number'], 'status' => $newStatus, 'service_name' => $row['service_name']]
             );
+            try {
+                $refEngine = new ReferralEngineService($this->db);
+                $srcRef = (string)($row['payment_reference'] ?: $row['request_number']);
+                if ($newStatus === 'completed') {
+                    $refEngine->recordQualifyingTransaction([
+                        'user_id' => (string)$row['user_id'],
+                        'service_category' => ($row['identity_type'] ?? 'NIN') === 'BVN' ? 'bvn_modification' : 'nin_modification',
+                        'service_key' => (string)$row['service_key'],
+                        'source_reference' => $srcRef,
+                        'gross_amount' => (float)$row['customer_price'],
+                        'wholesale_cost' => (float)$row['provider_cost'],
+                        'gateway_fee' => 0.0,
+                    ]);
+                } elseif ($newStatus === 'refunded') {
+                    $refEngine->reverseRewardsForSource($srcRef, 'Modification status refunded on provider poll', $actorId);
+                }
+            } catch (Throwable) {
+            }
         }
 
         return [
@@ -1695,6 +1723,24 @@ class ModificationController
                 (string)$row['request_number'],
                 ['request_number' => $row['request_number'], 'status' => $newStatus, 'service_name' => $row['service_name']]
             );
+            try {
+                $refEngine = new ReferralEngineService($this->db);
+                $srcRef = (string)($row['payment_reference'] ?: $row['request_number']);
+                if ($newStatus === 'completed') {
+                    $refEngine->recordQualifyingTransaction([
+                        'user_id' => (string)$row['user_id'],
+                        'service_category' => ($row['identity_type'] ?? 'NIN') === 'BVN' ? 'bvn_modification' : 'nin_modification',
+                        'service_key' => (string)$row['service_key'],
+                        'source_reference' => $srcRef,
+                        'gross_amount' => (float)$row['customer_price'],
+                        'wholesale_cost' => (float)$row['provider_cost'],
+                        'gateway_fee' => 0.0,
+                    ]);
+                } elseif ($newStatus === 'refunded') {
+                    $refEngine->reverseRewardsForSource($srcRef, 'Modification refunded via webhook');
+                }
+            } catch (Throwable) {
+            }
         }
 
         Response::success(['processed' => true, 'status' => $newStatus]);
@@ -1983,6 +2029,25 @@ class ModificationController
                 (string)$row['request_number'],
                 ['request_number' => $row['request_number'], 'status' => $finalStatus, 'service_name' => $row['service_name']]
             );
+        }
+
+        try {
+            $refEngine = new ReferralEngineService($this->db);
+            $srcRef = (string)($row['payment_reference'] ?: $row['request_number']);
+            if ($finalStatus === 'completed' && $prevStatus !== 'completed') {
+                $refEngine->recordQualifyingTransaction([
+                    'user_id' => (string)$row['user_id'],
+                    'service_category' => ($row['identity_type'] ?? 'NIN') === 'BVN' ? 'bvn_modification' : 'nin_modification',
+                    'service_key' => (string)$row['service_key'],
+                    'source_reference' => $srcRef,
+                    'gross_amount' => (float)$row['customer_price'],
+                    'wholesale_cost' => (float)$row['provider_cost'],
+                    'gateway_fee' => 0.0,
+                ]);
+            } elseif (in_array($finalStatus, ['refunded', 'rejected', 'failed'], true)) {
+                $refEngine->reverseRewardsForSource($srcRef, 'Modification marked ' . $finalStatus . ' by admin', (string)$admin['id']);
+            }
+        } catch (Throwable) {
         }
 
         Response::success([

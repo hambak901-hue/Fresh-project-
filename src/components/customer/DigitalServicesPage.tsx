@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Tv, Zap, CheckCircle2, AlertCircle, Loader2, RefreshCw, Receipt, ShieldCheck, ArrowRight, Copy, Check } from 'lucide-react';
 import { api } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 import { User } from '../../types';
 import { TransactionPinModal } from './TransactionPinModal';
 
@@ -10,6 +11,7 @@ interface DigitalServicesPageProps {
 }
 
 export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesPageProps) {
+  const { openPinSetupModal } = useAuth();
   const [activeTab, setActiveTab] = useState<'cable' | 'electricity'>('cable');
 
   // PIN Authorization Modal State
@@ -102,11 +104,16 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
       setCableError(`Insufficient funds. Your balance is ₦${user.wallet_balance.toLocaleString()}, but ₦${pkgPrice.toLocaleString()} is required.`);
       return;
     }
+    if (!user?.has_transaction_pin || user?.requires_pin_setup) {
+      setCableError('Please activate your Transaction PIN first to authorize utility purchases.');
+      openPinSetupModal();
+      return;
+    }
     setPinAction('cable');
     setIsPinModalOpen(true);
   };
 
-  const handlePurchaseCable = async () => {
+  const handlePurchaseCable = async (verifiedPin?: string) => {
     const pkgs = cablePackages[selectedProvider] || [];
     const pkg = pkgs.find(p => p.id === selectedPackageId);
     if (!pkg) return;
@@ -119,6 +126,7 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
         provider: selectedProvider,
         smartcardNumber,
         packageId: selectedPackageId,
+        transaction_pin: verifiedPin,
       });
       setCableSuccess(res.message);
       onRefreshBalance();
@@ -151,11 +159,16 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
       setElectricityError(`Insufficient funds. Your balance is ₦${user.wallet_balance.toLocaleString()}, but ₦${electricityAmount.toLocaleString()} is required.`);
       return;
     }
+    if (!user?.has_transaction_pin || user?.requires_pin_setup) {
+      setElectricityError('Please activate your Transaction PIN first to authorize utility purchases.');
+      openPinSetupModal();
+      return;
+    }
     setPinAction('electricity');
     setIsPinModalOpen(true);
   };
 
-  const handlePurchaseElectricity = async () => {
+  const handlePurchaseElectricity = async (verifiedPin?: string) => {
     setSubmittingElectricity(true);
     setElectricityError(null);
     setElectricitySuccess(null);
@@ -165,6 +178,7 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
         meterNumber,
         meterType,
         amount: electricityAmount,
+        transaction_pin: verifiedPin,
       });
       setElectricitySuccess(res);
       onRefreshBalance();
@@ -613,16 +627,16 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
       <TransactionPinModal
         isOpen={isPinModalOpen}
         onClose={() => setIsPinModalOpen(false)}
-        onSuccess={() => {
+        onSuccess={(verifiedPin) => {
           setIsPinModalOpen(false);
           if (pinAction === 'cable') {
-            handlePurchaseCable();
+            void handlePurchaseCable(verifiedPin);
           } else {
-            handlePurchaseElectricity();
+            void handlePurchaseElectricity(verifiedPin);
           }
         }}
         title={pinAction === 'cable' ? 'Authorize Cable Subscription' : 'Authorize Electricity Purchase'}
-        description={`Enter your 4-digit security PIN to authorize debit of ₦${(pinAction === 'cable' ? (currentSelectedPkg?.price ?? 0) : electricityAmount).toLocaleString()} from your wallet.`}
+        description={`Enter your ${user?.pin_length || 4}-digit security PIN to authorize debit of ₦${(pinAction === 'cable' ? (currentSelectedPkg?.price ?? 0) : electricityAmount).toLocaleString()} from your wallet.`}
         amount={pinAction === 'cable' ? (currentSelectedPkg?.price ?? 0) : electricityAmount}
       />
     </div>

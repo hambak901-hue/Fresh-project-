@@ -147,7 +147,7 @@ class SystemController
      */
     public function syncSchema(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireSuperAdmin($request);
         $result = SchemaSync::sync($this->db);
         Response::success($result, 'Database schema synchronized successfully.');
     }
@@ -163,7 +163,7 @@ class SystemController
 
     public function cpanelDiagnostics(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireSuperAdmin($request);
         $extensions = [
             'pdo' => extension_loaded('pdo'),
             'pdo_mysql' => extension_loaded('pdo_mysql'),
@@ -190,7 +190,7 @@ class SystemController
      */
     public function cpanelInfo(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireSuperAdmin($request);
         $tables = $this->db->fetchAll('SHOW TABLES');
         Response::success([
             'server' => [
@@ -211,7 +211,7 @@ class SystemController
      */
     public function testSftp(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireSuperAdmin($request);
         $host = trim((string)($request->input('host') ?? getenv('FTP_HOST') ?: 'mail.hambaktech.com.ng'));
         $port = (int)($request->input('port') ?? 21);
         $start = microtime(true);
@@ -242,7 +242,7 @@ class SystemController
      */
     public function exportPackage(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireSuperAdmin($request);
         Response::success([
             'package' => [
                 'backend_root' => HAMBAKTECH_ROOT,
@@ -255,7 +255,7 @@ class SystemController
 
     public function initDatabase(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireSuperAdmin($request);
         $schemaFile = HAMBAKTECH_ROOT . '/database/schema.sql';
         $seedFile = HAMBAKTECH_ROOT . '/database/seed.sql';
 

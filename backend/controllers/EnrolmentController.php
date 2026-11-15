@@ -27,6 +27,8 @@ use HambakTech\Core\SchemaSync;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\MailService;
+use HambakTech\Services\PinSecurityService;
+use HambakTech\Services\ReferralEngineService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 
 class EnrolmentController
@@ -904,15 +906,8 @@ class EnrolmentController
         } catch (Throwable) {
         }
 
-        $suppliedPin = trim((string)($body['transaction_pin'] ?? $body['pin'] ?? ''));
-        if (!empty($userRow['transaction_pin_hash'])) {
-            if ($suppliedPin === '') {
-                Response::error('Please enter your 4-digit Transaction PIN to authorize this debit.', 422, ['requires_pin' => true]);
-            }
-            if (!Security::verifyPin($suppliedPin, (string)$userRow['transaction_pin_hash'])) {
-                Response::error('Invalid 4-digit Transaction PIN.', 401);
-            }
-        }
+        $pinService = new PinSecurityService($this->db);
+        $pinService->requireValidPin($userRow, $body, 'identity_enrolment', $serviceKey);
 
         // 6. Pricing check
         $customerPrice = (float)$serviceRow['selling_price'];
@@ -1337,6 +1332,24 @@ class EnrolmentController
                 (string)$row['order_number'],
                 ['order_number' => $row['order_number'], 'status' => $newStatus, 'service_name' => $row['service_name']]
             );
+            try {
+                $refEngine = new ReferralEngineService($this->db);
+                $srcRef = (string)($row['payment_reference'] ?: $row['order_number']);
+                if ($newStatus === 'completed') {
+                    $refEngine->recordQualifyingTransaction([
+                        'user_id' => (string)$row['user_id'],
+                        'service_category' => 'enrolment',
+                        'service_key' => (string)$row['service_key'],
+                        'source_reference' => $srcRef,
+                        'gross_amount' => (float)$row['customer_price'],
+                        'wholesale_cost' => (float)$row['provider_cost'],
+                        'gateway_fee' => 0.0,
+                    ]);
+                } elseif ($newStatus === 'refunded') {
+                    $refEngine->reverseRewardsForSource($srcRef, 'Enrolment order refunded on poll', $actorId);
+                }
+            } catch (Throwable) {
+            }
         }
 
         return [
@@ -1664,6 +1677,25 @@ class EnrolmentController
                 (string)$row['order_number'],
                 ['order_number' => $row['order_number'], 'status' => $finalStatus, 'service_name' => $row['service_name']]
             );
+        }
+
+        try {
+            $refEngine = new ReferralEngineService($this->db);
+            $srcRef = (string)($row['payment_reference'] ?: $row['order_number']);
+            if ($finalStatus === 'completed' && $prevStatus !== 'completed') {
+                $refEngine->recordQualifyingTransaction([
+                    'user_id' => (string)$row['user_id'],
+                    'service_category' => 'enrolment',
+                    'service_key' => (string)$row['service_key'],
+                    'source_reference' => $srcRef,
+                    'gross_amount' => (float)$row['customer_price'],
+                    'wholesale_cost' => (float)$row['provider_cost'],
+                    'gateway_fee' => 0.0,
+                ]);
+            } elseif (in_array($finalStatus, ['refunded', 'rejected', 'failed'], true)) {
+                $refEngine->reverseRewardsForSource($srcRef, 'Enrolment order marked ' . $finalStatus . ' by admin', (string)$admin['id']);
+            }
+        } catch (Throwable) {
         }
 
         Response::success([

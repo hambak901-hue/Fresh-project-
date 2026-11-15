@@ -35,6 +35,7 @@ import {
   ChevronRight,
   Sparkles,
   Layers,
+  Gift,
 } from 'lucide-react';
 import { User } from '../../types';
 
@@ -55,6 +56,7 @@ import { ProfilePage } from './ProfilePage';
 import { SettingsPage } from './SettingsPage';
 import { SupportPage } from './SupportPage';
 import { CustomerKycPage } from './CustomerKycPage';
+import { ReferralCentrePage } from './ReferralCentrePage';
 
 interface CustomerDashboardProps {
   onOpenFundModal: () => void;
@@ -69,6 +71,7 @@ export type CustomerPageKey =
   | 'nin'
   | 'telecom'
   | 'wallet'
+  | 'referrals'
   | 'store'
   | 'digital'
   | 'academy'
@@ -142,6 +145,7 @@ export function CustomerDashboard({
         { id: 'nin', label: 'NIN & Identity Services', icon: ShieldCheck, badge: 'Official' },
         { id: 'telecom', label: 'Telecom & VTU Services', icon: Smartphone },
         { id: 'wallet', label: 'My Wallet', icon: Wallet },
+        { id: 'referrals', label: 'Referrals & Rewards', icon: Gift, badge: 'Earn' },
       ],
     },
     {
@@ -426,6 +430,8 @@ export function CustomerDashboard({
           {currentPage === 'wallet' && (
             <WalletPage onOpenFundModal={onOpenFundModal} />
           )}
+
+          {currentPage === 'referrals' && <ReferralCentrePage />}
 
           {currentPage === 'store' && <StoreComingSoonPage />}
 

@@ -106,7 +106,7 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
   onOrderUpdated,
   onOpenHistoryTab,
 }) => {
-  const { user, refreshUser, updateBalance } = useAuth();
+  const { user, refreshUser, updateBalance, openPinSetupModal } = useAuth();
 
   const [services, setServices] = useState<EnrolmentServiceItem[]>([]);
   const [loadingServices, setLoadingServices] = useState<boolean>(true);
@@ -440,11 +440,12 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
 
   const handleProceedFromConfirm = () => {
     setConfirmModalOpen(false);
-    if (user?.has_transaction_pin) {
-      setPinModalOpen(true);
-    } else {
-      executeSubmit();
+    if (!user?.has_transaction_pin || user?.requires_pin_setup) {
+      setFormError('Please activate your Transaction PIN first before submitting an enrolment order.');
+      openPinSetupModal();
+      return;
     }
+    setPinModalOpen(true);
   };
 
   const executeSubmit = async (verifiedPin?: string) => {
@@ -1456,7 +1457,7 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                   className="min-h-[40px] px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold inline-flex items-center gap-1.5 transition"
                 >
                   <span>
-                    {user?.has_transaction_pin ? 'Enter Transaction PIN' : 'Confirm & Pay Wallet'}
+                    {user?.has_transaction_pin ? 'Enter Transaction PIN' : 'Activate PIN to Continue'}
                   </span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
@@ -1475,7 +1476,7 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
           executeSubmit(verifiedPin);
         }}
         title="Authorize NIN Enrolment Debit"
-        description={`Enter your 4-digit Transaction PIN to submit ${selectedService?.name || 'NIN Enrolment'} for ₦${finalCharge.toLocaleString('en-NG')}.`}
+        description={`Enter your ${user?.pin_length || 4}-digit Transaction PIN to submit ${selectedService?.name || 'NIN Enrolment'} for ₦${finalCharge.toLocaleString('en-NG')}.`}
         amount={finalCharge}
       />
 

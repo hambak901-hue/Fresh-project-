@@ -68,7 +68,7 @@ function createIdempotencyKey(): string {
 }
 
 export const NinServicesPage: React.FC = () => {
-  const { user, refreshUser, updateBalance } = useAuth();
+  const { user, refreshUser, updateBalance, openPinSetupModal } = useAuth();
   const { branding } = useCms();
   const companyName = branding?.company_name || 'HAMBAK TECH & SERVICES';
 
@@ -549,11 +549,12 @@ export const NinServicesPage: React.FC = () => {
       }
     }
 
-    if (user?.has_transaction_pin) {
-      setPinModalOpen(true);
-    } else {
-      executeVerification();
+    if (!user?.has_transaction_pin || user?.requires_pin_setup) {
+      setError('Please activate your Transaction PIN first to authorize identity verifications.');
+      openPinSetupModal();
+      return;
     }
+    setPinModalOpen(true);
   };
 
   const clearRecoveryAttempt = () => {
@@ -646,7 +647,7 @@ export const NinServicesPage: React.FC = () => {
     }
   };
 
-  const executeVerification = async () => {
+  const executeVerification = async (verifiedPin?: string) => {
     if (inFlightRef.current || submitting) return;
     inFlightRef.current = true;
     setSubmitting(true);
@@ -741,7 +742,8 @@ export const NinServicesPage: React.FC = () => {
         targetKey,
         payload,
         consentAccepted,
-        activeIkey
+        activeIkey,
+        verifiedPin
       );
 
       if (res && res.success === true && (res.result || res.reference)) {
@@ -2518,16 +2520,16 @@ export const NinServicesPage: React.FC = () => {
         record={activeSlipRecord}
       />
 
-      {/* Transaction PIN Authorization Modal (only prompted if user has PIN configured) */}
+      {/* Transaction PIN Authorization Modal */}
       <TransactionPinModal
         isOpen={pinModalOpen}
         onClose={() => setPinModalOpen(false)}
-        onSuccess={() => {
+        onSuccess={(verifiedPin) => {
           setPinModalOpen(false);
-          executeVerification();
+          void executeVerification(verifiedPin);
         }}
         title="Authorize Verification"
-        description={`Enter your 4-digit Transaction PIN to verify and debit ₦${finalCharge.toLocaleString('en-NG')}.`}
+        description={`Enter your ${user?.pin_length || 4}-digit Transaction PIN to verify and debit ₦${finalCharge.toLocaleString('en-NG')}.`}
         amount={finalCharge}
       />
 

@@ -30,6 +30,7 @@ use HambakTech\Controllers\NotificationController;
 use HambakTech\Controllers\AcademyController;
 use HambakTech\Controllers\ModificationController;
 use HambakTech\Controllers\EnrolmentController;
+use HambakTech\Controllers\ReferralController;
 
 $request = new Request();
 $router = new Router();
@@ -87,6 +88,19 @@ $router->put('/api/auth/profile', [AuthController::class, 'updateProfile']);
 $router->post('/api/auth/change-password', [AuthController::class, 'changePassword']);
 $router->post('/api/auth/set-pin', [AuthController::class, 'setPin']);
 $router->post('/api/auth/verify-pin', [AuthController::class, 'verifyPin']);
+$router->get('/api/auth/pin-policy', [ReferralController::class, 'publicPinPolicy']);
+$router->post('/api/auth/pin/request-otp', [ReferralController::class, 'requestPinResetOtp']);
+$router->post('/api/auth/pin/reset-otp', [ReferralController::class, 'confirmPinResetOtp']);
+$router->post('/api/auth/mfa/verify', [ReferralController::class, 'verifyMfaChallenge']);
+$router->get('/api/auth/mfa/status', [ReferralController::class, 'mfaStatus']);
+$router->post('/api/auth/mfa/totp/setup', [ReferralController::class, 'beginTotpSetup']);
+$router->post('/api/auth/mfa/totp/confirm', [ReferralController::class, 'confirmTotpSetup']);
+$router->post('/api/auth/mfa/email', [ReferralController::class, 'setEmailMfa']);
+$router->post('/api/auth/mfa/disable', [ReferralController::class, 'disableMfa']);
+$router->post('/api/auth/logout', [ReferralController::class, 'logout']);
+$router->post('/api/auth/logout-all', [ReferralController::class, 'logoutAll']);
+$router->get('/api/auth/sessions', [ReferralController::class, 'listSessions']);
+$router->delete('/api/auth/sessions/:id', [ReferralController::class, 'revokeOwnSession']);
 
 // -----------------------------------------------------------------------------
 // 4. FINANCIAL WALLET & SETTLEMENT
@@ -238,6 +252,16 @@ $router->get('/api/kyc/status', [CustomerController::class, 'kycStatus']);
 $router->post('/api/kyc/submit', [CustomerController::class, 'submitKycFull']);
 $router->post('/api/kyc/authorize-purchase', [CustomerController::class, 'authorizePurchase']);
 $router->get('/api/kyc/virtual-account', [CustomerController::class, 'virtualAccount']);
+
+// Customer Referral, Rewards, Points & Withdrawal Centre
+$router->get('/api/referrals/public-config', [ReferralController::class, 'publicConfig']);
+$router->get('/api/referrals/validate-code', [ReferralController::class, 'validateCode']);
+$router->get('/api/referrals/dashboard', [ReferralController::class, 'dashboard']);
+$router->post('/api/referrals/convert-to-wallet', [ReferralController::class, 'convertToWallet']);
+$router->post('/api/referrals/convert-points', [ReferralController::class, 'convertPoints']);
+$router->get('/api/referrals/withdrawals', [ReferralController::class, 'listWithdrawals']);
+$router->post('/api/referrals/withdrawals', [ReferralController::class, 'requestWithdrawal']);
+$router->post('/api/referrals/withdrawals/:id/cancel', [ReferralController::class, 'cancelWithdrawal']);
 
 // -----------------------------------------------------------------------------
 // 8. SUPER ADMIN CONSOLE & OPERATIONS
@@ -455,6 +479,36 @@ $router->post('/api/admin/announcements', [NotificationController::class, 'saveA
 $router->put('/api/admin/announcements/:id', [NotificationController::class, 'saveAnnouncement']);
 $router->post('/api/admin/announcements/:id/retry-emails', [NotificationController::class, 'retryAnnouncementEmails']);
 $router->delete('/api/admin/announcements/:id', [NotificationController::class, 'deleteAnnouncement']);
+
+// Referral, Rewards, Cash Withdrawal, PIN Policy, Security & Report #12 Administration
+$router->get('/api/admin/referrals/overview', [ReferralController::class, 'adminOverview']);
+$router->get('/api/admin/referrals/config', [ReferralController::class, 'adminConfig']);
+$router->put('/api/admin/referrals/config', [ReferralController::class, 'adminConfig']);
+$router->post('/api/admin/referrals/config', [ReferralController::class, 'adminConfig']);
+$router->get('/api/admin/referrals/campaigns', [ReferralController::class, 'adminCampaigns']);
+$router->post('/api/admin/referrals/campaigns', [ReferralController::class, 'adminCampaigns']);
+$router->put('/api/admin/referrals/campaigns/:id', [ReferralController::class, 'adminCampaigns']);
+$router->delete('/api/admin/referrals/campaigns/:id', [ReferralController::class, 'adminCampaigns']);
+$router->get('/api/admin/referrals/tiers', [ReferralController::class, 'adminTiers']);
+$router->post('/api/admin/referrals/tiers', [ReferralController::class, 'adminTiers']);
+$router->put('/api/admin/referrals/tiers/:id', [ReferralController::class, 'adminTiers']);
+$router->delete('/api/admin/referrals/tiers/:id', [ReferralController::class, 'adminTiers']);
+$router->get('/api/admin/referrals/rewards', [ReferralController::class, 'adminRewards']);
+$router->post('/api/admin/referrals/rewards/:id/action', [ReferralController::class, 'adminRewardAction']);
+$router->post('/api/admin/referrals/:id/status', [ReferralController::class, 'adminFlagReferral']);
+$router->post('/api/admin/referrals/settle', [ReferralController::class, 'adminSettle']);
+$router->get('/api/admin/withdrawals', [ReferralController::class, 'adminWithdrawals']);
+$router->post('/api/admin/withdrawals/:id/action', [ReferralController::class, 'adminWithdrawalAction']);
+$router->get('/api/admin/pin/overview', [ReferralController::class, 'adminPinOverview']);
+$router->put('/api/admin/pin/policy', [ReferralController::class, 'adminUpdatePinPolicy']);
+$router->post('/api/admin/pin/policy', [ReferralController::class, 'adminUpdatePinPolicy']);
+$router->post('/api/admin/pin/users/:id/unlock', [ReferralController::class, 'adminUnlockUserPin']);
+$router->post('/api/admin/pin/users/:id/reset', [ReferralController::class, 'adminResetUserPin']);
+$router->get('/api/admin/security/overview', [ReferralController::class, 'adminSecurityOverview']);
+$router->post('/api/admin/security/sessions/:id/revoke', [ReferralController::class, 'adminRevokeSession']);
+$router->put('/api/admin/security/mfa-policy', [ReferralController::class, 'adminUpdateMfaPolicy']);
+$router->post('/api/admin/security/mfa-policy', [ReferralController::class, 'adminUpdateMfaPolicy']);
+$router->get('/api/admin/reports/referral-growth', [ReferralController::class, 'adminGrowthReport']);
 
 // Dispatch Request
 $router->dispatch($request);
