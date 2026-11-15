@@ -33,6 +33,11 @@ const PERMISSION_OPTIONS = [
   { id: 'settings', label: 'General Operational Settings & Email/SMS Templates' },
   { id: 'audit', label: 'Audit Log & Footprint Exploration' },
   { id: 'staff', label: 'Staff Management (View & Super Admin Controls)' },
+  { id: 'accounting', label: 'Business Management & Accounting (Full Access)' },
+  { id: 'accounting_physical', label: 'Accounting: Physical Counter Sales, Receptionist & Vouchers' },
+  { id: 'accounting_reconcile', label: 'Accounting: Cash, POS, Bank Reconciliation & Inventory' },
+  { id: 'accounting_adjust', label: 'Accounting: Entry Reversals & Voiding (When Unlocked)' },
+  { id: 'accounting_config', label: 'Accounting: Daily Email Reports & Accounting Configuration' },
 ];
 
 export function StaffPermissionsManagement() {

@@ -114,6 +114,7 @@ class MailService
         $deliverySuccess = false;
         $deliveryMessage = '';
         $messageId = '';
+        $smtpResponse = '';
 
         // 1. Log in internal notifications table if user exists and OTP is set
         if ($otp) {
@@ -144,6 +145,16 @@ class MailService
             $res = $transport->send($fromEmail, $fromName, $cleanEmail, $subject, $htmlBody, $textBody, $replyTo, $envelopeFrom);
             $deliverySuccess = !empty($res['success']);
             $messageId = (string)($res['messageId'] ?? '');
+            foreach ((array)($res['transcript'] ?? []) as $tRow) {
+                $entry = (string)($tRow['entry'] ?? '');
+                if (preg_match('/^<\s*(250\s+OK.*)$/i', $entry, $m)) {
+                    $smtpResponse = trim($m[1]);
+                }
+            }
+            if ($smtpResponse === '' && !empty($res['transcript'])) {
+                $last = end($res['transcript']);
+                $smtpResponse = (string)($last['entry'] ?? '');
+            }
             $deliveryMessage = $deliverySuccess
                 ? "Email delivered via {$host}:{$port} ({$encryption})"
                 : (string)($res['error'] ?? 'SMTP delivery failed');
@@ -183,6 +194,8 @@ class MailService
                         'reply_to' => $replyTo,
                         'otp_dispatched' => !empty($otp),
                         'smtp_delivery' => $deliverySuccess,
+                        'message_id' => $messageId,
+                        'smtp_response' => $smtpResponse,
                         'message' => $deliveryMessage,
                     ]),
                 ]
@@ -194,6 +207,7 @@ class MailService
             'sent' => $deliverySuccess,
             'smtp_delivered' => $deliverySuccess,
             'message_id' => $messageId,
+            'smtp_response' => $smtpResponse,
             'from_email' => $fromEmail,
             'from_name' => $fromName,
             'reply_to' => $replyTo,

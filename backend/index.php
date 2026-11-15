@@ -31,6 +31,7 @@ use HambakTech\Controllers\AcademyController;
 use HambakTech\Controllers\ModificationController;
 use HambakTech\Controllers\EnrolmentController;
 use HambakTech\Controllers\ReferralController;
+use HambakTech\Controllers\AccountingController;
 
 $request = new Request();
 $router = new Router();
@@ -509,6 +510,37 @@ $router->post('/api/admin/security/sessions/:id/revoke', [ReferralController::cl
 $router->put('/api/admin/security/mfa-policy', [ReferralController::class, 'adminUpdateMfaPolicy']);
 $router->post('/api/admin/security/mfa-policy', [ReferralController::class, 'adminUpdateMfaPolicy']);
 $router->get('/api/admin/reports/referral-growth', [ReferralController::class, 'adminGrowthReport']);
+
+// Integrated Business Management & Accounting (11 Modules)
+$router->get('/api/admin/accounting/overview', [AccountingController::class, 'overview']);
+$router->post('/api/admin/accounting/sync', [AccountingController::class, 'syncWebsite']);
+$router->get('/api/admin/accounting/website-transactions', [AccountingController::class, 'websiteTransactions']);
+$router->get('/api/admin/accounting/wallet-liabilities', [AccountingController::class, 'walletLiabilities']);
+$router->get('/api/admin/accounting/expenses-income', [AccountingController::class, 'listExpensesIncome']);
+$router->post('/api/admin/accounting/expenses-income', [AccountingController::class, 'createExpenseOrIncome']);
+$router->post('/api/admin/accounting/expenses-income/:id/void', [AccountingController::class, 'voidExpenseOrIncome']);
+$router->get('/api/admin/accounting/physical-sales', [AccountingController::class, 'listPhysicalSales']);
+$router->post('/api/admin/accounting/physical-sales', [AccountingController::class, 'createPhysicalSale']);
+$router->post('/api/admin/accounting/physical-sales/:id/void', [AccountingController::class, 'voidPhysicalSale']);
+$router->get('/api/admin/accounting/inventory', [AccountingController::class, 'inventoryOverview']);
+$router->post('/api/admin/accounting/inventory/items', [AccountingController::class, 'saveInventoryItem']);
+$router->put('/api/admin/accounting/inventory/items/:id', [AccountingController::class, 'saveInventoryItem']);
+$router->post('/api/admin/accounting/inventory/movements', [AccountingController::class, 'recordInventoryMovement']);
+$router->get('/api/admin/accounting/reconciliations', [AccountingController::class, 'listReconciliations']);
+$router->get('/api/admin/accounting/reconciliations/preview', [AccountingController::class, 'previewReconciliation']);
+$router->post('/api/admin/accounting/reconciliations', [AccountingController::class, 'submitReconciliation']);
+$router->post('/api/admin/accounting/reconciliations/:id/approve', [AccountingController::class, 'approveReconciliation']);
+$router->get('/api/admin/accounting/ledger', [AccountingController::class, 'ledger']);
+$router->get('/api/admin/accounting/ledger/export', [AccountingController::class, 'exportLedgerCsv']);
+$router->post('/api/admin/accounting/ledger/:id/reverse', [AccountingController::class, 'reverseLedgerEntry']);
+$router->get('/api/admin/accounting/analytics', [AccountingController::class, 'analytics']);
+$router->get('/api/admin/accounting/daily-report/preview', [AccountingController::class, 'previewDailyReport']);
+$router->post('/api/admin/accounting/daily-report/send', [AccountingController::class, 'sendDailyReportNow']);
+$router->get('/api/admin/accounting/daily-report/logs', [AccountingController::class, 'reportLogs']);
+$router->get('/api/admin/accounting/config', [AccountingController::class, 'getConfig']);
+$router->put('/api/admin/accounting/config', [AccountingController::class, 'updateConfig']);
+$router->post('/api/admin/accounting/config', [AccountingController::class, 'updateConfig']);
+$router->put('/api/admin/accounting/accounts/:code', [AccountingController::class, 'updateAccount']);
 
 // Dispatch Request
 $router->dispatch($request);

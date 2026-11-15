@@ -1780,6 +1780,289 @@ export interface ReferralGrowthReport {
   }>;
 }
 
+// =========================================================================
+// INTEGRATED BUSINESS MANAGEMENT & ACCOUNTING TYPES (11 MODULES)
+// =========================================================================
+
+export interface AccountingPeriodSummary {
+  period: {
+    date_from: string | null;
+    date_to: string | null;
+    start_utc: string;
+    end_utc: string;
+  };
+  website_gross_sales: number;
+  website_refunds: number;
+  website_revenue: number;
+  physical_revenue: number;
+  other_income: number;
+  total_business_revenue: number;
+  provider_costs: number;
+  direct_inventory_cogs: number;
+  gateway_pos_fees: number;
+  operating_expenses: number;
+  total_costs_and_expenses: number;
+  unverified_cost_count?: number;
+  unverified_cost_revenue?: number;
+  gross_margin: number;
+  net_profit: number;
+  profit_margin_percent: number;
+  wallet_funding_inflow: number;
+  customer_wallet_deposits: number;
+  net_wallet_liability_delta: number;
+  counts: {
+    active_entries: number;
+    website_sales: number;
+    refunds: number;
+    physical_sales: number;
+  };
+  physical_payment_split: {
+    cash: number;
+    pos: number;
+    transfer: number;
+    pos_fees: number;
+  };
+  channels: Record<string, { inflow: number; outflow: number; fees: number }>;
+  website_domains: Array<{
+    service_domain: string;
+    tx_count: number;
+    refund_count: number;
+    gross_sales: number;
+    refunds: number;
+    net_revenue: number;
+    provider_cost: number;
+    net_profit: number;
+  }>;
+}
+
+export interface AccountingEntryItem {
+  id: string;
+  entry_number: string;
+  entry_date: string;
+  occurred_at: string;
+  occurred_lagos: string;
+  source_origin: 'website' | 'physical' | 'expense' | 'income' | 'inventory' | 'reconciliation' | 'adjustment';
+  source_table?: string | null;
+  source_id?: string | null;
+  entry_category: string;
+  service_domain: string;
+  title: string;
+  description?: string | null;
+  reference?: string | null;
+  gross_amount: number | string;
+  revenue_amount: number | string;
+  cost_amount: number | string;
+  fee_amount: number | string;
+  expense_amount: number | string;
+  net_profit_impact: number | string;
+  wallet_liability_delta: number | string;
+  payment_channel: string;
+  account_code?: string | null;
+  reconciliation_status: 'unreconciled' | 'reconciled' | 'flagged' | 'na';
+  reconciliation_id?: string | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
+  staff_user_id?: string | null;
+  staff_name?: string | null;
+  is_reversed: number | boolean;
+  reversal_of_entry_id?: string | null;
+  reversed_at?: string | null;
+  metadata?: any;
+}
+
+export interface AccountingChannelBalance {
+  account_code: string;
+  account_name: string;
+  account_type: 'cash' | 'pos' | 'bank' | 'gateway' | 'liability';
+  bank_name?: string | null;
+  account_number?: string | null;
+  opening_balance: number;
+  total_inflow: number;
+  total_outflow: number;
+  total_fees: number;
+  expected_balance: number;
+}
+
+export interface AccountingWalletLiabilitySummary {
+  total_customer_liability: number;
+  total_customers: number;
+  funded_wallets_count: number;
+  negative_wallets_count: number;
+  negative_exposure: number;
+  internal_admin_wallets_total: number;
+  internal_admin_wallets_count: number;
+  balance_mismatch_count: number;
+  referral_liability_total: number;
+  referral_available_liability: number;
+  referral_reserved_withdrawal: number;
+}
+
+export interface AccountingPhysicalSaleItem {
+  id: string;
+  receipt_number: string;
+  sale_date: string;
+  occurred_at: string;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  service_category: string;
+  service_name: string;
+  description?: string | null;
+  quantity: number | string;
+  unit_price: number | string;
+  gross_amount: number | string;
+  discount_amount: number | string;
+  net_amount: number | string;
+  direct_cost: number | string;
+  inventory_item_id?: string | null;
+  inventory_qty_used: number | string;
+  payment_mode: 'cash' | 'pos' | 'transfer' | 'split';
+  cash_amount: number | string;
+  pos_amount: number | string;
+  transfer_amount: number | string;
+  pos_fee: number | string;
+  pos_rrn?: string | null;
+  bank_reference?: string | null;
+  attendant_user_id?: string | null;
+  attendant_name?: string | null;
+  status: 'completed' | 'voided' | 'refunded';
+  void_reason?: string | null;
+  created_at?: string;
+}
+
+export interface AccountingExpenseIncomeItem {
+  id: string;
+  voucher_number: string;
+  record_type: 'expense' | 'other_income';
+  entry_date: string;
+  occurred_at: string;
+  category: string;
+  title: string;
+  description?: string | null;
+  party_name?: string | null;
+  amount: number | string;
+  fee_amount: number | string;
+  payment_method: 'cash' | 'pos' | 'bank_transfer' | 'wallet' | 'other';
+  account_code?: string | null;
+  reference?: string | null;
+  attachment_note?: string | null;
+  recorded_by?: string | null;
+  recorded_by_name?: string | null;
+  status: 'active' | 'voided';
+  void_reason?: string | null;
+}
+
+export interface AccountingInventoryItem {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  unit_label: string;
+  current_stock: number | string;
+  reorder_level: number | string;
+  average_unit_cost: number | string;
+  default_selling_price: number | string;
+  supplier_name?: string | null;
+  is_active: number | boolean;
+  notes?: string | null;
+}
+
+export interface AccountingInventoryMovement {
+  id: string;
+  item_id: string;
+  item_name?: string;
+  sku?: string;
+  unit_label?: string;
+  movement_type: 'purchase' | 'sale_deduction' | 'usage' | 'adjustment_in' | 'adjustment_out' | 'wastage';
+  quantity_delta: number | string;
+  unit_cost: number | string;
+  total_cost: number | string;
+  stock_before: number | string;
+  stock_after: number | string;
+  payment_method?: string | null;
+  supplier_name?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+  recorded_by_name?: string | null;
+  entry_date: string;
+  occurred_at: string;
+}
+
+export interface AccountingReconciliationItem {
+  id: string;
+  reconcile_number: string;
+  reconcile_date: string;
+  account_code: string;
+  channel_name: string;
+  opening_balance: number | string;
+  expected_inflow: number | string;
+  expected_outflow: number | string;
+  expected_fees: number | string;
+  expected_closing: number | string;
+  actual_counted: number | string;
+  variance_amount: number | string;
+  status: 'balanced' | 'shortage' | 'surplus' | 'pending_review' | 'approved';
+  notes?: string | null;
+  submitted_by_name?: string | null;
+  approved_by_name?: string | null;
+  approved_at?: string | null;
+  created_at?: string;
+}
+
+export interface AccountingConfig {
+  business_currency: string;
+  timezone: string;
+  daily_email_enabled: boolean;
+  daily_email_hour_lagos: number;
+  daily_email_minute_lagos: number;
+  daily_email_cutoff_time: string;
+  daily_email_recipients: string[];
+  report_sections: Record<string, boolean>;
+  pos_fee_percent: number;
+  pos_fee_cap: number;
+  paystack_fee_percent: number;
+  paystack_flat_fee: number;
+  paystack_flat_threshold: number;
+  paystack_fee_cap: number;
+  flutterwave_fee_percent: number;
+  flutterwave_fee_cap: number;
+  gateway_fee_borne_by: 'company' | 'customer';
+  low_stock_alert_default: number;
+  variance_alert_threshold: number;
+  restrict_reversals_to_superadmin: boolean;
+  restrict_config_to_superadmin: boolean;
+  exclude_internal_admin_wallets_from_liability: boolean;
+  auto_sync_on_dashboard_load: boolean;
+}
+
+export interface AccountingAccountRecord {
+  id: string;
+  account_code: string;
+  account_name: string;
+  account_type: 'cash' | 'pos' | 'bank' | 'gateway' | 'liability';
+  bank_name?: string | null;
+  account_number?: string | null;
+  opening_balance: number | string;
+  opening_date?: string | null;
+  is_active: number | boolean;
+  notes?: string | null;
+}
+
+export interface AccountingReportLog {
+  id: string;
+  report_key: string;
+  report_type: 'daily_midday' | 'manual_preview' | 'manual_send';
+  lagos_report_date: string;
+  prev_day_date: string;
+  cutoff_time_lagos: string;
+  recipients: string;
+  status: 'sent' | 'failed' | 'skipped';
+  error_message?: string | null;
+  summary_snapshot?: any;
+  triggered_by: string;
+  sent_at: string;
+}
+
+
 
 
 

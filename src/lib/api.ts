@@ -3521,5 +3521,455 @@ export const api = {
     const str = qs.toString();
     return request(`/api/admin/reports/referral-growth${str ? `?${str}` : ''}`);
   },
+
+  // ---------------------------------------------------------------------------
+  // Integrated Business Management & Accounting (11 Modules)
+  // ---------------------------------------------------------------------------
+  async getAccountingOverview(params?: { date_from?: string; date_to?: string }): Promise<{
+    success: boolean;
+    lagos_now: string;
+    sync_result: any;
+    period_summary: import('../types').AccountingPeriodSummary;
+    today_summary: import('../types').AccountingPeriodSummary;
+    yesterday_summary: import('../types').AccountingPeriodSummary;
+    month_summary: import('../types').AccountingPeriodSummary;
+    wallet_liabilities: import('../types').AccountingWalletLiabilitySummary;
+    channel_balances: import('../types').AccountingChannelBalance[];
+    low_stock_count: number;
+    low_stock_items: import('../types').AccountingInventoryItem[];
+    daily_trend: Array<{
+      entry_date: string;
+      website_revenue: number | string;
+      physical_revenue: number | string;
+      other_income: number | string;
+      cogs: number | string;
+      expenses_fees: number | string;
+      net_profit: number | string;
+      wallet_funding: number | string;
+    }>;
+    recent_entries: import('../types').AccountingEntryItem[];
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.date_from) qs.set('date_from', params.date_from);
+    if (params?.date_to) qs.set('date_to', params.date_to);
+    const str = qs.toString();
+    return request(`/api/admin/accounting/overview${str ? `?${str}` : ''}`);
+  },
+
+  async syncAccountingWebsiteTransactions(force = false): Promise<{
+    success: boolean;
+    message: string;
+    synced_at_lagos: string;
+    inserted: number;
+    updated: number;
+    skipped: number;
+    total_source_transactions: number;
+  }> {
+    return request('/api/admin/accounting/sync', {
+      method: 'POST',
+      body: JSON.stringify({ force }),
+    });
+  },
+
+  async getAccountingWebsiteTransactions(params?: {
+    date_from?: string;
+    date_to?: string;
+    entry_category?: string;
+    service_domain?: string;
+    search?: string;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    period: { date_from: string; date_to: string };
+    summary: import('../types').AccountingPeriodSummary;
+    entries: import('../types').AccountingEntryItem[];
+    pending_manual_funding: { count: number; amount: number };
+    pending_gateway_payments: { count: number; amount: number };
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.date_from) qs.set('date_from', params.date_from);
+    if (params?.date_to) qs.set('date_to', params.date_to);
+    if (params?.entry_category) qs.set('entry_category', params.entry_category);
+    if (params?.service_domain) qs.set('service_domain', params.service_domain);
+    if (params?.search) qs.set('search', params.search);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const str = qs.toString();
+    return request(`/api/admin/accounting/website-transactions${str ? `?${str}` : ''}`);
+  },
+
+  async getAccountingWalletLiabilities(): Promise<{
+    success: boolean;
+    summary: import('../types').AccountingWalletLiabilitySummary;
+    mismatches: any[];
+    holders: Array<{
+      id: string;
+      full_name: string;
+      email: string;
+      phone_number: string;
+      role: string;
+      status: string;
+      balance: number | string;
+      wallet_status?: string;
+      lifetime_funded: number | string;
+      lifetime_spent: number | string;
+      lifetime_refunded: number | string;
+    }>;
+    recent_movements: any[];
+  }> {
+    return request('/api/admin/accounting/wallet-liabilities');
+  },
+
+  async getAccountingExpensesIncome(params?: {
+    date_from?: string;
+    date_to?: string;
+    record_type?: string;
+    category?: string;
+    status?: string;
+  }): Promise<{
+    success: boolean;
+    period: { date_from: string; date_to: string };
+    summary: {
+      total_expenses: number;
+      total_other_income: number;
+      total_fees: number;
+      expense_count: number;
+      income_count: number;
+    };
+    by_category: Array<{ record_type: string; category: string; items_count: number; total_amount: number | string }>;
+    records: import('../types').AccountingExpenseIncomeItem[];
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.date_from) qs.set('date_from', params.date_from);
+    if (params?.date_to) qs.set('date_to', params.date_to);
+    if (params?.record_type) qs.set('record_type', params.record_type);
+    if (params?.category) qs.set('category', params.category);
+    if (params?.status) qs.set('status', params.status);
+    const str = qs.toString();
+    return request(`/api/admin/accounting/expenses-income${str ? `?${str}` : ''}`);
+  },
+
+  async createAccountingExpenseOrIncome(payload: {
+    record_type: 'expense' | 'other_income';
+    entry_date?: string;
+    category: string;
+    title: string;
+    description?: string;
+    party_name?: string;
+    amount: number;
+    fee_amount?: number;
+    payment_method: 'cash' | 'pos' | 'bank_transfer' | 'wallet' | 'other';
+    reference?: string;
+    attachment_note?: string;
+  }): Promise<{ success: boolean; message: string; record: import('../types').AccountingExpenseIncomeItem }> {
+    return request('/api/admin/accounting/expenses-income', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async voidAccountingExpenseOrIncome(id: string, reason: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/accounting/expenses-income/${encodeURIComponent(id)}/void`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getAccountingPhysicalSales(params?: {
+    date_from?: string;
+    date_to?: string;
+    service_category?: string;
+    payment_mode?: string;
+    status?: string;
+    search?: string;
+  }): Promise<{
+    success: boolean;
+    period: { date_from: string; date_to: string };
+    summary: {
+      completed_count: number;
+      voided_count: number;
+      gross_sales: number;
+      discounts: number;
+      net_revenue: number;
+      direct_cost: number;
+      pos_fees: number;
+      net_profit: number;
+      cash_total: number;
+      pos_total: number;
+      transfer_total: number;
+    };
+    by_service: Array<{ service_category: string; sales_count: number; net_revenue: number | string; direct_cost: number | string }>;
+    by_staff: Array<{ attendant_name: string; sales_count: number; net_revenue: number | string }>;
+    sales: import('../types').AccountingPhysicalSaleItem[];
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.date_from) qs.set('date_from', params.date_from);
+    if (params?.date_to) qs.set('date_to', params.date_to);
+    if (params?.service_category) qs.set('service_category', params.service_category);
+    if (params?.payment_mode) qs.set('payment_mode', params.payment_mode);
+    if (params?.status) qs.set('status', params.status);
+    if (params?.search) qs.set('search', params.search);
+    const str = qs.toString();
+    return request(`/api/admin/accounting/physical-sales${str ? `?${str}` : ''}`);
+  },
+
+  async createAccountingPhysicalSale(payload: {
+    sale_date?: string;
+    customer_name?: string;
+    customer_phone?: string;
+    service_category: string;
+    service_name: string;
+    description?: string;
+    quantity: number;
+    unit_price: number;
+    discount_amount?: number;
+    direct_cost?: number;
+    inventory_item_id?: string;
+    inventory_qty_used?: number;
+    payment_mode: 'cash' | 'pos' | 'transfer' | 'split';
+    cash_amount?: number;
+    pos_amount?: number;
+    transfer_amount?: number;
+    pos_fee?: number;
+    pos_rrn?: string;
+    bank_reference?: string;
+  }): Promise<{ success: boolean; message: string; sale: import('../types').AccountingPhysicalSaleItem }> {
+    return request('/api/admin/accounting/physical-sales', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async voidAccountingPhysicalSale(id: string, reason: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/accounting/physical-sales/${encodeURIComponent(id)}/void`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getAccountingInventory(): Promise<{
+    success: boolean;
+    summary: {
+      total_items: number;
+      low_stock_count: number;
+      total_stock_valuation: number;
+      potential_retail_value: number;
+    };
+    items: import('../types').AccountingInventoryItem[];
+    movements: import('../types').AccountingInventoryMovement[];
+  }> {
+    return request('/api/admin/accounting/inventory');
+  },
+
+  async saveAccountingInventoryItem(
+    payload: Partial<import('../types').AccountingInventoryItem> & { initial_stock?: number; unit_cost?: number },
+    id?: string
+  ): Promise<{ success: boolean; message: string; item: import('../types').AccountingInventoryItem }> {
+    return request(id ? `/api/admin/accounting/inventory/items/${encodeURIComponent(id)}` : '/api/admin/accounting/inventory/items', {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async recordAccountingInventoryMovement(payload: {
+    item_id: string;
+    movement_type: 'purchase' | 'usage' | 'wastage' | 'adjustment_in' | 'adjustment_out';
+    quantity: number;
+    unit_cost?: number;
+    payment_method?: string;
+    supplier_name?: string;
+    reference?: string;
+    notes?: string;
+    entry_date?: string;
+    record_as_expense?: boolean;
+  }): Promise<{ success: boolean; message: string; summary: any; items: import('../types').AccountingInventoryItem[]; movements: import('../types').AccountingInventoryMovement[] }> {
+    return request('/api/admin/accounting/inventory/movements', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAccountingReconciliations(params?: { date_from?: string; date_to?: string }): Promise<{
+    success: boolean;
+    channel_balances: import('../types').AccountingChannelBalance[];
+    reconciliations: import('../types').AccountingReconciliationItem[];
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.date_from) qs.set('date_from', params.date_from);
+    if (params?.date_to) qs.set('date_to', params.date_to);
+    const str = qs.toString();
+    return request(`/api/admin/accounting/reconciliations${str ? `?${str}` : ''}`);
+  },
+
+  async previewAccountingReconciliation(date: string, accountCode: string): Promise<{
+    success: boolean;
+    reconcile_date: string;
+    account: import('../types').AccountingAccountRecord;
+    opening_balance: number;
+    expected_inflow: number;
+    expected_outflow: number;
+    expected_fees: number;
+    expected_closing: number;
+    entries: any[];
+  }> {
+    const qs = new URLSearchParams({ date, account_code: accountCode });
+    return request(`/api/admin/accounting/reconciliations/preview?${qs.toString()}`);
+  },
+
+  async submitAccountingReconciliation(payload: {
+    reconcile_date: string;
+    account_code: string;
+    actual_counted: number;
+    notes?: string;
+  }): Promise<{ success: boolean; message: string; reconciliation: import('../types').AccountingReconciliationItem }> {
+    return request('/api/admin/accounting/reconciliations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async approveAccountingReconciliation(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/accounting/reconciliations/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  async getAccountingLedger(params?: {
+    date_from?: string;
+    date_to?: string;
+    source_origin?: string;
+    entry_category?: string;
+    payment_channel?: string;
+    reconciliation_status?: string;
+    search?: string;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    period: { date_from: string; date_to: string };
+    totals: {
+      entries_count: number;
+      total_revenue: number;
+      total_costs: number;
+      total_fees: number;
+      total_expenses: number;
+      total_net_profit: number;
+      net_wallet_delta: number;
+    };
+    entries: import('../types').AccountingEntryItem[];
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.date_from) qs.set('date_from', params.date_from);
+    if (params?.date_to) qs.set('date_to', params.date_to);
+    if (params?.source_origin) qs.set('source_origin', params.source_origin);
+    if (params?.entry_category) qs.set('entry_category', params.entry_category);
+    if (params?.payment_channel) qs.set('payment_channel', params.payment_channel);
+    if (params?.reconciliation_status) qs.set('reconciliation_status', params.reconciliation_status);
+    if (params?.search) qs.set('search', params.search);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const str = qs.toString();
+    return request(`/api/admin/accounting/ledger${str ? `?${str}` : ''}`);
+  },
+
+  async downloadAccountingLedgerCsv(params?: Record<string, string | undefined>): Promise<void> {
+    const qs = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== '') qs.set(k, v);
+      });
+    }
+    const token = getStoredToken();
+    const res = await fetch(`/api/admin/accounting/ledger/export?${qs.toString()}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      throw new Error('Failed to export accounting ledger CSV.');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hambaktech_accounting_ledger_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  async reverseAccountingLedgerEntry(id: string, reason: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/accounting/ledger/${encodeURIComponent(id)}/reverse`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getAccountingAnalytics(params?: { date_from?: string; date_to?: string }): Promise<{
+    success: boolean;
+    period: { date_from: string; date_to: string };
+    summary: import('../types').AccountingPeriodSummary;
+    daily_series: any[];
+    top_services: any[];
+    expense_breakdown: any[];
+    staff_performance: any[];
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.date_from) qs.set('date_from', params.date_from);
+    if (params?.date_to) qs.set('date_to', params.date_to);
+    const str = qs.toString();
+    return request(`/api/admin/accounting/analytics${str ? `?${str}` : ''}`);
+  },
+
+  async previewAccountingDailyReport(params?: { date?: string; cutoff?: string }): Promise<{
+    success: boolean;
+    report: any;
+    logs: import('../types').AccountingReportLog[];
+  }> {
+    const qs = new URLSearchParams();
+    if (params?.date) qs.set('date', params.date);
+    if (params?.cutoff) qs.set('cutoff', params.cutoff);
+    const str = qs.toString();
+    return request(`/api/admin/accounting/daily-report/preview${str ? `?${str}` : ''}`);
+  },
+
+  async sendAccountingDailyReportNow(recipients?: string[]): Promise<{
+    success: boolean;
+    message: string;
+    recipients: string[];
+    report_key: string;
+    snapshot: any;
+  }> {
+    return request('/api/admin/accounting/daily-report/send', {
+      method: 'POST',
+      body: JSON.stringify(recipients && recipients.length > 0 ? { recipients } : {}),
+    });
+  },
+
+  async getAccountingConfig(): Promise<{
+    success: boolean;
+    config: import('../types').AccountingConfig;
+    accounts: import('../types').AccountingAccountRecord[];
+  }> {
+    return request('/api/admin/accounting/config');
+  },
+
+  async updateAccountingConfig(payload: Partial<import('../types').AccountingConfig>): Promise<{
+    success: boolean;
+    message: string;
+    config: import('../types').AccountingConfig;
+  }> {
+    return request('/api/admin/accounting/config', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateAccountingAccount(
+    code: string,
+    payload: Partial<import('../types').AccountingAccountRecord>
+  ): Promise<{ success: boolean; message: string; account: import('../types').AccountingAccountRecord }> {
+    return request(`/api/admin/accounting/accounts/${encodeURIComponent(code)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
 };
 

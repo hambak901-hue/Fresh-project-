@@ -2290,6 +2290,10 @@ class SchemaSync
             }
         }
 
+        $accSync = self::syncAccountingSchema($db, true);
+        $applied = array_merge($applied, $accSync['applied'] ?? []);
+        $errors = array_merge($errors, $accSync['errors'] ?? []);
+
         return ['applied' => $applied, 'errors' => $errors];
     }
 
@@ -2757,6 +2761,328 @@ class SchemaSync
             } catch (Throwable $e) {
                 $errors[] = "setting:{$sKey} => " . $e->getMessage();
             }
+        }
+
+        return ['applied' => $applied, 'errors' => $errors];
+    }
+
+    public static function syncAccountingSchema(Database $db, bool $force = false): array
+    {
+        static $syncedAcc = false;
+        if ($syncedAcc && !$force) {
+            return ['applied' => [], 'errors' => []];
+        }
+        $syncedAcc = true;
+
+        $applied = [];
+        $errors = [];
+
+        $tables = [
+            'accounting_accounts' => 'CREATE TABLE IF NOT EXISTS accounting_accounts (
+                id VARCHAR(36) PRIMARY KEY,
+                account_code VARCHAR(50) NOT NULL UNIQUE,
+                account_name VARCHAR(120) NOT NULL,
+                account_type ENUM("cash", "pos", "bank", "gateway", "liability") NOT NULL,
+                bank_name VARCHAR(100) NULL,
+                account_number VARCHAR(50) NULL,
+                opening_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                opening_date DATE NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                notes TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'accounting_entries' => 'CREATE TABLE IF NOT EXISTS accounting_entries (
+                id VARCHAR(36) PRIMARY KEY,
+                entry_number VARCHAR(64) NOT NULL UNIQUE,
+                entry_date DATE NOT NULL,
+                occurred_at DATETIME NOT NULL,
+                occurred_lagos DATETIME NOT NULL,
+                source_origin ENUM("website", "physical", "expense", "income", "inventory", "reconciliation", "adjustment") NOT NULL,
+                source_table VARCHAR(64) NULL,
+                source_id VARCHAR(64) NULL,
+                entry_category VARCHAR(64) NOT NULL,
+                service_domain VARCHAR(64) NOT NULL DEFAULT "general",
+                title VARCHAR(191) NOT NULL,
+                description TEXT NULL,
+                reference VARCHAR(120) NULL,
+                gross_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                revenue_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                cost_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                fee_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                expense_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                net_profit_impact DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                wallet_liability_delta DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                payment_channel VARCHAR(50) NOT NULL DEFAULT "wallet",
+                account_code VARCHAR(50) NULL,
+                reconciliation_status ENUM("unreconciled", "reconciled", "flagged", "na") NOT NULL DEFAULT "na",
+                reconciliation_id VARCHAR(36) NULL,
+                customer_id VARCHAR(36) NULL,
+                customer_name VARCHAR(191) NULL,
+                staff_user_id VARCHAR(36) NULL,
+                staff_name VARCHAR(191) NULL,
+                is_reversed TINYINT(1) NOT NULL DEFAULT 0,
+                reversal_of_entry_id VARCHAR(36) NULL,
+                reversed_by VARCHAR(36) NULL,
+                reversed_at DATETIME NULL,
+                metadata JSON NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_acc_source (source_table, source_id, entry_category),
+                INDEX idx_ae_date (entry_date),
+                INDEX idx_ae_occurred_at (occurred_at),
+                INDEX idx_ae_origin_cat (source_origin, entry_category),
+                INDEX idx_ae_domain (service_domain),
+                INDEX idx_ae_channel (payment_channel, account_code),
+                INDEX idx_ae_ref (reference),
+                INDEX idx_ae_reconcile (reconciliation_status, entry_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'accounting_physical_sales' => 'CREATE TABLE IF NOT EXISTS accounting_physical_sales (
+                id VARCHAR(36) PRIMARY KEY,
+                receipt_number VARCHAR(64) NOT NULL UNIQUE,
+                sale_date DATE NOT NULL,
+                occurred_at DATETIME NOT NULL,
+                customer_name VARCHAR(191) NULL,
+                customer_phone VARCHAR(30) NULL,
+                service_category VARCHAR(64) NOT NULL,
+                service_name VARCHAR(191) NOT NULL,
+                description TEXT NULL,
+                quantity DECIMAL(10, 2) NOT NULL DEFAULT 1.00,
+                unit_price DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                gross_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                discount_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                net_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                direct_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                inventory_item_id VARCHAR(36) NULL,
+                inventory_qty_used DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+                payment_mode ENUM("cash", "pos", "transfer", "split") NOT NULL DEFAULT "cash",
+                cash_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                pos_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                transfer_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                pos_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                pos_rrn VARCHAR(100) NULL,
+                bank_reference VARCHAR(120) NULL,
+                attendant_user_id VARCHAR(36) NULL,
+                attendant_name VARCHAR(191) NULL,
+                status ENUM("completed", "voided", "refunded") NOT NULL DEFAULT "completed",
+                void_reason TEXT NULL,
+                voided_by VARCHAR(36) NULL,
+                voided_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_aps_date (sale_date, status),
+                INDEX idx_aps_cat (service_category),
+                INDEX idx_aps_staff (attendant_user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'accounting_expenses_income' => 'CREATE TABLE IF NOT EXISTS accounting_expenses_income (
+                id VARCHAR(36) PRIMARY KEY,
+                voucher_number VARCHAR(64) NOT NULL UNIQUE,
+                record_type ENUM("expense", "other_income") NOT NULL,
+                entry_date DATE NOT NULL,
+                occurred_at DATETIME NOT NULL,
+                category VARCHAR(64) NOT NULL,
+                title VARCHAR(191) NOT NULL,
+                description TEXT NULL,
+                party_name VARCHAR(191) NULL,
+                amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                fee_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                payment_method ENUM("cash", "pos", "bank_transfer", "wallet", "other") NOT NULL DEFAULT "cash",
+                account_code VARCHAR(50) NULL,
+                reference VARCHAR(120) NULL,
+                attachment_note VARCHAR(255) NULL,
+                recorded_by VARCHAR(36) NULL,
+                recorded_by_name VARCHAR(191) NULL,
+                status ENUM("active", "voided") NOT NULL DEFAULT "active",
+                void_reason TEXT NULL,
+                voided_by VARCHAR(36) NULL,
+                voided_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_aei_date (entry_date, record_type, status),
+                INDEX idx_aei_cat (category)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'accounting_inventory_items' => 'CREATE TABLE IF NOT EXISTS accounting_inventory_items (
+                id VARCHAR(36) PRIMARY KEY,
+                sku VARCHAR(64) NOT NULL UNIQUE,
+                name VARCHAR(191) NOT NULL,
+                category VARCHAR(64) NOT NULL DEFAULT "consumable",
+                unit_label VARCHAR(40) NOT NULL DEFAULT "pcs",
+                current_stock DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+                reorder_level DECIMAL(12, 2) NOT NULL DEFAULT 5.00,
+                average_unit_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                default_selling_price DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                supplier_name VARCHAR(191) NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                notes TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_aii_active (is_active, category)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'accounting_inventory_movements' => 'CREATE TABLE IF NOT EXISTS accounting_inventory_movements (
+                id VARCHAR(36) PRIMARY KEY,
+                item_id VARCHAR(36) NOT NULL,
+                movement_type ENUM("purchase", "sale_deduction", "usage", "adjustment_in", "adjustment_out", "wastage") NOT NULL,
+                quantity_delta DECIMAL(12, 2) NOT NULL,
+                unit_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                total_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                selling_total DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                stock_before DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+                stock_after DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
+                payment_method VARCHAR(32) NULL,
+                account_code VARCHAR(50) NULL,
+                supplier_name VARCHAR(191) NULL,
+                reference VARCHAR(120) NULL,
+                notes TEXT NULL,
+                recorded_by VARCHAR(36) NULL,
+                recorded_by_name VARCHAR(191) NULL,
+                entry_date DATE NOT NULL,
+                occurred_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_aim_item (item_id, entry_date),
+                INDEX idx_aim_type (movement_type, entry_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'accounting_reconciliations' => 'CREATE TABLE IF NOT EXISTS accounting_reconciliations (
+                id VARCHAR(36) PRIMARY KEY,
+                reconcile_number VARCHAR(64) NOT NULL UNIQUE,
+                reconcile_date DATE NOT NULL,
+                account_code VARCHAR(50) NOT NULL,
+                channel_name VARCHAR(100) NOT NULL,
+                opening_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                expected_inflow DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                expected_outflow DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                expected_fees DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                expected_closing DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                actual_counted DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                variance_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                status ENUM("balanced", "shortage", "surplus", "pending_review", "approved") NOT NULL DEFAULT "balanced",
+                notes TEXT NULL,
+                submitted_by VARCHAR(36) NULL,
+                submitted_by_name VARCHAR(191) NULL,
+                approved_by VARCHAR(36) NULL,
+                approved_by_name VARCHAR(191) NULL,
+                approved_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_ar_date_acc (reconcile_date, account_code)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'accounting_report_logs' => 'CREATE TABLE IF NOT EXISTS accounting_report_logs (
+                id VARCHAR(36) PRIMARY KEY,
+                report_key VARCHAR(120) NOT NULL UNIQUE,
+                report_type ENUM("daily_midday", "manual_preview", "manual_send") NOT NULL DEFAULT "daily_midday",
+                lagos_report_date DATE NOT NULL,
+                prev_day_date DATE NOT NULL,
+                cutoff_time_lagos VARCHAR(20) NOT NULL DEFAULT "11:59:59",
+                recipients TEXT NOT NULL,
+                status ENUM("sent", "failed", "skipped") NOT NULL DEFAULT "sent",
+                error_message TEXT NULL,
+                summary_snapshot JSON NULL,
+                triggered_by VARCHAR(64) NOT NULL DEFAULT "cron",
+                sent_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_arl_date (lagos_report_date, report_type)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+        ];
+
+        foreach ($tables as $name => $ddl) {
+            try {
+                $db->execute($ddl);
+                $applied[] = "table:{$name}";
+            } catch (Throwable $e) {
+                $errors[] = "table:{$name} => " . $e->getMessage();
+            }
+        }
+
+        // Seed standard operating accounts idempotently
+        $defaultAccounts = [
+            ['acc_cash_drawer', 'CASH_DRAWER', 'Physical Office Cash Drawer', 'cash', 'Office Safe / Till', 'CASH-01'],
+            ['acc_pos_terminal', 'POS_TERMINAL', 'Office POS Terminal', 'pos', 'Moniepoint / OPay POS', 'POS-01'],
+            ['acc_bank_main', 'BANK_MAIN', 'HambakTech Business Bank Account', 'bank', 'Moniepoint MFB', '8147837664'],
+            ['acc_paystack', 'GATEWAY_PAYSTACK', 'Paystack Online Settlement', 'gateway', 'Paystack', 'PAYSTACK'],
+            ['acc_flutterwave', 'GATEWAY_FLUTTERWAVE', 'Flutterwave Online Settlement', 'gateway', 'Flutterwave', 'FLUTTERWAVE'],
+            ['acc_wallet_liab', 'LIABILITY_CUSTOMER_WALLETS', 'Customer Wallet Liabilities Pool', 'liability', 'Platform Wallets', 'LIAB-WALLET'],
+        ];
+        foreach ($defaultAccounts as $acc) {
+            try {
+                $db->execute(
+                    'INSERT IGNORE INTO accounting_accounts
+                     (id, account_code, account_name, account_type, bank_name, account_number, opening_balance, opening_date, is_active)
+                     VALUES (?, ?, ?, ?, ?, ?, 0.00, "2026-01-01", 1)',
+                    $acc
+                );
+            } catch (Throwable) {
+            }
+        }
+
+        // Seed default accounting configuration without overwriting admin changes
+        try {
+            $adminEmail = 'admin@hambaktech.com.ng';
+            try {
+                $genRow = $db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key IN ("general_settings", "admin_notification_email") LIMIT 1');
+                if ($genRow && !empty($genRow['setting_value'])) {
+                    $decodedGen = json_decode((string)$genRow['setting_value'], true);
+                    if (is_array($decodedGen) && !empty($decodedGen['admin_notification_email'])) {
+                        $adminEmail = (string)$decodedGen['admin_notification_email'];
+                    } elseif (filter_var($genRow['setting_value'], FILTER_VALIDATE_EMAIL)) {
+                        $adminEmail = (string)$genRow['setting_value'];
+                    }
+                }
+            } catch (Throwable) {
+            }
+
+            $defaultAccountingConfig = [
+                'business_currency' => 'NGN',
+                'timezone' => 'Africa/Lagos',
+                'daily_email_enabled' => true,
+                'daily_email_hour_lagos' => 12,
+                'daily_email_minute_lagos' => 0,
+                'daily_email_cutoff_time' => '11:59',
+                'daily_email_recipients' => [$adminEmail],
+                'report_sections' => [
+                    'executive_kpis' => true,
+                    'previous_day_final' => true,
+                    'today_morning_midday' => true,
+                    'website_service_breakdown' => true,
+                    'physical_business_sales' => true,
+                    'wallet_liability_summary' => true,
+                    'expenses_and_other_income' => true,
+                    'cash_pos_bank_reconciliation' => true,
+                    'low_stock_alerts' => true,
+                    'refunds_and_exceptions' => true,
+                ],
+                'pos_fee_percent' => 0.50,
+                'pos_fee_cap' => 100.00,
+                'paystack_fee_percent' => 1.50,
+                'paystack_flat_fee' => 100.00,
+                'paystack_flat_threshold' => 2500.00,
+                'paystack_fee_cap' => 2000.00,
+                'flutterwave_fee_percent' => 1.40,
+                'flutterwave_fee_cap' => 2000.00,
+                'low_stock_alert_default' => 5,
+                'variance_alert_threshold' => 500.00,
+                'restrict_reversals_to_superadmin' => true,
+                'restrict_config_to_superadmin' => true,
+                'exclude_internal_admin_wallets_from_liability' => true,
+                'auto_sync_on_dashboard_load' => true,
+                'cron_secret_token' => bin2hex(random_bytes(16)),
+            ];
+
+            $db->execute(
+                'INSERT IGNORE INTO system_settings (id, setting_key, setting_value, category, description, updated_at)
+                 VALUES (:id, "accounting_settings", :val, "accounting", "HAMBAKTECH Integrated Business Management & Accounting Configuration", NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'val' => json_encode($defaultAccountingConfig, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                ]
+            );
+        } catch (Throwable $e) {
+            $errors[] = 'setting:accounting_settings => ' . $e->getMessage();
         }
 
         return ['applied' => $applied, 'errors' => $errors];

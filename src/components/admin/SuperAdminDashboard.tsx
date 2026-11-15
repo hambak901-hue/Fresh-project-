@@ -56,6 +56,14 @@ import {
   Gift,
   Banknote,
   Fingerprint,
+  TrendingUp,
+  Receipt,
+  Store,
+  Boxes,
+  Scale,
+  BookOpen,
+  BarChart2,
+  Settings,
 } from 'lucide-react';
 
 // Admin child views
@@ -86,6 +94,10 @@ import { EnrolmentManagement } from './EnrolmentManagement';
 import { AdminReferralCentre } from './AdminReferralCentre';
 import { AdminWithdrawalCentre } from './AdminWithdrawalCentre';
 import { AdminSecurityPinManagement } from './AdminSecurityPinManagement';
+import {
+  BusinessManagementAccounting,
+  AccountingModuleKey,
+} from './accounting/BusinessManagementAccounting';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
@@ -118,7 +130,18 @@ export type AdminTabKey =
   | 'staff'
   | 'kyc_admin'
   | 'security_admin'
-  | 'audit';
+  | 'audit'
+  | 'acc_overview'
+  | 'acc_website'
+  | 'acc_liabilities'
+  | 'acc_expenses_income'
+  | 'acc_physical_sales'
+  | 'acc_inventory'
+  | 'acc_reconciliation'
+  | 'acc_ledger'
+  | 'acc_analytics'
+  | 'acc_daily_report'
+  | 'acc_config';
 
 interface AdminNavItem {
   id: AdminTabKey;
@@ -126,6 +149,7 @@ interface AdminNavItem {
   icon: React.FC<{ className?: string }>;
   badge?: string;
   permission?: string;
+  permissionsAny?: string[];
   superAdminOnly?: boolean;
 }
 
@@ -639,9 +663,12 @@ export function SuperAdminDashboard({
 
   const isSuperAdmin = user.role === 'superadmin';
   const userPermissions = Array.isArray(user.permissions) ? user.permissions : [];
-  const hasPermission = (perm?: string, superAdminOnly?: boolean): boolean => {
-    if (isSuperAdmin) return true;
+  const hasPermission = (perm?: string, superAdminOnly?: boolean, permissionsAny?: string[]): boolean => {
+    if (isSuperAdmin || userPermissions.includes('*')) return true;
     if (superAdminOnly) return false;
+    if (permissionsAny && permissionsAny.length > 0) {
+      return permissionsAny.some(p => userPermissions.includes(p));
+    }
     if (!perm) return true;
     return userPermissions.includes(perm);
   };
@@ -655,6 +682,22 @@ export function SuperAdminDashboard({
         { id: 'funding', label: '3. Funding Approvals', icon: Clock, badge: 'Manual', permission: 'wallet' },
         { id: 'support_admin', label: 'Support Centre', icon: LifeBuoy, badge: 'Stage 8', permission: 'support' },
         { id: 'reports_admin', label: 'Reports & Analytics (12)', icon: BarChart3, badge: '12 Reports', permission: 'reports' },
+      ],
+    },
+    {
+      title: 'Business Management & Accounting',
+      items: [
+        { id: 'acc_overview', label: '1. Financial Overview', icon: TrendingUp, badge: 'WAT', permissionsAny: ['accounting', 'reports'] },
+        { id: 'acc_website', label: '2. Website Accounting', icon: Globe, permission: 'accounting' },
+        { id: 'acc_liabilities', label: '3. Wallet Liabilities', icon: Wallet, permissionsAny: ['accounting', 'wallet'] },
+        { id: 'acc_expenses_income', label: '4. Income & Expenses', icon: Receipt, permissionsAny: ['accounting', 'accounting_physical'] },
+        { id: 'acc_physical_sales', label: '5. Physical Counter Sales', icon: Store, badge: 'POS', permissionsAny: ['accounting', 'accounting_physical'] },
+        { id: 'acc_inventory', label: '6. Inventory & Purchases', icon: Boxes, permissionsAny: ['accounting', 'accounting_physical', 'accounting_reconcile'] },
+        { id: 'acc_reconciliation', label: '7. Cash / POS / Bank Recon', icon: Scale, permissionsAny: ['accounting', 'accounting_reconcile'] },
+        { id: 'acc_ledger', label: '8. Accounting Ledger', icon: BookOpen, permissionsAny: ['accounting', 'accounting_reconcile'] },
+        { id: 'acc_analytics', label: '9. Business Analytics', icon: BarChart2, permissionsAny: ['accounting', 'reports'] },
+        { id: 'acc_daily_report', label: '10. Daily Email Report', icon: Mail, badge: '12 PM', permissionsAny: ['accounting', 'accounting_config'] },
+        { id: 'acc_config', label: '11. Accounting Config', icon: Settings, permissionsAny: ['accounting', 'accounting_config'] },
       ],
     },
     {
@@ -702,7 +745,7 @@ export function SuperAdminDashboard({
   const navSections: AdminNavSection[] = allNavSections
     .map(section => ({
       ...section,
-      items: section.items.filter(item => hasPermission(item.permission, item.superAdminOnly)),
+      items: section.items.filter(item => hasPermission(item.permission, item.superAdminOnly, item.permissionsAny)),
     }))
     .filter(section => section.items.length > 0);
 
@@ -951,6 +994,13 @@ export function SuperAdminDashboard({
             {safeActiveTab === 'security_admin' && <AdminSecurityPinManagement />}
 
             {safeActiveTab === 'audit' && <AuditLogsViewer />}
+
+            {safeActiveTab.startsWith('acc_') && (
+              <BusinessManagementAccounting
+                activeModule={safeActiveTab.replace(/^acc_/, '') as AccountingModuleKey}
+                onSelectModule={mod => setActiveTab(`acc_${mod}` as AdminTabKey)}
+              />
+            )}
           </AdminErrorBoundary>
         </main>
       </div>

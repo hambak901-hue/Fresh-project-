@@ -3629,7 +3629,7 @@ class AdminController
             return;
         }
 
-        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff'];
+        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
         $cleanPerms = ['customers', 'wallet', 'kyc', 'support', 'reports'];
         if (is_array($rawPerms)) {
             $filtered = array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
@@ -3764,7 +3764,7 @@ class AdminController
         $rawPerms = $body['permissions'] ?? ($body['assigned_permissions'] ?? null);
         $cleanPerms = null;
         if (is_array($rawPerms)) {
-            $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff'];
+            $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
             $effectiveRole = $paramsDb['r'] ?? $existing['role'];
             $cleanPerms = ($effectiveRole === 'superadmin')
                 ? ['*']
