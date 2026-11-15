@@ -36,6 +36,49 @@ class WalletController
         $this->flutterwave = new FlutterwaveAdapter();
     }
 
+    private function getWalletPolicy(): array
+    {
+        $walletCfg = [
+            'min_funding_amount' => 100.0,
+            'max_funding_amount' => 500000.0,
+            'manual_funding_enabled' => true,
+            'bank_name' => 'Moniepoint MFB',
+            'bank_account_number' => '5210471634',
+            'bank_account_name' => 'Hambaktech_Services',
+        ];
+        $gwCfg = [
+            'active_gateway' => 'paystack',
+            'enable_paystack' => true,
+            'enable_flutterwave' => true,
+            'enable_bank_transfer' => true,
+        ];
+        try {
+            $rows = $this->db->fetchAll(
+                'SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("wallet_settings","payment_gateways_settings","bank_transfer_bank","bank_transfer_account_number","bank_transfer_account_name","active_payment_gateway")'
+            );
+            $kv = [];
+            foreach ($rows as $r) {
+                $kv[$r['setting_key']] = $r['setting_value'];
+            }
+            if (!empty($kv['wallet_settings'])) {
+                $dec = json_decode((string)$kv['wallet_settings'], true);
+                if (is_array($dec)) $walletCfg = array_merge($walletCfg, $dec);
+            }
+            if (!empty($kv['payment_gateways_settings'])) {
+                $dec = json_decode((string)$kv['payment_gateways_settings'], true);
+                if (is_array($dec)) $gwCfg = array_merge($gwCfg, $dec);
+            }
+            if (!empty($kv['bank_transfer_bank'])) $walletCfg['bank_name'] = (string)$kv['bank_transfer_bank'];
+            if (!empty($kv['bank_transfer_account_number'])) $walletCfg['bank_account_number'] = (string)$kv['bank_transfer_account_number'];
+            if (!empty($kv['bank_transfer_account_name'])) $walletCfg['bank_account_name'] = (string)$kv['bank_transfer_account_name'];
+            if (!empty($kv['active_payment_gateway'])) $gwCfg['active_gateway'] = (string)$kv['active_payment_gateway'];
+        } catch (Throwable) {
+        }
+        $walletCfg['min_funding_amount'] = max(100.0, (float)$walletCfg['min_funding_amount']);
+        $walletCfg['max_funding_amount'] = max($walletCfg['min_funding_amount'], (float)$walletCfg['max_funding_amount']);
+        return ['wallet' => $walletCfg, 'gateways' => $gwCfg];
+    }
+
     /**
      * 1. GET /api/wallet/summary
      */
@@ -43,14 +86,10 @@ class WalletController
     {
         $user = Auth::requireAuth($request);
         $summary = $this->walletService->getSummary($user['id']);
-
-        // Fetch dynamic bank transfer settings configured by administrator
-        $bankNameSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_bank"');
-        $accountNumSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_number"');
-        $accountNameSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_name"');
-        $activeGatewaySetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_payment_gateway"');
-
-        $activeGateway = $activeGatewaySetting['setting_value'] ?? 'paystack';
+        $policy = $this->getWalletPolicy();
+        $wCfg = $policy['wallet'];
+        $gCfg = $policy['gateways'];
+        $activeGateway = strtolower((string)($gCfg['active_gateway'] ?? 'paystack'));
 
         // Fetch recent transactions
         $recentTxns = $this->db->fetchAll(
@@ -78,24 +117,28 @@ class WalletController
             }
         }
 
+        $paystackActive = (bool)($gCfg['enable_paystack'] ?? true);
+        $flwActive = (bool)($gCfg['enable_flutterwave'] ?? true);
+        $manualActive = (bool)($wCfg['manual_funding_enabled'] ?? true) && (bool)($gCfg['enable_bank_transfer'] ?? true);
+
         $availableGateways = [
             [
                 'id' => 'paystack',
                 'name' => 'Paystack Merchant Checkout',
-                'status' => 'active',
-                'is_active' => ($activeGateway === 'paystack'),
+                'status' => $paystackActive ? 'active' : 'disabled',
+                'is_active' => ($activeGateway === 'paystack' && $paystackActive),
             ],
             [
                 'id' => 'flutterwave',
                 'name' => 'Flutterwave Enterprise Gateway',
-                'status' => 'active',
-                'is_active' => ($activeGateway === 'flutterwave'),
+                'status' => $flwActive ? 'active' : 'disabled',
+                'is_active' => ($activeGateway === 'flutterwave' && $flwActive),
             ],
             [
                 'id' => 'manual',
-                'name' => 'Direct Moniepoint Bank Transfer',
-                'status' => 'active',
-                'is_active' => ($activeGateway === 'manual'),
+                'name' => 'Direct Bank Transfer',
+                'status' => $manualActive ? 'active' : 'disabled',
+                'is_active' => ($activeGateway === 'manual' && $manualActive),
             ],
         ];
 
@@ -111,10 +154,14 @@ class WalletController
             'recentTransactions' => $recentTxns,
             'activeGateway' => $activeGateway,
             'availableGateways' => $availableGateways,
+            'fundingLimits' => [
+                'min_amount' => (float)$wCfg['min_funding_amount'],
+                'max_amount' => (float)$wCfg['max_funding_amount'],
+            ],
             'bankDetails' => [
-                'bank' => $bankNameSetting['setting_value'] ?? 'Moniepoint MFB',
-                'accountNumber' => $accountNumSetting['setting_value'] ?? '5210471634',
-                'accountName' => $accountNameSetting['setting_value'] ?? 'Hambaktech_Services',
+                'bank' => (string)($wCfg['bank_name'] ?? 'Moniepoint MFB'),
+                'accountNumber' => (string)($wCfg['bank_account_number'] ?? '5210471634'),
+                'accountName' => (string)($wCfg['bank_account_name'] ?? 'Hambaktech_Services'),
             ],
         ]);
     }
@@ -124,8 +171,13 @@ class WalletController
      */
     public function gateways(Request $request): void
     {
-        $activeGatewaySetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_payment_gateway"');
-        $activeGateway = $activeGatewaySetting['setting_value'] ?? 'paystack';
+        $policy = $this->getWalletPolicy();
+        $wCfg = $policy['wallet'];
+        $gCfg = $policy['gateways'];
+        $activeGateway = strtolower((string)($gCfg['active_gateway'] ?? 'paystack'));
+        $paystackActive = (bool)($gCfg['enable_paystack'] ?? true);
+        $flwActive = (bool)($gCfg['enable_flutterwave'] ?? true);
+        $manualActive = (bool)($wCfg['manual_funding_enabled'] ?? true) && (bool)($gCfg['enable_bank_transfer'] ?? true);
 
         Response::success([
             'activeGateway' => $activeGateway,
@@ -133,20 +185,20 @@ class WalletController
                 [
                     'id' => 'paystack',
                     'name' => 'Paystack Gateway',
-                    'status' => 'active',
-                    'is_active' => ($activeGateway === 'paystack'),
+                    'status' => $paystackActive ? 'active' : 'disabled',
+                    'is_active' => ($activeGateway === 'paystack' && $paystackActive),
                 ],
                 [
                     'id' => 'flutterwave',
                     'name' => 'Flutterwave Gateway',
-                    'status' => 'active',
-                    'is_active' => ($activeGateway === 'flutterwave'),
+                    'status' => $flwActive ? 'active' : 'disabled',
+                    'is_active' => ($activeGateway === 'flutterwave' && $flwActive),
                 ],
                 [
                     'id' => 'manual',
-                    'name' => 'Moniepoint Bank Transfer',
-                    'status' => 'active',
-                    'is_active' => ($activeGateway === 'manual'),
+                    'name' => 'Bank Transfer',
+                    'status' => $manualActive ? 'active' : 'disabled',
+                    'is_active' => ($activeGateway === 'manual' && $manualActive),
                 ]
             ],
         ]);
@@ -189,8 +241,23 @@ class WalletController
         $callbackUrl = (string)$request->input('callback_url', 'https://hambaktech.com.ng/dashboard?payment=verify');
         $amount = (float)$request->input('amount', 0);
 
-        if ($amount < 100) {
-            Response::error('Minimum wallet funding amount is ₦100.00.', 422);
+        $policy = $this->getWalletPolicy();
+        $minAmt = (float)$policy['wallet']['min_funding_amount'];
+        $maxAmt = (float)$policy['wallet']['max_funding_amount'];
+        $gCfg = $policy['gateways'];
+
+        if ($gateway === 'flutterwave' && empty($gCfg['enable_flutterwave'])) {
+            Response::error('Flutterwave checkout is currently disabled by administrator settings.', 403);
+        }
+        if ($gateway === 'paystack' && array_key_exists('enable_paystack', $gCfg) && empty($gCfg['enable_paystack'])) {
+            Response::error('Paystack checkout is currently disabled by administrator settings.', 403);
+        }
+
+        if ($amount < $minAmt) {
+            Response::error('Minimum wallet funding amount is ₦' . number_format($minAmt, 2) . '.', 422);
+        }
+        if ($amount > $maxAmt) {
+            Response::error('Maximum single wallet funding amount is ₦' . number_format($maxAmt, 2) . '.', 422);
         }
 
         $refPrefix = ($gateway === 'flutterwave') ? 'FLW_FUND_' : 'PAY_';
@@ -569,17 +636,29 @@ class WalletController
     public function manualFunding(Request $request): void
     {
         $user = Auth::requireAuth($request);
+        $policy = $this->getWalletPolicy();
+        $wCfg = $policy['wallet'];
+        $gCfg = $policy['gateways'];
+        if (empty($wCfg['manual_funding_enabled']) || (array_key_exists('enable_bank_transfer', $gCfg) && empty($gCfg['enable_bank_transfer']))) {
+            Response::error('Manual bank transfer deposits are currently disabled by administrators.', 403);
+        }
+
         $amount = (float)$request->input('amount', 0);
         $depositorName = trim((string)($request->input('depositor_name') ?? $request->input('sender_name', $user['full_name'])));
-        $bankName = trim((string)($request->input('bank_name', 'Moniepoint MFB')));
-        $accountNumber = trim((string)($request->input('account_number', '5210471634')));
+        $bankName = trim((string)($request->input('bank_name') ?: ($wCfg['bank_name'] ?? 'Moniepoint MFB')));
+        $accountNumber = trim((string)($request->input('account_number') ?: ($wCfg['bank_account_number'] ?? '5210471634')));
         $paymentRef = trim((string)($request->input('reference') ?? $request->input('payment_reference', '')));
         $paymentDate = (string)($request->input('payment_date', date('Y-m-d')));
         $paymentMethod = (string)($request->input('payment_method', 'Bank Transfer'));
         $remarks = trim((string)($request->input('remarks', 'Manual bank deposit')));
 
-        if ($amount < 500) {
-            Response::error('Minimum manual funding amount is ₦500.00.', 422);
+        $minManual = max(500.0, (float)$wCfg['min_funding_amount']);
+        $maxManual = (float)$wCfg['max_funding_amount'];
+        if ($amount < $minManual) {
+            Response::error('Minimum manual funding amount is ₦' . number_format($minManual, 2) . '.', 422);
+        }
+        if ($amount > $maxManual) {
+            Response::error('Maximum manual funding amount is ₦' . number_format($maxManual, 2) . '.', 422);
         }
 
         if (empty($paymentRef)) {

@@ -719,7 +719,18 @@ class AdminController
         }
 
         try {
+            $txRow = $this->db->fetchOne('SELECT id, type, reference, category FROM transactions WHERE id = :id LIMIT 1', ['id' => $txId]);
             $res = $this->walletService->reverseTransaction($txId, $admin['id'], $reason);
+            if ($txRow && ($txRow['type'] ?? '') === 'debit' && !empty($txRow['reference'])) {
+                try {
+                    (new ReferralEngineService($this->db))->reverseRewardsForSource(
+                        (string)$txRow['reference'],
+                        'Admin transaction reversal: ' . $reason,
+                        (string)$admin['id']
+                    );
+                } catch (Throwable) {
+                }
+            }
             Response::success($res, 'Transaction reversed and ledger updated successfully.');
         } catch (Throwable $e) {
             Response::error($e->getMessage(), 400);
@@ -3598,7 +3609,7 @@ class AdminController
         $fullName = trim((string)$request->input('full_name', ''));
         $email = trim(strtolower((string)$request->input('email', '')));
         $password = (string)$request->input('password', '');
-        $phone = trim((string)$request->input('phone_number', '+2348000000000'));
+        $phone = trim((string)$request->input('phone_number', '')) ?: '+2348000000000';
         $role = strtolower(trim((string)$request->input('role', 'admin')));
         $rawPerms = $request->input('permissions', $request->input('assigned_permissions', null));
 
@@ -3701,6 +3712,24 @@ class AdminController
             (isset($body['role']) && $body['role'] !== 'superadmin')
         )) {
             Response::forbidden('You cannot demote or suspend your own active Super Admin account.');
+        }
+
+        if ($id === 'usr_superadmin' && $super['id'] !== 'usr_superadmin') {
+            Response::forbidden('Only the primary Super Admin account can modify its own profile.');
+        }
+
+        if ($existing['role'] === 'superadmin' && $id !== $super['id'] && $super['id'] !== 'usr_superadmin') {
+            Response::forbidden('Only the primary Super Admin can modify another Super Admin account.');
+        }
+
+        if (($existing['role'] ?? '') === 'superadmin' && (
+            (isset($body['status']) && $body['status'] === 'suspended') ||
+            (isset($body['role']) && $body['role'] !== 'superadmin')
+        )) {
+            $activeSupers = $this->db->fetchOne('SELECT COUNT(*) AS cnt FROM users WHERE role = "superadmin" AND status = "active" AND id != :id', ['id' => $id]);
+            if ((int)($activeSupers['cnt'] ?? 0) < 1) {
+                Response::forbidden('At least one active Super Admin account must remain on the platform.');
+            }
         }
 
         $updates = [];

@@ -59,6 +59,7 @@ const TRIGGER_MODES = [
   { value: 'signup_verified', label: 'Upon Verified Account Signup' },
   { value: 'first_qualifying_transaction', label: 'First Qualifying Transaction Only' },
   { value: 'every_qualifying_transaction', label: 'Every Qualifying Transaction (Up to Cap)' },
+  { value: 'up_to_n_tx', label: 'Up to N Qualifying Transactions per Referee' },
 ];
 
 export function AdminReferralCentre() {

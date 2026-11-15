@@ -110,59 +110,53 @@ class SettingsController
             ],
 
             // 7. Admin dashboard settings
-            'admin_dashboard' => $settingsMap['admin_dashboard_settings'] ?? [
+            'admin_dashboard' => array_merge([
                 'require_2fa_for_root' => false,
                 'session_timeout_minutes' => 60,
                 'audit_log_retention_days' => 90,
                 'auto_refresh_interval_sec' => 30,
-            ],
+            ], is_array($settingsMap['admin_dashboard_settings'] ?? null) ? $settingsMap['admin_dashboard_settings'] : []),
 
             // 8. Authentication
-            'auth' => $settingsMap['auth_settings'] ?? [
+            'auth' => array_merge([
                 'allow_customer_registration' => true,
                 'require_email_verification' => false,
                 'min_password_length' => 8,
                 'max_failed_attempts' => 5,
                 'lockout_duration_minutes' => 15,
-            ],
+            ], is_array($settingsMap['auth_settings'] ?? null) ? $settingsMap['auth_settings'] : []),
 
             // 9. Security
-            'security' => $settingsMap['security_settings'] ?? [
-                'enforce_transaction_pin' => true,
-                'pin_max_attempts' => 3,
-                'pin_lockout_minutes' => 15,
-                'jwt_expiry_days' => 7,
-                'ip_rate_limiting_enabled' => true,
-            ],
+            'security' => Auth::getSecuritySettings(),
 
             // 10. KYC
-            'kyc' => $settingsMap['kyc_settings'] ?? [
+            'kyc' => array_merge([
                 'tier1_daily_limit' => 20000,
                 'tier2_daily_limit' => 100000,
                 'tier3_daily_limit' => 1000000,
                 'auto_approval_enabled' => true,
                 'require_proof_of_address_for_tier3' => true,
-            ],
+            ], is_array($settingsMap['kyc_settings'] ?? null) ? $settingsMap['kyc_settings'] : []),
 
             // 11. Wallet
-            'wallet' => $settingsMap['wallet_settings'] ?? [
+            'wallet' => array_merge([
                 'min_funding_amount' => 100,
                 'max_funding_amount' => 500000,
                 'manual_funding_enabled' => true,
                 'bank_name' => 'Moniepoint MFB',
                 'bank_account_number' => '5210471634',
                 'bank_account_name' => 'Hambaktech_Services',
-            ],
+            ], is_array($settingsMap['wallet_settings'] ?? null) ? $settingsMap['wallet_settings'] : []),
 
             // 12. Payment gateways
-            'payment_gateways' => $settingsMap['payment_gateways_settings'] ?? [
+            'payment_gateways' => array_merge([
                 'active_gateway' => 'paystack',
                 'enable_paystack' => true,
                 'enable_flutterwave' => false,
                 'enable_bank_transfer' => true,
                 'paystack_charge_percent' => 1.5,
                 'flutterwave_charge_percent' => 1.4,
-            ],
+            ], is_array($settingsMap['payment_gateways_settings'] ?? null) ? $settingsMap['payment_gateways_settings'] : []),
 
             // 13. Provider integration
             'provider_integration' => (function () use ($settingsMap) {
@@ -362,8 +356,10 @@ class SettingsController
         } elseif ($category === 'referral') {
             $curRef = (new ReferralEngineService($this->db))->getConfig();
             $settingsData = array_merge($curRef, $settingsData);
+            $settingsData['trigger_mode'] = ReferralEngineService::normalizeTriggerMode((string)($settingsData['trigger_mode'] ?? 'first_qualifying_transaction'));
             $settingsData['min_withdrawal_naira'] = max(500.0, (float)($settingsData['min_withdrawal_naira'] ?? 2000));
             $settingsData['max_withdrawal_naira'] = max((float)$settingsData['min_withdrawal_naira'], (float)($settingsData['max_withdrawal_naira'] ?? 100000));
+            $settingsData['max_rewards_per_referee'] = max(1, min(100, (int)($settingsData['max_rewards_per_referee'] ?? 1)));
         }
 
         $settingKey = $category . '_settings';

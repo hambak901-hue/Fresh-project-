@@ -88,7 +88,7 @@ export function StaffPermissionsManagement() {
       const res = await api.createStaffAccount({
         full_name: fullName,
         email,
-        phone_number: phone,
+        phone_number: phone.trim() || '+2348000000000',
         password,
         role,
         permissions: selectedPermissions,
@@ -97,6 +97,7 @@ export function StaffPermissionsManagement() {
       setCreateModalOpen(false);
       setFullName('');
       setEmail('');
+      setPhone('');
       setPassword('');
       await fetchStaff();
     } catch (err: any) {
@@ -349,13 +350,23 @@ export function StaffPermissionsManagement() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
-                <label className="text-slate-400">Initial Password</label>
+                <label className="text-slate-400">Staff Phone Number</label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="e.g. 08031234567"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-slate-400">Initial Password (min 8 chars)</label>
                 <input
                   type="password"
                   required
-                  minLength={6}
+                  minLength={8}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"

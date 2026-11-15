@@ -45,6 +45,18 @@ class ReferralEngineService
         return $digits;
     }
 
+    public static function normalizeTriggerMode(string $mode): string
+    {
+        $m = strtolower(trim($mode));
+        return match ($m) {
+            'signup_verified' => 'signup_verified',
+            'first_qualifying_tx', 'first_qualifying_transaction' => 'first_qualifying_transaction',
+            'every_qualifying_tx', 'every_qualifying_transaction' => 'every_qualifying_transaction',
+            'up_to_n_tx' => 'up_to_n_tx',
+            default => 'first_qualifying_transaction',
+        };
+    }
+
     public function getConfig(): array
     {
         $defaults = [
@@ -132,6 +144,7 @@ class ReferralEngineService
         $defaults['max_withdrawal_naira'] = max((float)$defaults['min_withdrawal_naira'], (float)$defaults['max_withdrawal_naira']);
         $defaults['daily_withdrawal_limit_naira'] = max((float)$defaults['max_withdrawal_naira'], (float)$defaults['daily_withdrawal_limit_naira']);
         $defaults['withdrawal_fee_value'] = max(0.0, (float)$defaults['withdrawal_fee_value']);
+        $defaults['trigger_mode'] = self::normalizeTriggerMode((string)($defaults['trigger_mode'] ?? 'first_qualifying_transaction'));
         $defaults['max_signups_per_ip_24h'] = max(1, min(25, (int)$defaults['max_signups_per_ip_24h']));
 
         return $defaults;
@@ -420,7 +433,14 @@ class ReferralEngineService
 
         // Service eligibility & minimum spend
         if (!$isSignupEvent) {
-            if (empty($cfg['qualifying_services'][$category])) {
+            $catAliases = [
+                'nin_enrolment' => 'enrolment',
+                'nin_mod' => 'nin_modification',
+                'bvn_mod' => 'bvn_modification',
+            ];
+            $mappedCat = $catAliases[$category] ?? $category;
+            $isServiceEligible = !empty($cfg['qualifying_services'][$category]) || !empty($cfg['qualifying_services'][$mappedCat]);
+            if (!$isServiceEligible) {
                 return ['awarded' => false, 'reason' => 'service_not_eligible'];
             }
             if ($gross < (float)$cfg['min_qualifying_spend']) {
@@ -434,10 +454,17 @@ class ReferralEngineService
             ['duid' => $referredUserId]
         );
         $priorAwards = (int)($awardedCountRow['cnt'] ?? 0);
-        if ($cfg['trigger_mode'] === 'first_qualifying_transaction' && $priorAwards >= 1) {
+        $trigMode = self::normalizeTriggerMode((string)($cfg['trigger_mode'] ?? 'first_qualifying_transaction'));
+        if ($trigMode === 'first_qualifying_transaction' && $priorAwards >= 1) {
             return ['awarded' => false, 'reason' => 'first_transaction_already_rewarded'];
         }
-        if ($priorAwards >= (int)$cfg['max_rewards_per_referee']) {
+        if ($trigMode === 'signup_verified' && !$isSignupEvent && $priorAwards >= 1) {
+            return ['awarded' => false, 'reason' => 'signup_bonus_already_awarded'];
+        }
+        if ($trigMode === 'up_to_n_tx' && $priorAwards >= max(1, (int)$cfg['max_rewards_per_referee'])) {
+            return ['awarded' => false, 'reason' => 'max_rewards_per_referee_reached'];
+        }
+        if ($trigMode === 'every_qualifying_transaction' && (int)$cfg['max_rewards_per_referee'] > 1 && $priorAwards >= (int)$cfg['max_rewards_per_referee']) {
             return ['awarded' => false, 'reason' => 'max_rewards_per_referee_reached'];
         }
 

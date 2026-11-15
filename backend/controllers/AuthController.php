@@ -281,6 +281,27 @@ class AuthController
 
     public function register(Request $request): void
     {
+        $authCfg = [];
+        $webCfg = [];
+        try {
+            $rows = $this->db->fetchAll('SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("auth_settings", "website_settings")');
+            foreach ($rows as $sr) {
+                $dec = json_decode((string)$sr['setting_value'], true);
+                if (is_array($dec)) {
+                    if ($sr['setting_key'] === 'auth_settings') $authCfg = $dec;
+                    if ($sr['setting_key'] === 'website_settings') $webCfg = $dec;
+                }
+            }
+        } catch (Throwable) {
+        }
+
+        if ((array_key_exists('allow_customer_registration', $authCfg) && !$authCfg['allow_customer_registration']) ||
+            (array_key_exists('enable_registration', $webCfg) && !$webCfg['enable_registration'])) {
+            Response::error('New customer registration is temporarily disabled by administrators.', 403);
+        }
+
+        $minPasswordLength = max(6, min(32, (int)($authCfg['min_password_length'] ?? 8)));
+
         $email = strtolower(trim((string)$request->input('email', '')));
         $password = (string)$request->input('password', '');
         $fullName = trim((string)$request->input('full_name', ''));
@@ -304,8 +325,8 @@ class AuthController
             Response::error('Please enter a valid email address.', 422);
         }
 
-        if (strlen($password) < 8) {
-            Response::error('Password must be at least 8 characters long.', 422);
+        if (strlen($password) < $minPasswordLength) {
+            Response::error("Password must be at least {$minPasswordLength} characters long.", 422);
         }
 
         if (!empty($nin) && !preg_match('/^\d{11}$/', $nin)) {

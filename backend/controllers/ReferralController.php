@@ -547,6 +547,7 @@ class ReferralController
         }
 
         // Clamp critical numeric bounds before persisting
+        $merged['trigger_mode'] = ReferralEngineService::normalizeTriggerMode((string)($merged['trigger_mode'] ?? 'first_qualifying_transaction'));
         $merged['code_prefix'] = preg_replace('/[^A-Z0-9]/', '', strtoupper((string)($merged['code_prefix'] ?? 'HAMBAK'))) ?: 'HAMBAK';
         $merged['code_length'] = max(4, min(10, (int)($merged['code_length'] ?? 6)));
         $merged['flat_reward_naira'] = max(0.0, min(10000.0, (float)($merged['flat_reward_naira'] ?? 100)));
