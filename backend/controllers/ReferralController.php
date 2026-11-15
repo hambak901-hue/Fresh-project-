@@ -896,8 +896,24 @@ class ReferralController
     {
         Auth::requirePermission($request, 'withdrawals');
         $status = strtolower(trim((string)$request->query('status', 'all')));
-        $where = $status !== '' && $status !== 'all' ? 'WHERE w.status = :st' : '';
-        $params = $status !== '' && $status !== 'all' ? ['st' => $status] : [];
+        $search = trim((string)$request->query('search', ''));
+        $conds = [];
+        $params = [];
+        if ($status !== '' && $status !== 'all') {
+            $conds[] = 'w.status = :st';
+            $params['st'] = $status;
+        }
+        if ($search !== '') {
+            $conds[] = '(w.withdrawal_number LIKE :q1 OR u.full_name LIKE :q2 OR u.email LIKE :q3 OR w.account_name LIKE :q4 OR w.account_number LIKE :q5 OR w.bank_name LIKE :q6)';
+            $pat = '%' . $search . '%';
+            $params['q1'] = $pat;
+            $params['q2'] = $pat;
+            $params['q3'] = $pat;
+            $params['q4'] = $pat;
+            $params['q5'] = $pat;
+            $params['q6'] = $pat;
+        }
+        $where = !empty($conds) ? ('WHERE ' . implode(' AND ', $conds)) : '';
 
         $rows = $this->db->fetchAll(
             "SELECT w.*, u.full_name AS customer_name, u.email AS customer_email, u.phone_number AS customer_phone,

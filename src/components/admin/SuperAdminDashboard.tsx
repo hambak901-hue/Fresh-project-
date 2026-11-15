@@ -6,9 +6,10 @@
  */
 
 import React, { useState } from 'react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, MfaChallengeRequiredError } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
 import { api } from '../../lib/api';
+import { MfaChallengeResponse } from '../../types';
 import { ThemeToggle } from '../ThemeToggle';
 import {
   LayoutDashboard,
@@ -52,6 +53,9 @@ import {
   CheckCircle2,
   ArrowLeft,
   UserPlus,
+  Gift,
+  Banknote,
+  Fingerprint,
 } from 'lucide-react';
 
 // Admin child views
@@ -79,6 +83,9 @@ import { NotificationManagement } from './NotificationManagement';
 import { GlobalSettingsManagement } from './GlobalSettingsManagement';
 import { ModificationManagement } from './ModificationManagement';
 import { EnrolmentManagement } from './EnrolmentManagement';
+import { AdminReferralCentre } from './AdminReferralCentre';
+import { AdminWithdrawalCentre } from './AdminWithdrawalCentre';
+import { AdminSecurityPinManagement } from './AdminSecurityPinManagement';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
@@ -102,12 +109,15 @@ export type AdminTabKey =
   | 'digital_services'
   | 'store_admin'
   | 'academy_admin'
+  | 'referrals_admin'
+  | 'withdrawals_admin'
   | 'reports_admin'
   | 'smtp'
   | 'email_templates'
   | 'sms'
   | 'staff'
   | 'kyc_admin'
+  | 'security_admin'
   | 'audit';
 
 interface AdminNavItem {
@@ -115,6 +125,8 @@ interface AdminNavItem {
   label: string;
   icon: React.FC<{ className?: string }>;
   badge?: string;
+  permission?: string;
+  superAdminOnly?: boolean;
 }
 
 interface AdminNavSection {
@@ -172,7 +184,7 @@ export function SuperAdminDashboard({
   onSwitchToCustomerPortal,
   onSwitchToPublic,
 }: SuperAdminDashboardProps) {
-  const { user, loading: sessionLoading, login, logout, refreshUser } = useAuth();
+  const { user, loading: sessionLoading, login, completeMfaLogin, logout, refreshUser } = useAuth();
   const { branding } = useCms();
   const brandName = branding?.short_brand_name || 'HAMBAKTECH';
   const logoSrc = branding?.logo_url || '/logo.png';
@@ -183,7 +195,9 @@ export function SuperAdminDashboard({
   const [showPassword, setShowPassword] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [authMode, setAuthMode] = useState<'login' | 'forgot' | 'verify_otp' | 'reset_password'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'mfa_challenge' | 'forgot' | 'verify_otp' | 'reset_password'>('login');
+  const [mfaChallenge, setMfaChallenge] = useState<MfaChallengeResponse | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [resetToken, setResetToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -195,6 +209,8 @@ export function SuperAdminDashboard({
     setAdminPassword('');
     setAuthError(null);
     setRecoveryMsg(null);
+    setMfaChallenge(null);
+    setMfaCode('');
     setAuthMode('login');
     logout();
     if (typeof window !== 'undefined') {
@@ -213,7 +229,36 @@ export function SuperAdminDashboard({
         setAuthError('This account does not have Administrator privileges.');
       }
     } catch (err: any) {
-      setAuthError(err?.message || 'Administrative authentication failed. Check credentials.');
+      if (err instanceof MfaChallengeRequiredError) {
+        setMfaChallenge(err.challenge);
+        setMfaCode('');
+        setAuthMode('mfa_challenge');
+        setAuthError(null);
+      } else {
+        setAuthError(err?.message || 'Administrative authentication failed. Check credentials.');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleAdminMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfaChallenge) return;
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const logged = await completeMfaLogin(mfaChallenge.challenge_token, mfaCode.trim());
+      if (logged && logged.role !== 'admin' && logged.role !== 'superadmin') {
+        setAuthError('This account does not have Administrator privileges.');
+        await logout();
+      } else {
+        setMfaChallenge(null);
+        setMfaCode('');
+        setAuthMode('login');
+      }
+    } catch (err: any) {
+      setAuthError(err?.message || 'Invalid MFA verification or recovery code.');
     } finally {
       setAuthLoading(false);
     }
@@ -440,6 +485,46 @@ export function SuperAdminDashboard({
             </form>
           )}
 
+          {authMode === 'mfa_challenge' && mfaChallenge && (
+            <form onSubmit={handleAdminMfaSubmit} className="space-y-4">
+              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span>Multi-Factor Verification Required</span>
+                </p>
+                <p className="text-[11px] opacity-90">
+                  {mfaChallenge.method === 'totp'
+                    ? 'Enter the 6-digit code from your authenticator app or a backup recovery code.'
+                    : `A 6-digit verification code was sent to ${mfaChallenge.masked_email}. Valid for ${mfaChallenge.expires_in_minutes} minutes.`}
+                </p>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  MFA / Recovery Code
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    required
+                    maxLength={20}
+                    value={mfaCode}
+                    onChange={e => setMfaCode(e.target.value.trim())}
+                    placeholder="123456 or RECOVERY-CODE"
+                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-xs font-mono tracking-widest text-slate-900 dark:text-white focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={authLoading || !mfaCode}
+                className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition"
+              >
+                {authLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Verify &amp; Enter Console</span>}
+              </button>
+            </form>
+          )}
+
           {authMode === 'forgot' && (
             <form onSubmit={handleAdminSendOtp} className="space-y-4">
               <div>
@@ -552,55 +637,77 @@ export function SuperAdminDashboard({
     );
   }
 
-  const navSections: AdminNavSection[] = [
+  const isSuperAdmin = user.role === 'superadmin';
+  const userPermissions = Array.isArray(user.permissions) ? user.permissions : [];
+  const hasPermission = (perm?: string, superAdminOnly?: boolean): boolean => {
+    if (isSuperAdmin) return true;
+    if (superAdminOnly) return false;
+    if (!perm) return true;
+    return userPermissions.includes(perm);
+  };
+
+  const allNavSections: AdminNavSection[] = [
     {
       title: 'Executive Intelligence',
       items: [
         { id: 'overview', label: '1. Admin Overview', icon: LayoutDashboard },
-        { id: 'customers', label: '2. Customer Management', icon: Users },
-        { id: 'funding', label: '3. Funding Approvals', icon: Clock, badge: 'Manual' },
-        { id: 'support_admin', label: 'Support Centre', icon: LifeBuoy, badge: 'Stage 8' },
-        { id: 'reports_admin', label: 'Reports & Analytics (11)', icon: BarChart3, badge: 'Stage 8' },
+        { id: 'customers', label: '2. Customer Management', icon: Users, permission: 'customers' },
+        { id: 'funding', label: '3. Funding Approvals', icon: Clock, badge: 'Manual', permission: 'wallet' },
+        { id: 'support_admin', label: 'Support Centre', icon: LifeBuoy, badge: 'Stage 8', permission: 'support' },
+        { id: 'reports_admin', label: 'Reports & Analytics (12)', icon: BarChart3, badge: '12 Reports', permission: 'reports' },
       ],
     },
     {
       title: 'Commercial & Services',
       items: [
-        { id: 'services', label: 'Core Services & Pricing', icon: Cpu },
-        { id: 'modifications_admin', label: 'NIN & BVN Modifications', icon: ShieldCheck, badge: 'Stage 3' },
-        { id: 'enrolments_admin', label: 'Enrolment Centre', icon: UserPlus, badge: 'Stage 4' },
-        { id: 'digital_services', label: 'Digital Utilities (Cable & Disco)', icon: Tv, badge: 'Phase 8' },
-        { id: 'store_admin', label: 'Hardware Store', icon: ShoppingBag, badge: 'Catalog' },
-        { id: 'academy_admin', label: 'Digital Training Academy', icon: GraduationCap, badge: '12 Courses' },
+        { id: 'services', label: 'Core Services & Pricing', icon: Cpu, permission: 'services' },
+        { id: 'modifications_admin', label: 'NIN & BVN Modifications', icon: ShieldCheck, badge: 'Stage 3', permission: 'services' },
+        { id: 'enrolments_admin', label: 'Enrolment Centre', icon: UserPlus, badge: 'Stage 4', permission: 'services' },
+        { id: 'digital_services', label: 'Digital Utilities (Cable & Disco)', icon: Tv, badge: 'Phase 8', permission: 'services' },
+        { id: 'store_admin', label: 'Hardware Store', icon: ShoppingBag, badge: 'Catalog', permission: 'services' },
+        { id: 'academy_admin', label: 'Digital Training Academy', icon: GraduationCap, badge: '12 Courses', permission: 'services' },
+        { id: 'referrals_admin', label: 'Referral & Rewards Centre', icon: Gift, badge: 'Growth', permission: 'referrals' },
+        { id: 'withdrawals_admin', label: 'Cash Withdrawal Desk', icon: Banknote, badge: 'Payouts', permission: 'withdrawals' },
       ],
     },
     {
       title: 'Communication & Delivery',
       items: [
-        { id: 'notifications_admin', label: 'Broadcasts & Announcements', icon: Bell, badge: 'Stage 8' },
-        { id: 'smtp', label: 'SMTP Server Settings', icon: Server, badge: 'Phase 8' },
-        { id: 'email_templates', label: 'Email Templates (12)', icon: Mail },
-        { id: 'sms', label: 'SMS Gateway & Templates', icon: MessageSquare },
+        { id: 'notifications_admin', label: 'Broadcasts & Announcements', icon: Bell, badge: 'Stage 8', permission: 'notifications' },
+        { id: 'smtp', label: 'SMTP Server Settings', icon: Server, badge: 'Phase 8', permission: 'settings' },
+        { id: 'email_templates', label: 'Email Templates (12)', icon: Mail, permission: 'settings' },
+        { id: 'sms', label: 'SMS Gateway & Templates', icon: MessageSquare, permission: 'settings' },
       ],
     },
     {
       title: 'Content & User Experience',
       items: [
-        { id: 'global_settings', label: 'Global Settings (22 Sections)', icon: Sliders, badge: 'Stage 8' },
-        { id: 'website', label: 'Website Management (CMS)', icon: Globe },
-        { id: 'modules', label: 'Dashboard Management', icon: Layers },
+        { id: 'global_settings', label: 'Global Settings (25 Sections)', icon: Sliders, badge: '25 Tabs', permission: 'settings' },
+        { id: 'website', label: 'Website Management (CMS)', icon: Globe, permission: 'cms' },
+        { id: 'modules', label: 'Dashboard Management', icon: Layers, permission: 'settings' },
       ],
     },
     {
       title: 'Governance & Security',
       items: [
-        { id: 'footprints', label: 'Footprints & Telemetry', icon: Activity, badge: 'Live Audit' },
-        { id: 'kyc_admin', label: 'KYC & PIN Policies', icon: ShieldCheck, badge: 'Stage 4' },
-        { id: 'staff', label: 'Staff & Permissions', icon: ShieldAlert },
-        { id: 'audit', label: 'Audit Logs', icon: FileText },
+        { id: 'footprints', label: 'Footprints & Telemetry', icon: Activity, badge: 'Live Audit', permission: 'audit' },
+        { id: 'kyc_admin', label: 'KYC & PIN Policies', icon: ShieldCheck, badge: 'Compliance', permission: 'kyc' },
+        { id: 'security_admin', label: 'PIN, MFA & Session Security', icon: Fingerprint, badge: 'Security', permission: 'security' },
+        { id: 'staff', label: 'Staff & Permissions', icon: ShieldAlert, permission: 'staff' },
+        { id: 'audit', label: 'Audit Logs', icon: FileText, permission: 'audit' },
       ],
     },
   ];
+
+  const navSections: AdminNavSection[] = allNavSections
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item => hasPermission(item.permission, item.superAdminOnly)),
+    }))
+    .filter(section => section.items.length > 0);
+
+  const visibleTabIds = new Set(navSections.flatMap(sec => sec.items.map(i => i.id)));
+  const safeActiveTab: AdminTabKey = visibleTabIds.has(activeTab) ? activeTab : 'overview';
 
   const handleSelectTab = (tab: AdminTabKey) => {
     setActiveTab(tab);
@@ -610,7 +717,7 @@ export function SuperAdminDashboard({
   // Resolve current active title
   let currentTitle = 'Admin Overview';
   for (const sec of navSections) {
-    const item = sec.items.find(i => i.id === activeTab);
+    const item = sec.items.find(i => i.id === safeActiveTab);
     if (item) {
       currentTitle = item.label;
       break;
@@ -675,7 +782,7 @@ export function SuperAdminDashboard({
                 <div className="space-y-0.5">
                   {section.items.map(item => {
                     const Icon = item.icon;
-                    const isActive = activeTab === item.id;
+                    const isActive = safeActiveTab === item.id;
                     return (
                       <button
                         key={item.id}
@@ -769,7 +876,7 @@ export function SuperAdminDashboard({
             </button>
             <div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">
-                HAMBAK TECH &amp; SERVICES &bull; Root Administration
+                HAMBAK TECH &amp; SERVICES &bull; {isSuperAdmin ? 'Root Administration' : 'Staff Administration'}
               </p>
               <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{currentTitle}</h1>
             </div>
@@ -792,52 +899,58 @@ export function SuperAdminDashboard({
 
         {/* View Router */}
         <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto">
-          <AdminErrorBoundary key={activeTab}>
-            {activeTab === 'overview' && (
+          <AdminErrorBoundary key={safeActiveTab}>
+            {safeActiveTab === 'overview' && (
               <AdminOverview onNavigateToTab={tab => setActiveTab(tab as AdminTabKey)} />
             )}
 
-            {activeTab === 'customers' && <CustomerManagement />}
+            {safeActiveTab === 'customers' && <CustomerManagement />}
 
-            {activeTab === 'funding' && <ManualFundingQueue />}
+            {safeActiveTab === 'funding' && <ManualFundingQueue />}
 
-            {activeTab === 'footprints' && <FootprintsManagement />}
+            {safeActiveTab === 'footprints' && <FootprintsManagement />}
 
-            {activeTab === 'support_admin' && <SupportManagement />}
+            {safeActiveTab === 'support_admin' && <SupportManagement />}
 
-            {activeTab === 'notifications_admin' && <NotificationManagement />}
+            {safeActiveTab === 'notifications_admin' && <NotificationManagement />}
 
-            {activeTab === 'global_settings' && <GlobalSettingsManagement />}
+            {safeActiveTab === 'global_settings' && <GlobalSettingsManagement />}
 
-            {activeTab === 'website' && <WebsiteManagement />}
+            {safeActiveTab === 'website' && <WebsiteManagement />}
 
-            {activeTab === 'modules' && <DashboardModuleManagement />}
+            {safeActiveTab === 'modules' && <DashboardModuleManagement />}
 
-            {activeTab === 'services' && <ServiceManagement />}
+            {safeActiveTab === 'services' && <ServiceManagement />}
 
-            {activeTab === 'modifications_admin' && <ModificationManagement />}
+            {safeActiveTab === 'modifications_admin' && <ModificationManagement />}
 
-            {activeTab === 'enrolments_admin' && <EnrolmentManagement />}
+            {safeActiveTab === 'enrolments_admin' && <EnrolmentManagement />}
 
-            {activeTab === 'digital_services' && <DigitalServicesManagement />}
+            {safeActiveTab === 'digital_services' && <DigitalServicesManagement />}
 
-            {activeTab === 'store_admin' && <StoreManagement />}
+            {safeActiveTab === 'store_admin' && <StoreManagement />}
 
-            {activeTab === 'academy_admin' && <AcademyManagement />}
+            {safeActiveTab === 'academy_admin' && <AcademyManagement />}
 
-            {activeTab === 'reports_admin' && <ReportsManagement />}
+            {safeActiveTab === 'referrals_admin' && <AdminReferralCentre />}
 
-            {activeTab === 'smtp' && <SmtpSettings />}
+            {safeActiveTab === 'withdrawals_admin' && <AdminWithdrawalCentre />}
 
-            {activeTab === 'email_templates' && <EmailTemplatesManagement />}
+            {safeActiveTab === 'reports_admin' && <ReportsManagement />}
 
-            {activeTab === 'sms' && <SmsSettingsManagement />}
+            {safeActiveTab === 'smtp' && <SmtpSettings />}
 
-            {activeTab === 'staff' && <StaffPermissionsManagement />}
+            {safeActiveTab === 'email_templates' && <EmailTemplatesManagement />}
 
-            {activeTab === 'kyc_admin' && <AdminKycManagement />}
+            {safeActiveTab === 'sms' && <SmsSettingsManagement />}
 
-            {activeTab === 'audit' && <AuditLogsViewer />}
+            {safeActiveTab === 'staff' && <StaffPermissionsManagement />}
+
+            {safeActiveTab === 'kyc_admin' && <AdminKycManagement />}
+
+            {safeActiveTab === 'security_admin' && <AdminSecurityPinManagement />}
+
+            {safeActiveTab === 'audit' && <AuditLogsViewer />}
           </AdminErrorBoundary>
         </main>
       </div>

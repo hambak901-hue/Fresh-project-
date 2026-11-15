@@ -63,7 +63,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const [otpCode, setOtpCode] = useState('');
   const [resetToken, setResetToken] = useState('');
-  const [otpPreview, setOtpPreview] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
 
   const [mfaChallenge, setMfaChallenge] = useState<MfaChallengeResponse | null>(null);
@@ -85,13 +84,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setMfaChallenge(null);
       setMfaCode('');
       try {
+        const params = new URLSearchParams(window.location.search);
+        const urlRef = (params.get('ref') || params.get('referral') || '').trim().toUpperCase();
+        const urlCampaign = (params.get('campaign') || '').trim().toUpperCase();
         const storedRef = (sessionStorage.getItem('hambak_referral_code') || '').trim().toUpperCase();
         const storedCampaign = (sessionStorage.getItem('hambak_referral_campaign') || '').trim().toUpperCase();
-        if (storedRef && !referralCode) {
-          setReferralCode(storedRef);
+        const resolvedRef = storedRef || urlRef;
+        const resolvedCampaign = storedCampaign || urlCampaign;
+        if (resolvedRef && !referralCode) {
+          setReferralCode(resolvedRef);
+          sessionStorage.setItem('hambak_referral_code', resolvedRef);
         }
-        if (storedCampaign && !campaignCode) {
-          setCampaignCode(storedCampaign);
+        if (resolvedCampaign && !campaignCode) {
+          setCampaignCode(resolvedCampaign);
+          sessionStorage.setItem('hambak_referral_campaign', resolvedCampaign);
         }
       } catch {
         // Ignore sessionStorage errors
@@ -275,9 +281,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setLoading(true);
       const res = await api.forgotPassword(targetEmail);
       setResetToken(res.token || '');
-      if (res.otp_preview) {
-        setOtpPreview(res.otp_preview);
-      }
       setSuccessMsg(res.message || 'A 6-digit verification code has been dispatched to your email.');
       setMode('verify_otp');
       setResendCooldown(45);
@@ -458,21 +461,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs">
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="flex-1">{successMsg}</div>
-          </div>
-        )}
-
-        {otpPreview && (mode === 'verify_otp' || mode === 'forgot') && (
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-cyan-500/10 border border-blue-200 dark:border-cyan-500/30 text-blue-900 dark:text-cyan-300 text-xs space-y-1">
-            <div className="font-semibold flex items-center gap-1.5">
-              <KeyRound className="w-4 h-4 text-blue-700 dark:text-cyan-400" />
-              <span>Recovery Code Generated</span>
-            </div>
-            <p className="text-[11px]">
-              Code:{' '}
-              <span className="font-mono font-bold px-2 py-0.5 rounded bg-white dark:bg-cyan-950/60 border border-blue-300 dark:border-cyan-500/40 tracking-wider">
-                {otpPreview}
-              </span>
-            </p>
           </div>
         )}
 
@@ -880,12 +868,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {mode === 'mfa_challenge' && mfaChallenge && (
           <form onSubmit={handleVerifyMfa} className="space-y-4">
-            {mfaChallenge.otp_preview && (
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-cyan-500/10 border border-blue-200 dark:border-cyan-500/30 text-blue-900 dark:text-cyan-300 text-xs">
-                Verification Code Preview:{' '}
-                <span className="font-mono font-bold tracking-wider">{mfaChallenge.otp_preview}</span>
-              </div>
-            )}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 {mfaChallenge.method === 'totp' ? 'Authenticator or Recovery Code' : '6-Digit Email Security Code'}

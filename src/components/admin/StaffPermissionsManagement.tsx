@@ -20,12 +20,19 @@ import { User } from '../../types';
 
 const PERMISSION_OPTIONS = [
   { id: 'customers', label: 'Customer Management (Edit, Suspend, Notify)' },
-  { id: 'wallet', label: 'Wallet Adjustments (Manual Credits & Debits)' },
+  { id: 'wallet', label: 'Wallet Adjustments & Funding Approvals' },
   { id: 'kyc', label: 'KYC Compliance Reviews (Verify Documents & Tiers)' },
-  { id: 'services', label: 'Service Pricing & Catalogs (NIN, Telecom, Store, Academy)' },
-  { id: 'cms', label: 'Global CMS & Branding (Landing Page, Banners, Announcements)' },
-  { id: 'audit', label: 'Audit Log Exploration (Full Activity Journals)' },
-  { id: 'staff', label: 'Staff Management (Create & Edit Staff Accounts)' },
+  { id: 'services', label: 'Service Pricing & Catalogs (NIN, BVN, Telecom, Store, Academy)' },
+  { id: 'referrals', label: 'Referral Moderation & Reward Settlement' },
+  { id: 'withdrawals', label: 'Referral Bank Cash Withdrawal Desk' },
+  { id: 'security', label: 'Customer PIN Support & Security Overview' },
+  { id: 'reports', label: 'Enterprise Financial & Growth Reports (12 Reports)' },
+  { id: 'support', label: 'Support Centre & Help Desk Tickets' },
+  { id: 'notifications', label: 'Broadcasts & System Announcements' },
+  { id: 'cms', label: 'Global CMS & Branding (Landing Page, Banners, FAQs)' },
+  { id: 'settings', label: 'General Operational Settings & Email/SMS Templates' },
+  { id: 'audit', label: 'Audit Log & Footprint Exploration' },
+  { id: 'staff', label: 'Staff Management (View & Super Admin Controls)' },
 ];
 
 export function StaffPermissionsManagement() {

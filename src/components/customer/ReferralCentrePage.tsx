@@ -120,8 +120,8 @@ export const ReferralCentrePage: React.FC = () => {
       data.config?.whatsapp_share_template ||
       'Join me on HAMBAKTECH using my referral code {code}: {link}';
     const text = tpl
-      .replace(/\{code\}/gi, data.referral_code)
-      .replace(/\{link\}/gi, data.referral_link);
+      .replace(/\{(?:referral_)?code\}/gi, data.referral_code)
+      .replace(/\{(?:referral_)?link\}/gi, data.referral_link);
     const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
     const a = document.createElement('a');
     a.href = url;
@@ -719,9 +719,9 @@ export const ReferralCentrePage: React.FC = () => {
               </p>
             </div>
 
-            {user && user.kyc_level < config.require_kyc_level_for_withdrawal && (
+            {user && (user.kyc_level ?? user.tier ?? 1) < config.require_kyc_level_for_withdrawal && (
               <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300">
-                Your current KYC Level is {user.kyc_level}. Bank cash withdrawals require KYC Level {config.require_kyc_level_for_withdrawal}.
+                Your current KYC Level is {user.kyc_level ?? user.tier ?? 1}. Bank cash withdrawals require KYC Level {config.require_kyc_level_for_withdrawal}.
               </div>
             )}
 

@@ -19,6 +19,636 @@ class SchemaSync
         $errors = [];
 
         $tableDefinitions = [
+            'roles' => 'CREATE TABLE IF NOT EXISTS roles (
+                id VARCHAR(36) PRIMARY KEY,
+                name VARCHAR(50) NOT NULL UNIQUE,
+                slug VARCHAR(50) NOT NULL UNIQUE,
+                description TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'permissions' => 'CREATE TABLE IF NOT EXISTS permissions (
+                id VARCHAR(36) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL UNIQUE,
+                slug VARCHAR(100) NOT NULL UNIQUE,
+                module VARCHAR(50) NOT NULL,
+                description TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'role_permissions' => 'CREATE TABLE IF NOT EXISTS role_permissions (
+                role_id VARCHAR(36) NOT NULL,
+                permission_id VARCHAR(36) NOT NULL,
+                PRIMARY KEY (role_id, permission_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'users' => 'CREATE TABLE IF NOT EXISTS users (
+                id VARCHAR(36) PRIMARY KEY,
+                email VARCHAR(191) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                full_name VARCHAR(191) NOT NULL,
+                phone_number VARCHAR(30) NOT NULL,
+                role ENUM("customer", "admin", "superadmin") NOT NULL DEFAULT "customer",
+                wallet_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                kyc_status ENUM("unverified", "pending", "verified", "rejected") NOT NULL DEFAULT "unverified",
+                tier INT NOT NULL DEFAULT 1,
+                referral_code VARCHAR(50) NOT NULL UNIQUE,
+                status ENUM("active", "suspended") NOT NULL DEFAULT "active",
+                avatar_url VARCHAR(500) NULL,
+                transaction_pin_hash VARCHAR(255) NULL,
+                email_verified TINYINT(1) NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_user_role (role),
+                INDEX idx_user_status (status),
+                INDEX idx_user_phone (phone_number)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'user_profiles' => 'CREATE TABLE IF NOT EXISTS user_profiles (
+                user_id VARCHAR(36) PRIMARY KEY,
+                nin VARCHAR(20) NULL,
+                bvn VARCHAR(20) NULL,
+                address TEXT NULL,
+                state VARCHAR(100) NULL,
+                lga VARCHAR(100) NULL,
+                bio TEXT NULL,
+                notification_preferences JSON NULL,
+                security_settings JSON NULL,
+                assigned_permissions JSON NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_user_nin (nin),
+                INDEX idx_user_bvn (bvn)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'password_resets' => 'CREATE TABLE IF NOT EXISTS password_resets (
+                id VARCHAR(36) PRIMARY KEY,
+                email VARCHAR(191) NOT NULL,
+                otp_code VARCHAR(10) NOT NULL,
+                token VARCHAR(100) NOT NULL,
+                attempts INT DEFAULT 0,
+                is_used TINYINT(1) DEFAULT 0,
+                expires_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_pr_email (email),
+                INDEX idx_pr_token (token),
+                INDEX idx_pr_otp (email, otp_code)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'staff_accounts' => 'CREATE TABLE IF NOT EXISTS staff_accounts (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL UNIQUE,
+                department VARCHAR(100) NOT NULL,
+                access_level ENUM("analyst", "manager", "executive", "superadmin") NOT NULL DEFAULT "analyst",
+                can_fund_wallets TINYINT(1) NOT NULL DEFAULT 0,
+                can_modify_rates TINYINT(1) NOT NULL DEFAULT 0,
+                can_suspend_users TINYINT(1) NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'wallets' => 'CREATE TABLE IF NOT EXISTS wallets (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL UNIQUE,
+                balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                currency VARCHAR(10) NOT NULL DEFAULT "NGN",
+                ledger_version BIGINT NOT NULL DEFAULT 0,
+                status ENUM("active", "frozen", "closed") NOT NULL DEFAULT "active",
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_wallet_balance (balance)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'wallet_ledger' => 'CREATE TABLE IF NOT EXISTS wallet_ledger (
+                id VARCHAR(36) PRIMARY KEY,
+                wallet_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                entry_type ENUM("CREDIT", "DEBIT") NOT NULL,
+                amount DECIMAL(15, 2) NOT NULL,
+                balance_before DECIMAL(15, 2) NOT NULL,
+                balance_after DECIMAL(15, 2) NOT NULL,
+                reference VARCHAR(100) NOT NULL UNIQUE,
+                category VARCHAR(50) NOT NULL,
+                description TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_ledger_user_created (user_id, created_at),
+                INDEX idx_ledger_ref (reference)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'transactions' => 'CREATE TABLE IF NOT EXISTS transactions (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                type ENUM("credit", "debit") NOT NULL,
+                amount DECIMAL(15, 2) NOT NULL,
+                balance_before DECIMAL(15, 2) NOT NULL,
+                balance_after DECIMAL(15, 2) NOT NULL,
+                category VARCHAR(50) NOT NULL,
+                reference VARCHAR(100) NOT NULL UNIQUE,
+                idempotency_key VARCHAR(100) NULL UNIQUE,
+                gateway ENUM("flutterwave", "paystack", "manual_transfer", "internal") NOT NULL DEFAULT "internal",
+                status ENUM("successful", "pending", "failed") NOT NULL DEFAULT "pending",
+                description TEXT NOT NULL,
+                metadata JSON NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_tx_user_status (user_id, status),
+                INDEX idx_tx_category (category),
+                INDEX idx_tx_created (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'payment_records' => 'CREATE TABLE IF NOT EXISTS payment_records (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                gateway VARCHAR(50) NOT NULL,
+                reference VARCHAR(100) NOT NULL UNIQUE,
+                amount DECIMAL(15, 2) NOT NULL,
+                fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                status ENUM("pending", "successful", "failed", "abandoned") NOT NULL DEFAULT "pending",
+                paid_at TIMESTAMP NULL,
+                raw_response JSON NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_payment_ref (reference),
+                INDEX idx_payment_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'manual_funding_requests' => 'CREATE TABLE IF NOT EXISTS manual_funding_requests (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                amount DECIMAL(15, 2) NOT NULL,
+                bank_name VARCHAR(100) NOT NULL,
+                account_number VARCHAR(50) NOT NULL,
+                payment_reference VARCHAR(100) NULL,
+                payment_date DATE NULL,
+                payment_method VARCHAR(50) NOT NULL DEFAULT "Bank Transfer",
+                depositor_name VARCHAR(191) NOT NULL,
+                remarks TEXT NULL,
+                teller_proof_url VARCHAR(500) NULL,
+                proof_filename VARCHAR(255) NULL,
+                status ENUM("pending", "approved", "rejected") NOT NULL DEFAULT "pending",
+                admin_notes TEXT NULL,
+                reviewed_by VARCHAR(36) NULL,
+                reviewed_at TIMESTAMP NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_manual_status (status),
+                INDEX idx_manual_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'service_categories' => 'CREATE TABLE IF NOT EXISTS service_categories (
+                id VARCHAR(36) PRIMARY KEY,
+                code VARCHAR(50) NOT NULL UNIQUE,
+                name VARCHAR(100) NOT NULL,
+                description TEXT NULL,
+                icon VARCHAR(50) NOT NULL DEFAULT "Cpu",
+                display_order INT NOT NULL DEFAULT 1,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'providers' => 'CREATE TABLE IF NOT EXISTS providers (
+                id VARCHAR(50) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                provider_type ENUM("identity", "telecom", "payment") NOT NULL,
+                base_url VARCHAR(255) NOT NULL,
+                api_key VARCHAR(255) NULL,
+                secret_key VARCHAR(255) NULL,
+                public_key VARCHAR(255) NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                is_default TINYINT(1) NOT NULL DEFAULT 0,
+                timeout_seconds INT NOT NULL DEFAULT 30,
+                balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                last_ping_status ENUM("operational", "error", "untested", "unconfigured") NOT NULL DEFAULT "untested",
+                last_ping_latency INT NULL,
+                last_ping_at TIMESTAMP NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'service_catalogue' => 'CREATE TABLE IF NOT EXISTS service_catalogue (
+                id VARCHAR(36) PRIMARY KEY,
+                category_id VARCHAR(36) NOT NULL,
+                service_key VARCHAR(100) NOT NULL UNIQUE,
+                name VARCHAR(191) NOT NULL,
+                description TEXT NULL,
+                provider_id VARCHAR(50) NOT NULL,
+                endpoint VARCHAR(255) NOT NULL,
+                wholesale_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                selling_price DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                required_fields JSON NOT NULL,
+                processing_type ENUM("instant", "manual") NOT NULL DEFAULT "instant",
+                manual_label VARCHAR(80) NULL DEFAULT "Manual Processing",
+                estimated_turnaround VARCHAR(150) NULL,
+                required_documents JSON NULL,
+                form_schema JSON NULL,
+                supported_notes TEXT NULL,
+                slip_type_supported TINYINT(1) NOT NULL DEFAULT 0,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_service_active (is_active)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'provider_service_mappings' => 'CREATE TABLE IF NOT EXISTS provider_service_mappings (
+                id VARCHAR(36) PRIMARY KEY,
+                provider_id VARCHAR(50) NOT NULL,
+                service_key VARCHAR(100) NOT NULL,
+                provider_endpoint VARCHAR(255) NOT NULL,
+                provider_plan_code VARCHAR(100) NULL,
+                wholesale_cost DECIMAL(15, 2) NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                INDEX idx_psm_lookup (service_key, is_active)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'provider_logs' => 'CREATE TABLE IF NOT EXISTS provider_logs (
+                id VARCHAR(36) PRIMARY KEY,
+                provider_id VARCHAR(50) NOT NULL,
+                endpoint VARCHAR(255) NOT NULL,
+                method VARCHAR(10) NOT NULL DEFAULT "POST",
+                status_code INT NOT NULL,
+                request_body LONGTEXT NULL,
+                response_body LONGTEXT NULL,
+                latency_ms INT NOT NULL DEFAULT 0,
+                reference VARCHAR(100) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_pl_provider (provider_id),
+                INDEX idx_pl_created (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'verification_records' => 'CREATE TABLE IF NOT EXISTS verification_records (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                type VARCHAR(50) NOT NULL,
+                service_key VARCHAR(100) NULL,
+                search_value VARCHAR(100) NOT NULL,
+                provider VARCHAR(50) NOT NULL,
+                cost DECIMAL(15, 2) NOT NULL,
+                provider_cost DECIMAL(15, 2) NULL,
+                status ENUM("completed", "failed", "pending") NOT NULL DEFAULT "pending",
+                reference VARCHAR(100) NULL UNIQUE,
+                slip_type VARCHAR(50) NULL,
+                has_slip TINYINT(1) NOT NULL DEFAULT 0,
+                idempotency_key VARCHAR(120) NULL,
+                result_data JSON NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_vr_user (user_id),
+                INDEX idx_vr_search (search_value),
+                INDEX idx_vr_idemp (user_id, idempotency_key)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'telecom_plans' => 'CREATE TABLE IF NOT EXISTS telecom_plans (
+                id VARCHAR(36) PRIMARY KEY,
+                provider_plan_id VARCHAR(50) NOT NULL,
+                network ENUM("MTN", "AIRTEL", "GLO", "9MOBILE") NOT NULL,
+                network_id INT NULL,
+                name VARCHAR(150) NOT NULL,
+                size VARCHAR(50) NOT NULL,
+                plan_type VARCHAR(100) NOT NULL DEFAULT "SME",
+                validity VARCHAR(50) NOT NULL DEFAULT "30 Days",
+                wholesale_cost DECIMAL(15, 2) NOT NULL,
+                price DECIMAL(15, 2) NOT NULL,
+                pricing_mode VARCHAR(30) NOT NULL DEFAULT "default_markup",
+                fixed_price DECIMAL(15, 2) NULL,
+                markup_percent DECIMAL(8, 2) NULL,
+                discount_percent DECIMAL(8, 2) NULL,
+                admin_price_locked TINYINT(1) NOT NULL DEFAULT 0,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                provider_id VARCHAR(50) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_telecom_network (network, is_active)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'telecom_orders' => 'CREATE TABLE IF NOT EXISTS telecom_orders (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                service_type ENUM("data", "airtime", "airtime_pin", "airtime_swap", "cable", "data_pin", "bulksms", "electricity", "exam") NOT NULL,
+                network VARCHAR(50) NULL,
+                phone VARCHAR(30) NULL,
+                plan VARCHAR(100) NOT NULL,
+                amount DECIMAL(15, 2) NOT NULL,
+                cost_price DECIMAL(15, 2) NOT NULL,
+                profit DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                provider_id VARCHAR(50) NOT NULL,
+                provider_ref VARCHAR(100) NOT NULL,
+                idempotency_key VARCHAR(100) NULL,
+                status ENUM("successful", "pending", "failed", "refunded") NOT NULL DEFAULT "pending",
+                metadata JSON NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_to_user (user_id),
+                INDEX idx_to_status (status),
+                INDEX idx_to_idem (user_id, idempotency_key)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'airtime_pin_denominations' => 'CREATE TABLE IF NOT EXISTS airtime_pin_denominations (
+                id VARCHAR(36) PRIMARY KEY,
+                provider_plan_id INT NULL,
+                network ENUM("MTN", "AIRTEL", "GLO", "9MOBILE") NOT NULL,
+                network_id INT NULL,
+                value DECIMAL(10, 2) NOT NULL,
+                wholesale_cost DECIMAL(10, 2) NOT NULL,
+                api_discount DECIMAL(8, 2) NOT NULL DEFAULT 0.00,
+                available_stock INT NOT NULL DEFAULT 0,
+                max_quantity INT NOT NULL DEFAULT 50,
+                price DECIMAL(10, 2) NOT NULL,
+                pricing_mode VARCHAR(30) NOT NULL DEFAULT "default_markup",
+                fixed_price DECIMAL(15, 2) NULL,
+                markup_percent DECIMAL(8, 2) NULL,
+                discount_percent DECIMAL(8, 2) NULL,
+                admin_price_locked TINYINT(1) NOT NULL DEFAULT 0,
+                provider_id VARCHAR(50) NOT NULL DEFAULT "ulamadata",
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'data_pin_denominations' => 'CREATE TABLE IF NOT EXISTS data_pin_denominations (
+                id VARCHAR(36) PRIMARY KEY,
+                provider_plan_id INT NULL,
+                network ENUM("MTN", "AIRTEL", "GLO", "9MOBILE") NOT NULL,
+                network_id INT NULL,
+                name VARCHAR(150) NOT NULL,
+                size VARCHAR(50) NOT NULL,
+                validity VARCHAR(50) NOT NULL DEFAULT "30 Days",
+                plan_type VARCHAR(100) NULL,
+                wholesale_cost DECIMAL(10, 2) NOT NULL,
+                available_stock INT NOT NULL DEFAULT 0,
+                max_quantity INT NOT NULL DEFAULT 50,
+                price DECIMAL(10, 2) NOT NULL,
+                pricing_mode VARCHAR(30) NOT NULL DEFAULT "default_markup",
+                fixed_price DECIMAL(15, 2) NULL,
+                markup_percent DECIMAL(8, 2) NULL,
+                discount_percent DECIMAL(8, 2) NULL,
+                admin_price_locked TINYINT(1) NOT NULL DEFAULT 0,
+                provider_id VARCHAR(50) NOT NULL DEFAULT "ulamadata",
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'telecom_vouchers' => 'CREATE TABLE IF NOT EXISTS telecom_vouchers (
+                id VARCHAR(36) PRIMARY KEY,
+                order_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                service_type ENUM("airtime_pin", "data_pin") NOT NULL,
+                network VARCHAR(30) NOT NULL,
+                denomination_label VARCHAR(80) NOT NULL,
+                face_value DECIMAL(15, 2) NULL,
+                pin_code VARCHAR(120) NOT NULL,
+                serial_number VARCHAR(120) NOT NULL,
+                load_code VARCHAR(100) NULL,
+                check_balance_code VARCHAR(100) NULL,
+                card_name VARCHAR(120) NULL,
+                voucher_index INT NOT NULL DEFAULT 1,
+                provider_ref VARCHAR(100) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_order_voucher_idx (order_id, voucher_index),
+                UNIQUE KEY uniq_pin_serial_pair (service_type, network, pin_code, serial_number),
+                INDEX idx_tv_user (user_id),
+                INDEX idx_tv_order (order_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'cable_packages' => 'CREATE TABLE IF NOT EXISTS cable_packages (
+                id VARCHAR(36) PRIMARY KEY,
+                provider ENUM("dstv", "gotv", "startimes", "showmax") NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                code VARCHAR(100) NOT NULL,
+                channels INT NOT NULL DEFAULT 0,
+                wholesale_cost DECIMAL(15, 2) NOT NULL,
+                price DECIMAL(15, 2) NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'electricity_discos' => 'CREATE TABLE IF NOT EXISTS electricity_discos (
+                id VARCHAR(36) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                code VARCHAR(50) NOT NULL UNIQUE,
+                minimum_amount DECIMAL(15, 2) NOT NULL DEFAULT 500.00,
+                is_active TINYINT(1) NOT NULL DEFAULT 1
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'exam_packages' => 'CREATE TABLE IF NOT EXISTS exam_packages (
+                id VARCHAR(36) PRIMARY KEY,
+                exam_name ENUM("WAEC", "NECO", "NABTEB", "JAMB") NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                description TEXT NULL,
+                wholesale_cost DECIMAL(15, 2) NOT NULL,
+                price DECIMAL(15, 2) NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'airtime_swap_configs' => 'CREATE TABLE IF NOT EXISTS airtime_swap_configs (
+                id VARCHAR(36) PRIMARY KEY,
+                network ENUM("MTN", "AIRTEL", "GLO", "9MOBILE") NOT NULL UNIQUE,
+                conversion_rate_percent DECIMAL(5, 2) NOT NULL DEFAULT 80.00,
+                merchant_phone VARCHAR(30) NOT NULL,
+                ussd_code VARCHAR(100) NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'bulk_sms_records' => 'CREATE TABLE IF NOT EXISTS bulk_sms_records (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                sender_id VARCHAR(20) NOT NULL,
+                recipients_count INT NOT NULL,
+                recipients_sample TEXT NOT NULL,
+                message TEXT NOT NULL,
+                pages INT NOT NULL DEFAULT 1,
+                units_charged DECIMAL(10, 2) NOT NULL,
+                amount DECIMAL(15, 2) NOT NULL,
+                status ENUM("DELIVERED", "PENDING", "FAILED") NOT NULL DEFAULT "DELIVERED",
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'kyc_submissions' => 'CREATE TABLE IF NOT EXISTS kyc_submissions (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                id_type VARCHAR(50) NOT NULL DEFAULT "NIN",
+                id_number VARCHAR(100) NOT NULL DEFAULT "",
+                doc_url VARCHAR(500) NULL,
+                status ENUM("pending", "verified", "approved", "rejected", "info_requested") NOT NULL DEFAULT "pending",
+                review_notes TEXT NULL,
+                reviewed_by VARCHAR(100) NULL,
+                reviewed_at TIMESTAMP NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_kyc_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'notifications' => 'CREATE TABLE IF NOT EXISTS notifications (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                title VARCHAR(191) NOT NULL,
+                message TEXT NOT NULL,
+                type ENUM("info", "success", "warning", "alert", "security") NOT NULL DEFAULT "info",
+                is_read TINYINT(1) NOT NULL DEFAULT 0,
+                action_link VARCHAR(255) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_notif_user_read (user_id, is_read)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'customer_messages' => 'CREATE TABLE IF NOT EXISTS customer_messages (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                title VARCHAR(191) NOT NULL,
+                category ENUM("service", "system", "security", "billing") NOT NULL DEFAULT "system",
+                body TEXT NOT NULL,
+                is_read TINYINT(1) NOT NULL DEFAULT 0,
+                reference VARCHAR(100) NULL,
+                action_label VARCHAR(50) NULL,
+                action_link VARCHAR(255) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_cm_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'email_templates' => 'CREATE TABLE IF NOT EXISTS email_templates (
+                id VARCHAR(36) PRIMARY KEY,
+                template_key VARCHAR(100) NOT NULL UNIQUE,
+                name VARCHAR(100) NOT NULL,
+                category ENUM("Auth", "Wallet", "Transactions", "Services", "Security", "Admin") NOT NULL DEFAULT "Auth",
+                subject VARCHAR(255) NOT NULL,
+                html_body LONGTEXT NOT NULL,
+                description TEXT NULL,
+                variables JSON NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'sms_templates' => 'CREATE TABLE IF NOT EXISTS sms_templates (
+                id VARCHAR(36) PRIMARY KEY,
+                template_key VARCHAR(100) NOT NULL UNIQUE,
+                title VARCHAR(100) NOT NULL,
+                content TEXT NOT NULL,
+                variables JSON NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'sms_configs' => 'CREATE TABLE IF NOT EXISTS sms_configs (
+                id VARCHAR(36) PRIMARY KEY,
+                provider ENUM("termii", "bulksms_nigeria", "twilio", "custom_webhook") NOT NULL,
+                api_key VARCHAR(255) NOT NULL,
+                sender_id VARCHAR(20) NOT NULL,
+                route ENUM("generic", "dnd", "whatsapp") NOT NULL DEFAULT "generic",
+                webhook_url VARCHAR(255) NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                balance_units INT NOT NULL DEFAULT 0,
+                logs JSON NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'cms_pages' => 'CREATE TABLE IF NOT EXISTS cms_pages (
+                id VARCHAR(36) PRIMARY KEY,
+                slug VARCHAR(100) NOT NULL UNIQUE,
+                title VARCHAR(191) NOT NULL,
+                content LONGTEXT NULL,
+                meta_title VARCHAR(255) NULL,
+                meta_description TEXT NULL,
+                is_published TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'cms_sections' => 'CREATE TABLE IF NOT EXISTS cms_sections (
+                id VARCHAR(36) PRIMARY KEY,
+                section_key VARCHAR(50) NOT NULL UNIQUE,
+                section_data JSON NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'website_branding' => 'CREATE TABLE IF NOT EXISTS website_branding (
+                id VARCHAR(36) PRIMARY KEY,
+                company_name VARCHAR(191) NOT NULL,
+                short_brand_name VARCHAR(100) NULL DEFAULT "HAMBAKTECH",
+                tagline VARCHAR(255) NULL,
+                logo_url VARCHAR(500) NULL,
+                favicon_url VARCHAR(500) NULL,
+                primary_color VARCHAR(20) NOT NULL DEFAULT "#1d4ed8",
+                secondary_color VARCHAR(20) NOT NULL DEFAULT "#0f172a",
+                font_family VARCHAR(50) NOT NULL DEFAULT "Plus Jakarta Sans",
+                support_phone VARCHAR(50) NOT NULL,
+                business_phone VARCHAR(50) NULL DEFAULT "08147837664",
+                support_email VARCHAR(191) NOT NULL,
+                info_email VARCHAR(191) NULL DEFAULT "info@hambaktech.com.ng",
+                office_address TEXT NOT NULL,
+                whatsapp_number VARCHAR(50) NOT NULL,
+                business_reg_number VARCHAR(100) NULL DEFAULT "BN 9284726",
+                founded_year VARCHAR(20) NULL DEFAULT "2024",
+                social_links JSON NULL,
+                footer_text TEXT NULL,
+                copyright_text VARCHAR(255) NULL,
+                seo_title VARCHAR(255) NULL,
+                seo_description TEXT NULL,
+                seo_keywords TEXT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'announcements' => 'CREATE TABLE IF NOT EXISTS announcements (
+                id VARCHAR(36) PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                content TEXT NOT NULL,
+                category ENUM("update", "maintenance", "offer", "security", "general") NOT NULL DEFAULT "general",
+                target_audience VARCHAR(64) NOT NULL DEFAULT "all_customers",
+                target_user_id VARCHAR(36) NULL,
+                is_pinned TINYINT(1) NOT NULL DEFAULT 0,
+                status ENUM("published", "draft") NOT NULL DEFAULT "published",
+                author VARCHAR(100) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_anc_status_pinned (status, is_pinned)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'faqs' => 'CREATE TABLE IF NOT EXISTS faqs (
+                id VARCHAR(36) PRIMARY KEY,
+                category VARCHAR(50) NOT NULL DEFAULT "general",
+                question TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                display_order INT NOT NULL DEFAULT 1,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'navigation_menus' => 'CREATE TABLE IF NOT EXISTS navigation_menus (
+                id VARCHAR(36) PRIMARY KEY,
+                menu_key VARCHAR(50) NOT NULL UNIQUE,
+                label VARCHAR(100) NOT NULL,
+                page_key VARCHAR(50) NOT NULL,
+                display_order INT NOT NULL DEFAULT 1,
+                is_active TINYINT(1) NOT NULL DEFAULT 1
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'dashboard_modules' => 'CREATE TABLE IF NOT EXISTS dashboard_modules (
+                id VARCHAR(36) PRIMARY KEY,
+                module_key VARCHAR(50) NOT NULL UNIQUE,
+                name VARCHAR(100) NOT NULL,
+                description TEXT NOT NULL,
+                icon VARCHAR(50) NOT NULL,
+                status ENUM("active", "coming_soon", "disabled") NOT NULL DEFAULT "active",
+                is_visible TINYINT(1) NOT NULL DEFAULT 1,
+                coming_soon_message VARCHAR(255) NULL,
+                display_order INT NOT NULL DEFAULT 1
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'system_settings' => 'CREATE TABLE IF NOT EXISTS system_settings (
+                id VARCHAR(36) PRIMARY KEY,
+                setting_key VARCHAR(100) NOT NULL UNIQUE,
+                setting_value LONGTEXT NOT NULL,
+                category VARCHAR(50) NOT NULL DEFAULT "general",
+                description TEXT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'audit_logs' => 'CREATE TABLE IF NOT EXISTS audit_logs (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NULL,
+                user_email VARCHAR(191) NULL,
+                action VARCHAR(100) NOT NULL,
+                details JSON NULL,
+                ip_address VARCHAR(50) NULL,
+                user_agent VARCHAR(255) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_audit_created (created_at),
+                INDEX idx_audit_action (action)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
             'customer_virtual_accounts' => 'CREATE TABLE IF NOT EXISTS customer_virtual_accounts (
                 id VARCHAR(36) PRIMARY KEY,
                 user_id VARCHAR(36) NOT NULL UNIQUE,
@@ -553,6 +1183,7 @@ class SchemaSync
             'support_tickets.status' => 'ALTER TABLE support_tickets MODIFY COLUMN status ENUM("open", "pending", "in_progress", "waiting_customer", "resolved", "closed") NOT NULL DEFAULT "open"',
             'providers.last_ping_status' => 'ALTER TABLE providers MODIFY COLUMN last_ping_status ENUM("operational", "error", "untested", "unconfigured") NOT NULL DEFAULT "untested"',
             'academy_courses.price' => 'ALTER TABLE academy_courses MODIFY COLUMN price DECIMAL(15, 2) NULL DEFAULT NULL',
+            'notifications.type' => 'ALTER TABLE notifications MODIFY COLUMN type ENUM("info", "success", "warning", "alert", "security") NOT NULL DEFAULT "info"',
         ];
         foreach ($enumUpdates as $key => $sql) {
             try {
@@ -571,11 +1202,12 @@ class SchemaSync
         }
 
         // Ensure standard providers exist in providers table (without writing fake keys)
+        $twoSureUrl = rtrim((string)preg_replace('#/api/v1/?$#i', '', (string)(getenv('TWOSUREVERIFY_BASE_URL') ?: 'https://2sureverify.com')), '/');
         $providers = [
-            ['2sureverify', '2SureVerify Identity API', 'identity', getenv('TWOSUREVERIFY_BASE_URL') ?: 'https://2sureverify.com', 1, 0],
-            ['veripine', 'Veripine Identity API', 'identity', getenv('VERIPINE_BASE_URL') ?: 'https://veripine.com/api', 1, 1],
-            ['ulamadata', 'UlamaData VTU Gateway', 'telecom', getenv('ULAMADATA_BASE_URL') ?: 'https://www.ulamadata.ng', 1, 0],
-            ['vtpass', 'VTpass Enterprise VTU', 'telecom', getenv('VTPASS_API_BASE_URL') ?: (getenv('VTPASS_BASE_URL') ?: ((getenv('VTPASS_ENV') === 'sandbox') ? 'https://sandbox.vtpass.com/api' : 'https://api-service.vtpass.com/api')), 1, 1],
+            ['2sureverify', '2SureVerify Identity API', 'identity', $twoSureUrl ?: 'https://2sureverify.com', 1, 1],
+            ['veripine', 'Veripine Identity API', 'identity', getenv('VERIPINE_BASE_URL') ?: 'https://veripine.com/api', 1, 0],
+            ['ulamadata', 'UlamaData VTU Gateway', 'telecom', getenv('ULAMADATA_BASE_URL') ?: 'https://www.ulamadata.ng', 1, 1],
+            ['vtpass', 'VTpass Enterprise VTU', 'telecom', getenv('VTPASS_API_BASE_URL') ?: (getenv('VTPASS_BASE_URL') ?: ((getenv('VTPASS_ENV') === 'sandbox') ? 'https://sandbox.vtpass.com/api' : 'https://api-service.vtpass.com/api')), 1, 0],
             ['paystack', 'Paystack Checkout', 'payment', 'https://api.paystack.co', 1, 1],
             ['flutterwave', 'Flutterwave Gateway', 'payment', 'https://api.flutterwave.com/v3', 1, 0],
         ];
@@ -590,6 +1222,115 @@ class SchemaSync
                 $errors[] = "provider:{$p[0]} => " . $e->getMessage();
             }
         }
+
+        // Seed core roles, categories, verification catalogue, utilities, and baseline settings if missing (idempotent)
+        try {
+            $db->execute(
+                'INSERT IGNORE INTO roles (id, name, slug, description) VALUES
+                 ("rol_superadmin", "Super Administrator", "superadmin", "Global system authority with unrestricted access"),
+                 ("rol_admin", "Administrator", "admin", "Management authority over services, customers, and transactions"),
+                 ("rol_customer", "Customer / Agent", "customer", "Standard portal customer with digital wallet and API access")'
+            );
+            $db->execute(
+                'INSERT IGNORE INTO service_categories (id, code, name, icon, display_order, is_active) VALUES
+                 ("cat_nin", "nin_verification", "NIN Verification", "ShieldCheck", 1, 1),
+                 ("cat_bvn", "bvn_verification", "BVN Verification", "CreditCard", 2, 1),
+                 ("cat_mod", "nin_modification", "NIN Modification", "Edit3", 3, 1),
+                 ("cat_bvn_mod", "bvn_modification", "BVN Modification", "UserCog", 4, 1),
+                 ("cat_prs", "personalisation", "Personalisation", "UserCheck", 5, 1),
+                 ("cat_enr", "enrolment", "Enrolment", "FilePlus", 6, 1),
+                 ("cat_add", "additional_services", "Additional Services", "Layers", 7, 1)'
+            );
+            $db->execute(
+                'INSERT IGNORE INTO service_catalogue (id, category_id, service_key, name, description, provider_id, endpoint, wholesale_cost, selling_price, required_fields, slip_type_supported, is_active) VALUES
+                 ("srv_nin_v1", "cat_nin", "nin_v1", "NIN Verification (V1 Standard)", "Direct NIMC lookup with slip style selection (ninBasic, ninStandard, ninPremium, ninVnin, ninSpecial).", "2sureverify", "/api/v1/nin_v1.php", 85.00, 200.00, "[\"nin\", \"slip_type\"]", 1, 1),
+                 ("srv_nin_v2", "cat_nin", "nin_v2", "NIN Verification (V2 Multi-Tier)", "Multi-tier NIN verification with tier selection (basic, standard, premium, regular, vnin, vip).", "2sureverify", "/api/v1/nin_v2.php", 95.00, 220.00, "[\"nin\", \"tier\"]", 0, 1),
+                 ("srv_nin_v3", "cat_nin", "nin_v3", "NIN Verification (V3 5-Version Selector)", "5 independent upstream verification versions with custom slip styling.", "2sureverify", "/api/v1/nin_v3.php", 97.00, 250.00, "[\"nin\", \"tier\", \"slip_type\"]", 1, 1),
+                 ("srv_phone_v1", "cat_nin", "phone_v1", "Phone Verification (V1)", "Locate linked NIN record using registered Nigerian SIM card.", "2sureverify", "/api/v1/phone_v1.php", 85.00, 200.00, "[\"phone\", \"slip_type\"]", 1, 1),
+                 ("srv_phone_v2", "cat_nin", "phone_v2", "Phone Verification (V2 Multi-Tier)", "Phone to NIN matching across basic, standard, premium and VIP tiers.", "2sureverify", "/api/v1/phone_v2.php", 95.00, 220.00, "[\"phone\", \"tier\"]", 0, 1),
+                 ("srv_phone_v3", "cat_nin", "phone_v3", "Phone Verification (V3 5-Version)", "5-version phone to NIN resolution with slip generation.", "2sureverify", "/api/v1/phone_v3.php", 102.00, 250.00, "[\"phone\", \"tier\", \"slip_type\"]", 1, 1),
+                 ("srv_demo_v1", "cat_nin", "demo_v1", "Demographic Verification (V1)", "Search and confirm NIN matching name, birth date, and gender.", "2sureverify", "/api/v1/demo_v1.php", 90.00, 200.00, "[\"firstname\", \"lastname\", \"dob\", \"gender\", \"slip_type\"]", 1, 1),
+                 ("srv_demo_v2", "cat_nin", "demo_v2", "Demographic Verification (V2)", "Multi-tier demographic match search.", "2sureverify", "/api/v1/demo_v2.php", 95.00, 220.00, "[\"firstname\", \"lastname\", \"dob\", \"gender\", \"tier\"]", 0, 1),
+                 ("srv_demo_v3", "cat_nin", "demo_v3", "Demographic Verification (V3)", "Extended demographic matching with slip generation.", "2sureverify", "/api/v1/demo_v3.php", 97.00, 250.00, "[\"firstname\", \"lastname\", \"dob\", \"gender\", \"tier\", \"slip_type\"]", 1, 1),
+                 ("srv_vnin", "cat_nin", "vnin_verification", "Virtual NIN (VNIN) Verification", "Verify enterprise 16-character virtual NIN or generate verifiable record.", "2sureverify", "/api/v1/nin_v2.php", 95.00, 200.00, "[\"nin\"]", 0, 1),
+                 ("srv_bvn_v1", "cat_bvn", "bvn_v1", "BVN Verification (V1 Standard)", "Bank Verification Number validation with slip choice (bvnBasic, bvnAdvanced, plasticBvn).", "2sureverify", "/api/v1/bvn_v1.php", 85.00, 250.00, "[\"bvn\", \"slip_type\"]", 1, 1),
+                 ("srv_bvn_v2", "cat_bvn", "bvn_v2", "BVN Verification (V2)", "Standard Central Bank of Nigeria BVN biometric record check.", "2sureverify", "/api/v1/bvn_v2.php", 85.00, 250.00, "[\"bvn\"]", 0, 1),
+                 ("srv_bvn_v3", "cat_bvn", "bvn_v3", "BVN Verification (V3 Multi-Version)", "5-version BVN biometric query with document printing.", "2sureverify", "/api/v1/bvn_v3.php", 85.00, 250.00, "[\"bvn\", \"tier\", \"slip_type\"]", 1, 1),
+                 ("srv_bvn_ret", "cat_bvn", "bvn_retrieval", "BVN Retrieval by Phone", "Retrieve 11-digit BVN using phone number and registered names.", "2sureverify", "/api/v1/bvn_retrieval.php", 700.00, 1200.00, "[\"first_name\", \"last_name\", \"phone\", \"slip_type\"]", 1, 1)'
+            );
+            $planCount = (int)($db->fetchOne('SELECT COUNT(*) as cnt FROM telecom_plans')['cnt'] ?? 0);
+            if ($planCount === 0) {
+                $db->execute(
+                    'INSERT IGNORE INTO telecom_plans (id, provider_plan_id, network, name, size, plan_type, validity, wholesale_cost, price, is_active, provider_id) VALUES
+                     ("plan_mtn_500mb", "101", "MTN", "MTN SME 500MB", "500MB", "SME", "30 Days", 135.00, 160.00, 1, "ulamadata"),
+                     ("plan_mtn_1gb", "102", "MTN", "MTN SME 1GB", "1GB", "SME", "30 Days", 270.00, 310.00, 1, "ulamadata"),
+                     ("plan_mtn_2gb", "103", "MTN", "MTN SME 2GB", "2GB", "SME", "30 Days", 540.00, 620.00, 1, "ulamadata"),
+                     ("plan_mtn_3gb", "104", "MTN", "MTN SME 3GB", "3GB", "SME", "30 Days", 810.00, 930.00, 1, "ulamadata"),
+                     ("plan_mtn_5gb", "105", "MTN", "MTN SME 5GB", "5GB", "SME", "30 Days", 1350.00, 1550.00, 1, "ulamadata"),
+                     ("plan_mtn_10gb", "106", "MTN", "MTN SME 10GB", "10GB", "SME", "30 Days", 2700.00, 3100.00, 1, "ulamadata"),
+                     ("plan_air_1gb", "201", "AIRTEL", "Airtel Corporate 1GB", "1GB", "Corporate", "30 Days", 290.00, 340.00, 1, "ulamadata"),
+                     ("plan_air_2gb", "202", "AIRTEL", "Airtel Corporate 2GB", "2GB", "Corporate", "30 Days", 580.00, 680.00, 1, "ulamadata"),
+                     ("plan_air_5gb", "203", "AIRTEL", "Airtel Corporate 5GB", "5GB", "Corporate", "30 Days", 1450.00, 1700.00, 1, "ulamadata"),
+                     ("plan_glo_1gb", "301", "GLO", "Glo Corporate 1GB", "1GB", "Corporate", "30 Days", 260.00, 300.00, 1, "ulamadata"),
+                     ("plan_glo_2gb", "302", "GLO", "Glo Corporate 2GB", "2GB", "Corporate", "30 Days", 520.00, 600.00, 1, "ulamadata"),
+                     ("plan_glo_5gb", "303", "GLO", "Glo Corporate 5GB", "5GB", "Corporate", "30 Days", 1300.00, 1500.00, 1, "ulamadata"),
+                     ("plan_9mob_1gb", "401", "9MOBILE", "9mobile SME 1GB", "1GB", "SME", "30 Days", 250.00, 290.00, 1, "ulamadata"),
+                     ("plan_9mob_2gb", "402", "9MOBILE", "9mobile SME 2GB", "2GB", "SME", "30 Days", 500.00, 580.00, 1, "ulamadata")'
+                );
+            }
+            $db->execute(
+                'INSERT IGNORE INTO electricity_discos (id, name, code, minimum_amount, is_active) VALUES
+                 ("disc_ikj", "Ikeja Electric (IKEDC)", "ikeja-electric", 500.00, 1),
+                 ("disc_ekd", "Eko Electric (EKEDC)", "eko-electric", 500.00, 1),
+                 ("disc_abj", "Abuja Electric (AEDC)", "abuja-electric", 500.00, 1),
+                 ("disc_kan", "Kano Electric (KEDCO)", "kano-electric", 500.00, 1),
+                 ("disc_por", "Port Harcourt Electric (PHED)", "portharcourt-electric", 500.00, 1),
+                 ("disc_iba", "Ibadan Electric (IBEDC)", "ibadan-electric", 500.00, 1)'
+            );
+            $db->execute(
+                'INSERT IGNORE INTO cable_packages (id, provider, name, code, channels, wholesale_cost, price, is_active) VALUES
+                 ("cab_dstv_jin", "dstv", "DStv Yanga", "dstv-yanga", 85, 4100.00, 4200.00, 1),
+                 ("cab_dstv_cnf", "dstv", "DStv Confam", "dstv-confam", 105, 7300.00, 7400.00, 1),
+                 ("cab_dstv_cpt", "dstv", "DStv Compact", "dstv-compact", 130, 12400.00, 12500.00, 1),
+                 ("cab_gotv_sml", "gotv", "GOtv Smallie", "gotv-smallie", 35, 1200.00, 1300.00, 1),
+                 ("cab_gotv_jin", "gotv", "GOtv Jinja", "gotv-jinja", 45, 2600.00, 2700.00, 1),
+                 ("cab_gotv_jli", "gotv", "GOtv Jolli", "gotv-jolli", 65, 3850.00, 3950.00, 1),
+                 ("cab_gotv_max", "gotv", "GOtv Max", "gotv-max", 75, 5600.00, 5700.00, 1),
+                 ("cab_star_nov", "startimes", "StarTimes Nova", "startimes-nova", 40, 1400.00, 1500.00, 1),
+                 ("cab_star_bas", "startimes", "StarTimes Basic", "startimes-basic", 60, 2500.00, 2600.00, 1),
+                 ("cab_star_cls", "startimes", "StarTimes Classic", "startimes-classic", 80, 3700.00, 3800.00, 1)'
+            );
+            $db->execute(
+                'INSERT IGNORE INTO exam_packages (id, exam_name, name, description, wholesale_cost, price, is_active) VALUES
+                 ("exm_waec", "WAEC", "WAEC Result Checker PIN", "Direct e-PIN scratch card for checking WASSCE results.", 3300.00, 3600.00, 1),
+                 ("exm_neco", "NECO", "NECO Result Checker Token", "Official NECO token for SSCE results validation.", 1150.00, 1300.00, 1),
+                 ("exm_jamb", "JAMB", "JAMB UTME Registration Profile Code", "E-facility profile code and exam registration PIN.", 4500.00, 4800.00, 1),
+                 ("exm_nabteb", "NABTEB", "NABTEB Result Checker Card", "Official NABTEB National Technical Certificate PIN.", 1350.00, 1500.00, 1)'
+            );
+            $db->execute(
+                'INSERT IGNORE INTO airtime_swap_configs (id, network, conversion_rate_percent, merchant_phone, ussd_code, is_active) VALUES
+                 ("swp_mtn", "MTN", 82.00, "+2348147837664", "*600*08147837664*AMOUNT*PIN#", 1),
+                 ("swp_airtel", "AIRTEL", 80.00, "+2348147837664", "*432*1*08147837664*AMOUNT*PIN#", 1),
+                 ("swp_glo", "GLO", 75.00, "+2348147837664", "*131*08147837664*AMOUNT*PIN#", 1),
+                 ("swp_9mobile", "9MOBILE", 75.00, "+2348147837664", "*223*PIN*AMOUNT*08147837664#", 1)'
+            );
+            $db->execute(
+                'INSERT IGNORE INTO system_settings (id, setting_key, setting_value, category, description) VALUES
+                 ("set_bank_name", "bank_transfer_bank", "Moniepoint MFB", "payment", "Official receiving bank name for customer manual funding"),
+                 ("set_bank_acc", "bank_transfer_account_number", "5210471634", "payment", "Official Moniepoint account number for bank transfer deposits"),
+                 ("set_bank_title", "bank_transfer_account_name", "HAMBAKTECH_SERVICES", "payment", "Official beneficiary account name for bank transfer deposits"),
+                 ("set_active_gateway", "active_payment_gateway", "paystack", "payment", "Active default online payment gateway"),
+                 ("set_act_verif", "active_verification_provider", "2sureverify", "providers", "Active Primary Identity Verification Provider"),
+                 ("set_bvn_primary", "bvn_primary_provider", "2sureverify", "providers", "Primary BVN Verification Provider"),
+                 ("set_bvn_fallback", "bvn_fallback_provider", "veripine", "providers", "Fallback BVN Verification Provider"),
+                 ("set_bvn_auto_fb", "bvn_auto_fallback", "1", "providers", "Enable Automatic BVN Provider Failover"),
+                 ("set_id_auto_fb", "identity_auto_fallback", "1", "providers", "Enable Automatic Identity Provider Failover"),
+                 ("set_act_tel", "active_telecom_provider", "ulamadata", "providers", "Active Telecom VTU Provider")'
+            );
+        } catch (Throwable $e) {
+            $errors[] = 'seed_defaults => ' . $e->getMessage();
+        }
+
 
         // Ensure Stage 3 modification categories and catalog metadata exist
         try {

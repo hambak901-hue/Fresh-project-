@@ -1533,7 +1533,7 @@ class AdminController
 
     public function notifyCustomer(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'customers');
         $customerId = $params['id'] ?? '';
         $title = trim((string)$request->input('title', 'Administrative Notice'));
         $message = trim((string)$request->input('message', ''));
@@ -1564,7 +1564,7 @@ class AdminController
     // =========================================================================
     public function services(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
 
         // 1. Fetch system pricing & routing settings
         $settingsRows = $this->db->fetchAll('SELECT setting_key, setting_value FROM system_settings WHERE category IN ("pricing", "payment", "general", "telecom", "identity", "providers")');
@@ -1618,7 +1618,7 @@ class AdminController
 
     public function updateServicePrice(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $serviceKey = (string)$request->input('serviceKey', $request->input('service_key', ''));
         $price = (float)($request->input('sellingPrice') ?? $request->input('selling_price', 0));
 
@@ -1638,7 +1638,7 @@ class AdminController
 
     public function updatePricing(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $b = $request->getBody();
 
         foreach ($b as $k => $v) {
@@ -1660,7 +1660,7 @@ class AdminController
 
     public function updateProviders(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireSuperAdmin($request);
         $b = $request->getBody();
 
         foreach ($b as $k => $v) {
@@ -1737,7 +1737,7 @@ class AdminController
 
     public function verificationServices(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         \HambakTech\Core\SchemaSync::syncModificationCatalog($this->db);
         \HambakTech\Core\SchemaSync::syncEnrolmentCatalog($this->db);
 
@@ -1766,7 +1766,7 @@ class AdminController
 
     public function updateVerificationService(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $key = $params['key'] ?? '';
         $body = $request->getBody();
 
@@ -1817,7 +1817,7 @@ class AdminController
 
     public function syncWholesalePrices(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         \HambakTech\Core\SchemaSync::syncModificationCatalog($this->db);
         \HambakTech\Core\SchemaSync::syncEnrolmentCatalog($this->db);
 
@@ -1910,7 +1910,7 @@ class AdminController
 
     public function providers(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $providers = $this->db->fetchAll('SELECT * FROM providers ORDER BY provider_type ASC, is_default DESC, name ASC');
         $primaryId = '2sureverify';
         foreach ($providers as &$p) {
@@ -2058,7 +2058,7 @@ class AdminController
 
     public function testProvider(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireSuperAdmin($request);
         $id = strtolower(trim((string)($params['id'] ?? '')));
         $prov = $this->db->fetchOne('SELECT * FROM providers WHERE id = :id', ['id' => $id]);
 
@@ -2187,7 +2187,7 @@ class AdminController
 
     public function providerLogs(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         // Two-step deferred ID fetch prevents MySQL SQLSTATE[HY001]: 1038 Out of sort memory on LONGTEXT blobs
         $idRows = $this->db->fetchAll('SELECT id FROM provider_logs ORDER BY created_at DESC LIMIT 100');
         $logs = [];
@@ -2222,7 +2222,7 @@ class AdminController
     // =========================================================================
     public function slipTemplates(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         VerificationController::ensureSlipSchemaAndDefaults($this->db);
 
         $rows = $this->db->fetchAll('SELECT * FROM slip_templates ORDER BY display_order ASC, name ASC');
@@ -2233,7 +2233,7 @@ class AdminController
 
     public function uploadSlipSpecimen(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
 
         $decoded = null;
         $ext = null;
@@ -2313,7 +2313,7 @@ class AdminController
 
     public function saveSlipTemplate(Request $request, array $params = []): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         VerificationController::ensureSlipSchemaAndDefaults($this->db);
 
         $id = trim((string)($params['id'] ?? $request->input('id', '')));
@@ -2410,7 +2410,7 @@ class AdminController
 
     public function deleteSlipTemplate(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = $params['id'] ?? '';
         $this->db->execute('DELETE FROM slip_templates WHERE id = :id', ['id' => $id]);
         Response::success(null, 'Slip template deleted');
@@ -2421,7 +2421,7 @@ class AdminController
     // =========================================================================
     public function digitalServices(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $cable = $this->db->fetchAll('SELECT * FROM cable_packages ORDER BY provider ASC, price ASC');
         $discos = $this->db->fetchAll('SELECT * FROM electricity_discos ORDER BY name ASC');
 
@@ -2445,7 +2445,7 @@ class AdminController
 
     public function saveCablePackage(Request $request, array $params = []): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = $params['id'] ?? (string)$request->input('id', '');
         $body = $request->getBody();
 
@@ -2489,14 +2489,14 @@ class AdminController
 
     public function deleteCablePackage(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->db->execute('DELETE FROM cable_packages WHERE id = :id', ['id' => $params['id'] ?? '']);
         Response::success(null, 'Cable package deleted');
     }
 
     public function saveElectricityDisco(Request $request, array $params = []): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = $params['id'] ?? (string)$request->input('id', '');
         $body = $request->getBody();
 
@@ -2531,7 +2531,7 @@ class AdminController
 
     public function deleteElectricityDisco(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->db->execute('DELETE FROM electricity_discos WHERE id = :id', ['id' => $params['id'] ?? '']);
         Response::success(null, 'Electricity disco deleted');
     }
@@ -2541,7 +2541,7 @@ class AdminController
     // =========================================================================
     public function store(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $items = $this->db->fetchAll('SELECT * FROM store_items ORDER BY created_at DESC');
         if (empty($items)) {
             $defaults = [
@@ -2580,7 +2580,7 @@ class AdminController
 
     public function storeSettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $storeSettingsSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "store_settings"');
         $settings = $storeSettingsSetting ? json_decode($storeSettingsSetting['setting_value'], true) : [
             'coming_soon' => true,
@@ -2593,7 +2593,7 @@ class AdminController
 
     public function updateStoreSettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $body = $request->getBody();
 
         $this->db->execute(
@@ -2611,7 +2611,7 @@ class AdminController
 
     public function saveStoreItem(Request $request, array $params = []): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = $params['id'] ?? (string)$request->input('id', '');
         $body = $request->getBody();
 
@@ -2656,14 +2656,14 @@ class AdminController
 
     public function deleteStoreItem(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->db->execute('DELETE FROM store_items WHERE id = :id', ['id' => $params['id'] ?? '']);
         Response::success(null, 'Store product deleted');
     }
 
     public function academy(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $courses = $this->db->fetchAll('SELECT * FROM academy_courses ORDER BY created_at DESC');
         if (empty($courses)) {
             $defaults = [
@@ -2701,7 +2701,7 @@ class AdminController
 
     public function academySettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $academySettingsSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "academy_settings"');
         $settings = $academySettingsSetting ? json_decode($academySettingsSetting['setting_value'], true) : [
             'coming_soon' => true,
@@ -2714,7 +2714,7 @@ class AdminController
 
     public function updateAcademySettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $body = $request->getBody();
 
         $this->db->execute(
@@ -2732,7 +2732,7 @@ class AdminController
 
     public function saveAcademyCourse(Request $request, array $params = []): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = $params['id'] ?? (string)$request->input('id', '');
         $body = $request->getBody();
 
@@ -2777,14 +2777,14 @@ class AdminController
 
     public function deleteAcademyCourse(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->db->execute('DELETE FROM academy_courses WHERE id = :id', ['id' => $params['id'] ?? '']);
         Response::success(null, 'Academy course deleted');
     }
 
     public function reportsSettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'reports');
         $body = $request->getBody();
 
         $this->db->execute(
@@ -2805,7 +2805,7 @@ class AdminController
     // =========================================================================
     public function smtpConfig(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $row = $this->db->fetchOne('SELECT * FROM smtp_configs LIMIT 1');
         $cfgFile = __DIR__ . '/../config/config.php';
         $baseCfg = file_exists($cfgFile) ? require $cfgFile : [];
@@ -2942,7 +2942,7 @@ class AdminController
 
     public function testSmtpConnection(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $cfgFile = __DIR__ . '/../config/config.php';
         $baseCfg = file_exists($cfgFile) ? require $cfgFile : [];
         $mailDefaults = $baseCfg['mail'] ?? [];
@@ -3043,7 +3043,7 @@ class AdminController
 
     public function sendTestSmtpEmail(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $recipient = trim((string)$request->input('toEmail', $request->input('recipient', '')));
         if ($recipient === '' || !filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
             Response::error('Valid recipient email address is required.', 422);
@@ -3076,7 +3076,7 @@ class AdminController
 
     public function emailTemplates(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $templates = $this->db->fetchAll('SELECT * FROM email_templates ORDER BY category ASC, name ASC');
 
         if (empty($templates)) {
@@ -3115,7 +3115,7 @@ class AdminController
 
     public function updateEmailTemplate(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $id = $params['id'] ?? '';
         $body = $request->getBody();
 
@@ -3140,7 +3140,7 @@ class AdminController
 
     public function testEmailTemplate(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $id = $params['id'] ?? '';
         $recipient = trim((string)$request->input('toEmail', $request->input('recipient', '')));
 
@@ -3223,7 +3223,7 @@ class AdminController
 
     public function smsConfig(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $configSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "sms_config"');
         $defaults = $this->defaultSmsConfig();
         $decoded = $configSetting ? json_decode((string)$configSetting['setting_value'], true) : [];
@@ -3322,7 +3322,7 @@ class AdminController
 
     public function updateSmsTemplate(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $id = $params['id'] ?? '';
         $body = $request->getBody();
 
@@ -3370,7 +3370,7 @@ class AdminController
 
     public function testSms(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $recipient = trim((string)$request->input('phone', $request->input('recipient', '')));
         $message = trim((string)$request->input('message', ''));
 
@@ -3479,7 +3479,7 @@ class AdminController
     // =========================================================================
     public function dashboardModules(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $modules = $this->db->fetchAll('SELECT * FROM dashboard_modules ORDER BY display_order ASC');
 
         if (empty($modules)) {
@@ -3515,7 +3515,7 @@ class AdminController
 
     public function updateDashboardModule(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'settings');
         $id = $params['id'] ?? '';
         $body = $request->getBody();
 
@@ -3556,7 +3556,7 @@ class AdminController
     // =========================================================================
     public function staff(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'staff');
         $staff = $this->db->fetchAll(
             'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.kyc_status, u.tier, u.status,
                     u.assigned_permissions, u.mfa_enabled, u.last_login_at, u.created_at,
@@ -3618,7 +3618,7 @@ class AdminController
             return;
         }
 
-        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security'];
+        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff'];
         $cleanPerms = ['customers', 'wallet', 'kyc', 'support', 'reports'];
         if (is_array($rawPerms)) {
             $filtered = array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
@@ -3735,7 +3735,7 @@ class AdminController
         $rawPerms = $body['permissions'] ?? ($body['assigned_permissions'] ?? null);
         $cleanPerms = null;
         if (is_array($rawPerms)) {
-            $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security'];
+            $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff'];
             $effectiveRole = $paramsDb['r'] ?? $existing['role'];
             $cleanPerms = ($effectiveRole === 'superadmin')
                 ? ['*']
@@ -3788,7 +3788,7 @@ class AdminController
     // =========================================================================
     public function auditLogs(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'audit');
         $search = trim((string)$request->query('search', ''));
         $action = trim((string)$request->query('action', ''));
         $limit = min(200, max(1, (int)$request->query('limit', 50)));
@@ -3947,7 +3947,7 @@ class AdminController
 
     public function kycSubmissionDetail(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'kyc');
         $id = $params['id'] ?? '';
 
         $row = $this->db->fetchOne(
@@ -4095,7 +4095,7 @@ class AdminController
 
     public function autoVerifyKycSubmission(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'kyc');
         $id = $params['id'] ?? '';
 
         $sub = $this->db->fetchOne('SELECT * FROM kyc_submissions WHERE id = :id', ['id' => $id]);
@@ -4216,7 +4216,7 @@ class AdminController
 
     public function serviceSecurityRules(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'security');
         $this->db->execute(
             'CREATE TABLE IF NOT EXISTS service_security_rules (
                 id VARCHAR(50) PRIMARY KEY,
@@ -4560,7 +4560,7 @@ class AdminController
      */
     public function footprints(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'audit');
         FootprintService::ensureTable();
 
         $category = trim((string)$request->query('category', ''));
@@ -4656,7 +4656,7 @@ class AdminController
      */
     public function footprintStats(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'audit');
         FootprintService::ensureTable();
 
         $stats = $this->db->fetchOne(
@@ -4715,7 +4715,7 @@ class AdminController
      */
     public function exportFootprints(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'audit');
         FootprintService::ensureTable();
 
         $exportIdRows = $this->db->fetchAll('SELECT id FROM activity_footprints ORDER BY created_at DESC LIMIT 1000');
@@ -5153,7 +5153,7 @@ class AdminController
      */
     public function uploadLogo(Request $request): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'cms');
 
         $imageUrl = trim((string)$request->input('image_url', ''));
         $fileData = $request->input('file_data') ?? $request->input('file_base64'); // base64 data URI
@@ -5266,7 +5266,7 @@ class AdminController
      */
     public function removeLogo(Request $request): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'cms');
 
         $defaultLogo = '/logo.png';
 

@@ -46,12 +46,17 @@ class Auth
             'pin_max_attempts' => 5,
             'pin_lockout_minutes' => 15,
             'jwt_expiry_days' => 7,
+            'session_timeout_minutes' => 1440,
             'admin_session_timeout_minutes' => 60,
-            'customer_session_timeout_minutes' => 10080,
+            'customer_session_timeout_minutes' => 1440,
+            'login_max_attempts' => 5,
             'max_failed_login_attempts' => 5,
             'login_lockout_minutes' => 15,
             'ip_rate_limiting_enabled' => true,
+            'bind_user_agent' => true,
             'bind_session_user_agent' => true,
+            'enforce_cors_allowlist' => false,
+            'allowed_origins' => '',
         ];
 
         try {
@@ -60,6 +65,21 @@ class Auth
             if ($row && !empty($row['setting_value'])) {
                 $decoded = json_decode((string)$row['setting_value'], true);
                 if (is_array($decoded)) {
+                    if (array_key_exists('session_timeout_minutes', $decoded) && !array_key_exists('customer_session_timeout_minutes', $decoded)) {
+                        $decoded['customer_session_timeout_minutes'] = (int)$decoded['session_timeout_minutes'];
+                    } elseif (array_key_exists('customer_session_timeout_minutes', $decoded) && !array_key_exists('session_timeout_minutes', $decoded)) {
+                        $decoded['session_timeout_minutes'] = (int)$decoded['customer_session_timeout_minutes'];
+                    }
+                    if (array_key_exists('login_max_attempts', $decoded) && !array_key_exists('max_failed_login_attempts', $decoded)) {
+                        $decoded['max_failed_login_attempts'] = (int)$decoded['login_max_attempts'];
+                    } elseif (array_key_exists('max_failed_login_attempts', $decoded) && !array_key_exists('login_max_attempts', $decoded)) {
+                        $decoded['login_max_attempts'] = (int)$decoded['max_failed_login_attempts'];
+                    }
+                    if (array_key_exists('bind_user_agent', $decoded) && !array_key_exists('bind_session_user_agent', $decoded)) {
+                        $decoded['bind_session_user_agent'] = (bool)$decoded['bind_user_agent'];
+                    } elseif (array_key_exists('bind_session_user_agent', $decoded) && !array_key_exists('bind_user_agent', $decoded)) {
+                        $decoded['bind_user_agent'] = (bool)$decoded['bind_session_user_agent'];
+                    }
                     $defaults = array_merge($defaults, $decoded);
                 }
             }
@@ -68,17 +88,28 @@ class Auth
             if ($admRow && !empty($admRow['setting_value'])) {
                 $admCfg = json_decode((string)$admRow['setting_value'], true);
                 if (is_array($admCfg) && isset($admCfg['session_timeout_minutes'])) {
-                    $defaults['admin_session_timeout_minutes'] = max(5, min(1440, (int)$admCfg['session_timeout_minutes']));
+                    $defaults['admin_session_timeout_minutes'] = max(5, min(720, (int)$admCfg['session_timeout_minutes']));
                 }
             }
         } catch (\Throwable) {
         }
 
-        // Security floor/ceiling clamps
+        // Security floor/ceiling clamps & alias synchronization
+        $custTimeout = max(15, min(10080, (int)($defaults['session_timeout_minutes'] ?? $defaults['customer_session_timeout_minutes'] ?? 1440)));
+        $maxFail = max(3, min(15, (int)($defaults['login_max_attempts'] ?? $defaults['max_failed_login_attempts'] ?? 5)));
+        $bindUa = (bool)($defaults['bind_user_agent'] ?? $defaults['bind_session_user_agent'] ?? true);
+
         $defaults['jwt_expiry_days'] = max(1, min(30, (int)$defaults['jwt_expiry_days']));
-        $defaults['admin_session_timeout_minutes'] = max(5, min(1440, (int)$defaults['admin_session_timeout_minutes']));
-        $defaults['max_failed_login_attempts'] = max(3, min(15, (int)$defaults['max_failed_login_attempts']));
+        $defaults['session_timeout_minutes'] = $custTimeout;
+        $defaults['customer_session_timeout_minutes'] = $custTimeout;
+        $defaults['admin_session_timeout_minutes'] = max(5, min(720, (int)$defaults['admin_session_timeout_minutes']));
+        $defaults['login_max_attempts'] = $maxFail;
+        $defaults['max_failed_login_attempts'] = $maxFail;
         $defaults['login_lockout_minutes'] = max(5, min(240, (int)$defaults['login_lockout_minutes']));
+        $defaults['bind_user_agent'] = $bindUa;
+        $defaults['bind_session_user_agent'] = $bindUa;
+        $defaults['enforce_cors_allowlist'] = (bool)($defaults['enforce_cors_allowlist'] ?? false);
+        $defaults['allowed_origins'] = (string)($defaults['allowed_origins'] ?? '');
         return $defaults;
     }
 

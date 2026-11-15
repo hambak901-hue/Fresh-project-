@@ -159,7 +159,26 @@ class PinSecurityService
             return false;
         }
 
-        $catEnabled = (bool)($policy['protected_categories'][$categoryKey] ?? true);
+        $cats = $policy['protected_categories'] ?? [];
+        $aliasMap = [
+            'identity_verification' => ['identity_verification', 'nin_verification', 'bvn_verification'],
+            'identity_modification' => ['identity_modification', 'nin_modification', 'bvn_modification'],
+            'identity_enrolment' => ['identity_enrolment', 'nin_enrolment'],
+            'telecom_bulksms' => ['telecom_bulksms', 'telecom_sms'],
+            'telecom_sms' => ['telecom_sms', 'telecom_bulksms'],
+            'telecom_swap' => ['telecom_swap', 'telecom_bills'],
+        ];
+        $catEnabled = true;
+        if (array_key_exists($categoryKey, $cats)) {
+            $catEnabled = (bool)$cats[$categoryKey];
+        } elseif (isset($aliasMap[$categoryKey])) {
+            foreach ($aliasMap[$categoryKey] as $candidateKey) {
+                if (array_key_exists($candidateKey, $cats)) {
+                    $catEnabled = (bool)$cats[$candidateKey];
+                    break;
+                }
+            }
+        }
         if (!$catEnabled) {
             return false;
         }
@@ -490,7 +509,7 @@ class PinSecurityService
             Response::forbidden('Only a Super Admin can reset a Super Admin Transaction PIN.');
         }
 
-        if ($mode === 'set_temporary' && $newPin !== null && trim($newPin) !== '') {
+        if (in_array($mode, ['set_temp_pin', 'set_temporary'], true) && $newPin !== null && trim($newPin) !== '') {
             $policy = $this->getPolicy();
             if ($formatErr = $this->validatePinFormat($newPin, $policy)) {
                 Response::error($formatErr, 422);

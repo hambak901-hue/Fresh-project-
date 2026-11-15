@@ -466,11 +466,6 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
 
         {mode === 'mfa_challenge' && mfaChallenge && (
           <form onSubmit={handleVerifyMfa} className="space-y-4">
-            {mfaChallenge.otp_preview && (
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-cyan-500/10 border border-blue-200 dark:border-cyan-500/30 text-blue-900 dark:text-cyan-300 text-xs">
-                Code Preview: <span className="font-mono font-bold">{mfaChallenge.otp_preview}</span>
-              </div>
-            )}
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 {mfaChallenge.method === 'totp' ? 'Authenticator or Recovery Code' : '6-Digit Email Security Code'}

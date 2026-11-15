@@ -34,7 +34,6 @@ export function TransactionPinModal({
   const [newPin, setNewPin] = useState('');
   const [confirmNewPin, setConfirmNewPin] = useState('');
   const [resetSuccess, setResetSuccess] = useState<string | null>(null);
-  const [otpPreview, setOtpPreview] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -46,7 +45,6 @@ export function TransactionPinModal({
       setNewPin('');
       setConfirmNewPin('');
       setResetSuccess(null);
-      setOtpPreview(null);
     }
   }, [isOpen]);
 
@@ -103,7 +101,6 @@ export function TransactionPinModal({
     try {
       const res = await api.requestPinResetOtp();
       setOtpSent(true);
-      setOtpPreview(res.otp_preview || null);
       setResetSuccess(res.message || 'Verification code sent to your registered email.');
     } catch (err: any) {
       setError(err?.message || 'Unable to send PIN reset OTP right now.');
@@ -298,11 +295,6 @@ export function TransactionPinModal({
               <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>{resetSuccess}</span>
-              </div>
-            )}
-            {otpPreview && (
-              <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 text-xs">
-                OTP Code Preview: <span className="font-mono font-bold">{otpPreview}</span>
               </div>
             )}
 

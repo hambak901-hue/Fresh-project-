@@ -33,20 +33,35 @@ type ReportKey =
   | 'profit'
   | 'funding'
   | 'kyc'
-  | 'staff';
+  | 'staff'
+  | 'referral_growth';
 
 export const ReportsManagement: React.FC = () => {
   const [activeReport, setActiveReport] = useState<ReportKey>('customer');
   const [reportsData, setReportsData] = useState<any>(null);
+  const [referralReport, setReferralReport] = useState<import('../../types').ReferralGrowthReport | null>(null);
+  const [refDateFrom, setRefDateFrom] = useState('');
+  const [refDateTo, setRefDateTo] = useState('');
+  const [refCampaignCode, setRefCampaignCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const loadReports = async () => {
     setLoading(true);
     try {
-      const res = await api.getDetailedReportsAdmin();
-      if (res && res.success && res.reports) {
-        setReportsData(res.reports);
+      const [res, refRes] = await Promise.allSettled([
+        api.getDetailedReportsAdmin(),
+        api.getAdminReferralGrowthReport({
+          date_from: refDateFrom || undefined,
+          date_to: refDateTo || undefined,
+          campaign_code: refCampaignCode || undefined,
+        }),
+      ]);
+      if (res.status === 'fulfilled' && res.value && res.value.success && res.value.reports) {
+        setReportsData(res.value.reports);
+      }
+      if (refRes.status === 'fulfilled' && refRes.value && refRes.value.success) {
+        setReferralReport(refRes.value.report);
       }
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || 'Failed to fetch detailed reports' });
@@ -56,19 +71,20 @@ export const ReportsManagement: React.FC = () => {
   };
 
   useEffect(() => {
-    loadReports();
+    void loadReports();
   }, []);
 
   const handleExportJSON = () => {
     if (!reportsData) return;
-    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(reportsData, null, 2))}`;
+    const payload = { ...reportsData, referral_growth_report: referralReport };
+    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`;
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', jsonString);
-    downloadAnchor.setAttribute('download', `hambaktech_11_reports_${new Date().toISOString().slice(0, 10)}.json`);
+    downloadAnchor.setAttribute('download', `hambaktech_12_reports_${new Date().toISOString().slice(0, 10)}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
-    setFeedback({ type: 'success', message: 'All 11 reports exported to JSON successfully.' });
+    setFeedback({ type: 'success', message: 'All 12 reports exported to JSON successfully.' });
   };
 
   const handleExportCSV = () => {
@@ -101,6 +117,14 @@ export const ReportsManagement: React.FC = () => {
       ['Wholesale Provider Costs', `₦${reportsData.profit_report?.total_expenditure ?? 0}`],
       ['Gross Operating Profit', `₦${reportsData.profit_report?.gross_profit ?? 0}`],
       ['Gross Operating Margin', `${reportsData.profit_report?.margin_percent ?? 0}%`],
+      [],
+      ['12. REFERRAL & GROWTH ROI REPORT'],
+      ['Total Referrals', String(referralReport?.summary?.total_referrals ?? 0)],
+      ['Qualified Referrals', String(referralReport?.summary?.qualified_referrals ?? 0)],
+      ['Referred Revenue', `₦${referralReport?.summary?.referred_revenue ?? 0}`],
+      ['Total Reward Cost', `₦${referralReport?.summary?.total_reward_cost ?? 0}`],
+      ['Net Referral Contribution', `₦${referralReport?.summary?.net_referral_contribution ?? 0}`],
+      ['Referral ROI %', `${referralReport?.summary?.roi_percent ?? 0}%`],
     ];
 
     const csvContent = 'data:text/csv;charset=utf-8,' + rows.map(r => r.join(',')).join('\n');
@@ -126,6 +150,7 @@ export const ReportsManagement: React.FC = () => {
     { key: 'funding' as ReportKey, label: '9. Manual Funding Report', icon: Clock },
     { key: 'kyc' as ReportKey, label: '10. KYC Report', icon: UserCheck },
     { key: 'staff' as ReportKey, label: '11. Staff Activity Report', icon: FileText },
+    { key: 'referral_growth' as ReportKey, label: '12. Referral & Growth ROI', icon: ArrowUpRight },
   ];
 
   return (
@@ -135,11 +160,11 @@ export const ReportsManagement: React.FC = () => {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-semibold uppercase tracking-wider mb-2">
             <BarChart3 className="w-3.5 h-3.5" />
-            Executive Telemetry &bull; 11 Standard Reports
+            Executive Telemetry &bull; 12 Standard Reports
           </div>
-          <h2 className="text-2xl font-bold text-white tracking-tight">Enterprise Financial & Service Reports</h2>
+          <h2 className="text-2xl font-bold text-white tracking-tight">Enterprise Financial &amp; Service Reports</h2>
           <p className="text-slate-400 text-xs sm:text-sm mt-1">
-            Reconcile all 11 core operational domains using real MySQL database records. Export full sets to JSON or CSV.
+            Reconcile all 12 core operational &amp; referral domains using real MySQL database records. Export full sets to JSON or CSV.
           </p>
         </div>
 
@@ -149,7 +174,7 @@ export const ReportsManagement: React.FC = () => {
             className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export JSON (All 11)</span>
+            <span>Export JSON (All 12)</span>
           </button>
           <button
             onClick={handleExportCSV}
@@ -654,6 +679,114 @@ export const ReportsManagement: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* Report 12: Referral & Growth ROI Report */}
+          {activeReport === 'referral_growth' && (
+            <div className="space-y-4">
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-wrap items-end gap-3 text-xs">
+                <div>
+                  <label className="block text-[10px] uppercase text-slate-400 mb-1">From Date</label>
+                  <input
+                    type="date"
+                    value={refDateFrom}
+                    onChange={(e) => setRefDateFrom(e.target.value)}
+                    className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase text-slate-400 mb-1">To Date</label>
+                  <input
+                    type="date"
+                    value={refDateTo}
+                    onChange={(e) => setRefDateTo(e.target.value)}
+                    className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase text-slate-400 mb-1">Campaign Code</label>
+                  <input
+                    type="text"
+                    placeholder="Optional code"
+                    value={refCampaignCode}
+                    onChange={(e) => setRefCampaignCode(e.target.value.toUpperCase())}
+                    className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-white font-mono"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadReports()}
+                  className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold"
+                >
+                  Apply Filters
+                </button>
+              </div>
+
+              {referralReport && (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                      <p className="text-xs text-slate-400">Referred Revenue</p>
+                      <p className="text-2xl font-bold font-mono text-emerald-400 mt-1">
+                        ₦{Number(referralReport.summary.referred_revenue || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                      <p className="text-xs text-slate-400">Total Reward Cost</p>
+                      <p className="text-2xl font-bold font-mono text-amber-400 mt-1">
+                        ₦{Number(referralReport.summary.total_reward_cost || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                      <p className="text-xs text-slate-400">Net Contribution</p>
+                      <p className="text-2xl font-bold font-mono text-cyan-400 mt-1">
+                        ₦{Number(referralReport.summary.net_referral_contribution || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                      <p className="text-xs text-slate-400">Conversion Rate / ROI</p>
+                      <p className="text-2xl font-bold font-mono text-white mt-1">
+                        {referralReport.summary.conversion_rate_percent}% / {referralReport.summary.roi_percent}%
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                    <div className="p-4 border-b border-slate-800">
+                      <h3 className="text-sm font-bold text-white">Top Performing Affiliates</h3>
+                    </div>
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-800">
+                        <tr>
+                          <th className="py-3 px-4">Referrer</th>
+                          <th className="py-3 px-4">Code</th>
+                          <th className="py-3 px-4">Referred / Qualified</th>
+                          <th className="py-3 px-4">Generated Revenue</th>
+                          <th className="py-3 px-4">Rewards Earned</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 text-slate-300">
+                        {referralReport.top_referrers.map((tr) => (
+                          <tr key={tr.id} className="hover:bg-slate-800/40">
+                            <td className="py-3 px-4 font-semibold text-white">{tr.full_name}</td>
+                            <td className="py-3 px-4 font-mono text-indigo-400">{tr.referral_code}</td>
+                            <td className="py-3 px-4 font-mono">
+                              {tr.total_referred} / <span className="text-emerald-400">{tr.qualified_count}</span>
+                            </td>
+                            <td className="py-3 px-4 font-mono text-emerald-400">
+                              ₦{Number(tr.generated_revenue || 0).toLocaleString()}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-cyan-400">
+                              ₦{Number(tr.rewards_earned || 0).toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

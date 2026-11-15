@@ -22,16 +22,28 @@ import {
   UploadCloud,
   Code,
   HardDrive,
+  Gift,
+  KeyRound,
+  ShieldCheck,
   Save,
   CheckCircle2,
   AlertCircle,
   Search,
-  ExternalLink,
   X
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useCms } from '../../context/CmsContext';
+import { useAuth } from '../../context/AuthContext';
 import { LogoUploader } from './LogoUploader';
+
+interface CategoryField {
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'boolean' | 'textarea' | 'select' | 'password';
+  options?: { label: string; value: string }[];
+  helper?: string;
+  readOnly?: boolean;
+}
 
 interface CategoryConfig {
   key: string;
@@ -39,13 +51,8 @@ interface CategoryConfig {
   group: string;
   icon: React.FC<{ className?: string }>;
   description: string;
-  fields: {
-    key: string;
-    label: string;
-    type: 'text' | 'number' | 'boolean' | 'textarea' | 'select' | 'password';
-    options?: { label: string; value: string }[];
-    helper?: string;
-  }[];
+  superAdminOnly?: boolean;
+  fields: CategoryField[];
 }
 
 const SETTINGS_CATEGORIES: CategoryConfig[] = [
@@ -55,15 +62,14 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '1. General Settings',
     group: 'Platform',
     icon: Sliders,
-    description: 'System identity, platform naming, default currency, time zone, and primary contact routing.',
+    description: 'System identity, platform naming, maintenance toggle, default currency, and time zone.',
     fields: [
-      { key: 'site_name', label: 'Platform Name', type: 'text', helper: 'Official platform title displayed across navigation and headers' },
+      { key: 'site_name', label: 'Platform Name', type: 'text', helper: 'Official short brand title displayed across navigation and headers' },
       { key: 'site_tagline', label: 'Platform Tagline', type: 'text', helper: 'Short brand slogan for page titles and metadata' },
-      { key: 'currency_code', label: 'Default Currency Code', type: 'text', helper: 'ISO Currency (e.g. NGN, USD)' },
+      { key: 'maintenance_mode', label: 'Platform Maintenance Mode', type: 'boolean', helper: 'Temporarily display maintenance notice to public visitors' },
+      { key: 'default_currency', label: 'Default Currency Code', type: 'text', helper: 'ISO Currency (e.g. NGN)' },
       { key: 'currency_symbol', label: 'Default Currency Symbol', type: 'text', helper: 'Symbol used in slips and ledgers (e.g. ₦)' },
-      { key: 'support_email', label: 'Customer Support Email', type: 'text', helper: 'Primary incoming help desk address' },
-      { key: 'support_phone', label: 'Customer Support Phone', type: 'text', helper: 'Support hotline and WhatsApp line' },
-      { key: 'timezone', label: 'Default Platform Timezone', type: 'text', helper: 'Server time zone for reports and logs (e.g. Africa/Lagos)' },
+      { key: 'timezone', label: 'Default Platform Timezone', type: 'text', helper: 'Server time zone for reports and logs (e.g. Africa/Lagos (GMT+1))' },
     ],
   },
   // 2. Company
@@ -72,17 +78,17 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '2. Company Information',
     group: 'Platform',
     icon: Building,
-    description: 'Corporate registration, legal business entity, CAC/RC registration numbers, and headquarters address.',
+    description: 'Corporate registration, legal business entity, CAC/BN registration numbers, and headquarters address.',
     fields: [
       { key: 'company_name', label: 'Registered Business Name', type: 'text', helper: 'Full corporate name as registered with CAC' },
-      { key: 'cac_registration_number', label: 'CAC / RC / BN Number', type: 'text', helper: 'Official corporate registration number (BN 9284726)' },
-      { key: 'headquarters_address', label: 'Headquarters Address', type: 'textarea', helper: 'Physical office address for receipts and footer' },
+      { key: 'registration_number', label: 'CAC / RC / BN Number', type: 'text', helper: 'Official corporate registration number (e.g. BN 9284726)' },
+      { key: 'founded_year', label: 'Founded Year', type: 'text', helper: 'Year established (e.g. 2024)' },
       { key: 'official_email', label: 'General Information Email', type: 'text', helper: 'info@hambaktech.com.ng' },
-      { key: 'support_email', label: 'Support Email', type: 'text', helper: 'support@hambaktech.com.ng' },
+      { key: 'support_email', label: 'Customer Support Email', type: 'text', helper: 'support@hambaktech.com.ng' },
       { key: 'whatsapp_phone', label: 'WhatsApp Desk Number', type: 'text', helper: '09155104724' },
       { key: 'business_phone', label: 'Business / Upline Contact', type: 'text', helper: '08147837664' },
       { key: 'official_phone', label: 'Customer Service / Office Phone', type: 'text', helper: '09127469686' },
-      { key: 'founded_year', label: 'Founded Year', type: 'text', helper: '2024' },
+      { key: 'headquarters_address', label: 'Headquarters Address', type: 'textarea', helper: 'Physical office address for receipts and footer' },
     ],
   },
   // 3. Branding
@@ -91,14 +97,14 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '3. Branding & Visual Identity',
     group: 'Platform',
     icon: Palette,
-    description: 'Corporate logos, favicons, primary brand colors, typography, and visual assets.',
+    description: 'Corporate logos, favicons, primary/secondary/accent colors, and typography.',
     fields: [
       { key: 'logo_url', label: 'Primary Logo URL', type: 'text', helper: 'Main header logo image path or URL (/logo.png)' },
       { key: 'favicon_url', label: 'Favicon URL', type: 'text', helper: 'Browser tab icon path (e.g. /logo.png)' },
       { key: 'primary_color', label: 'Primary Brand Color', type: 'text', helper: 'Hex code for primary buttons and accents (e.g. #1d4ed8)' },
       { key: 'secondary_color', label: 'Secondary Brand Color', type: 'text', helper: 'Hex code for secondary accents (e.g. #0f172a)' },
-      { key: 'font_family', label: 'Website Typography', type: 'text', helper: 'Font stack (e.g. Plus Jakarta Sans, sans-serif)' },
-      { key: 'watermark_text', label: 'Slip Watermark Text', type: 'text', helper: 'Security watermark applied to verified slips' },
+      { key: 'accent_color', label: 'Highlight Accent Color', type: 'text', helper: 'Hex code for highlight badges (e.g. #d97706)' },
+      { key: 'typography', label: 'Website Typography', type: 'text', helper: 'Font stack (e.g. Plus Jakarta Sans, sans-serif)' },
     ],
   },
   // 4. Website CMS
@@ -107,15 +113,13 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '4. Website CMS',
     group: 'Platform',
     icon: Globe,
-    description: 'Public page visibility, SEO meta tags, navigation menus, and public registration switches.',
+    description: 'Public registration switch, SEO meta tags, rate calculator visibility, and announcement ticker.',
     fields: [
+      { key: 'enable_registration', label: 'Allow Public Registration', type: 'boolean', helper: 'Allow new customers to create accounts online' },
+      { key: 'enable_guest_rates_calculator', label: 'Show Public Rates Calculator', type: 'boolean', helper: 'Display public pricing calculator on the website' },
+      { key: 'enable_announcements_ticker', label: 'Show Global Announcement Ticker', type: 'boolean', helper: 'Display active published announcements on public header' },
       { key: 'meta_title', label: 'Default Meta Title', type: 'text', helper: 'SEO title for search engine indexing' },
       { key: 'meta_description', label: 'Default Meta Description', type: 'textarea', helper: 'Summary snippet for Google & social sharing cards' },
-      { key: 'enable_registration', label: 'Allow Public Registration', type: 'boolean', helper: 'Allow new customers to create accounts online' },
-      { key: 'public_portal_enabled', label: 'Public Website Enabled', type: 'boolean', helper: 'Toggle visibility of public website pages' },
-      { key: 'social_facebook_url', label: 'Facebook URL', type: 'text' },
-      { key: 'social_twitter_url', label: 'Twitter / X URL', type: 'text' },
-      { key: 'social_linkedin_url', label: 'LinkedIn URL', type: 'text' },
     ],
   },
   // 5. Landing Page
@@ -124,14 +128,13 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '5. Landing Page Controls',
     group: 'Platform',
     icon: Layout,
-    description: 'Landing page hero section headings, banner visibility, service highlights, and CTA copy.',
+    description: 'Landing page hero badge, headline, subtitle, and primary/secondary CTA button labels.',
     fields: [
       { key: 'hero_badge', label: 'Hero Badge Label', type: 'text', helper: 'Small top badge text above main headline' },
       { key: 'hero_headline', label: 'Hero Section Title', type: 'text', helper: 'Primary high-impact heading on the homepage' },
       { key: 'hero_subheadline', label: 'Hero Section Subtitle', type: 'textarea', helper: 'Descriptive narrative under the main hero title' },
       { key: 'primary_cta_text', label: 'Primary CTA Button Text', type: 'text', helper: 'Primary call to action button label' },
       { key: 'secondary_cta_text', label: 'Secondary CTA Button Text', type: 'text', helper: 'Secondary call to action button label' },
-      { key: 'show_announcement_banner', label: 'Show Global Announcement Banner', type: 'boolean', helper: 'Display top marquee notification banner' },
     ],
   },
   // 6. Customer Dashboard
@@ -140,13 +143,14 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '6. Customer Dashboard Controls',
     group: 'Portal',
     icon: Layers,
-    description: 'Configure which service modules and features are active inside the customer dashboard.',
+    description: 'Configure which core modules are enabled inside the customer portal.',
     fields: [
-      { key: 'enable_virtual_accounts', label: 'Virtual Bank Accounts Module', type: 'boolean', helper: 'Enable dedicated automated bank deposit accounts' },
-      { key: 'enable_nin_slips', label: 'NIN Slip Generation & Printing', type: 'boolean', helper: 'Allow customers to generate standard/premium NIN slips' },
-      { key: 'enable_wallet_transfers', label: 'Peer-to-Peer Wallet Transfers', type: 'boolean', helper: 'Allow customers to send funds between platform accounts' },
-      { key: 'enable_airtime_swap', label: 'Airtime to Cash Conversion', type: 'boolean', helper: 'Enable automated airtime swap module' },
-      { key: 'enable_exam_pins', label: 'Educational Exam PINs (WAEC/NECO/JAMB)', type: 'boolean', helper: 'Allow purchase of educational scratch tokens' },
+      { key: 'enable_nin_services', label: 'NIN & Identity Services Module', type: 'boolean', helper: 'Enable NIN verification, slips, modification, and enrolment' },
+      { key: 'enable_telecom_vtu', label: 'Telecom VTU & Utilities Module', type: 'boolean', helper: 'Enable data, airtime, cable TV, and electricity payments' },
+      { key: 'enable_wallet_transfers', label: 'Peer-to-Peer Wallet Transfers', type: 'boolean', helper: 'Allow customers to transfer funds between platform wallets' },
+      { key: 'enable_virtual_accounts', label: 'Virtual Bank Accounts Module', type: 'boolean', helper: 'Enable dedicated bank deposit accounts' },
+      { key: 'enable_store_module', label: 'Hardware Store Module', type: 'boolean', helper: 'Show POS hardware & accessory store in portal' },
+      { key: 'enable_academy_module', label: 'Digital Academy Module', type: 'boolean', helper: 'Show training academy in customer portal' },
     ],
   },
   // 7. Admin Dashboard
@@ -155,41 +159,50 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '7. Admin Dashboard Controls',
     group: 'Security',
     icon: Shield,
-    description: 'Telemetry refresh rates, administrative session timeouts, and IP whitelisting options.',
+    superAdminOnly: true,
+    description: 'Root MFA enforcement, admin session timeouts, audit retention, and telemetry refresh interval.',
     fields: [
-      { key: 'telemetry_refresh_interval_sec', label: 'Auto-Refresh Interval (Seconds)', type: 'number', helper: 'How often overview charts refresh live' },
-      { key: 'admin_session_timeout_minutes', label: 'Admin Session Inactivity Timeout (Minutes)', type: 'number', helper: 'Automatic sign-out timer for idle administrators' },
-      { key: 'strict_ip_whitelist_enabled', label: 'Enforce IP Whitelist for Staff', type: 'boolean', helper: 'Restrict root login to designated office IP addresses' },
-      { key: 'allowed_admin_ips', label: 'Whitelisted IP Addresses (Comma-separated)', type: 'text', helper: 'List of allowed IP addresses when whitelist is active' },
+      { key: 'require_2fa_for_root', label: 'Require 2FA / MFA for Root Admins', type: 'boolean', helper: 'Enforce MFA challenge for Super Admin logins' },
+      { key: 'session_timeout_minutes', label: 'Admin Inactivity Timeout (Minutes)', type: 'number', helper: 'Automatic sign-out window for idle administrators' },
+      { key: 'audit_log_retention_days', label: 'Audit Log Retention (Days)', type: 'number', helper: 'Retention window for administrative audit trails' },
+      { key: 'auto_refresh_interval_sec', label: 'Auto-Refresh Interval (Seconds)', type: 'number', helper: 'Dashboard overview refresh frequency' },
     ],
   },
   // 8. Authentication & Password
   {
-    key: 'authentication',
+    key: 'auth',
     name: '8. Authentication & Password',
     group: 'Security',
     icon: Key,
-    description: 'Password complexity requirements, login attempt limits, account lockout durations, and 2FA policies.',
+    superAdminOnly: true,
+    description: 'Public signup, email verification, password length, failed login limits, and lockout duration.',
     fields: [
-      { key: 'min_password_length', label: 'Minimum Password Length', type: 'number', helper: 'Minimum number of characters required for user passwords' },
-      { key: 'max_login_attempts', label: 'Max Failed Login Attempts Before Lockout', type: 'number', helper: 'Shield against brute force credential stuffing' },
-      { key: 'lockout_duration_minutes', label: 'Account Lockout Duration (Minutes)', type: 'number', helper: 'How long an account remains locked after repeated failures' },
-      { key: 'require_email_verification', label: 'Require Email Verification Before Login', type: 'boolean', helper: 'Prevent unverified emails from accessing dashboard' },
-      { key: 'allow_remember_me', label: 'Enable 30-day "Remember Me" Tokens', type: 'boolean', helper: 'Issue extended refresh tokens for trusted devices' },
+      { key: 'allow_customer_registration', label: 'Allow Customer Registration', type: 'boolean', helper: 'Permit new customer sign-ups through /api/auth/register' },
+      { key: 'require_email_verification', label: 'Require Email Verification Before Login', type: 'boolean', helper: 'Prevent unverified accounts from signing in' },
+      { key: 'min_password_length', label: 'Minimum Password Length', type: 'number', helper: 'Minimum characters required for account passwords' },
+      { key: 'max_failed_attempts', label: 'Max Failed Login Attempts Before Lockout', type: 'number', helper: 'Brute-force protection threshold' },
+      { key: 'lockout_duration_minutes', label: 'Account Lockout Duration (Minutes)', type: 'number', helper: 'Cooldown duration after exceeding failed login threshold' },
     ],
   },
-  // 9. Security Policies
+  // 9. Security & Session Policies
   {
     key: 'security',
-    name: '9. Security Policies',
+    name: '9. Security & Session Policies',
     group: 'Security',
     icon: Lock,
-    description: 'API rate limits, CSRF token validation, SQL injection shields, and payload sanitization rules.',
+    superAdminOnly: true,
+    description: 'Transaction PIN defaults, session timeouts, User-Agent binding, and IP rate-limiting rules.',
     fields: [
-      { key: 'api_rate_limit_per_minute', label: 'API Rate Limit (Requests / Minute / IP)', type: 'number', helper: 'Throttle aggressive traffic to prevent server overload' },
-      { key: 'enforce_csrf_validation', label: 'Enforce Strict CSRF Header Validation', type: 'boolean', helper: 'Require X-Requested-With and bearer auth on all mutations' },
-      { key: 'log_security_events', label: 'Log Failed Access to Audit Trail', type: 'boolean', helper: 'Record unauthorized attempts in security ledger' },
-      { key: 'mask_customer_bvn', label: 'Mask Customer BVN on Dashboard View', type: 'boolean', helper: 'Display BVN as *******1234 on non-admin screens' },
+      { key: 'enforce_transaction_pin', label: 'Enforce Transaction PIN Platform-Wide', type: 'boolean', helper: 'Require valid Transaction PIN for protected debits' },
+      { key: 'pin_max_attempts', label: 'Max Failed PIN Attempts', type: 'number', helper: 'Wrong PIN threshold before temporary PIN lockout (3–10)' },
+      { key: 'pin_lockout_minutes', label: 'PIN Lockout Duration (Minutes)', type: 'number', helper: 'Cooldown window after PIN lockout (5–120)' },
+      { key: 'session_timeout_minutes', label: 'Customer Session Timeout (Minutes)', type: 'number', helper: 'Idle/token lifetime for customer sessions (15–10080)' },
+      { key: 'admin_session_timeout_minutes', label: 'Admin Session Timeout (Minutes)', type: 'number', helper: 'Stricter idle lifetime for staff/admin sessions (10–720)' },
+      { key: 'login_max_attempts', label: 'Login Max Failed Attempts', type: 'number', helper: 'Threshold before login throttling applies (3–15)' },
+      { key: 'login_lockout_minutes', label: 'Login Lockout Duration (Minutes)', type: 'number', helper: 'Cooldown duration for throttled accounts (5–180)' },
+      { key: 'bind_user_agent', label: 'Bind Session Tokens to Browser User-Agent', type: 'boolean', helper: 'Reject stolen tokens replayed from a different device/client' },
+      { key: 'jwt_expiry_days', label: 'JWT Token Expiry (Days)', type: 'number', helper: 'Maximum JWT validity window' },
+      { key: 'ip_rate_limiting_enabled', label: 'Enable IP Rate Limiting', type: 'boolean', helper: 'Protect login and OTP endpoints against abuse' },
     ],
   },
   // 10. KYC & Identity Rules
@@ -198,13 +211,13 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '10. KYC & Identity Rules',
     group: 'Compliance',
     icon: UserCheck,
-    description: 'Tier limits, mandatory document verification thresholds, and automated validation rules.',
+    description: 'Daily transaction tier limits, auto-approval switches, and Tier 3 proof of address checks.',
     fields: [
       { key: 'tier1_daily_limit', label: 'Tier 1 Daily Transaction Limit (₦)', type: 'number', helper: 'Unverified phone/email account limit' },
       { key: 'tier2_daily_limit', label: 'Tier 2 Daily Transaction Limit (₦)', type: 'number', helper: 'Verified NIN/BVN account limit' },
       { key: 'tier3_daily_limit', label: 'Tier 3 Daily Transaction Limit (₦)', type: 'number', helper: 'Full corporate/CAC verified merchant limit' },
-      { key: 'require_kyc_for_funding_over', label: 'Require KYC for Single Funding Above (₦)', type: 'number', helper: 'Prompts KYC upload when funding exceeds this figure' },
-      { key: 'auto_verify_nin_match', label: 'Auto-Approve KYC on Exact Name Match', type: 'boolean', helper: 'Automatically approve Level 2 when NIN matches profile' },
+      { key: 'auto_approval_enabled', label: 'Auto-Approve KYC on Exact Match', type: 'boolean', helper: 'Automatically approve Level 2 when identity verification matches' },
+      { key: 'require_proof_of_address_for_tier3', label: 'Require Proof of Address for Tier 3', type: 'boolean', helper: 'Mandate utility bill or bank statement upload for Tier 3' },
     ],
   },
   // 11. Wallet & Ledger Controls
@@ -213,12 +226,14 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '11. Wallet & Ledger Controls',
     group: 'Financial',
     icon: Wallet,
-    description: 'Minimum/maximum wallet funding amounts, overdraft rules, and transaction PIN enforcement.',
+    description: 'Minimum/maximum funding bounds, manual transfer option, and official bank deposit details.',
     fields: [
-      { key: 'min_funding_amount', label: 'Minimum Wallet Funding (₦)', type: 'number', helper: 'Minimum deposit allowed via online gateways' },
+      { key: 'min_funding_amount', label: 'Minimum Wallet Funding (₦)', type: 'number', helper: 'Minimum deposit allowed per funding request' },
       { key: 'max_funding_amount', label: 'Maximum Single Funding (₦)', type: 'number', helper: 'Maximum allowed single deposit transaction' },
-      { key: 'allow_negative_balance', label: 'Allow Negative Balance (Overdraft)', type: 'boolean', helper: 'Strictly forbidden in production to prevent deficits' },
-      { key: 'require_transaction_pin', label: 'Require Transaction PIN for Debits', type: 'boolean', helper: 'Prompt for 4-digit PIN before charging user wallet' },
+      { key: 'manual_funding_enabled', label: 'Enable Manual Bank Transfer Funding', type: 'boolean', helper: 'Allow customers to submit manual bank transfer proofs' },
+      { key: 'bank_name', label: 'Manual Funding Bank Name', type: 'text', helper: 'e.g. Moniepoint MFB' },
+      { key: 'bank_account_number', label: 'Manual Funding Account Number', type: 'text', helper: '10-digit NUBAN account number' },
+      { key: 'bank_account_name', label: 'Manual Funding Account Name', type: 'text', helper: 'Beneficiary business account name' },
     ],
   },
   // 12. Payment Gateways
@@ -227,67 +242,110 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '12. Payment Gateways',
     group: 'Financial',
     icon: CreditCard,
-    description: 'Payment processors status, active gateways, bank transfer details, and transaction processing modes.',
+    superAdminOnly: true,
+    description: 'Active payment gateway selection, gateway toggles, and processor percentage fees.',
     fields: [
-      { key: 'paystack_enabled', label: 'Enable Paystack Gateway', type: 'boolean', helper: 'Process debit cards, USSD, and bank transfers' },
-      { key: 'flutterwave_enabled', label: 'Enable Flutterwave Gateway', type: 'boolean', helper: 'Process multi-currency and card payments' },
-      { key: 'manual_transfer_enabled', label: 'Enable Direct Bank Transfer (Manual)', type: 'boolean', helper: 'Allow users to submit proof of bank transfer' },
-      { key: 'gateway_environment', label: 'Gateway Mode', type: 'select', options: [{ label: 'Live Production', value: 'live' }, { label: 'Sandbox / Test', value: 'test' }] },
-      { key: 'bank_transfer_bank', label: 'Manual Funding Bank Name', type: 'text', helper: 'e.g. Moniepoint MFB, OPay, Wema Bank' },
-      { key: 'bank_transfer_account_number', label: 'Manual Funding Account Number', type: 'text', helper: '10-digit NUBAN account number' },
-      { key: 'bank_transfer_account_name', label: 'Manual Funding Account Name', type: 'text', helper: 'Beneficiary company name' },
+      {
+        key: 'active_gateway',
+        label: 'Primary Active Gateway',
+        type: 'select',
+        options: [
+          { label: 'Paystack', value: 'paystack' },
+          { label: 'Flutterwave', value: 'flutterwave' },
+          { label: 'Manual Bank Transfer', value: 'bank_transfer' },
+        ],
+        helper: 'Default payment gateway selected in customer funding modal',
+      },
+      { key: 'enable_paystack', label: 'Enable Paystack Gateway', type: 'boolean', helper: 'Process cards, USSD, and instant bank transfers' },
+      { key: 'enable_flutterwave', label: 'Enable Flutterwave Gateway', type: 'boolean', helper: 'Process multi-currency and card payments' },
+      { key: 'enable_bank_transfer', label: 'Enable Direct Bank Transfer', type: 'boolean', helper: 'Allow direct manual bank transfer submissions' },
+      { key: 'paystack_charge_percent', label: 'Paystack Fee Rate (%)', type: 'number', helper: 'Configured settlement fee percentage' },
+      { key: 'flutterwave_charge_percent', label: 'Flutterwave Fee Rate (%)', type: 'number', helper: 'Configured settlement fee percentage' },
     ],
   },
-  // 13. Provider Integration (Admin Only)
+  // 13. Provider Integration
   {
     key: 'provider_integration',
     name: '13. Provider Integration & Routing',
     group: 'Integration',
     icon: Cpu,
-    description: 'Administrative gateway assignment, primary vs fallback routing, and upstream health parameters.',
+    superAdminOnly: true,
+    description: 'Primary vs fallback verification & telecom provider routing and failover timeout parameters.',
     fields: [
-      { key: 'primary_identity_provider', label: 'Primary Verification Provider', type: 'select', options: [
-        { label: '2SureVerify Gateway (Primary)', value: '2sureverify' },
-        { label: 'Veripine Identity API', value: 'veripine' }
-      ], helper: 'Root upstream gateway for NIN and BVN services' },
-      { key: 'fallback_identity_provider', label: 'Fallback Verification Provider', type: 'select', options: [
-        { label: 'Veripine Secondary Engine', value: 'veripine' },
-        { label: '2SureVerify Failover Engine', value: '2sureverify' },
-        { label: 'None (Fail Fast)', value: 'none' }
-      ], helper: 'Automated failover gateway if primary lacks active credentials or is disabled' },
-      { key: 'primary_telecom_provider', label: 'Active Telecom Provider', type: 'select', options: [
-        { label: 'UlamaData Core API', value: 'ulamadata' },
-        { label: 'VTpass Live Gateway', value: 'vtpass' }
-      ], helper: 'Provider for airtime, data bundles, and electricity tokens' },
-      { key: 'auto_failover_enabled', label: 'Enable Automated Provider Failover', type: 'boolean', helper: 'Allow fallback when primary provider credentials are inactive' },
-      { key: 'request_timeout_seconds', label: 'Provider Request Timeout (Seconds)', type: 'number', helper: 'Maximum wait time before timeout error' },
+      {
+        key: 'primary_identity_provider',
+        label: 'Primary Verification Provider',
+        type: 'select',
+        options: [
+          { label: '2SureVerify Gateway (Primary)', value: '2sureverify' },
+          { label: 'Veripine Identity API', value: 'veripine' },
+        ],
+        helper: 'Root upstream gateway for NIN and BVN services',
+      },
+      {
+        key: 'fallback_identity_provider',
+        label: 'Fallback Verification Provider',
+        type: 'select',
+        options: [
+          { label: 'Veripine Secondary Engine', value: 'veripine' },
+          { label: '2SureVerify Failover Engine', value: '2sureverify' },
+          { label: 'None (Fail Fast)', value: 'none' },
+        ],
+        helper: 'Failover gateway used when auto-failover is enabled',
+      },
+      {
+        key: 'primary_telecom_provider',
+        label: 'Primary Telecom Provider',
+        type: 'select',
+        options: [
+          { label: 'UlamaData Core API', value: 'ulamadata' },
+          { label: 'VTpass Live Gateway', value: 'vtpass' },
+        ],
+        helper: 'Primary provider for airtime, data bundles, and utility bills',
+      },
+      {
+        key: 'fallback_telecom_provider',
+        label: 'Fallback Telecom Provider',
+        type: 'select',
+        options: [
+          { label: 'VTpass Live Gateway', value: 'vtpass' },
+          { label: 'UlamaData Core API', value: 'ulamadata' },
+        ],
+        helper: 'Secondary telecom provider when failover applies',
+      },
+      { key: 'auto_failover_enabled', label: 'Enable Automated Provider Failover', type: 'boolean', helper: 'Allow automatic failover if primary provider errors' },
+      { key: 'request_timeout_seconds', label: 'Provider Request Timeout (Seconds)', type: 'number', helper: 'Upstream cURL wait timeout' },
     ],
   },
-  // 14. Service Pricing & Margins
+  // 14. Service Pricing
   {
-    key: 'pricing',
-    name: '14. Service Pricing & Margins',
+    key: 'service_pricing',
+    name: '14. Service Pricing & Reference Rates',
     group: 'Financial',
     icon: Percent,
-    description: 'Default retail markup percentages, fixed service fees, and minimum profit margins.',
+    description: 'Baseline reference retail prices for NIN slips, BVN checks, and 1GB benchmark telecom bundles.',
     fields: [
-      { key: 'default_markup_percent', label: 'Default Service Markup (%)', type: 'number', helper: 'Default percentage added to wholesale cost price' },
-      { key: 'minimum_profit_ngn', label: 'Minimum Profit Floor per Transaction (₦)', type: 'number', helper: 'Guaranteed minimum profit margin in Naira' },
-      { key: 'nin_standard_retail_price', label: 'Standard NIN Verification Price (₦)', type: 'number', helper: 'Base retail cost for standard customer lookup' },
-      { key: 'nin_premium_slip_price', label: 'Premium Color Slip Generation Fee (₦)', type: 'number', helper: 'Cost to render and download standard PDF slip' },
+      { key: 'nin_standard_slip_price', label: 'NIN Standard Slip Fee (₦)', type: 'number', helper: 'Reference customer price for standard NIN verification' },
+      { key: 'nin_premium_pvc_price', label: 'NIN Premium PVC Slip Fee (₦)', type: 'number', helper: 'Reference customer price for premium slip generation' },
+      { key: 'bvn_verification_price', label: 'BVN Verification Fee (₦)', type: 'number', helper: 'Reference customer price for BVN lookup' },
+      { key: 'mtn_sme_1gb_price', label: 'MTN SME 1GB Benchmark Price (₦)', type: 'number', helper: 'Public rate calculator reference for MTN 1GB' },
+      { key: 'airtel_1gb_price', label: 'Airtel 1GB Benchmark Price (₦)', type: 'number', helper: 'Public rate calculator reference for Airtel 1GB' },
+      { key: 'glo_1gb_price', label: 'Glo 1GB Benchmark Price (₦)', type: 'number', helper: 'Public rate calculator reference for Glo 1GB' },
+      { key: 'nine_mobile_1gb_price', label: '9mobile 1GB Benchmark Price (₦)', type: 'number', helper: 'Public rate calculator reference for 9mobile 1GB' },
     ],
   },
   // 15. Transaction Rules
   {
     key: 'transactions',
-    name: '15. Transaction Rules',
+    name: '15. Transaction Rules & Receipts',
     group: 'Financial',
     icon: RefreshCw,
-    description: 'Automated refund triggers on provider failure, duplicate transaction guards, and webhook validation.',
+    description: 'Auto-refund triggers for failed orders and downloadable transaction receipt formatting.',
     fields: [
-      { key: 'auto_refund_on_failure', label: 'Auto-Refund Wallet on Upstream Failure', type: 'boolean', helper: 'Instantly refund customer balance if provider order fails' },
-      { key: 'prevent_duplicate_orders_sec', label: 'Prevent Duplicate Orders Window (Seconds)', type: 'number', helper: 'Block identical requests within this time frame' },
-      { key: 'max_auto_retries', label: 'Maximum Upstream Auto-Retries', type: 'number', helper: 'Number of automatic retries before marking as failed' },
+      { key: 'auto_refund_failed_verifications', label: 'Auto-Refund Failed Verifications', type: 'boolean', helper: 'Automatically refund wallet when identity provider fails' },
+      { key: 'auto_refund_failed_telecom', label: 'Auto-Refund Failed Telecom Orders', type: 'boolean', helper: 'Automatically refund wallet when VTU delivery fails' },
+      { key: 'generate_downloadable_receipts', label: 'Enable Downloadable Receipts', type: 'boolean', helper: 'Provide formatted receipts for customer transactions' },
+      { key: 'receipt_prefix', label: 'Receipt Reference Prefix', type: 'text', helper: 'Prefix on receipt numbers (e.g. HT-REC-)' },
     ],
   },
   // 16. SMTP & Mail Delivery
@@ -296,99 +354,211 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '16. SMTP & Mail Delivery',
     group: 'Communication',
     icon: Mail,
-    description: 'Outgoing email server host, port, authentication credentials, and sender headers.',
+    superAdminOnly: true,
+    description: 'Outgoing SMTP mail host, port, SSL/TLS mode, authenticated user, and From headers.',
     fields: [
-      { key: 'smtp_host', label: 'SMTP Host Server', type: 'text', helper: 'e.g. mail.hambaktech.com.ng or smtp.gmail.com' },
-      { key: 'smtp_port', label: 'SMTP Port', type: 'number', helper: 'Usually 465 (SSL) or 587 (TLS)' },
-      { key: 'smtp_encryption', label: 'Encryption Protocol', type: 'select', options: [{ label: 'TLS (STARTTLS)', value: 'tls' }, { label: 'SSL', value: 'ssl' }, { label: 'None', value: 'none' }] },
-      { key: 'smtp_username', label: 'SMTP Username / Account', type: 'text', helper: 'Mail account login (e.g. support@hambaktech.com.ng)' },
-      { key: 'smtp_sender_name', label: 'Default Sender Display Name', type: 'text', helper: 'Display name appearing in inbox (e.g. HambakTech Services)' },
-      { key: 'smtp_sender_email', label: 'Default Sender Email Address', type: 'text', helper: 'Email address shown in From: header' },
+      { key: 'smtp_host', label: 'SMTP Host Server', type: 'text', helper: 'e.g. mail.hambaktech.com.ng' },
+      { key: 'smtp_port', label: 'SMTP Port', type: 'number', helper: '465 (SSL) or 587 (TLS)' },
+      { key: 'smtp_secure', label: 'Use Implicit SSL/TLS Encryption', type: 'boolean', helper: 'Enable SSL wrapper for port 465' },
+      { key: 'smtp_user', label: 'SMTP Username / Mailbox', type: 'text', helper: 'support@hambaktech.com.ng' },
+      { key: 'from_email', label: 'From Email Address', type: 'text', helper: 'Sender address shown to recipients' },
+      { key: 'from_name', label: 'From Display Name', type: 'text', helper: 'Sender name shown in inbox' },
     ],
   },
   // 17. Email Templates
   {
     key: 'email_templates',
-    name: '17. Email Templates',
+    name: '17. Email Notification Triggers',
     group: 'Communication',
     icon: FileText,
-    description: 'Toggle transactional notifications for registrations, wallet funding receipts, and security alerts.',
+    description: 'Enable or pause automated emails for welcome onboarding, funding receipts, KYC updates, and security alerts.',
     fields: [
-      { key: 'send_welcome_email', label: 'Send Welcome Email on Registration', type: 'boolean', helper: 'Dispatches onboarding guide to new signups' },
-      { key: 'send_funding_receipt', label: 'Send Wallet Funding Receipt Email', type: 'boolean', helper: 'Dispatches PDF / HTML receipt when wallet is credited' },
-      { key: 'send_login_alert', label: 'Send Security Alert on New IP Login', type: 'boolean', helper: 'Notifies user when account is accessed from new location' },
-      { key: 'send_password_reset_email', label: 'Allow Automated Password Reset Emails', type: 'boolean', helper: 'Transmits one-time recovery tokens via email' },
+      { key: 'welcome_email_enabled', label: 'Welcome Email on Registration', type: 'boolean', helper: 'Send welcome guide on customer signup' },
+      { key: 'funding_receipt_email_enabled', label: 'Wallet Funding Receipt Email', type: 'boolean', helper: 'Dispatch confirmation email when wallet is funded' },
+      { key: 'kyc_status_email_enabled', label: 'KYC Status Update Email', type: 'boolean', helper: 'Notify customer when KYC is approved or rejected' },
+      { key: 'security_alert_email_enabled', label: 'Security & Login Alert Email', type: 'boolean', helper: 'Send security emails for PIN, MFA, and login events' },
     ],
   },
   // 18. SMS Gateway
   {
     key: 'sms',
-    name: '18. SMS Gateway',
+    name: '18. SMS Gateway & Billing',
     group: 'Communication',
     icon: MessageSquare,
-    description: 'SMS API provider configuration, sender ID (11 characters max), and low-balance warnings.',
+    description: 'SMS sender ID (max 11 chars), transactional/OTP SMS toggles, and unit pricing.',
     fields: [
-      { key: 'sms_sender_id', label: 'SMS Sender ID (Alphanumeric)', type: 'text', helper: '11 characters max (e.g. HAMBAKTECH)' },
-      { key: 'enable_transactional_sms', label: 'Enable Transactional SMS Alerts', type: 'boolean', helper: 'Send SMS on wallet credit and high-value orders' },
-      { key: 'sms_low_balance_threshold', label: 'SMS Gateway Balance Alert Threshold (₦)', type: 'number', helper: 'Alert admin when gateway balance drops below this' },
+      { key: 'sms_sender_id', label: 'SMS Sender ID (Alphanumeric)', type: 'text', helper: 'Up to 11 characters (e.g. HAMBAKTECH)' },
+      { key: 'enable_transaction_sms', label: 'Enable Transaction SMS Alerts', type: 'boolean', helper: 'Dispatch SMS alerts on high-value transactions' },
+      { key: 'enable_otp_sms', label: 'Enable OTP SMS Fallback', type: 'boolean', helper: 'Allow OTP codes via SMS when configured' },
+      { key: 'sms_rate_per_unit', label: 'SMS Cost per Page (₦)', type: 'number', helper: 'Unit charge per SMS page' },
     ],
   },
-  // 19. System Notifications
+  // 19. Notifications
   {
     key: 'notifications',
     name: '19. System Notifications',
     group: 'Communication',
     icon: Bell,
-    description: 'In-app notification retention period, admin email alerts on manual funding, and system alarms.',
+    description: 'Dashboard alert badges, sound feedback, and marketing announcement banners.',
     fields: [
-      { key: 'alert_admin_on_manual_funding', label: 'Alert Admin on New Manual Funding Request', type: 'boolean', helper: 'Sends immediate notification to staff when receipt is uploaded' },
-      { key: 'alert_admin_on_kyc_submission', label: 'Alert Admin on New KYC Document Upload', type: 'boolean', helper: 'Notifies compliance team of pending review' },
-      { key: 'notification_retention_days', label: 'Customer Notification Retention (Days)', type: 'number', helper: 'Number of days to store notification history before purge' },
+      { key: 'enable_dashboard_alerts', label: 'Enable In-App Dashboard Alerts', type: 'boolean', helper: 'Show real-time unread notifications in portal header' },
+      { key: 'sound_alerts_enabled', label: 'Enable Sound Alerts', type: 'boolean', helper: 'Play subtle chime on critical notifications' },
+      { key: 'marketing_announcements_enabled', label: 'Enable Marketing Announcements', type: 'boolean', helper: 'Show promotional broadcasts to customers' },
     ],
   },
   // 20. Upload Settings
   {
-    key: 'uploads',
+    key: 'upload',
     name: '20. Upload & Storage Settings',
     group: 'Platform',
     icon: UploadCloud,
-    description: 'Maximum upload file size, permitted file MIME types, and document storage directory.',
+    description: 'Maximum file upload ceiling, permitted extensions, storage path, and filename sanitization.',
     fields: [
-      { key: 'max_upload_size_mb', label: 'Maximum File Upload Size (MB)', type: 'number', helper: 'Hard ceiling for KYC documents and payment receipts' },
-      { key: 'allowed_file_extensions', label: 'Permitted File Extensions', type: 'text', helper: 'Comma-separated (e.g. jpg, jpeg, png, pdf)' },
-      { key: 'storage_driver', label: 'Storage Driver', type: 'select', options: [{ label: 'Local Encrypted Disk (cPanel /uploads)', value: 'local' }, { label: 'Amazon S3 / DigitalOcean Spaces', value: 's3' }] },
+      { key: 'max_file_size_mb', label: 'Maximum File Upload Size (MB)', type: 'number', helper: 'Max upload size for KYC, modification, and specimen files' },
+      { key: 'allowed_extensions', label: 'Permitted File Extensions (Comma-separated)', type: 'text', helper: 'e.g. jpg, jpeg, png, pdf' },
+      { key: 'upload_directory', label: 'Private Upload Directory', type: 'text', helper: 'Protected storage directory path (e.g. storage/uploads)' },
+      { key: 'sanitize_filenames', label: 'Sanitize Uploaded Filenames', type: 'boolean', helper: 'Strip special characters and randomize disk filenames' },
     ],
   },
   // 21. API Settings
   {
-    key: 'api_settings',
-    name: '21. API Settings & Webhooks',
+    key: 'api',
+    name: '21. API & Webhook Controls',
     group: 'Integration',
     icon: Code,
-    description: 'Public developer API access, webhook secret signatures, and developer sandbox switches.',
+    superAdminOnly: true,
+    description: 'API rate limits, webhook dispatch toggles, signature verification strictness, and CORS allowlist.',
     fields: [
-      { key: 'enable_developer_api', label: 'Enable Developer REST API', type: 'boolean', helper: 'Allow third-party businesses to verify identities via API key' },
-      { key: 'developer_api_rate_limit', label: 'Developer Rate Limit (Requests / Hour)', type: 'number', helper: 'Throttling limit for external API key holders' },
-      { key: 'webhook_signature_secret', label: 'Webhook HMAC Signature Secret', type: 'password', helper: 'Secret key used to verify incoming provider webhooks' },
+      { key: 'rate_limit_requests_per_minute', label: 'API Rate Limit (Requests / Minute)', type: 'number', helper: 'Per-IP/user request limit per minute' },
+      { key: 'enable_webhook_dispatch', label: 'Enable Webhook Processing', type: 'boolean', helper: 'Accept Paystack/Flutterwave and provider callbacks' },
+      { key: 'signature_verification_strict', label: 'Strict Webhook HMAC Verification', type: 'boolean', helper: 'Reject unsigned or invalid HMAC webhook signatures' },
+      { key: 'cors_allowed_origins', label: 'CORS Allowed Origins', type: 'text', helper: 'Allowed frontend origins (comma-separated or *)' },
     ],
   },
   // 22. System Configuration
   {
-    key: 'system_maintenance',
-    name: '22. System Configuration & Maintenance',
+    key: 'system_config',
+    name: '22. System Configuration',
     group: 'Platform',
     icon: HardDrive,
-    description: 'Platform maintenance mode, debug logging flags, cache purging, and database operational state.',
+    superAdminOnly: true,
+    description: 'Environment mode, build release tag, PHP runtime, and MySQL database engine info.',
     fields: [
-      { key: 'maintenance_mode', label: 'Activate Platform Maintenance Mode', type: 'boolean', helper: 'Presents friendly maintenance banner to non-admin visitors' },
-      { key: 'debug_mode', label: 'Enable Verbose Debug Logs', type: 'boolean', helper: 'Logs SQL execution times and API traces (Keep OFF in production)' },
-      { key: 'cache_ttl_seconds', label: 'System Cache TTL (Seconds)', type: 'number', helper: 'Duration to cache catalog and pricing responses' },
+      { key: 'cpanel_server', label: 'Server Cluster Label', type: 'text', helper: 'Internal label shown in Super Admin configuration' },
+      {
+        key: 'environment',
+        label: 'Runtime Environment',
+        type: 'select',
+        options: [
+          { label: 'Production', value: 'production' },
+          { label: 'Staging', value: 'staging' },
+        ],
+      },
+      { key: 'version', label: 'Platform Release Tag', type: 'text', helper: 'Current application release version' },
+      { key: 'php_version', label: 'Active PHP Runtime Version', type: 'text', readOnly: true, helper: 'Detected live PHP version (read-only)' },
+      { key: 'database_engine', label: 'Database Storage Engine', type: 'text', readOnly: true, helper: 'Active relational database engine' },
+    ],
+  },
+  // 23. Referral & Rewards Engine
+  {
+    key: 'referral',
+    name: '23. Referral & Rewards Engine',
+    group: 'Growth & Phase 11',
+    icon: Gift,
+    superAdminOnly: true,
+    description: 'Master referral program switches, reward modes, settlement holds, wallet conversion, and cash payout bounds.',
+    fields: [
+      { key: 'enabled', label: 'Enable Referral & Rewards Program', type: 'boolean', helper: 'Master toggle for referral attribution and rewards' },
+      { key: 'program_name', label: 'Program Display Name', type: 'text', helper: 'Title displayed in Customer Referral Centre' },
+      {
+        key: 'reward_mode',
+        label: 'Primary Reward Calculation Mode',
+        type: 'select',
+        options: [
+          { label: 'Hybrid (Cash + Loyalty Points)', value: 'hybrid' },
+          { label: 'Fixed Cash per Qualifying Tx', value: 'fixed' },
+          { label: 'Percent of Transaction Spend', value: 'percent_of_spend' },
+          { label: 'Percent of Net Margin', value: 'percent_of_margin' },
+          { label: 'Loyalty Points Only', value: 'points' },
+        ],
+      },
+      {
+        key: 'trigger_mode',
+        label: 'Reward Trigger Rule',
+        type: 'select',
+        options: [
+          { label: 'First Qualifying Transaction', value: 'first_qualifying_tx' },
+          { label: 'Every Qualifying Transaction', value: 'every_qualifying_tx' },
+          { label: 'Up to N Transactions per Referee', value: 'up_to_n_tx' },
+          { label: 'On Verified Signup', value: 'signup_verified' },
+        ],
+      },
+      { key: 'flat_reward_naira', label: 'Flat Cash Reward (₦)', type: 'number', helper: 'Cash reward amount when fixed/hybrid mode applies' },
+      { key: 'percent_of_spend', label: 'Spend Commission (%)', type: 'number', helper: 'Percentage of referred spend credited' },
+      { key: 'percent_of_margin', label: 'Margin Share (%)', type: 'number', helper: 'Percentage of net platform margin shared' },
+      { key: 'point_value_naira', label: 'Naira Value per Loyalty Point (₦)', type: 'number', helper: 'Conversion rate when converting points to wallet' },
+      { key: 'min_qualifying_spend', label: 'Min Qualifying Spend (₦)', type: 'number', helper: 'Minimum transaction value to qualify for reward' },
+      { key: 'settlement_hold_hours', label: 'Pending Settlement Hold (Hours)', type: 'number', helper: 'Delay before pending rewards become withdrawable' },
+      { key: 'wallet_conversion_enabled', label: 'Allow Convert Rewards to Wallet', type: 'boolean', helper: 'Let customers transfer referral earnings into main wallet' },
+      { key: 'withdrawal_enabled', label: 'Allow Bank Cash Withdrawals', type: 'boolean', helper: 'Let eligible customers request bank payouts' },
+      { key: 'min_withdrawal_naira', label: 'Minimum Bank Withdrawal (₦)', type: 'number', helper: 'Enforced server-side minimum (floor ₦500)' },
+      { key: 'max_withdrawal_naira', label: 'Maximum Single Withdrawal (₦)', type: 'number', helper: 'Maximum single bank payout request' },
+      { key: 'require_kyc_level_for_withdrawal', label: 'Minimum KYC Level for Cash Withdrawal', type: 'number', helper: 'Required customer KYC tier (1–3)' },
+    ],
+  },
+  // 24. Transaction PIN Policy
+  {
+    key: 'pin_policy',
+    name: '24. Compulsory Transaction PIN Policy',
+    group: 'Security',
+    icon: KeyRound,
+    superAdminOnly: true,
+    description: 'Compulsory customer PIN activation, PIN digit length, weak PIN rejection, lockout rules, and OTP expiry.',
+    fields: [
+      { key: 'enforce_transaction_pin', label: 'Enforce Transaction PIN Across Services', type: 'boolean', helper: 'Require PIN on protected purchases, conversions, and withdrawals' },
+      { key: 'require_pin_activation_for_all_customers', label: 'Compulsory PIN Activation on Login', type: 'boolean', helper: 'Require customers without a PIN to create one immediately' },
+      {
+        key: 'pin_length',
+        label: 'Required PIN Length',
+        type: 'select',
+        options: [
+          { label: '4 Digits (Standard)', value: '4' },
+          { label: '5 Digits', value: '5' },
+          { label: '6 Digits (High Security)', value: '6' },
+        ],
+      },
+      { key: 'allow_weak_pins', label: 'Allow Sequential / Repeated Weak PINs', type: 'boolean', helper: 'Keep OFF in production (blocks 1234, 0000, birth-year sequences)' },
+      { key: 'pin_max_attempts', label: 'Max Wrong PIN Attempts Before Lockout', type: 'number', helper: 'Clamped server-side (3–10)' },
+      { key: 'pin_lockout_minutes', label: 'PIN Lockout Duration (Minutes)', type: 'number', helper: 'Clamped server-side (5–120)' },
+      { key: 'otp_reset_expiry_minutes', label: 'Email OTP Reset Expiry (Minutes)', type: 'number', helper: 'Validity of Email OTP for PIN recovery' },
+    ],
+  },
+  // 25. Multi-Factor Authentication Policy
+  {
+    key: 'mfa',
+    name: '25. Multi-Factor Authentication (MFA)',
+    group: 'Security',
+    icon: ShieldCheck,
+    superAdminOnly: true,
+    description: 'Super Admin & Admin MFA enforcement, customer opt-in, Email OTP & TOTP switches, and issuer label.',
+    fields: [
+      { key: 'enforce_mfa_for_superadmin', label: 'Require MFA for Super Admin Accounts', type: 'boolean', helper: 'Challenges Super Admins at sign-in once MFA is configured' },
+      { key: 'enforce_mfa_for_admin', label: 'Require MFA for Admin / Staff Accounts', type: 'boolean', helper: 'Enforces 2FA challenge for administrative staff' },
+      { key: 'allow_customer_mfa', label: 'Allow Customer Self-Service MFA', type: 'boolean', helper: 'Let customers enable Email OTP or Authenticator App MFA' },
+      { key: 'allow_email_otp', label: 'Allow Email OTP Method', type: 'boolean', helper: 'Dispatch 6-digit login challenges via SMTP' },
+      { key: 'allow_totp', label: 'Allow TOTP Authenticator App', type: 'boolean', helper: 'Support Google Authenticator / Authy / 1Password codes' },
+      { key: 'otp_expiry_minutes', label: 'MFA Challenge Expiry (Minutes)', type: 'number', helper: 'Clamped server-side (3–30)' },
+      { key: 'max_otp_attempts', label: 'Max MFA Challenge Attempts', type: 'number', helper: 'Invalid MFA attempts allowed per challenge' },
+      { key: 'totp_issuer', label: 'TOTP Authenticator Issuer Label', type: 'text', helper: 'App title shown inside customer/admin authenticator app' },
     ],
   },
 ];
 
 export const GlobalSettingsManagement: React.FC = () => {
+  const { user } = useAuth();
   const { branding, refreshCms, updateBranding } = useCms();
+  const isSuperAdmin = user?.role === 'superadmin';
+
   const [selectedCategoryKey, setSelectedCategoryKey] = useState<string>('general');
   const [settingsValues, setSettingsValues] = useState<Record<string, Record<string, any>>>({});
   const [loading, setLoading] = useState(true);
@@ -415,6 +585,7 @@ export const GlobalSettingsManagement: React.FC = () => {
   }, []);
 
   const activeCategory = SETTINGS_CATEGORIES.find(c => c.key === selectedCategoryKey) || SETTINGS_CATEGORIES[0];
+  const isLockedForRole = Boolean(activeCategory.superAdminOnly && !isSuperAdmin);
 
   const handleFieldChange = (fieldKey: string, value: any) => {
     setSettingsValues(prev => ({
@@ -428,53 +599,70 @@ export const GlobalSettingsManagement: React.FC = () => {
 
   const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLockedForRole) {
+      setFeedback({
+        type: 'error',
+        message: 'Only a Super Administrator can modify this restricted configuration section.',
+      });
+      return;
+    }
+
     setSaving(true);
     setFeedback(null);
     try {
-      const currentValues = settingsValues[activeCategory.key] || {};
-      const res = await api.updateAdminSettingsCategory(activeCategory.key, currentValues);
+      const rawValues = { ...(settingsValues[activeCategory.key] || {}) };
+      if (activeCategory.key === 'upload' && typeof rawValues.allowed_extensions === 'string') {
+        rawValues.allowed_extensions = rawValues.allowed_extensions
+          .split(',')
+          .map((s: string) => s.trim().toLowerCase().replace(/^\./, ''))
+          .filter(Boolean);
+      }
+      if (activeCategory.key === 'pin_policy' && rawValues.pin_length !== undefined) {
+        rawValues.pin_length = Number(rawValues.pin_length) || 4;
+      }
+
+      const res = await api.updateAdminSettingsCategory(activeCategory.key, rawValues);
       if (res && res.success) {
         // Synchronize frontend-visible company/branding fields cleanly with live website_branding
         if (activeCategory.key === 'company') {
           await updateBranding({
             ...(branding || {}),
-            company_name: currentValues.company_name || branding?.company_name,
-            business_reg_number: currentValues.cac_registration_number || currentValues.registration_number || branding?.business_reg_number,
-            office_address: currentValues.headquarters_address || branding?.office_address,
-            info_email: currentValues.official_email || branding?.info_email,
-            support_email: currentValues.support_email || branding?.support_email,
-            whatsapp_number: currentValues.whatsapp_phone || branding?.whatsapp_number,
-            business_phone: currentValues.business_phone || branding?.business_phone,
-            support_phone: currentValues.official_phone || branding?.support_phone,
-            founded_year: currentValues.founded_year || branding?.founded_year,
+            company_name: rawValues.company_name || branding?.company_name,
+            business_reg_number: rawValues.registration_number || rawValues.cac_registration_number || branding?.business_reg_number,
+            office_address: rawValues.headquarters_address || branding?.office_address,
+            info_email: rawValues.official_email || branding?.info_email,
+            support_email: rawValues.support_email || branding?.support_email,
+            whatsapp_number: rawValues.whatsapp_phone || branding?.whatsapp_number,
+            business_phone: rawValues.business_phone || branding?.business_phone,
+            support_phone: rawValues.official_phone || branding?.support_phone,
+            founded_year: rawValues.founded_year || branding?.founded_year,
           });
         } else if (activeCategory.key === 'branding') {
           await updateBranding({
             ...(branding || {}),
-            logo_url: currentValues.logo_url || branding?.logo_url,
-            favicon_url: currentValues.favicon_url || branding?.favicon_url,
-            primary_color: currentValues.primary_color || branding?.primary_color,
-            secondary_color: currentValues.secondary_color || branding?.secondary_color,
+            logo_url: rawValues.logo_url || branding?.logo_url,
+            favicon_url: rawValues.favicon_url || branding?.favicon_url,
+            primary_color: rawValues.primary_color || branding?.primary_color,
+            secondary_color: rawValues.secondary_color || branding?.secondary_color,
+            font_family: rawValues.typography || branding?.font_family,
           });
         } else if (activeCategory.key === 'general') {
           await updateBranding({
             ...(branding || {}),
-            short_brand_name: currentValues.site_name || branding?.short_brand_name,
-            tagline: currentValues.site_tagline || branding?.tagline,
-            support_email: currentValues.support_email || branding?.support_email,
-            support_phone: currentValues.support_phone || branding?.support_phone,
+            short_brand_name: rawValues.site_name || branding?.short_brand_name,
+            tagline: rawValues.site_tagline || branding?.tagline,
           });
         } else if (activeCategory.key === 'website') {
           await updateBranding({
             ...(branding || {}),
-            seo_title: currentValues.meta_title || branding?.seo_title,
-            seo_description: currentValues.meta_description || branding?.seo_description,
+            seo_title: rawValues.meta_title || branding?.seo_title,
+            seo_description: rawValues.meta_description || branding?.seo_description,
           });
         }
         await refreshCms();
         setFeedback({
           type: 'success',
-          message: `${activeCategory.name} updated and synchronized across live system settings.`
+          message: `${activeCategory.name} updated and synchronized across live system settings.`,
         });
       }
     } catch (err: any) {
@@ -486,7 +674,8 @@ export const GlobalSettingsManagement: React.FC = () => {
 
   const filteredCategories = SETTINGS_CATEGORIES.filter(c =>
     c.name.toLowerCase().includes(searchCategory.toLowerCase()) ||
-    c.description.toLowerCase().includes(searchCategory.toLowerCase())
+    c.description.toLowerCase().includes(searchCategory.toLowerCase()) ||
+    c.group.toLowerCase().includes(searchCategory.toLowerCase())
   );
 
   return (
@@ -496,16 +685,17 @@ export const GlobalSettingsManagement: React.FC = () => {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold uppercase tracking-wider mb-2">
             <Sliders className="w-3.5 h-3.5" />
-            Stage 8 • 22-Section Reconciliation
+            Super Admin Control Plane &bull; {SETTINGS_CATEGORIES.length} Sections
           </div>
           <h2 className="text-2xl font-bold text-white tracking-tight">Global System Settings Management</h2>
           <p className="text-slate-400 text-xs sm:text-sm mt-1">
-            Comprehensive control over all 22 administrative settings categories. All changes persist to MySQL and immediately influence platform logic.
+            Comprehensive control over all {SETTINGS_CATEGORIES.length} administrative settings categories. All changes persist to MySQL and immediately control platform behavior without code edits.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={() => loadSettings()}
             className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-xl flex items-center gap-2 transition"
           >
@@ -525,21 +715,20 @@ export const GlobalSettingsManagement: React.FC = () => {
             {feedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
             <span>{feedback.message}</span>
           </div>
-          <button onClick={() => setFeedback(null)} className="text-slate-400 hover:text-white">
+          <button type="button" onClick={() => setFeedback(null)} className="text-slate-400 hover:text-white">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      {/* Main Grid: Categories Selector on Left (22 Sections) + Settings Form on Right */}
+      {/* Main Grid: Categories Selector on Left (25 Sections) + Settings Form on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: 22 Categories Navigation */}
         <div className="lg:col-span-4 space-y-3">
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
             <input
               type="text"
-              placeholder="Search 22 setting categories..."
+              placeholder={`Search ${SETTINGS_CATEGORIES.length} setting categories...`}
               value={searchCategory}
               onChange={e => setSearchCategory(e.target.value)}
               className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
@@ -558,7 +747,7 @@ export const GlobalSettingsManagement: React.FC = () => {
                     setSelectedCategoryKey(cat.key);
                     setFeedback(null);
                   }}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition ${
+                  className={`w-full flex items-center justify-between gap-2 p-2.5 rounded-xl text-left transition ${
                     isSelected
                       ? 'bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-600/30'
                       : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
@@ -568,11 +757,20 @@ export const GlobalSettingsManagement: React.FC = () => {
                     <Icon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-slate-400'}`} />
                     <span className="text-xs truncate">{cat.name}</span>
                   </div>
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
-                    isSelected ? 'bg-indigo-800 text-indigo-100' : 'bg-slate-800 text-slate-500'
-                  }`}>
-                    {cat.group}
-                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {cat.superAdminOnly && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+                        isSelected ? 'bg-amber-400/20 text-amber-100' : 'bg-amber-500/10 text-amber-400'
+                      }`}>
+                        ROOT
+                      </span>
+                    )}
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+                      isSelected ? 'bg-indigo-800 text-indigo-100' : 'bg-slate-800 text-slate-500'
+                    }`}>
+                      {cat.group}
+                    </span>
+                  </div>
                 </button>
               );
             })}
@@ -582,7 +780,7 @@ export const GlobalSettingsManagement: React.FC = () => {
         {/* Right: Active Category Form */}
         <div className="lg:col-span-8">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-7 space-y-6">
-            <div className="border-b border-slate-800 pb-4">
+            <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
                   <activeCategory.icon className="w-5 h-5" />
@@ -592,7 +790,24 @@ export const GlobalSettingsManagement: React.FC = () => {
                   <p className="text-xs text-slate-400 mt-0.5">{activeCategory.description}</p>
                 </div>
               </div>
+              {activeCategory.superAdminOnly && (
+                <span className="self-start sm:self-center text-[10px] font-mono px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 shrink-0">
+                  SUPER ADMIN PROTECTED
+                </span>
+              )}
             </div>
+
+            {isLockedForRole && (
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-3">
+                <Lock className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                <div>
+                  <p className="font-semibold text-amber-200">Super Administrator Privileges Required</p>
+                  <p className="text-amber-300/80 mt-0.5">
+                    You can inspect this category, but only a Super Administrator can modify security, authentication, provider routing, payment gateways, SMTP, PIN, MFA, or referral engine policies.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {loading ? (
               <div className="py-20 text-center text-slate-400">
@@ -614,7 +829,10 @@ export const GlobalSettingsManagement: React.FC = () => {
                 <div className="space-y-4">
                   {activeCategory.fields.map(field => {
                     const currentCategoryValues = settingsValues[activeCategory.key] || {};
-                    const val = currentCategoryValues[field.key];
+                    const rawVal = currentCategoryValues[field.key];
+                    const displayStringVal = Array.isArray(rawVal)
+                      ? rawVal.join(', ')
+                      : (rawVal !== undefined && rawVal !== null ? String(rawVal) : '');
 
                     return (
                       <div key={field.key} className="bg-slate-950/60 border border-slate-800/80 p-4 rounded-xl space-y-1.5">
@@ -628,44 +846,50 @@ export const GlobalSettingsManagement: React.FC = () => {
                         {field.type === 'text' && (
                           <input
                             type="text"
-                            value={val !== undefined ? String(val) : ''}
+                            readOnly={field.readOnly || isLockedForRole}
+                            value={displayStringVal}
                             onChange={e => handleFieldChange(field.key, e.target.value)}
-                            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 read-only:opacity-65"
                           />
                         )}
 
                         {field.type === 'password' && (
                           <input
                             type="password"
-                            value={val !== undefined ? String(val) : ''}
+                            readOnly={field.readOnly || isLockedForRole}
+                            value={displayStringVal}
                             onChange={e => handleFieldChange(field.key, e.target.value)}
-                            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+                            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono read-only:opacity-65"
                           />
                         )}
 
                         {field.type === 'number' && (
                           <input
                             type="number"
-                            value={val !== undefined ? String(val) : ''}
-                            onChange={e => handleFieldChange(field.key, parseFloat(e.target.value) || 0)}
-                            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+                            step="any"
+                            readOnly={field.readOnly || isLockedForRole}
+                            value={rawVal !== undefined && rawVal !== null ? String(rawVal) : ''}
+                            onChange={e => handleFieldChange(field.key, e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono read-only:opacity-65"
                           />
                         )}
 
                         {field.type === 'textarea' && (
                           <textarea
                             rows={3}
-                            value={val !== undefined ? String(val) : ''}
+                            readOnly={field.readOnly || isLockedForRole}
+                            value={displayStringVal}
                             onChange={e => handleFieldChange(field.key, e.target.value)}
-                            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 resize-none leading-relaxed"
+                            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 resize-none leading-relaxed read-only:opacity-65"
                           />
                         )}
 
                         {field.type === 'select' && field.options && (
                           <select
-                            value={val !== undefined ? String(val) : field.options[0]?.value}
+                            disabled={field.readOnly || isLockedForRole}
+                            value={rawVal !== undefined && rawVal !== null ? String(rawVal) : field.options[0]?.value}
                             onChange={e => handleFieldChange(field.key, e.target.value)}
-                            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+                            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-65"
                           >
                             {field.options.map(opt => (
                               <option key={opt.value} value={opt.value}>
@@ -680,12 +904,13 @@ export const GlobalSettingsManagement: React.FC = () => {
                             <label className="flex items-center gap-3 cursor-pointer">
                               <input
                                 type="checkbox"
-                                checked={val === true || val === 1 || val === '1' || val === 'true'}
+                                disabled={field.readOnly || isLockedForRole}
+                                checked={rawVal === true || rawVal === 1 || rawVal === '1' || rawVal === 'true'}
                                 onChange={e => handleFieldChange(field.key, e.target.checked)}
-                                className="w-4 h-4 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 bg-slate-900"
+                                className="w-4 h-4 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 bg-slate-900 disabled:opacity-65"
                               />
                               <span className="text-xs text-slate-300 font-medium">
-                                {(val === true || val === 1 || val === '1' || val === 'true') ? 'Enabled / Active' : 'Disabled / Inactive'}
+                                {(rawVal === true || rawVal === 1 || rawVal === '1' || rawVal === 'true') ? 'Enabled / Active' : 'Disabled / Inactive'}
                               </span>
                             </label>
                           </div>
@@ -699,14 +924,14 @@ export const GlobalSettingsManagement: React.FC = () => {
                   })}
                 </div>
 
-                <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
+                <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-4">
                   <span className="text-[11px] text-slate-500 font-mono">
                     Affects MySQL table: <code className="text-indigo-400">system_settings</code>
                   </span>
 
                   <button
                     type="submit"
-                    disabled={saving}
+                    disabled={saving || isLockedForRole}
                     className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-2 transition shadow-md shadow-indigo-600/30 disabled:opacity-50"
                   >
                     {saving ? (

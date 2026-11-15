@@ -298,7 +298,16 @@ class SettingsController
      */
     public function updateSettings(Request $request): void
     {
-        $category = trim((string)$request->input('category', 'general'));
+        $rawCategory = trim((string)$request->input('category', 'general'));
+        $aliasMap = [
+            'authentication' => 'auth',
+            'pricing' => 'service_pricing',
+            'uploads' => 'upload',
+            'api_settings' => 'api',
+            'system_maintenance' => 'system_config',
+            'providers' => 'provider_integration',
+        ];
+        $category = $aliasMap[$rawCategory] ?? $rawCategory;
         $superAdminCategories = [
             'security', 'auth', 'admin_dashboard', 'api', 'provider_integration', 'providers',
             'smtp', 'payment_gateways', 'system_config', 'pin_policy', 'mfa', 'referral',
@@ -317,10 +326,17 @@ class SettingsController
         // Enforce server-side clamping on security/PIN/MFA/referral parameters
         if ($category === 'security') {
             $settingsData = array_merge(Auth::getSecuritySettings(), $settingsData);
-            $settingsData['session_timeout_minutes'] = max(15, min(10080, (int)($settingsData['session_timeout_minutes'] ?? 1440)));
-            $settingsData['admin_session_timeout_minutes'] = max(10, min(720, (int)($settingsData['admin_session_timeout_minutes'] ?? 60)));
-            $settingsData['login_max_attempts'] = max(3, min(15, (int)($settingsData['login_max_attempts'] ?? 5)));
-            $settingsData['login_lockout_minutes'] = max(5, min(180, (int)($settingsData['login_lockout_minutes'] ?? 15)));
+            $custTimeout = max(15, min(10080, (int)($settingsData['session_timeout_minutes'] ?? $settingsData['customer_session_timeout_minutes'] ?? 1440)));
+            $maxFail = max(3, min(15, (int)($settingsData['login_max_attempts'] ?? $settingsData['max_failed_login_attempts'] ?? 5)));
+            $bindUa = (bool)($settingsData['bind_user_agent'] ?? $settingsData['bind_session_user_agent'] ?? true);
+            $settingsData['session_timeout_minutes'] = $custTimeout;
+            $settingsData['customer_session_timeout_minutes'] = $custTimeout;
+            $settingsData['admin_session_timeout_minutes'] = max(5, min(720, (int)($settingsData['admin_session_timeout_minutes'] ?? 60)));
+            $settingsData['login_max_attempts'] = $maxFail;
+            $settingsData['max_failed_login_attempts'] = $maxFail;
+            $settingsData['login_lockout_minutes'] = max(5, min(240, (int)($settingsData['login_lockout_minutes'] ?? 15)));
+            $settingsData['bind_user_agent'] = $bindUa;
+            $settingsData['bind_session_user_agent'] = $bindUa;
             $settingsData['pin_max_attempts'] = max(3, min(10, (int)($settingsData['pin_max_attempts'] ?? 5)));
             $settingsData['pin_lockout_minutes'] = max(5, min(120, (int)($settingsData['pin_lockout_minutes'] ?? 15)));
         } elseif ($category === 'pin_policy') {
@@ -332,7 +348,17 @@ class SettingsController
         } elseif ($category === 'mfa') {
             $curMfa = (new MfaService($this->db))->getPolicy();
             $settingsData = array_merge($curMfa, $settingsData);
+            $enfSuper = (bool)($settingsData['enforce_mfa_for_superadmin'] ?? $settingsData['require_mfa_for_superadmin'] ?? false);
+            $enfAdmin = (bool)($settingsData['enforce_mfa_for_admin'] ?? $settingsData['require_mfa_for_admin'] ?? false);
+            $allowCust = (bool)($settingsData['allow_customer_mfa'] ?? $settingsData['allow_customer_mfa_opt_in'] ?? true);
+            $settingsData['enforce_mfa_for_superadmin'] = $enfSuper;
+            $settingsData['require_mfa_for_superadmin'] = $enfSuper;
+            $settingsData['enforce_mfa_for_admin'] = $enfAdmin;
+            $settingsData['require_mfa_for_admin'] = $enfAdmin;
+            $settingsData['allow_customer_mfa'] = $allowCust;
+            $settingsData['allow_customer_mfa_opt_in'] = $allowCust;
             $settingsData['otp_expiry_minutes'] = max(3, min(30, (int)($settingsData['otp_expiry_minutes'] ?? 10)));
+            $settingsData['totp_issuer'] = trim((string)($settingsData['totp_issuer'] ?? 'HAMBAKTECH')) ?: 'HAMBAKTECH';
         } elseif ($category === 'referral') {
             $curRef = (new ReferralEngineService($this->db))->getConfig();
             $settingsData = array_merge($curRef, $settingsData);

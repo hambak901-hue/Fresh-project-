@@ -1412,7 +1412,7 @@ class TelecomController
             ], count($savedVouchers) . " {$network} ₦" . number_format($faceValue) . " Recharge PIN(s) generated successfully!");
         } catch (Throwable $e) {
             $refundRef = 'REFUND_' . $reference;
-            $alreadyRefunded = $this->db->fetchOne('SELECT id FROM wallet_transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
+            $alreadyRefunded = $this->db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
             if (!$alreadyRefunded) {
                 $this->walletService->credit($user['id'], $totalPrice, 'manual_adjustment', $refundRef, "Refund for failed Airtime PIN order {$reference}");
             }
@@ -1758,7 +1758,7 @@ class TelecomController
             ], count($savedVouchers) . " Data PIN(s) generated successfully!");
         } catch (Throwable $e) {
             $refundRef = 'REFUND_' . $reference;
-            $alreadyRefunded = $this->db->fetchOne('SELECT id FROM wallet_transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
+            $alreadyRefunded = $this->db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
             if (!$alreadyRefunded) {
                 $this->walletService->credit($user['id'], $totalPrice, 'manual_adjustment', $refundRef, "Refund for failed Data PIN order {$reference}");
             }
@@ -2441,7 +2441,7 @@ class TelecomController
             );
 
             $refundRef = 'REFUND_WH_' . $order['provider_ref'];
-            $alreadyRefunded = $this->db->fetchOne('SELECT id FROM wallet_transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
+            $alreadyRefunded = $this->db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
             if (!$alreadyRefunded) {
                 $this->walletService->credit(
                     $order['user_id'],
@@ -2868,7 +2868,7 @@ class TelecomController
                 } elseif (in_array($upStatus, ['failed', 'fail', 'error', 'reversed'], true)) {
                     $this->db->execute('UPDATE telecom_orders SET status = "failed", profit = 0.00, updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
                     $refundRef = 'REFUND_VQ_' . $order['provider_ref'];
-                    $alreadyRefunded = $this->db->fetchOne('SELECT id FROM wallet_transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
+                    $alreadyRefunded = $this->db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
                     if (!$alreadyRefunded) {
                         $this->walletService->credit($order['user_id'], (float)$order['amount'], 'manual_adjustment', $refundRef, "Refund for failed telecom order {$order['id']}");
                     }

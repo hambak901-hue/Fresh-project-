@@ -20,6 +20,8 @@ export interface User {
   status: 'active' | 'suspended';
   avatar_url?: string;
   has_transaction_pin?: boolean;
+  requires_pin_setup?: boolean;
+  pin_length?: number;
   email_verified?: boolean;
   address?: string;
   residential_address?: string;
@@ -1411,10 +1413,15 @@ export interface PinPolicy {
     nin_modification?: boolean;
     bvn_modification?: boolean;
     nin_enrolment?: boolean;
+    identity_verification?: boolean;
+    identity_modification?: boolean;
+    identity_enrolment?: boolean;
     telecom_data?: boolean;
     telecom_airtime?: boolean;
     telecom_pins?: boolean;
+    telecom_swap?: boolean;
     telecom_bills?: boolean;
+    telecom_bulksms?: boolean;
     telecom_sms?: boolean;
     wallet_transfer?: boolean;
     referral_wallet_conversion?: boolean;
@@ -1443,7 +1450,6 @@ export interface MfaChallengeResponse {
   method: 'email_otp' | 'totp' | string;
   masked_email: string;
   expires_in_minutes: number;
-  otp_preview?: string;
 }
 
 export interface MfaStatus {
@@ -1461,6 +1467,7 @@ export interface MfaPolicy {
   allow_email_otp: boolean;
   allow_totp: boolean;
   otp_expiry_minutes: number;
+  max_otp_attempts?: number;
   totp_issuer: string;
 }
 
@@ -1489,24 +1496,39 @@ export interface UserSessionItem {
 }
 
 export interface ReferralQualifyingServices {
-  nin_verification: boolean;
-  bvn_verification: boolean;
-  nin_modification: boolean;
-  bvn_modification: boolean;
-  nin_enrolment: boolean;
-  telecom_data: boolean;
-  telecom_airtime: boolean;
-  telecom_pins: boolean;
-  telecom_bills: boolean;
-  academy: boolean;
-  [key: string]: boolean;
+  data?: boolean;
+  airtime?: boolean;
+  airtime_pin?: boolean;
+  data_pin?: boolean;
+  cable?: boolean;
+  electricity?: boolean;
+  exam_pin?: boolean;
+  bulksms?: boolean;
+  nin_verification?: boolean;
+  bvn_verification?: boolean;
+  nin_modification?: boolean;
+  bvn_modification?: boolean;
+  enrolment?: boolean;
+  nin_enrolment?: boolean;
+  telecom_data?: boolean;
+  telecom_airtime?: boolean;
+  telecom_pins?: boolean;
+  telecom_bills?: boolean;
+  academy?: boolean;
+  [key: string]: boolean | undefined;
 }
 
 export interface ReferralPublicProgram {
   enabled: boolean;
   program_name: string;
   reward_mode: 'fixed' | 'percent_of_spend' | 'percent_of_margin' | 'points' | 'hybrid';
-  trigger_mode: 'first_qualifying_tx' | 'every_qualifying_tx' | 'up_to_n_tx';
+  trigger_mode:
+    | 'signup_verified'
+    | 'first_qualifying_transaction'
+    | 'every_qualifying_transaction'
+    | 'first_qualifying_tx'
+    | 'every_qualifying_tx'
+    | 'up_to_n_tx';
   flat_reward_naira: number;
   percent_of_spend: number;
   percent_of_margin: number;

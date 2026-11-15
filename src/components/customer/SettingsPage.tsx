@@ -17,6 +17,7 @@ import {
   Copy,
   RefreshCw,
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { MfaPolicy, MfaStatus, User, UserSessionItem } from '../../types';
@@ -64,7 +65,6 @@ export function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
   const [showOtpReset, setShowOtpReset] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
-  const [otpPreview, setOtpPreview] = useState<string | null>(null);
   const [otpNewPin, setOtpNewPin] = useState('');
   const [otpConfirmPin, setOtpConfirmPin] = useState('');
 
@@ -182,10 +182,21 @@ export function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
     setMfaMsg(null);
     try {
       const res = await api.beginTotpSetup();
+      let generatedQr: string | undefined = res.qr_url;
+      if (res.otpauth_url) {
+        try {
+          generatedQr = await QRCode.toDataURL(res.otpauth_url, {
+            width: 220,
+            margin: 1,
+          });
+        } catch {
+          // Keep fallback qr_url if local encoding fails
+        }
+      }
       setTotpSetup({
         secret: res.secret,
         otpauth_url: res.otpauth_url,
-        qr_url: res.qr_url,
+        qr_url: generatedQr,
       });
       setTotpCode('');
     } catch (err: any) {
@@ -269,7 +280,6 @@ export function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
     try {
       const res = await api.requestPinResetOtp();
       setOtpSent(true);
-      setOtpPreview(res.otp_preview || null);
       setPinMsg({ type: 'success', text: res.message || 'A verification OTP has been dispatched to your email.' });
     } catch (err: any) {
       setPinMsg({ type: 'error', text: err?.message || 'Unable to send PIN reset OTP.' });
@@ -298,7 +308,6 @@ export function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
       setOtpCode('');
       setOtpNewPin('');
       setOtpConfirmPin('');
-      setOtpPreview(null);
       await refreshUser();
     } catch (err: any) {
       setPinMsg({ type: 'error', text: err?.message || 'Failed to reset PIN with OTP.' });
@@ -892,11 +901,6 @@ export function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
                 <p className="text-xs text-slate-600 dark:text-slate-400">
                   Request a one-time security code to your email <span className="font-semibold">{user.email}</span> to reset your forgotten {pinLength}-digit Transaction PIN.
                 </p>
-                {otpPreview && (
-                  <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-slate-900 border border-blue-200 dark:border-slate-700 text-xs">
-                    OTP Preview: <span className="font-mono font-bold">{otpPreview}</span>
-                  </div>
-                )}
                 {!otpSent ? (
                   <button
                     type="button"

@@ -26,6 +26,12 @@ class MfaService
     public function getPolicy(): array
     {
         $defaults = [
+            'enforce_mfa_for_superadmin' => false,
+            'enforce_mfa_for_admin' => false,
+            'allow_customer_mfa' => true,
+            'allow_email_otp' => true,
+            'allow_totp' => true,
+            'totp_issuer' => 'HAMBAKTECH',
             'require_mfa_for_superadmin' => false,
             'require_mfa_for_admin' => false,
             'allow_customer_mfa_opt_in' => true,
@@ -39,6 +45,22 @@ class MfaService
             if ($row && !empty($row['setting_value'])) {
                 $cfg = json_decode((string)$row['setting_value'], true);
                 if (is_array($cfg)) {
+                    // Resolve bidirectional alias precedence cleanly
+                    if (array_key_exists('enforce_mfa_for_superadmin', $cfg) && !array_key_exists('require_mfa_for_superadmin', $cfg)) {
+                        $cfg['require_mfa_for_superadmin'] = (bool)$cfg['enforce_mfa_for_superadmin'];
+                    } elseif (array_key_exists('require_mfa_for_superadmin', $cfg) && !array_key_exists('enforce_mfa_for_superadmin', $cfg)) {
+                        $cfg['enforce_mfa_for_superadmin'] = (bool)$cfg['require_mfa_for_superadmin'];
+                    }
+                    if (array_key_exists('enforce_mfa_for_admin', $cfg) && !array_key_exists('require_mfa_for_admin', $cfg)) {
+                        $cfg['require_mfa_for_admin'] = (bool)$cfg['enforce_mfa_for_admin'];
+                    } elseif (array_key_exists('require_mfa_for_admin', $cfg) && !array_key_exists('enforce_mfa_for_admin', $cfg)) {
+                        $cfg['enforce_mfa_for_admin'] = (bool)$cfg['require_mfa_for_admin'];
+                    }
+                    if (array_key_exists('allow_customer_mfa', $cfg) && !array_key_exists('allow_customer_mfa_opt_in', $cfg)) {
+                        $cfg['allow_customer_mfa_opt_in'] = (bool)$cfg['allow_customer_mfa'];
+                    } elseif (array_key_exists('allow_customer_mfa_opt_in', $cfg) && !array_key_exists('allow_customer_mfa', $cfg)) {
+                        $cfg['allow_customer_mfa'] = (bool)$cfg['allow_customer_mfa_opt_in'];
+                    }
                     $defaults = array_merge($defaults, $cfg);
                 }
             }
@@ -48,11 +70,25 @@ class MfaService
                 $adm = json_decode((string)$admRow['setting_value'], true);
                 if (is_array($adm) && !empty($adm['require_2fa_for_root'])) {
                     $defaults['require_mfa_for_superadmin'] = true;
+                    $defaults['enforce_mfa_for_superadmin'] = true;
                 }
             }
         } catch (\Throwable) {
         }
 
+        $superReq = (bool)($defaults['enforce_mfa_for_superadmin'] || $defaults['require_mfa_for_superadmin']);
+        $adminReq = (bool)($defaults['enforce_mfa_for_admin'] || $defaults['require_mfa_for_admin']);
+        $custAllow = (bool)($defaults['allow_customer_mfa'] && $defaults['allow_customer_mfa_opt_in']);
+
+        $defaults['enforce_mfa_for_superadmin'] = $superReq;
+        $defaults['require_mfa_for_superadmin'] = $superReq;
+        $defaults['enforce_mfa_for_admin'] = $adminReq;
+        $defaults['require_mfa_for_admin'] = $adminReq;
+        $defaults['allow_customer_mfa'] = $custAllow;
+        $defaults['allow_customer_mfa_opt_in'] = $custAllow;
+        $defaults['allow_email_otp'] = (bool)($defaults['allow_email_otp'] ?? true);
+        $defaults['allow_totp'] = (bool)($defaults['allow_totp'] ?? true);
+        $defaults['totp_issuer'] = trim((string)($defaults['totp_issuer'] ?? 'HAMBAKTECH')) ?: 'HAMBAKTECH';
         $defaults['otp_expiry_minutes'] = max(3, min(30, (int)$defaults['otp_expiry_minutes']));
         $defaults['max_otp_attempts'] = max(3, min(10, (int)$defaults['max_otp_attempts']));
         return $defaults;
@@ -64,11 +100,11 @@ class MfaService
         $role = (string)($user['role'] ?? 'customer');
         $mfaConfig = $this->db->fetchOne('SELECT * FROM user_mfa_configs WHERE user_id = :uid LIMIT 1', ['uid' => $user['id']]);
 
-        $totpEnabled = !empty($mfaConfig['totp_enabled']);
-        $emailEnabled = !empty($mfaConfig['email_otp_enabled']) || !empty($user['mfa_enabled']);
+        $totpEnabled = !empty($mfaConfig['totp_enabled']) && !empty($policy['allow_totp']);
+        $emailEnabled = (!empty($mfaConfig['email_otp_enabled']) || !empty($user['mfa_enabled'])) && !empty($policy['allow_email_otp']);
 
-        $requiredByRole = ($role === 'superadmin' && !empty($policy['require_mfa_for_superadmin']))
-            || ($role === 'admin' && !empty($policy['require_mfa_for_admin']));
+        $requiredByRole = ($role === 'superadmin' && !empty($policy['enforce_mfa_for_superadmin']))
+            || ($role === 'admin' && !empty($policy['enforce_mfa_for_admin']));
 
         if (!$totpEnabled && !$emailEnabled && !$requiredByRole) {
             return null;
@@ -149,6 +185,7 @@ class MfaService
         }
 
         $verified = false;
+        $usedRecovery = false;
         if ($row['method'] === 'totp') {
             $cfg = $this->db->fetchOne('SELECT totp_secret_encrypted, recovery_codes_hash FROM user_mfa_configs WHERE user_id = :uid LIMIT 1', ['uid' => $row['user_id']]);
             if ($cfg && !empty($cfg['totp_secret_encrypted'])) {
@@ -156,6 +193,7 @@ class MfaService
                 $verified = self::verifyTotp($secret, $cleanCode, 1);
                 if (!$verified && !empty($cfg['recovery_codes_hash'])) {
                     $verified = $this->consumeRecoveryCode((string)$row['user_id'], $cleanCode, (string)$cfg['recovery_codes_hash']);
+                    $usedRecovery = $verified;
                 }
             }
         } else {
@@ -176,6 +214,7 @@ class MfaService
         }
 
         $this->db->execute('UPDATE mfa_challenges SET is_verified = 1 WHERE id = :id', ['id' => $row['id']]);
+        $row['used_recovery_code'] = $usedRecovery;
         return $row;
     }
 
@@ -191,17 +230,31 @@ class MfaService
                 $recoveryLeft = count($arr);
             }
         }
+        $totpEnabled = !empty($cfg['totp_enabled']);
+        $emailEnabled = !empty($cfg['email_otp_enabled']) || (!empty($user['mfa_enabled']) && !$totpEnabled);
+        $role = (string)($user['role'] ?? 'customer');
+        $requiredByPolicy = ($role === 'superadmin' && !empty($policy['enforce_mfa_for_superadmin']))
+            || ($role === 'admin' && !empty($policy['enforce_mfa_for_admin']));
+        $isEnabled = !empty($user['mfa_enabled']) || $totpEnabled || $emailEnabled || $requiredByPolicy;
+        $preferredMethod = $totpEnabled ? 'totp' : (($user['mfa_method'] ?? '') === 'totp' ? 'totp' : 'email_otp');
+
         return [
-            'mfa_enabled' => !empty($user['mfa_enabled']) || !empty($cfg['totp_enabled']) || !empty($cfg['email_otp_enabled']),
-            'totp_enabled' => !empty($cfg['totp_enabled']),
-            'email_otp_enabled' => !empty($cfg['email_otp_enabled']) || (!empty($user['mfa_enabled']) && empty($cfg['totp_enabled'])),
+            'enabled' => $isEnabled,
+            'preferred_method' => $preferredMethod,
+            'totp_configured' => $totpEnabled,
             'recovery_codes_remaining' => $recoveryLeft,
+            'required_by_policy' => $requiredByPolicy,
+            'mfa_enabled' => $isEnabled,
+            'totp_enabled' => $totpEnabled,
+            'email_otp_enabled' => $emailEnabled,
             'policy' => $policy,
         ];
     }
 
     public function beginTotpSetup(string $userId, string $email): array
     {
+        $policy = $this->getPolicy();
+        $issuerLabel = trim((string)($policy['totp_issuer'] ?? 'HAMBAKTECH')) ?: 'HAMBAKTECH';
         $secret = self::generateBase32Secret(20);
         $enc = $this->encryptSecret($secret);
         $this->db->execute(
@@ -210,11 +263,14 @@ class MfaService
              ON DUPLICATE KEY UPDATE totp_secret_encrypted = :sec2, updated_at = NOW()',
             ['uid' => $userId, 'sec' => $enc, 'sec2' => $enc]
         );
-        $issuer = rawurlencode('HAMBAKTECH');
+        $issuer = rawurlencode($issuerLabel);
         $account = rawurlencode($email);
+        $otpauthUrl = "otpauth://totp/{$issuer}:{$account}?secret={$secret}&issuer={$issuer}&digits=6&period=30";
         return [
             'secret' => $secret,
-            'otpauth_uri' => "otpauth://totp/{$issuer}:{$account}?secret={$secret}&issuer={$issuer}&digits=6&period=30",
+            'otpauth_url' => $otpauthUrl,
+            'otpauth_uri' => $otpauthUrl,
+            'issuer' => $issuerLabel,
         ];
     }
 
@@ -271,6 +327,12 @@ class MfaService
 
     public function disableAllMfa(string $userId): array
     {
+        $user = $this->db->fetchOne('SELECT id, role FROM users WHERE id = :id LIMIT 1', ['id' => $userId]);
+        $policy = $this->getPolicy();
+        $role = (string)($user['role'] ?? 'customer');
+        if (($role === 'superadmin' && !empty($policy['enforce_mfa_for_superadmin'])) || ($role === 'admin' && !empty($policy['enforce_mfa_for_admin']))) {
+            Response::forbidden('Two-factor authentication is enforced for your role by security policy and cannot be disabled.');
+        }
         $this->db->execute('UPDATE user_mfa_configs SET totp_enabled = 0, email_otp_enabled = 0, totp_secret_encrypted = NULL, recovery_codes_hash = NULL WHERE user_id = :uid', ['uid' => $userId]);
         $this->db->execute('UPDATE users SET mfa_enabled = 0, mfa_method = "email_otp" WHERE id = :uid', ['uid' => $userId]);
         return $this->getStatus($userId);

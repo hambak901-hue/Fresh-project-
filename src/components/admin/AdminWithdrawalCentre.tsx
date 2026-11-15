@@ -15,7 +15,7 @@ import {
 import { api } from '../../lib/api';
 import { ReferralWithdrawalItem } from '../../types';
 
-type WithdrawalAction = 'approve' | 'processing' | 'mark_paid' | 'reject' | 'fail';
+type WithdrawalAction = 'approve' | 'process' | 'mark_paid' | 'reject' | 'fail';
 
 const STATUS_FILTERS = ['all', 'pending', 'approved', 'processing', 'paid', 'rejected', 'failed', 'cancelled'];
 
@@ -23,24 +23,23 @@ export function AdminWithdrawalCentre() {
   const [withdrawals, setWithdrawals] = useState<ReferralWithdrawalItem[]>([]);
   const [stats, setStats] = useState<{
     pending_count: number;
-    approved_processing_count: number;
+    pending_payout_total: number;
+    processing_count: number;
     paid_count: number;
-    pending_net_total: number;
-    ready_to_pay_net_total: number;
-    total_paid_net: number;
+    paid_total: number;
+    rejected_count: number;
   } | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Modal state
   const [modal, setModal] = useState<{
     item: ReferralWithdrawalItem;
     action: WithdrawalAction;
   } | null>(null);
   const [paymentReference, setPaymentReference] = useState('');
-  const [payoutNotes, setPayoutNotes] = useState('');
+  const [adminNote, setAdminNote] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -60,12 +59,12 @@ export function AdminWithdrawalCentre() {
   };
 
   useEffect(() => {
-    loadWithdrawals();
+    void loadWithdrawals();
   }, []);
 
   const openActionModal = (item: ReferralWithdrawalItem, action: WithdrawalAction) => {
     setPaymentReference(item.payment_reference || '');
-    setPayoutNotes(item.payout_notes || '');
+    setAdminNote(item.admin_note || '');
     setRejectionReason('');
     setModal({ item, action });
   };
@@ -87,13 +86,12 @@ export function AdminWithdrawalCentre() {
     setSubmitting(true);
     setFeedback(null);
     try {
-      const res = await api.actionAdminWithdrawal(item.id, {
-        action,
+      const res = await api.adminProcessWithdrawal(item.id, action, {
         payment_reference: paymentReference.trim() || undefined,
-        payout_notes: payoutNotes.trim() || undefined,
+        admin_note: adminNote.trim() || undefined,
         rejection_reason: rejectionReason.trim() || undefined,
       });
-      setFeedback({ type: 'success', message: res.message || `Withdrawal ${item.reference} updated.` });
+      setFeedback({ type: 'success', message: res.message || `Withdrawal ${item.withdrawal_number} updated.` });
       setModal(null);
       await loadWithdrawals();
     } catch (err: any) {
@@ -116,7 +114,6 @@ export function AdminWithdrawalCentre() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-200 dark:border-slate-800">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs font-semibold uppercase tracking-wider mb-2">
@@ -133,7 +130,7 @@ export function AdminWithdrawalCentre() {
 
         <button
           type="button"
-          onClick={() => loadWithdrawals()}
+          onClick={() => void loadWithdrawals()}
           className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-2 self-start md:self-center transition"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -141,7 +138,6 @@ export function AdminWithdrawalCentre() {
         </button>
       </div>
 
-      {/* Feedback */}
       {feedback && (
         <div
           className={`p-4 rounded-xl border text-xs font-medium flex items-center justify-between gap-3 ${
@@ -164,7 +160,6 @@ export function AdminWithdrawalCentre() {
         </div>
       )}
 
-      {/* KPI Cards */}
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
@@ -172,21 +167,21 @@ export function AdminWithdrawalCentre() {
               <span>Pending Review ({stats.pending_count})</span>
               <Clock className="w-4 h-4" />
             </div>
-            <p className="text-2xl font-extrabold font-mono text-slate-900 dark:text-white mt-1">
-              ₦{Number(stats.pending_net_total || 0).toLocaleString()}
+            <p className="text-2xl font-extrabold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
+              ₦{Number(stats.pending_payout_total || 0).toLocaleString()}
             </p>
             <p className="text-[11px] text-slate-500 mt-0.5">Net payout awaiting initial approval</p>
           </div>
 
           <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between text-xs text-blue-600 dark:text-blue-400 font-semibold">
-              <span>Approved / Processing ({stats.approved_processing_count})</span>
+              <span>Approved / Processing</span>
               <ArrowUpRight className="w-4 h-4" />
             </div>
-            <p className="text-2xl font-extrabold font-mono text-slate-900 dark:text-white mt-1">
-              ₦{Number(stats.ready_to_pay_net_total || 0).toLocaleString()}
+            <p className="text-2xl font-extrabold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
+              {stats.processing_count}
             </p>
-            <p className="text-[11px] text-slate-500 mt-0.5">Ready for bank transfer disbursement</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Requests cleared or in bank disbursement</p>
           </div>
 
           <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
@@ -194,15 +189,16 @@ export function AdminWithdrawalCentre() {
               <span>Paid Withdrawals ({stats.paid_count})</span>
               <CheckCircle2 className="w-4 h-4" />
             </div>
-            <p className="text-2xl font-extrabold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
-              ₦{Number(stats.total_paid_net || 0).toLocaleString()}
+            <p className="text-2xl font-extrabold font-mono tabular-nums text-emerald-600 dark:text-emerald-400 mt-1">
+              ₦{Number(stats.paid_total || 0).toLocaleString()}
             </p>
-            <p className="text-[11px] text-slate-500 mt-0.5">Total net cash settled to customer banks</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Total settled to banks &bull; Rejected/Failed: {stats.rejected_count}
+            </p>
           </div>
         </div>
       )}
 
-      {/* Filter Bar */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
           {STATUS_FILTERS.map((st) => (
@@ -211,7 +207,7 @@ export function AdminWithdrawalCentre() {
               type="button"
               onClick={() => {
                 setStatusFilter(st);
-                loadWithdrawals(st, search);
+                void loadWithdrawals(st, search);
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition ${
                 statusFilter === st
@@ -233,14 +229,14 @@ export function AdminWithdrawalCentre() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') loadWithdrawals(statusFilter, search);
+                if (e.key === 'Enter') void loadWithdrawals(statusFilter, search);
               }}
               className="pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg text-xs text-slate-900 dark:text-white"
             />
           </div>
           <button
             type="button"
-            onClick={() => loadWithdrawals(statusFilter, search)}
+            onClick={() => void loadWithdrawals(statusFilter, search)}
             className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold rounded-lg"
           >
             Filter
@@ -248,7 +244,6 @@ export function AdminWithdrawalCentre() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-sm">
         {loading ? (
           <div className="py-16 text-center text-xs text-slate-500">
@@ -275,12 +270,15 @@ export function AdminWithdrawalCentre() {
               {withdrawals.map((wd) => (
                 <tr key={wd.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                   <td className="py-3 px-4">
-                    <p className="font-mono font-bold text-slate-900 dark:text-white">{wd.reference}</p>
+                    <p className="font-mono font-bold text-slate-900 dark:text-white">{wd.withdrawal_number}</p>
                     <p className="text-[10px] text-slate-500">{new Date(wd.created_at).toLocaleString()}</p>
                   </td>
                   <td className="py-3 px-4">
                     <p className="font-semibold text-slate-900 dark:text-white">{wd.customer_name || 'Customer'}</p>
                     <p className="text-[10px] font-mono text-slate-500">{wd.customer_email}</p>
+                    {typeof wd.kyc_level === 'number' && (
+                      <p className="text-[10px] text-slate-400">KYC Level {wd.kyc_level}</p>
+                    )}
                   </td>
                   <td className="py-3 px-4">
                     <p className="font-semibold text-slate-900 dark:text-white">{wd.bank_name}</p>
@@ -288,7 +286,7 @@ export function AdminWithdrawalCentre() {
                       {wd.account_number} &bull; {wd.account_name}
                     </p>
                   </td>
-                  <td className="py-3 px-4 font-mono">
+                  <td className="py-3 px-4 font-mono tabular-nums">
                     <p className="font-bold text-emerald-600 dark:text-emerald-400">
                       Net: ₦{Number(wd.net_amount || 0).toLocaleString()}
                     </p>
@@ -310,7 +308,7 @@ export function AdminWithdrawalCentre() {
                       </p>
                     )}
                     {wd.rejection_reason && <p className="text-[10px] text-red-500 max-w-xs">{wd.rejection_reason}</p>}
-                    {wd.payout_notes && <p className="text-[10px] text-slate-500 max-w-xs">{wd.payout_notes}</p>}
+                    {wd.admin_note && <p className="text-[10px] text-slate-500 max-w-xs">{wd.admin_note}</p>}
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="inline-flex flex-wrap justify-end gap-1">
@@ -339,7 +337,7 @@ export function AdminWithdrawalCentre() {
                         <>
                           <button
                             type="button"
-                            onClick={() => openActionModal(wd, 'processing')}
+                            onClick={() => openActionModal(wd, 'process')}
                             className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[11px] font-semibold"
                           >
                             Processing
@@ -389,7 +387,6 @@ export function AdminWithdrawalCentre() {
         )}
       </div>
 
-      {/* Transition Modal */}
       {modal && (
         <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
           <form
@@ -400,7 +397,7 @@ export function AdminWithdrawalCentre() {
               {modal.action.replace('_', ' ')} Withdrawal
             </h3>
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs space-y-1">
-              <p className="font-mono font-bold text-slate-900 dark:text-white">{modal.item.reference}</p>
+              <p className="font-mono font-bold text-slate-900 dark:text-white">{modal.item.withdrawal_number}</p>
               <p className="text-slate-600 dark:text-slate-400">
                 {modal.item.customer_name} &bull; {modal.item.bank_name} ({modal.item.account_number})
               </p>
@@ -430,8 +427,8 @@ export function AdminWithdrawalCentre() {
                   </label>
                   <input
                     type="text"
-                    value={payoutNotes}
-                    onChange={(e) => setPayoutNotes(e.target.value)}
+                    value={adminNote}
+                    onChange={(e) => setAdminNote(e.target.value)}
                     placeholder="Settled via corporate transfer..."
                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white"
                   />
@@ -439,15 +436,15 @@ export function AdminWithdrawalCentre() {
               </div>
             )}
 
-            {(modal.action === 'approve' || modal.action === 'processing') && (
+            {(modal.action === 'approve' || modal.action === 'process') && (
               <div>
                 <label className="block text-[11px] font-semibold uppercase text-slate-500 mb-1">
                   Internal Processing Notes (Optional)
                 </label>
                 <input
                   type="text"
-                  value={payoutNotes}
-                  onChange={(e) => setPayoutNotes(e.target.value)}
+                  value={adminNote}
+                  onChange={(e) => setAdminNote(e.target.value)}
                   placeholder="Verified customer earnings..."
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white"
                 />

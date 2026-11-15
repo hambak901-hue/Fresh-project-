@@ -22,10 +22,15 @@ export const DEFAULT_PIN_POLICY: PinPolicy = {
     nin_modification: true,
     bvn_modification: true,
     nin_enrolment: true,
+    identity_verification: true,
+    identity_modification: true,
+    identity_enrolment: true,
     telecom_data: true,
     telecom_airtime: true,
     telecom_pins: true,
+    telecom_swap: true,
     telecom_bills: true,
+    telecom_bulksms: true,
     telecom_sms: true,
     wallet_transfer: true,
     referral_wallet_conversion: true,
@@ -55,6 +60,7 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
   refreshPinPolicy: () => Promise<void>;
   updateBalance: (balance: number) => void;
+  openPinSetupModal: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -180,6 +186,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(prev => (prev ? { ...prev, wallet_balance: balance } : prev));
   };
 
+  const openPinSetupModal = () => {
+    window.dispatchEvent(new CustomEvent('hambak:pin-setup-required'));
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -194,6 +204,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshUser,
         refreshPinPolicy,
         updateBalance,
+        openPinSetupModal,
       }}
     >
       {children}

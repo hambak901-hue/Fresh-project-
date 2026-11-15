@@ -302,7 +302,6 @@ export const api = {
     success: boolean;
     message: string;
     expires_in_minutes?: number;
-    otp_preview?: string;
   }> {
     return request('/api/auth/pin/request-otp', {
       method: 'POST',
@@ -382,7 +381,6 @@ export const api = {
     message: string;
     email?: string;
     token?: string;
-    otp_preview?: string;
     expires_in_minutes?: number;
     delivery?: any;
   }> {
@@ -2223,12 +2221,6 @@ export const api = {
   async updateAcademySettings(settings: any) { return this.updateAdminAcademySettings(settings); },
   async getReportsAdmin() { return this.getAdminReports(); },
   async updateReportsSettings(settings: any) { return this.updateAdminReportsSettings(settings); },
-  async setTransactionPin(currentPin: string, newPin: string): Promise<{ success: boolean; message: string }> {
-    return request('/api/customer/pin', {
-      method: 'PUT',
-      body: JSON.stringify({ currentPin, newPin }),
-    });
-  },
 
   // -------------------------------------------------------------
   // STAGE 4: KYC & TRANSACTION AUTHORIZATION APIS
@@ -3390,7 +3382,9 @@ export const api = {
   },
 
   // Admin Withdrawals Queue
-  async getAdminWithdrawals(status?: string): Promise<{
+  async getAdminWithdrawals(
+    filter?: string | { status?: string; search?: string }
+  ): Promise<{
     success: boolean;
     withdrawals: import('../types').ReferralWithdrawalItem[];
     stats: {
@@ -3402,8 +3396,13 @@ export const api = {
       rejected_count: number;
     };
   }> {
-    const qs = status && status !== 'all' ? `?status=${encodeURIComponent(status)}` : '';
-    return request(`/api/admin/withdrawals${qs}`);
+    const status = typeof filter === 'string' ? filter : filter?.status;
+    const search = typeof filter === 'object' ? filter?.search : undefined;
+    const qs = new URLSearchParams();
+    if (status && status !== 'all') qs.set('status', status);
+    if (search && search.trim()) qs.set('search', search.trim());
+    const str = qs.toString();
+    return request(`/api/admin/withdrawals${str ? `?${str}` : ''}`);
   },
 
   async adminProcessWithdrawal(
