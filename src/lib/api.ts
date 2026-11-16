@@ -795,15 +795,19 @@ export const api = {
     plans: import('../types').TelecomPlanItem[];
     categories_by_network?: Record<string, string[]>;
     airtime_discount_percent?: number;
+    bulksms_unit_price?: number;
+    bulksms_sender_id?: string;
   }> {
     const qs = network ? `?network=${encodeURIComponent(network)}` : '';
     return request(`/api/telecom/plans${qs}`);
   },
 
-  async validateTelecomPhone(network: string, phone: string): Promise<{
+  async validateTelecomPhone(network: string, phone: string, ported: boolean = false): Promise<{
     success: boolean;
     valid: boolean;
     matches_network: boolean;
+    ported?: boolean;
+    ported_allowed?: boolean;
     formatted_phone: string;
     detected_network: string | null;
     selected_network: string;
@@ -811,7 +815,7 @@ export const api = {
   }> {
     return request('/api/telecom/validate-phone', {
       method: 'POST',
-      body: JSON.stringify({ network, phone }),
+      body: JSON.stringify({ network, phone, ported }),
     });
   },
 
@@ -820,7 +824,8 @@ export const api = {
     phone: string,
     network?: string,
     idempotencyKey?: string,
-    transactionPin?: string
+    transactionPin?: string,
+    ported: boolean = false
   ): Promise<{
     success: boolean;
     message: string;
@@ -843,6 +848,7 @@ export const api = {
         planId,
         phone,
         network,
+        ported,
         transaction_pin: transactionPin,
         idempotency_key: idempotencyKey,
       }),
@@ -954,11 +960,38 @@ export const api = {
     network: string,
     phone: string,
     amount: number,
-    transactionPin?: string
-  ): Promise<{ success: boolean; message: string; order: TelecomOrder; discountSaved: number; newBalance: number }> {
+    transactionPin?: string,
+    idempotencyKey?: string,
+    ported: boolean = false
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: TelecomOrder;
+    status?: string;
+    reference?: string;
+    face_value?: number;
+    amount_charged?: number;
+    discountSaved: number;
+    newBalance: number;
+    balance_after?: number;
+    deduplicated?: boolean;
+  }> {
+    const headers: Record<string, string> = {};
+    if (idempotencyKey) {
+      headers['X-Idempotency-Key'] = idempotencyKey;
+    }
     return request('/api/telecom/purchase-airtime', {
       method: 'POST',
-      body: JSON.stringify({ network, phone, amount, transaction_pin: transactionPin }),
+      headers,
+      timeoutMs: 45000,
+      body: JSON.stringify({
+        network,
+        phone,
+        amount,
+        ported,
+        transaction_pin: transactionPin,
+        idempotency_key: idempotencyKey,
+      }),
     });
   },
 
@@ -1428,6 +1461,9 @@ export const api = {
       failed_transactions: number;
       total_funded: number;
       total_spent: number;
+      total_refunded?: number;
+      points_balance?: number;
+      referral_available_balance?: number;
       total_orders: number;
       total_verifications: number;
       unread_notifications_count: number;
@@ -1445,6 +1481,15 @@ export const api = {
     recent_verifications: VerificationRecord[];
     notifications: import('../types').NotificationItem[];
     announcements: import('../types').AnnouncementItem[];
+    dashboard_modules?: Array<{
+      id: string;
+      module_key?: string;
+      name: string;
+      description?: string;
+      status: string;
+      visible: boolean;
+      coming_soon_message?: string;
+    }>;
     bank_details: { accountName: string; bank: string; accountNumber: string };
   }> {
     return request('/api/customer/summary');

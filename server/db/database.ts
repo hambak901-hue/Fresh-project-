@@ -406,6 +406,7 @@ export interface AuditLog {
 
 export interface BrandSettings {
   company_name: string;
+  short_brand_name?: string;
   tagline: string;
   logo_url: string;
   favicon_url: string;
@@ -413,15 +414,24 @@ export interface BrandSettings {
   secondary_color: string;
   font_family: string;
   support_phone: string;
+  business_phone?: string;
   support_email: string;
+  info_email?: string;
   office_address: string;
   whatsapp_number: string;
+  business_reg_number?: string;
+  founded_year?: string;
   social_links: {
     twitter?: string;
+    x?: string;
     facebook?: string;
     instagram?: string;
     linkedin?: string;
     whatsapp?: string;
+    whatsapp_channel?: string;
+    tiktok?: string;
+    telegram?: string;
+    youtube?: string;
   };
   footer_text: string;
   copyright_text: string;
@@ -873,11 +883,11 @@ function getDefaultData(): DatabaseSchema {
       active_verification_provider: '2sureverify',
       active_telecom_provider: 'ulamadata',
       active_payment_gateway: 'flutterwave',
-      bank_transfer_account_name: 'Hambak Technologies Enterprise',
+      bank_transfer_account_name: 'HAMBAK TECH & SERVICES',
       bank_transfer_bank: 'Moniepoint MFB',
-      bank_transfer_account_number: '8210492817',
-      company_name: 'HambakTech Technologies',
-      support_phone: '+234 803 000 1122',
+      bank_transfer_account_number: '5210471634',
+      company_name: 'HAMBAK TECH & SERVICES',
+      support_phone: '09127469686',
       support_email: 'support@hambaktech.com.ng',
     },
     audit_logs: [
@@ -891,28 +901,36 @@ function getDefaultData(): DatabaseSchema {
       },
     ],
     branding: {
-      company_name: 'HambakTech Enterprise',
-      tagline: "Nigeria's Foremost Identity Verification, Telecom & Digital Services Engine",
-      logo_url: '',
-      favicon_url: '/favicon.ico',
-      primary_color: '#10b981',
-      secondary_color: '#0284c7',
+      company_name: 'HAMBAK TECH & SERVICES',
+      short_brand_name: 'HAMBAKTECH',
+      tagline: 'Where Technology Meets Services',
+      logo_url: '/logo.png',
+      favicon_url: '/logo.png',
+      primary_color: '#1d4ed8',
+      secondary_color: '#0f172a',
       font_family: 'Plus Jakarta Sans',
-      support_phone: '+234 803 000 1122',
+      whatsapp_number: '09155104724',
+      business_phone: '08147837664',
+      support_phone: '09127469686',
       support_email: 'support@hambaktech.com.ng',
-      office_address: 'Plot 14, Commercial Avenue, Ikeja, Lagos, Nigeria',
-      whatsapp_number: '+2348030001122',
+      info_email: 'info@hambaktech.com.ng',
+      office_address: 'Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria',
+      business_reg_number: 'BN 9284726',
+      founded_year: '2024',
       social_links: {
-        twitter: 'https://x.com/hambaktech',
-        facebook: 'https://facebook.com/hambaktech',
-        linkedin: 'https://linkedin.com/company/hambaktech',
-        whatsapp: 'https://wa.me/2348030001122',
+        tiktok: '',
+        facebook: '',
+        telegram: '',
+        x: '',
+        linkedin: '',
+        youtube: '',
+        whatsapp_channel: '',
       },
-      footer_text: "Nigeria's premier digital infrastructure platform for official identity verification, wholesale telecom vending, and automated digital payments.",
-      copyright_text: '© 2026 Hambak Technologies Enterprise. All Rights Reserved.',
-      seo_title: 'HambakTech Enterprise | Official Identity & Telecom Services',
-      seo_description: 'All-in-one Nigerian VTU, identity verification (NIN/BVN), telecom, payments, academy, and digital services platform for HambakTech.',
-      seo_keywords: 'NIN verification, BVN validation, MTN SME data, Nigerian VTU, identity verification, airtime recharge, digital payments, HambakTech',
+      footer_text: 'HAMBAK TECH & SERVICES provides digital identity verification, telecommunication VTU services, automated bill payments, and practical ICT & software skills training across Nigeria.',
+      copyright_text: '© 2026 HAMBAK TECH & SERVICES (BN 9284726). All Rights Reserved.',
+      seo_title: 'HAMBAKTECH | Digital Services, Telecom VTU & Digital Training Academy',
+      seo_description: 'HAMBAK TECH & SERVICES — Digital identity verification, telecom data & airtime VTU, bill payments, and HAMBAKTECH Digital Training Academy in Lekki, Lagos State, Nigeria.',
+      seo_keywords: 'HAMBAKTECH, HAMBAK TECH & SERVICES, NIN verification, BVN verification, Nigerian VTU, Digital Training Academy',
     },
     cms_sections: {
       hero: {
@@ -1906,6 +1924,33 @@ export function initDatabase(): void {
       }
       if (!dbData.slip_templates || dbData.slip_templates.length === 0) {
         dbData.slip_templates = defaults.slip_templates || [];
+      }
+      // Heal legacy placeholder branding/settings values from earlier local snapshots
+      if (dbData.branding) {
+        const b: any = dbData.branding;
+        if (!b.company_name || /enterprise/i.test(b.company_name)) b.company_name = defaults.branding.company_name;
+        if (!b.short_brand_name) b.short_brand_name = (defaults.branding as any).short_brand_name;
+        if (!b.logo_url) b.logo_url = defaults.branding.logo_url;
+        if (!b.favicon_url || b.favicon_url === '/favicon.ico') b.favicon_url = defaults.branding.favicon_url;
+        if (!b.office_address || /ikeja/i.test(b.office_address)) b.office_address = defaults.branding.office_address;
+        if (!b.support_phone || /803\s*000\s*1122/.test(b.support_phone)) b.support_phone = defaults.branding.support_phone;
+        if (!b.whatsapp_number || /8030001122/.test(b.whatsapp_number)) b.whatsapp_number = defaults.branding.whatsapp_number;
+        if (!(b as any).business_phone) (b as any).business_phone = (defaults.branding as any).business_phone;
+        if (!(b as any).info_email) (b as any).info_email = (defaults.branding as any).info_email;
+        if (!(b as any).business_reg_number) (b as any).business_reg_number = (defaults.branding as any).business_reg_number;
+        if (!b.copyright_text || /enterprise/i.test(b.copyright_text)) b.copyright_text = defaults.branding.copyright_text;
+        if (!b.seo_title || /enterprise/i.test(b.seo_title)) b.seo_title = defaults.branding.seo_title;
+      }
+      if (dbData.settings) {
+        if (!dbData.settings.company_name || /HambakTech Technologies|Enterprise/i.test(dbData.settings.company_name)) {
+          dbData.settings.company_name = 'HAMBAK TECH & SERVICES';
+        }
+        if (!dbData.settings.support_phone || /803\s*000\s*1122/.test(dbData.settings.support_phone)) {
+          dbData.settings.support_phone = '09127469686';
+        }
+        if (!dbData.settings.bank_transfer_account_name || /Enterprise/i.test(dbData.settings.bank_transfer_account_name)) {
+          dbData.settings.bank_transfer_account_name = 'HAMBAK TECH & SERVICES';
+        }
       }
 
       saveDatabase();

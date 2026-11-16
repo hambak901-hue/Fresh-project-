@@ -259,6 +259,33 @@ class TelecomController
         return self::readAirtimeDiscountPercent($this->db);
     }
 
+    public static function readBulkSmsConfig(Database $db): array
+    {
+        $unitPrice = 3.50;
+        $senderId = 'HAMBAKTECH';
+        try {
+            $row = $db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "sms_settings" LIMIT 1');
+            if ($row && !empty($row['setting_value'])) {
+                $decoded = json_decode((string)$row['setting_value'], true);
+                if (is_array($decoded)) {
+                    $rawRate = (float)($decoded['sms_rate_per_unit'] ?? 0);
+                    if ($rawRate > 0 && $rawRate <= 100) {
+                        $unitPrice = round($rawRate, 2);
+                    }
+                    $rawSender = trim((string)($decoded['sms_sender_id'] ?? ''));
+                    if ($rawSender !== '') {
+                        $senderId = substr($rawSender, 0, 11);
+                    }
+                }
+            }
+        } catch (Throwable) {
+        }
+        return [
+            'unit_price' => $unitPrice,
+            'sender_id' => $senderId,
+        ];
+    }
+
     private function getNetworkPrefixMap(): array
     {
         $fallback = [
@@ -315,7 +342,7 @@ class TelecomController
         return $digits;
     }
 
-    private function validatePhoneForNetwork(string $rawPhone, string $selectedNetwork): array
+    private function validatePhoneForNetwork(string $rawPhone, string $selectedNetwork, bool $ported = false): array
     {
         $phone = $this->normalizeNigerianPhone($rawPhone);
         $selected = strtoupper(trim($selectedNetwork));
@@ -327,6 +354,8 @@ class TelecomController
             return [
                 'valid' => false,
                 'matches_network' => false,
+                'ported' => $ported,
+                'ported_allowed' => false,
                 'formatted_phone' => $phone,
                 'detected_network' => null,
                 'selected_network' => $selected,
@@ -349,6 +378,8 @@ class TelecomController
             return [
                 'valid' => false,
                 'matches_network' => false,
+                'ported' => $ported,
+                'ported_allowed' => false,
                 'formatted_phone' => $phone,
                 'detected_network' => null,
                 'selected_network' => $selected,
@@ -361,16 +392,22 @@ class TelecomController
             return [
                 'valid' => true,
                 'matches_network' => false,
+                'ported' => $ported,
+                'ported_allowed' => true,
                 'formatted_phone' => $phone,
                 'detected_network' => $detected,
                 'selected_network' => $selected,
-                'message' => "{$phone} belongs to {$detected}, which does not match your selected network ({$selected}). Select {$detected} or enter a valid {$selected} number.",
+                'message' => $ported
+                    ? "{$phone} ({$detected} prefix) confirmed as a ported number to {$selected} (MNP)."
+                    : "{$phone} uses a {$detected} prefix, while {$selected} is selected. Switch to {$detected}, or tick 'Ported Number (MNP)' if this line was ported to {$selected}.",
             ];
         }
 
         return [
             'valid' => true,
             'matches_network' => true,
+            'ported' => $ported,
+            'ported_allowed' => true,
             'formatted_phone' => $phone,
             'detected_network' => $detected,
             'selected_network' => $selected,
@@ -386,13 +423,14 @@ class TelecomController
         Auth::requireAuth($request);
         $phone = (string)$request->input('phone', '');
         $network = strtoupper(trim((string)$request->input('network', '')));
+        $ported = filter_var($request->input('ported') ?? $request->input('allow_ported') ?? false, FILTER_VALIDATE_BOOLEAN);
 
         if (trim($phone) === '' || $network === '') {
             Response::error('Recipient phone number and network are required for validation.', 422);
             return;
         }
 
-        $result = $this->validatePhoneForNetwork($phone, $network);
+        $result = $this->validatePhoneForNetwork($phone, $network, $ported);
         Response::success($result, $result['message']);
     }
 
@@ -489,6 +527,7 @@ class TelecomController
         }
 
         $airtimeDiscount = $this->getAirtimeDiscountPercent();
+        $bulkSmsConfig = self::readBulkSmsConfig($this->db);
 
         Response::success([
             'activeProvider' => $isAdmin ? $this->activeProviderId : 'sovereign',
@@ -500,6 +539,8 @@ class TelecomController
             'exam_packages' => $examPackages,
             'airtime_swap' => $airtimeSwap,
             'airtime_discount_percent' => $airtimeDiscount,
+            'bulksms_unit_price' => $bulkSmsConfig['unit_price'],
+            'bulksms_sender_id' => $bulkSmsConfig['sender_id'],
         ]);
     }
 
@@ -596,9 +637,11 @@ class TelecomController
             return;
         }
 
-        // Strict Nigerian Phone Format + Carrier Network Match Validation
-        $phoneCheck = $this->validatePhoneForNetwork($rawPhone, (string)$plan['network']);
-        if (!$phoneCheck['valid'] || !$phoneCheck['matches_network']) {
+        $ported = filter_var($request->input('ported') ?? $request->input('allow_ported') ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        // Strict Nigerian Phone Format + Carrier Match OR explicit MNP Ported Confirmation
+        $phoneCheck = $this->validatePhoneForNetwork($rawPhone, (string)$plan['network'], $ported);
+        if (!$phoneCheck['valid'] || (!$phoneCheck['matches_network'] && !$ported)) {
             Response::error($phoneCheck['message'], 422);
             return;
         }
@@ -653,9 +696,9 @@ class TelecomController
         $orderId = Security::generateUuid();
         try {
             if ($this->adapter instanceof UlamaDataAdapter) {
-                $dispatchRes = $this->adapter->purchaseData($plan['network'], $phone, $plan['provider_plan_id'], false, $reference);
+                $dispatchRes = $this->adapter->purchaseData($plan['network'], $phone, $plan['provider_plan_id'], $ported, $reference);
             } else {
-                $dispatchRes = $this->adapter->purchaseData($plan['network'], $phone, $plan['provider_plan_id'], false);
+                $dispatchRes = $this->adapter->purchaseData($plan['network'], $phone, $plan['provider_plan_id'], $ported);
             }
 
             $orderStatus = ($dispatchRes['status'] ?? 'successful') === 'pending' ? 'pending' : 'successful';
@@ -683,6 +726,7 @@ class TelecomController
                         'internal_reference' => $reference,
                         'plan_id' => $plan['id'],
                         'validity' => $plan['validity'],
+                        'ported' => $ported,
                         'api_response' => $dispatchRes['api_response'] ?? null,
                         'raw' => $dispatchRes['raw'] ?? $dispatchRes,
                     ]),
@@ -764,17 +808,72 @@ class TelecomController
     }
 
     /**
-     * 4. POST /api/telecom/airtime
+     * 4. POST /api/telecom/airtime & POST /api/telecom/purchase-airtime
      */
     public function topupAirtime(Request $request): void
     {
+        $this->ensureDataSchema();
         $user = Auth::requireAuth($request);
-        $network = strtoupper((string)$request->input('network', ''));
-        $phone = trim((string)$request->input('phone', ''));
+        $network = strtoupper(trim((string)$request->input('network', '')));
+        if ($network === 'ETISALAT') {
+            $network = '9MOBILE';
+        }
+        $rawPhone = trim((string)$request->input('phone', ''));
         $amount = (float)$request->input('amount', 0);
+        $ported = filter_var($request->input('ported') ?? $request->input('allow_ported') ?? false, FILTER_VALIDATE_BOOLEAN);
+        $idempotencyKey = trim((string)($request->header('x-idempotency-key') ?? $request->input('idempotency_key') ?? $request->input('idempotencyKey') ?? ''));
 
-        if (empty($network) || empty($phone) || $amount < 50) {
-            Response::error('Network, valid phone number, and minimum ₦50 airtime amount are required.', 422);
+        if (!in_array($network, ['MTN', 'AIRTEL', 'GLO', '9MOBILE'], true) || $rawPhone === '' || $amount < 50 || $amount > 50000) {
+            Response::error('Valid network, Nigerian phone number, and airtime amount (₦50–₦50,000) are required.', 422);
+            return;
+        }
+
+        // Strict Nigerian mobile number normalization (supports +234/234/11-digit & MNP ported lines)
+        $phoneCheck = $this->validatePhoneForNetwork($rawPhone, $network, true);
+        if (!$phoneCheck['valid']) {
+            Response::error($phoneCheck['message'], 422);
+            return;
+        }
+        $phone = $phoneCheck['formatted_phone'];
+
+        // Idempotency deduplication before PIN verification / wallet debit
+        if ($idempotencyKey !== '') {
+            $existingOrder = $this->db->fetchOne(
+                'SELECT id, service_type, network, phone, plan, amount, status, created_at
+                 FROM telecom_orders
+                 WHERE user_id = :uid AND service_type = "airtime" AND idempotency_key = :ikey AND status IN ("successful", "pending")
+                 ORDER BY created_at DESC LIMIT 1',
+                ['uid' => $user['id'], 'ikey' => mb_substr($idempotencyKey, 0, 95)]
+            );
+            if ($existingOrder) {
+                $walletRow = $this->db->fetchOne('SELECT wallet_balance FROM users WHERE id = :uid', ['uid' => $user['id']]);
+                $bal = (float)($walletRow['wallet_balance'] ?? 0);
+                $safeRef = 'HT-' . strtoupper(substr(str_replace('-', '', (string)$existingOrder['id']), 0, 10));
+                Response::success([
+                    'order_id' => $existingOrder['id'],
+                    'reference' => $safeRef,
+                    'status' => $existingOrder['status'],
+                    'amount_charged' => (float)$existingOrder['amount'],
+                    'balance_after' => $bal,
+                    'newBalance' => $bal,
+                    'deduplicated' => true,
+                    'order' => [
+                        'id' => $existingOrder['id'],
+                        'reference' => $safeRef,
+                        'provider_ref' => $safeRef,
+                        'service' => 'airtime',
+                        'service_type' => 'airtime',
+                        'network' => $existingOrder['network'],
+                        'recipient' => $existingOrder['phone'],
+                        'phone' => $existingOrder['phone'],
+                        'plan' => $existingOrder['plan'],
+                        'amount' => (float)$existingOrder['amount'],
+                        'status' => $existingOrder['status'],
+                        'created_at' => $existingOrder['created_at'],
+                    ],
+                ], 'Duplicate request prevented; returning existing airtime recharge order.');
+                return;
+            }
         }
 
         // Enforce compulsory Transaction PIN before wallet debit
@@ -795,7 +894,7 @@ class TelecomController
                 $reference,
                 "₦{$amount} {$network} Airtime recharge to {$phone} ({$discountPercent}% discount)",
                 'internal',
-                ['network' => $network, 'phone' => $phone, 'face_value' => $amount, 'discount_percent' => $discountPercent]
+                ['network' => $network, 'phone' => $phone, 'face_value' => $amount, 'discount_percent' => $discountPercent, 'ported' => $ported]
             );
         } catch (Throwable $e) {
             Response::error($e->getMessage(), 400);
@@ -803,14 +902,17 @@ class TelecomController
         }
 
         $orderId = Security::generateUuid();
+        $customerSafeRef = 'HT-' . strtoupper(substr(str_replace('-', '', $orderId), 0, 10));
         try {
             $dispatchRes = $this->adapter->topupAirtime($network, $phone, $amount);
+            $orderStatus = ($dispatchRes['status'] ?? 'successful') === 'pending' ? 'pending' : 'successful';
+            $providerRef = (string)($dispatchRes['provider_reference'] ?? $reference);
 
             $this->db->execute(
                 'INSERT INTO telecom_orders 
-                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, "successful", :meta, NOW())',
+                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, :ikey, :st, :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -821,52 +923,72 @@ class TelecomController
                     'cost' => $wholesaleCost,
                     'profit' => $discountedPrice - $wholesaleCost,
                     'prov' => $this->activeProviderId,
-                    'pref' => $dispatchRes['provider_reference'] ?? $reference,
-                    'meta' => json_encode($dispatchRes),
+                    'pref' => $providerRef,
+                    'ikey' => $idempotencyKey !== '' ? mb_substr($idempotencyKey, 0, 95) : null,
+                    'st' => $orderStatus,
+                    'meta' => json_encode([
+                        'internal_reference' => $customerSafeRef,
+                        'face_value' => $amount,
+                        'discount_percent' => $discountPercent,
+                        'discount_saved' => $discountSaved,
+                        'ported' => $ported || !$phoneCheck['matches_network'],
+                        'raw' => $dispatchRes,
+                    ]),
                 ]
             );
 
             $order = [
                 'id' => $orderId,
-                'reference' => $reference,
+                'reference' => $customerSafeRef,
+                'provider_ref' => $customerSafeRef,
                 'service' => 'airtime',
                 'service_type' => 'airtime',
                 'network' => $network,
                 'recipient' => $phone,
                 'phone' => $phone,
                 'plan' => "₦{$amount} VTU Airtime",
+                'face_value' => $amount,
+                'discount_saved' => $discountSaved,
+                'discount_percent' => $discountPercent,
                 'amount' => $discountedPrice,
-                'status' => 'successful',
+                'status' => $orderStatus,
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
-            $this->logFootprint($user, 'airtime', 'AIRTIME_TOPUP', $reference, $discountedPrice, 'successful', $this->activeProviderId, null, [
+            $this->logFootprint($user, 'airtime', $orderStatus === 'pending' ? 'AIRTIME_ORDER_PENDING' : 'AIRTIME_TOPUP', $reference, $discountedPrice, $orderStatus, $this->activeProviderId, null, [
                 'network' => $network,
                 'phone' => $phone,
                 'amount' => $amount,
                 'discount_percent' => $discountPercent,
+                'ported' => $ported || !$phoneCheck['matches_network'],
             ]);
 
-            $this->triggerReferralReward((string)$user['id'], 'airtime', 'airtime', 'TEL_' . $orderId, $discountedPrice, $wholesaleCost);
+            if ($orderStatus === 'successful') {
+                $this->triggerReferralReward((string)$user['id'], 'airtime', 'airtime', 'TEL_' . $orderId, $discountedPrice, $wholesaleCost);
+            }
 
             Response::success([
                 'order_id' => $orderId,
-                'reference' => $reference,
+                'reference' => $customerSafeRef,
+                'status' => $orderStatus,
+                'face_value' => $amount,
                 'amount_charged' => $discountedPrice,
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
                 'discountSaved' => $discountSaved,
                 'airtime_discount_percent' => $discountPercent,
                 'order' => $order,
-            ], "₦{$amount} Airtime successfully credited to {$phone}!");
+            ], $orderStatus === 'pending'
+                ? "₦{$amount} {$network} airtime recharge to {$phone} is processing."
+                : "₦{$amount} Airtime successfully credited to {$phone}!");
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $discountedPrice, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed airtime {$reference}");
 
             $this->db->execute(
                 'INSERT INTO telecom_orders 
-                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, "failed", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -877,7 +999,8 @@ class TelecomController
                     'cost' => $wholesaleCost,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'meta' => json_encode(['error' => $e->getMessage()]),
+                    'ikey' => $idempotencyKey !== '' ? mb_substr($idempotencyKey, 0, 95) : null,
+                    'meta' => json_encode(['internal_reference' => $customerSafeRef, 'error' => $e->getMessage()]),
                 ]
             );
 
@@ -2243,8 +2366,12 @@ class TelecomController
      */
     public function sendBulkSms(Request $request): void
     {
+        $bulkSmsConfig = self::readBulkSmsConfig($this->db);
         $user = Auth::requireAuth($request);
-        $senderId = trim((string)($request->input('senderId') ?? $request->input('sender_id', 'HAMBAK')));
+        $senderId = trim((string)($request->input('senderId') ?? $request->input('sender_id', $bulkSmsConfig['sender_id'])));
+        if ($senderId === '') {
+            $senderId = $bulkSmsConfig['sender_id'];
+        }
         $recipientsInput = $request->input('recipients', []);
         $rawList = is_string($recipientsInput) ? explode(',', $recipientsInput) : (array)$recipientsInput;
         $recipients = array_values(array_filter(array_map('trim', $rawList), static fn($r) => $r !== ''));
@@ -2258,7 +2385,7 @@ class TelecomController
         $this->verifyTransactionPinOrFail($user, $request, 'telecom_bulksms', 'bulksms');
 
         $units = count($recipients) * (int)ceil(strlen($message) / 160);
-        $totalCost = $units * 3.50; // ₦3.50 per SMS unit
+        $totalCost = round($units * $bulkSmsConfig['unit_price'], 2);
         $reference = 'UD_SMS_' . strtoupper(bin2hex(random_bytes(6)));
 
         try {

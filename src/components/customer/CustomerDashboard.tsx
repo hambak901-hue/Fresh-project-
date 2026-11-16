@@ -5,9 +5,10 @@
  * quick wallet funding, unread notification counter, and seamless app switches.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
+import { api } from '../../lib/api';
 import { ThemeToggle } from '../ThemeToggle';
 import { getInitialsAvatar } from '../../lib/avatar';
 import {
@@ -33,9 +34,16 @@ import {
   ExternalLink,
   LogOut,
   ChevronRight,
+  ChevronDown,
   Sparkles,
   Layers,
   Gift,
+  Printer,
+  CreditCard,
+  Repeat,
+  Tv,
+  Lightbulb,
+  MessageSquare,
 } from 'lucide-react';
 import { User } from '../../types';
 
@@ -43,6 +51,7 @@ import { User } from '../../types';
 import { DashboardOverview } from './DashboardOverview';
 import { NinServicesPage } from './NinServicesPage';
 import { TelecomPage } from './TelecomPage';
+import { TELECOM_MENU_ITEMS, TelecomTab } from './telecom/types';
 import { WalletPage } from './WalletPage';
 import { DigitalServicesPage } from './DigitalServicesPage';
 import { StoreComingSoonPage } from './StoreComingSoonPage';
@@ -107,7 +116,43 @@ export function CustomerDashboard({
   const { user, logout, refreshUser } = useAuth();
   const { branding } = useCms();
   const [currentPage, setCurrentPage] = useState<CustomerPageKey>('overview');
+  const [telecomService, setTelecomService] = useState<TelecomTab>('airtime');
+  const [telecomMenuExpanded, setTelecomMenuExpanded] = useState<boolean>(false);
+  const [airtimeDiscountPct, setAirtimeDiscountPct] = useState<number>(2.5);
+  const [telecomModuleStatus, setTelecomModuleStatus] = useState<{
+    status: string;
+    name?: string;
+    coming_soon_message?: string;
+  } | undefined>(undefined);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!user) return;
+    api
+      .getTelecomPlans()
+      .then((res) => {
+        if (typeof res?.airtime_discount_percent === 'number') {
+          setAirtimeDiscountPct(res.airtime_discount_percent);
+        }
+      })
+      .catch(() => {});
+    api
+      .getCustomerSummary()
+      .then((res) => {
+        const mods = res?.dashboard_modules || [];
+        const tMod = mods.find(
+          (m) => (m.module_key || m.id) === 'telecom' || m.id === 'mod_telecom'
+        );
+        if (tMod) {
+          setTelecomModuleStatus({
+            status: tMod.visible === false ? 'disabled' : tMod.status,
+            name: tMod.name,
+            coming_soon_message: tMod.coming_soon_message,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [user?.id]);
 
   const handleSignOut = () => {
     if (onLogout) {
@@ -183,7 +228,30 @@ export function CustomerDashboard({
 
   const handleSelectPage = (id: CustomerPageKey) => {
     setCurrentPage(id);
+    if (id === 'telecom') {
+      setTelecomMenuExpanded(true);
+    }
     setMobileMenuOpen(false);
+  };
+
+  const handleSelectTelecomService = (service: TelecomTab) => {
+    setTelecomService(service);
+    setCurrentPage('telecom');
+    setTelecomMenuExpanded(true);
+    setMobileMenuOpen(false);
+  };
+
+  const TELECOM_SUBMENU_ICONS: Record<TelecomTab, React.FC<{ className?: string }>> = {
+    airtime: Zap,
+    data: Smartphone,
+    airtime_pin: Printer,
+    data_pin: CreditCard,
+    airtime_swap: Repeat,
+    cable: Tv,
+    electricity: Lightbulb,
+    exam: GraduationCap,
+    bulksms: MessageSquare,
+    history: Receipt,
   };
 
   // Resolve current active title
@@ -195,6 +263,15 @@ export function CustomerDashboard({
       break;
     }
   }
+  const activeTelecomLabel =
+    telecomService === 'airtime'
+      ? `Airtime (${airtimeDiscountPct}% Off)`
+      : TELECOM_MENU_ITEMS.find(t => t.id === telecomService)?.label || 'Airtime';
+  const breadcrumbText =
+    currentPage === 'telecom'
+      ? `Customer Portal / Telecom & VTU Services / ${activeTelecomLabel}`
+      : `Customer Portal / ${currentTitle}`;
+  const headerHeading = currentPage === 'telecom' ? activeTelecomLabel : currentTitle;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex transition-colors">
@@ -271,6 +348,75 @@ export function CustomerDashboard({
                   {section.items.map(item => {
                     const Icon = item.icon;
                     const isActive = currentPage === item.id;
+
+                    if (item.id === 'telecom') {
+                      const isExpanded = telecomMenuExpanded || currentPage === 'telecom';
+                      return (
+                        <div key={item.id} className="space-y-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (currentPage !== 'telecom') {
+                                setCurrentPage('telecom');
+                                setTelecomMenuExpanded(true);
+                              } else {
+                                setTelecomMenuExpanded(prev => !prev);
+                              }
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition ${
+                              isActive
+                                ? 'bg-blue-700 text-white font-semibold shadow-md shadow-blue-700/20'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 truncate">
+                              <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-500 dark:text-slate-400'}`} />
+                              <span className="truncate">{item.label}</span>
+                            </div>
+                            {isExpanded ? (
+                              <ChevronDown className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                            ) : (
+                              <ChevronRight className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                            )}
+                          </button>
+
+                          {isExpanded && (
+                            <div className="ml-3 pl-3 border-l border-slate-200 dark:border-slate-800 space-y-0.5 py-0.5">
+                              {TELECOM_MENU_ITEMS.map(sub => {
+                                const SubIcon = TELECOM_SUBMENU_ICONS[sub.id];
+                                const subActive = currentPage === 'telecom' && telecomService === sub.id;
+                                const subLabel =
+                                  sub.id === 'airtime'
+                                    ? `Airtime (${airtimeDiscountPct}% Off)`
+                                    : sub.label;
+                                return (
+                                  <button
+                                    key={sub.id}
+                                    type="button"
+                                    onClick={() => handleSelectTelecomService(sub.id)}
+                                    className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition ${
+                                      subActive
+                                        ? 'bg-blue-50 dark:bg-emerald-950/50 text-blue-800 dark:text-emerald-300 font-bold'
+                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50'
+                                    }`}
+                                  >
+                                    <SubIcon
+                                      className={`w-3.5 h-3.5 shrink-0 ${
+                                        subActive
+                                          ? 'text-blue-700 dark:text-emerald-400'
+                                          : 'text-slate-400 dark:text-slate-500'
+                                      }`}
+                                    />
+                                    <span className="truncate">{subLabel}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
                     return (
                       <button
                         key={item.id}
@@ -373,8 +519,8 @@ export function CustomerDashboard({
               <Menu className="w-5 h-5" />
             </button>
             <div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">Customer Portal / {currentTitle}</p>
-              <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{currentTitle}</h1>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">{breadcrumbText}</p>
+              <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{headerHeading}</h1>
             </div>
           </div>
 
@@ -425,7 +571,14 @@ export function CustomerDashboard({
 
           {currentPage === 'nin' && <NinServicesPage />}
 
-          {currentPage === 'telecom' && <TelecomPage />}
+          {currentPage === 'telecom' && (
+            <TelecomPage
+              initialService={telecomService}
+              onServiceChange={setTelecomService}
+              onDiscountLoaded={setAirtimeDiscountPct}
+              moduleStatus={telecomModuleStatus}
+            />
+          )}
 
           {currentPage === 'wallet' && (
             <WalletPage onOpenFundModal={onOpenFundModal} />

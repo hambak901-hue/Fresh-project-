@@ -292,6 +292,7 @@ class WalletService
                 COUNT(*) as total_count,
                 SUM(CASE WHEN type = "credit" AND status = "successful" THEN amount ELSE 0 END) as total_credited,
                 SUM(CASE WHEN type = "debit" AND status = "successful" THEN amount ELSE 0 END) as total_spent,
+                SUM(CASE WHEN type = "credit" AND status = "successful" AND (reference LIKE "REFUND_%" OR category IN ("refund", "reversal")) THEN amount ELSE 0 END) as total_refunded,
                 SUM(CASE WHEN status = "successful" THEN 1 ELSE 0 END) as successful_count,
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_count,
                 SUM(CASE WHEN status = "failed" THEN 1 ELSE 0 END) as failed_count
@@ -308,6 +309,7 @@ class WalletService
             'total_transactions' => (int)($stats['total_count'] ?? 0),
             'total_funded' => (float)($stats['total_credited'] ?? 0),
             'total_spent' => (float)($stats['total_spent'] ?? 0),
+            'total_refunded' => (float)($stats['total_refunded'] ?? 0),
             'successful_count' => (int)($stats['successful_count'] ?? 0),
             'pending_count' => (int)($stats['pending_count'] ?? 0),
             'failed_count' => (int)($stats['failed_count'] ?? 0),

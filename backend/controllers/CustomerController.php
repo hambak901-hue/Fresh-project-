@@ -187,6 +187,37 @@ class CustomerController
         $accNum = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_number"');
         $accName = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_name"');
 
+        $pointsBalance = 0;
+        $referralAvailableBalance = 0.0;
+        try {
+            $refRow = $this->db->fetchOne(
+                'SELECT points_balance, available_balance FROM referral_balances WHERE user_id = :uid LIMIT 1',
+                ['uid' => $user['id']]
+            );
+            if ($refRow) {
+                $pointsBalance = (int)($refRow['points_balance'] ?? 0);
+                $referralAvailableBalance = (float)($refRow['available_balance'] ?? 0);
+            }
+        } catch (Throwable) {
+        }
+
+        $dashboardModules = [];
+        try {
+            $mods = $this->db->fetchAll('SELECT id, module_key, name, description, status, is_visible as visible, coming_soon_message FROM dashboard_modules ORDER BY display_order ASC');
+            foreach ($mods as $m) {
+                $dashboardModules[] = [
+                    'id' => (string)($m['id'] ?? $m['module_key'] ?? ''),
+                    'module_key' => (string)($m['module_key'] ?? $m['id'] ?? ''),
+                    'name' => (string)($m['name'] ?? ''),
+                    'description' => (string)($m['description'] ?? ''),
+                    'status' => (string)($m['status'] ?? 'active'),
+                    'visible' => (bool)($m['visible'] ?? true),
+                    'coming_soon_message' => (string)($m['coming_soon_message'] ?? ''),
+                ];
+            }
+        } catch (Throwable) {
+        }
+
         Response::success([
             'user' => $user,
             'metrics' => [
@@ -197,6 +228,9 @@ class CustomerController
                 'failed_transactions' => (int)$walletSummary['failed_count'],
                 'total_funded' => (float)$walletSummary['total_funded'],
                 'total_spent' => (float)$walletSummary['total_spent'],
+                'total_refunded' => (float)($walletSummary['total_refunded'] ?? 0),
+                'points_balance' => $pointsBalance,
+                'referral_available_balance' => $referralAvailableBalance,
                 'total_orders' => (int)($ordersCountRow['cnt'] ?? 0),
                 'total_verifications' => (int)($verifCountRow['cnt'] ?? 0),
                 'unread_notifications_count' => (int)($unreadRow['cnt'] ?? 0),
@@ -206,6 +240,7 @@ class CustomerController
             'recent_verifications' => $recentVerifications,
             'notifications' => $notifications,
             'announcements' => $announcements,
+            'dashboard_modules' => $dashboardModules,
             'bank_details' => [
                 'bank' => $bankName['setting_value'] ?? 'Moniepoint MFB',
                 'accountNumber' => $accNum['setting_value'] ?? '5210471634',

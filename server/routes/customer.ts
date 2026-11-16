@@ -113,6 +113,15 @@ customerRouter.get('/summary', requireCustomer, (req: any, res) => {
     recent_verifications: userVerifications.slice(0, 5),
     notifications: userNotifications.slice(0, 5),
     announcements: publishedAnnouncements,
+    dashboard_modules: (db.data.dashboard_modules || []).map(m => ({
+      id: m.id,
+      module_key: m.id,
+      name: m.name,
+      description: m.description,
+      status: m.status,
+      visible: m.visible !== false,
+      coming_soon_message: m.coming_soon_message || '',
+    })),
     bank_details: {
       accountName: db.data.settings.bank_transfer_account_name,
       bank: db.data.settings.bank_transfer_bank,

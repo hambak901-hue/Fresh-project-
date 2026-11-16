@@ -1753,6 +1753,104 @@ adminRouter.get('/reports/analytics', requireAdmin, (req, res) => {
   });
 });
 
+function ensureGlobalSettings(): Record<string, Record<string, any>> {
+  const root = db.data as any;
+  if (!root.global_settings) {
+    root.global_settings = {
+      general: {
+        site_name: db.data.branding?.short_brand_name || 'HAMBAKTECH',
+        site_tagline: db.data.branding?.tagline || 'Where Technology Meets Services',
+        maintenance_mode: Boolean(db.data.settings?.maintenance_mode ?? false),
+        default_currency: 'NGN',
+        currency_symbol: '₦',
+        timezone: 'Africa/Lagos (GMT+1)',
+      },
+      company: {
+        company_name: db.data.branding?.company_name || 'HAMBAK TECH & SERVICES',
+        registration_number: (db.data.branding as any)?.business_reg_number || 'BN 9284726',
+        founded_year: (db.data.branding as any)?.founded_year || '2024',
+        official_email: (db.data.branding as any)?.info_email || 'info@hambaktech.com.ng',
+        support_email: db.data.branding?.support_email || 'support@hambaktech.com.ng',
+        whatsapp_phone: db.data.branding?.whatsapp_number || '09155104724',
+        business_phone: (db.data.branding as any)?.business_phone || '08147837664',
+        official_phone: db.data.branding?.support_phone || '09127469686',
+        headquarters_address: db.data.branding?.office_address || 'Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria',
+      },
+      branding: {
+        logo_url: db.data.branding?.logo_url || '/logo.png',
+        favicon_url: db.data.branding?.favicon_url || '/logo.png',
+        primary_color: db.data.branding?.primary_color || '#1d4ed8',
+        secondary_color: db.data.branding?.secondary_color || '#0f172a',
+        accent_color: '#d97706',
+        typography: db.data.branding?.font_family || 'Plus Jakarta Sans, sans-serif',
+      },
+      customer_dashboard: {
+        enable_nin_services: true,
+        enable_telecom_vtu: true,
+        enable_wallet_transfers: true,
+        enable_virtual_accounts: true,
+        enable_store_module: false,
+        enable_academy_module: false,
+      },
+      sms: {
+        sms_sender_id: (db.data as any).sms_config?.sender_id || 'HAMBAKTECH',
+        enable_transaction_sms: false,
+        enable_otp_sms: false,
+        sms_rate_per_unit: 3.5,
+      },
+      service_pricing: {
+        nin_standard_slip_price: db.data.settings?.nin_fee ?? 250,
+        bvn_verification_price: db.data.settings?.bvn_fee ?? 350,
+        mtn_sme_1gb_price: db.data.settings?.mtn_sme_1gb ?? 270,
+        airtel_1gb_price: db.data.settings?.airtel_1gb ?? 290,
+        glo_1gb_price: db.data.settings?.glo_1gb ?? 260,
+        nine_mobile_1gb_price: db.data.settings?.nine_mobile_1gb ?? 250,
+      },
+    };
+    db.saveDatabase();
+  }
+  return root.global_settings;
+}
+
+// GET /api/admin/settings/all
+adminRouter.get('/settings/all', requireAdmin, (req, res) => {
+  const gs = ensureGlobalSettings();
+  res.json({
+    success: true,
+    settings: gs,
+    categories: Object.keys(gs),
+  });
+});
+
+// POST /api/admin/settings/update
+adminRouter.post('/settings/update', requireAdmin, (req: any, res) => {
+  const category = String(req.body?.category || 'general').trim();
+  const values = req.body?.values || req.body?.data || req.body?.settings || {};
+  if (!values || typeof values !== 'object') {
+    return res.status(400).json({ error: 'Invalid settings payload' });
+  }
+  const gs = ensureGlobalSettings();
+  gs[category] = { ...(gs[category] || {}), ...values };
+
+  if (category === 'sms') {
+    if ((db.data as any).sms_config && values.sms_sender_id) {
+      (db.data as any).sms_config.sender_id = String(values.sms_sender_id);
+    }
+  }
+  if (category === 'general' && values.maintenance_mode !== undefined) {
+    db.data.settings.maintenance_mode = Boolean(values.maintenance_mode);
+  }
+  db.logAudit('SETTINGS_UPDATED', { category }, req.user?.id, req.user?.email);
+  db.saveDatabase();
+
+  res.json({
+    success: true,
+    category,
+    updated: Object.keys(values).length,
+    message: `Settings for ${category} updated successfully.`,
+  });
+});
+
 // GET /api/admin/settings
 adminRouter.get('/settings', requireAdmin, (req, res) => {
   const categories = [
@@ -1773,8 +1871,16 @@ adminRouter.get('/settings', requireAdmin, (req, res) => {
   });
 });
 
-// POST /api/admin/settings
-adminRouter.post('/settings', requireAdmin, (req, res) => {
-  res.json({ success: true, message: 'Settings saved successfully' });
-});
+// POST /api/admin/settings & PUT /api/admin/settings
+const handleSaveFlatSettings = (req: any, res: any) => {
+  const updates = req.body?.settings || req.body || {};
+  if (updates && typeof updates === 'object') {
+    Object.assign(db.data.settings, updates);
+    db.saveDatabase();
+  }
+  res.json({ success: true, message: 'Settings saved successfully', settings: db.data.settings });
+};
+
+adminRouter.post('/settings', requireAdmin, handleSaveFlatSettings);
+adminRouter.put('/settings', requireAdmin, handleSaveFlatSettings);
 

@@ -85,6 +85,21 @@
           "review_notes": "Pending admin compliance review"
         }
       ]
+    },
+    {
+      "email": "verify_vtu_1794863293844@hambaktech.com.ng",
+      "password_hash": "$2b$10$YOvuSh2d.fRcoJHO7ge1JOJSkhU1rIgyEzltyblf6o2rReVnudk0q",
+      "full_name": "VTU Verify User",
+      "phone_number": "08031234567",
+      "role": "customer",
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-2D0184",
+      "status": "active",
+      "id": "usr_1794863293990_nwn0w",
+      "created_at": "2026-11-16T21:08:13.990Z",
+      "updated_at": "2026-11-16T21:08:13.990Z"
     }
   ],
   "transactions": [
@@ -396,6 +411,15 @@
   ],
   "notifications": [
     {
+      "id": "notif_1794863293991_afw1f",
+      "user_id": "usr_1794863293990_nwn0w",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello VTU Verify User, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-16T21:08:13.991Z"
+    },
+    {
       "id": "notif_1794497538374_37idd",
       "user_id": "usr_1794497537344_ajyey",
       "title": "KYC Submission Received",
@@ -516,14 +540,26 @@
     "active_verification_provider": "2sureverify",
     "active_telecom_provider": "ulamadata",
     "active_payment_gateway": "flutterwave",
-    "bank_transfer_account_name": "Hambak Technologies Enterprise",
+    "bank_transfer_account_name": "HAMBAK TECH & SERVICES",
     "bank_transfer_bank": "Moniepoint MFB",
-    "bank_transfer_account_number": "8210492817",
-    "company_name": "HambakTech Technologies",
-    "support_phone": "+234 803 000 1122",
+    "bank_transfer_account_number": "5210471634",
+    "company_name": "HAMBAK TECH & SERVICES",
+    "support_phone": "09127469686",
     "support_email": "support@hambaktech.com.ng"
   },
   "audit_logs": [
+    {
+      "id": "audit_1794863293993",
+      "user_id": "usr_1794863293990_nwn0w",
+      "user_email": "verify_vtu_1794863293844@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "verify_vtu_1794863293844@hambaktech.com.ng",
+        "phone": "08031234567"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-16T21:08:13.993Z"
+    },
     {
       "id": "audit_1794580791003",
       "user_email": "admin@hambaktech.co.ng",
@@ -823,28 +859,36 @@
     }
   ],
   "branding": {
-    "company_name": "HambakTech Enterprise",
-    "tagline": "Nigeria's Foremost Identity Verification, Telecom & Digital Services Engine",
-    "logo_url": "",
-    "favicon_url": "/favicon.ico",
-    "primary_color": "#10b981",
-    "secondary_color": "#0284c7",
+    "company_name": "HAMBAK TECH & SERVICES",
+    "short_brand_name": "HAMBAKTECH",
+    "tagline": "Where Technology Meets Services",
+    "logo_url": "/logo.png",
+    "favicon_url": "/logo.png",
+    "primary_color": "#1d4ed8",
+    "secondary_color": "#0f172a",
     "font_family": "Plus Jakarta Sans",
-    "support_phone": "+234 803 000 1122",
+    "whatsapp_number": "09155104724",
+    "business_phone": "08147837664",
+    "support_phone": "09127469686",
     "support_email": "support@hambaktech.com.ng",
-    "office_address": "Plot 14, Commercial Avenue, Ikeja, Lagos, Nigeria",
-    "whatsapp_number": "+2348030001122",
+    "info_email": "info@hambaktech.com.ng",
+    "office_address": "Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria",
+    "business_reg_number": "BN 9284726",
+    "founded_year": "2024",
     "social_links": {
-      "twitter": "https://x.com/hambaktech",
-      "facebook": "https://facebook.com/hambaktech",
-      "linkedin": "https://linkedin.com/company/hambaktech",
-      "whatsapp": "https://wa.me/2348030001122"
+      "tiktok": "",
+      "facebook": "",
+      "telegram": "",
+      "x": "",
+      "linkedin": "",
+      "youtube": "",
+      "whatsapp_channel": ""
     },
-    "footer_text": "Nigeria's premier digital infrastructure platform for official identity verification, wholesale telecom vending, and automated digital payments.",
-    "copyright_text": "© 2026 Hambak Technologies Enterprise. All Rights Reserved.",
-    "seo_title": "HambakTech Enterprise | Official Identity & Telecom Services",
-    "seo_description": "All-in-one Nigerian VTU, identity verification (NIN/BVN), telecom, payments, academy, and digital services platform for HambakTech.",
-    "seo_keywords": "NIN verification, BVN validation, MTN SME data, Nigerian VTU, identity verification, airtime recharge, digital payments, HambakTech"
+    "footer_text": "HAMBAK TECH & SERVICES provides digital identity verification, telecommunication VTU services, automated bill payments, and practical ICT & software skills training across Nigeria.",
+    "copyright_text": "© 2026 HAMBAK TECH & SERVICES (BN 9284726). All Rights Reserved.",
+    "seo_title": "HAMBAKTECH | Digital Services, Telecom VTU & Digital Training Academy",
+    "seo_description": "HAMBAK TECH & SERVICES — Digital identity verification, telecom data & airtime VTU, bill payments, and HAMBAKTECH Digital Training Academy in Lekki, Lagos State, Nigeria.",
+    "seo_keywords": "HAMBAKTECH, HAMBAK TECH & SERVICES, NIN verification, BVN verification, Nigerian VTU, Digital Training Academy"
   },
   "cms_sections": {
     "hero": {
@@ -2823,6 +2867,13 @@
     "last_test_status": "operational",
     "last_test_message": "Production SMTP handshake confirmed on port 587 (STARTTLS)",
     "logs": [
+      {
+        "id": "smtplog_1794863293994_y6nn",
+        "timestamp": "2026-11-16T21:08:13.994Z",
+        "recipient": "verify_vtu_1794863293844@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
       {
         "id": "smtplog_1794497537347_m6xn",
         "timestamp": "2026-11-12T15:32:17.347Z",

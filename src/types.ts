@@ -283,6 +283,10 @@ export interface TelecomOrder {
   provider_ref: string;
   status: 'successful' | 'pending' | 'failed';
   metadata?: any;
+  token?: string;
+  units?: string;
+  face_value?: number;
+  discount_saved?: number;
   voucher_count?: number;
   vouchers?: TelecomVoucherItem[];
   customer_name?: string;
