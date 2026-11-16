@@ -64,12 +64,14 @@ export const AirtimeSwapView: React.FC<AirtimeSwapViewProps> = ({
   const [reviewDraft, setReviewDraft] = useState<ReviewDraft | null>(null);
   const [execResult, setExecResult] = useState<TransactionExecutionResult | null>(null);
 
-  const activeConfig = useMemo(
+  const activeConfig: any = useMemo(
     () => configs.find((c) => c.network === network) || null,
     [configs, network]
   );
 
-  const conversionRate = activeConfig ? Number(activeConfig.conversion_rate || 80) : 80;
+  const conversionRate = activeConfig
+    ? Number(activeConfig.conversion_rate ?? activeConfig.conversion_rate_percent ?? activeConfig.rate ?? 80)
+    : 80;
   const minAmount = activeConfig ? Number(activeConfig.min_amount || 500) : 500;
   const maxAmount = activeConfig ? Number(activeConfig.max_amount || 50000) : 50000;
   const safeAmount = Math.max(0, Number(amount) || 0);

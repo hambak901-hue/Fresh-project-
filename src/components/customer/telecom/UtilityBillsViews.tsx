@@ -80,7 +80,14 @@ export const CableTvServiceView: React.FC<CableTvServiceViewProps> = ({
   const [reviewDraft, setReviewDraft] = useState<ReviewDraft | null>(null);
   const [execResult, setExecResult] = useState<TransactionExecutionResult | null>(null);
 
-  const bouquets = useMemo(() => packagesByProvider[provider] || [], [packagesByProvider, provider]);
+  const bouquets = useMemo(
+    () =>
+      packagesByProvider[provider] ||
+      packagesByProvider[provider.toLowerCase()] ||
+      packagesByProvider[provider.toUpperCase()] ||
+      [],
+    [packagesByProvider, provider]
+  );
   const selectedBouquet = useMemo(
     () => bouquets.find((p) => p.id === selectedPackageId) || bouquets[0] || null,
     [bouquets, selectedPackageId]
@@ -952,7 +959,11 @@ export const ExamCardsServiceView: React.FC<ExamCardsServiceViewProps> = ({
             netPayable: totalCost,
             balanceAfter: res.newBalance,
             order: res.order,
-            examPins: res.pins || [],
+            examPins: (res.pins || []).map((p: any) => ({
+              pin: p.pin,
+              serial: p.serial || '',
+              exam: p.exam || examSnap.name,
+            })),
           });
           await onTransactionComplete();
         } catch (err: any) {

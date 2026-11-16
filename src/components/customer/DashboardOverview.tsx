@@ -35,11 +35,13 @@ import {
 
 interface DashboardOverviewProps {
   onNavigateToPage: (page: string) => void;
+  onNavigateToTelecom?: (service: string) => void;
   onOpenFundModal: () => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onNavigateToPage,
+  onNavigateToTelecom,
   onOpenFundModal,
 }) => {
   const { user, refreshUser } = useAuth();
@@ -227,7 +229,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </button>
 
           <button
-            onClick={() => onNavigateToPage('telecom')}
+            onClick={() => (onNavigateToTelecom ? onNavigateToTelecom('data') : onNavigateToPage('telecom'))}
             className="p-4 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-sky-500/40 text-left space-y-2 transition-all group"
           >
             <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -240,7 +242,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </button>
 
           <button
-            onClick={() => onNavigateToPage('telecom')}
+            onClick={() => (onNavigateToTelecom ? onNavigateToTelecom('airtime') : onNavigateToPage('telecom'))}
             className="p-4 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-amber-500/40 text-left space-y-2 transition-all group"
           >
             <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform">

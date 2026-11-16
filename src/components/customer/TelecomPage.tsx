@@ -22,6 +22,7 @@ import {
 import { TransactionPinModal } from './TransactionPinModal';
 import {
   CustomerAccountSnapshot,
+  TELECOM_MENU_ITEMS,
   TelecomTab,
 } from './telecom/types';
 import { CustomerPortalFooter } from './telecom/TelecomShared';
@@ -36,7 +37,7 @@ import {
   ExamCardsServiceView,
 } from './telecom/UtilityBillsViews';
 import { OrdersReceiptsView } from './telecom/OrdersReceiptsView';
-import { AlertCircle, Clock } from 'lucide-react';
+import { AlertCircle, ChevronDown, Clock, Smartphone } from 'lucide-react';
 
 interface TelecomPageProps {
   initialService?: TelecomTab;
@@ -249,8 +250,49 @@ export const TelecomPage: React.FC<TelecomPageProps> = ({
     );
   }
 
+  const activeMenuItem = TELECOM_MENU_ITEMS.find((item) => item.id === activeService) || TELECOM_MENU_ITEMS[0];
+
   return (
     <div className="space-y-6">
+      {/* Compact Telecom & VTU Service Switcher Dropdown */}
+      <div className="no-print bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 sm:px-5 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-emerald-950/50 border border-blue-200 dark:border-emerald-800/60 flex items-center justify-center text-blue-700 dark:text-emerald-400 shrink-0">
+            <Smartphone className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Telecom &amp; VTU Service
+            </p>
+            <p className="text-xs text-slate-600 dark:text-slate-300 truncate">
+              {activeMenuItem.description}
+            </p>
+          </div>
+        </div>
+
+        <div className="relative w-full sm:w-64 shrink-0">
+          <select
+            aria-label="Choose Telecom & VTU Service"
+            data-testid="telecom-service-dropdown"
+            value={activeService}
+            onChange={(e) => handleSelectService(e.target.value as TelecomTab)}
+            className="w-full appearance-none rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 pl-3.5 pr-9 py-2.5 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 cursor-pointer transition"
+          >
+            {TELECOM_MENU_ITEMS.map((srv) => {
+              const displayLabel =
+                srv.id === 'airtime'
+                  ? `Airtime (${airtimeDiscountPercent}% Off)`
+                  : srv.label;
+              return (
+                <option key={srv.id} value={srv.id}>
+                  {displayLabel}
+                </option>
+              );
+            })}
+          </select>
+          <ChevronDown className="w-4 h-4 text-slate-500 dark:text-slate-400 pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" />
+        </div>
+      </div>
 
       {pinWarning && (
         <div className="no-print p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2.5">

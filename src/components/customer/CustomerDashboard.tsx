@@ -35,15 +35,7 @@ import {
   LogOut,
   ChevronRight,
   ChevronDown,
-  Sparkles,
-  Layers,
   Gift,
-  Printer,
-  CreditCard,
-  Repeat,
-  Tv,
-  Lightbulb,
-  MessageSquare,
 } from 'lucide-react';
 import { User } from '../../types';
 
@@ -241,19 +233,6 @@ export function CustomerDashboard({
     setMobileMenuOpen(false);
   };
 
-  const TELECOM_SUBMENU_ICONS: Record<TelecomTab, React.FC<{ className?: string }>> = {
-    airtime: Zap,
-    data: Smartphone,
-    airtime_pin: Printer,
-    data_pin: CreditCard,
-    airtime_swap: Repeat,
-    cable: Tv,
-    electricity: Lightbulb,
-    exam: GraduationCap,
-    bulksms: MessageSquare,
-    history: Receipt,
-  };
-
   // Resolve current active title
   let currentTitle = 'Dashboard Overview';
   for (const sec of navSections) {
@@ -381,36 +360,29 @@ export function CustomerDashboard({
                           </button>
 
                           {isExpanded && (
-                            <div className="ml-3 pl-3 border-l border-slate-200 dark:border-slate-800 space-y-0.5 py-0.5">
-                              {TELECOM_MENU_ITEMS.map(sub => {
-                                const SubIcon = TELECOM_SUBMENU_ICONS[sub.id];
-                                const subActive = currentPage === 'telecom' && telecomService === sub.id;
-                                const subLabel =
-                                  sub.id === 'airtime'
-                                    ? `Airtime (${airtimeDiscountPct}% Off)`
-                                    : sub.label;
-                                return (
-                                  <button
-                                    key={sub.id}
-                                    type="button"
-                                    onClick={() => handleSelectTelecomService(sub.id)}
-                                    className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition ${
-                                      subActive
-                                        ? 'bg-blue-50 dark:bg-emerald-950/50 text-blue-800 dark:text-emerald-300 font-bold'
-                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50'
-                                    }`}
-                                  >
-                                    <SubIcon
-                                      className={`w-3.5 h-3.5 shrink-0 ${
-                                        subActive
-                                          ? 'text-blue-700 dark:text-emerald-400'
-                                          : 'text-slate-400 dark:text-slate-500'
-                                      }`}
-                                    />
-                                    <span className="truncate">{subLabel}</span>
-                                  </button>
-                                );
-                              })}
+                            <div className="pl-3 pt-0.5">
+                              <div className="relative">
+                                <select
+                                  aria-label="Telecom & VTU Service Menu"
+                                  data-testid="sidebar-telecom-dropdown"
+                                  value={telecomService}
+                                  onChange={e => handleSelectTelecomService(e.target.value as TelecomTab)}
+                                  className="w-full appearance-none rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 pl-2.5 pr-7 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 cursor-pointer transition"
+                                >
+                                  {TELECOM_MENU_ITEMS.map(sub => {
+                                    const subLabel =
+                                      sub.id === 'airtime'
+                                        ? `Airtime (${airtimeDiscountPct}% Off)`
+                                        : sub.label;
+                                    return (
+                                      <option key={sub.id} value={sub.id}>
+                                        {subLabel}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                                <ChevronDown className="w-3.5 h-3.5 text-slate-400 pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" />
+                              </div>
                             </div>
                           )}
                         </div>
@@ -565,6 +537,7 @@ export function CustomerDashboard({
           {currentPage === 'overview' && (
             <DashboardOverview
               onNavigateToPage={page => setCurrentPage(page as CustomerPageKey)}
+              onNavigateToTelecom={srv => handleSelectTelecomService(srv as TelecomTab)}
               onOpenFundModal={onOpenFundModal}
             />
           )}
