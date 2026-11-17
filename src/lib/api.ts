@@ -508,9 +508,20 @@ export const api = {
   async initializeFlutterwave(amount: number, callbackUrl?: string): Promise<{
     success: boolean;
     message: string;
-    authorization_url: string;
+    authorization_url?: string;
+    link?: string;
+    flw_charge_id?: string;
     reference: string;
     amount: number;
+    transfer_details?: {
+      account_number: string;
+      bank_name: string;
+      account_name?: string;
+      amount: number;
+      reference?: string;
+      expires_at?: string;
+      note?: string;
+    };
   }> {
     return request('/api/wallet/flutterwave/initialize', {
       method: 'POST',
@@ -534,10 +545,21 @@ export const api = {
   async initializePayment(gateway: string, amount: number, callbackUrl?: string): Promise<{
     success: boolean;
     message: string;
-    authorization_url: string;
+    authorization_url?: string;
+    link?: string;
+    flw_charge_id?: string;
     reference: string;
     amount: number;
     gateway: string;
+    transfer_details?: {
+      account_number: string;
+      bank_name: string;
+      account_name?: string;
+      amount: number;
+      reference?: string;
+      expires_at?: string;
+      note?: string;
+    };
   }> {
     return request('/api/wallet/fund/initiate', {
       method: 'POST',
@@ -1715,11 +1737,46 @@ export const api = {
     });
   },
 
+  async getAdminRolesCatalog(): Promise<{
+    success: boolean;
+    roles: import('../types').AdminRoleDefinition[];
+    dashboards: import('../types').AdminDashboardDefinition[];
+    permission_modules: string[];
+  }> {
+    return request('/api/admin/roles');
+  },
+
+  async assignCustomerRole(
+    id: string,
+    payload: {
+      role: import('../types').UserRole;
+      assigned_dashboard?: string;
+      permissions?: string[];
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    user: User;
+  }> {
+    return request(`/api/admin/customers/${id}/role`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   async getAdminStaff(): Promise<{ success: boolean; staff: User[] }> {
     return request('/api/admin/staff');
   },
 
-  async createStaffAccount(data: { full_name: string; email: string; phone_number?: string; password: string; role?: string; permissions?: string[] }): Promise<{
+  async createStaffAccount(data: {
+    full_name: string;
+    email: string;
+    phone_number?: string;
+    password: string;
+    role?: string;
+    assigned_dashboard?: string;
+    permissions?: string[];
+  }): Promise<{
     success: boolean;
     message: string;
     staff: User;
@@ -1730,7 +1787,10 @@ export const api = {
     });
   },
 
-  async updateStaffAccount(id: string, updates: Partial<User>): Promise<{ success: boolean; message: string; staff: User }> {
+  async updateStaffAccount(
+    id: string,
+    updates: Partial<User> & { assigned_dashboard?: string }
+  ): Promise<{ success: boolean; message: string; staff: User }> {
     return request(`/api/admin/staff/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
@@ -2445,17 +2505,49 @@ export const api = {
     return request(`/api/support/tickets${queryString}`);
   },
 
+  async uploadSupportAttachment(file: File): Promise<{
+    success: boolean;
+    id: string;
+    file_url: string;
+    file_name: string;
+    mime_type: string;
+    message: string;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request('/api/support/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  async fetchAuthenticatedBlob(fileUrl: string): Promise<{ blob: Blob; contentType: string }> {
+    const token = getStoredToken();
+    const res = await fetch(fileUrl, {
+      headers: {
+        ...(token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {}),
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    });
+    if (!res.ok) {
+      throw new ApiError(`Unable to load attachment (HTTP ${res.status})`, { statusCode: res.status });
+    }
+    const blob = await res.blob();
+    return { blob, contentType: res.headers.get('content-type') || blob.type || 'application/octet-stream' };
+  },
+
   async createSupportTicket(data: {
     subject: string;
     category: string;
     priority?: string;
     message: string;
+    attachment_url?: string;
     attachments?: any[];
   }): Promise<{
     success: boolean;
     message: string;
     ticket?: any;
-    ticket_id?: number;
+    ticket_id?: number | string;
     ticket_reference?: string;
   }> {
     return request('/api/support/tickets', {
@@ -2472,14 +2564,23 @@ export const api = {
     return request(`/api/support/tickets/${id}`);
   },
 
-  async replySupportTicket(id: string | number, message: string, isInternalNote?: boolean): Promise<{
+  async replySupportTicket(
+    id: string | number,
+    message: string,
+    isInternalNote?: boolean,
+    attachmentUrl?: string
+  ): Promise<{
     success: boolean;
     message: string;
     reply: any;
   }> {
     return request(`/api/support/tickets/${id}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ message, is_internal_note: !!isInternalNote }),
+      body: JSON.stringify({
+        message,
+        is_internal_note: !!isInternalNote,
+        ...(attachmentUrl ? { attachment_url: attachmentUrl, attachments: [{ file_url: attachmentUrl }] } : {}),
+      }),
     });
   },
 
@@ -2657,8 +2758,8 @@ export const api = {
     });
   },
 
-  // ─── Stage 8 Detailed 11 Reports ──────────────────────────────────────────
-  async getDetailedReportsAdmin(): Promise<{
+  // ─── Stage 8 Detailed 12 Reports ──────────────────────────────────────────
+  async getDetailedReportsAdmin(params?: { start_date?: string; end_date?: string }): Promise<{
     success: boolean;
     reports: {
       generated_at: string;
@@ -2673,9 +2774,47 @@ export const api = {
       manual_funding_report: any;
       kyc_report: any;
       staff_activity_report: any;
+      referral_growth_report?: any;
     };
   }> {
-    return request('/api/admin/reports/detailed');
+    const q = new URLSearchParams();
+    if (params?.start_date) q.append('start_date', params.start_date);
+    if (params?.end_date) q.append('end_date', params.end_date);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return request(`/api/admin/reports/detailed${qs}`);
+  },
+
+  async exportDetailedReportsCsv(params?: {
+    start_date?: string;
+    end_date?: string;
+    report?: string;
+  }): Promise<{ blob: Blob; filename: string }> {
+    const token = getStoredToken();
+    const q = new URLSearchParams();
+    q.append('format', 'csv');
+    if (params?.start_date) q.append('start_date', params.start_date);
+    if (params?.end_date) q.append('end_date', params.end_date);
+    if (params?.report) q.append('report', params.report);
+    const res = await fetch(`/api/admin/reports/detailed?${q.toString()}`, {
+      headers: {
+        ...(token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {}),
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    });
+    if (!res.ok) {
+      let msg = `CSV export failed (HTTP ${res.status})`;
+      try {
+        const j = await res.json();
+        msg = j?.error || j?.message || msg;
+      } catch {
+      }
+      throw new ApiError(msg, { statusCode: res.status });
+    }
+    const disp = res.headers.get('content-disposition') || '';
+    const match = disp.match(/filename="?([^";]+)"?/i);
+    const filename = match?.[1] || `hambaktech_reports_${new Date().toISOString().slice(0, 10)}.csv`;
+    const blob = await res.blob();
+    return { blob, filename };
   },
 
   // ─── Production Cleanup & Footprints Monitoring ───────────────────────────
@@ -2740,6 +2879,7 @@ export const api = {
     success: boolean;
     message: string;
     user: any;
+    customer?: User;
     wallet: any;
   }> {
     return request('/api/admin/customers/create', {

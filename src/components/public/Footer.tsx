@@ -63,8 +63,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               </div>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              {branding?.footer_text ||
-                'HAMBAK TECH & SERVICES provides digital identity verification, telecommunication VTU services, automated bill payments, and practical ICT & software skills training across Nigeria.'}
+              HAMBAK TECH &amp; SERVICES provides digital identity verification, telecommunications VTU, utility bill payments, printing &amp; document production, and practical ICT &amp; software training across Nigeria.
             </p>
             <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-blue-700 dark:text-blue-400">
               <Building2 className="w-3.5 h-3.5 shrink-0" />
@@ -85,6 +84,15 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                   className="hover:text-blue-700 dark:hover:text-blue-400 transition-colors"
                 >
                   Digital Services Catalog
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('services')}
+                  className="hover:text-blue-700 dark:hover:text-blue-400 transition-colors"
+                >
+                  Printing &amp; Document Production
                 </button>
               </li>
               <li>

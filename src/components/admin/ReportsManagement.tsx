@@ -40,20 +40,28 @@ export const ReportsManagement: React.FC = () => {
   const [activeReport, setActiveReport] = useState<ReportKey>('customer');
   const [reportsData, setReportsData] = useState<any>(null);
   const [referralReport, setReferralReport] = useState<import('../../types').ReferralGrowthReport | null>(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [refDateFrom, setRefDateFrom] = useState('');
   const [refDateTo, setRefDateTo] = useState('');
   const [refCampaignCode, setRefCampaignCode] = useState('');
   const [loading, setLoading] = useState(true);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const loadReports = async () => {
+  const loadReports = async (overrideStart?: string, overrideEnd?: string) => {
+    const sDate = overrideStart !== undefined ? overrideStart : startDate;
+    const eDate = overrideEnd !== undefined ? overrideEnd : endDate;
     setLoading(true);
     try {
       const [res, refRes] = await Promise.allSettled([
-        api.getDetailedReportsAdmin(),
+        api.getDetailedReportsAdmin({
+          start_date: sDate || undefined,
+          end_date: eDate || undefined,
+        }),
         api.getAdminReferralGrowthReport({
-          date_from: refDateFrom || undefined,
-          date_to: refDateTo || undefined,
+          date_from: refDateFrom || sDate || undefined,
+          date_to: refDateTo || eDate || undefined,
           campaign_code: refCampaignCode || undefined,
         }),
       ]);
@@ -74,68 +82,72 @@ export const ReportsManagement: React.FC = () => {
     void loadReports();
   }, []);
 
+  const applyPresetRange = (preset: 'all' | 'today' | '7d' | '30d' | 'month') => {
+    const now = new Date();
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    let nextStart = '';
+    let nextEnd = '';
+    if (preset === 'today') {
+      nextStart = fmt(now);
+      nextEnd = fmt(now);
+    } else if (preset === '7d') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 6);
+      nextStart = fmt(d);
+      nextEnd = fmt(now);
+    } else if (preset === '30d') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 29);
+      nextStart = fmt(d);
+      nextEnd = fmt(now);
+    } else if (preset === 'month') {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      nextStart = fmt(first);
+      nextEnd = fmt(now);
+    }
+    setStartDate(nextStart);
+    setEndDate(nextEnd);
+    void loadReports(nextStart, nextEnd);
+  };
+
   const handleExportJSON = () => {
     if (!reportsData) return;
     const payload = { ...reportsData, referral_growth_report: referralReport };
-    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
     const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', jsonString);
+    downloadAnchor.setAttribute('href', url);
     downloadAnchor.setAttribute('download', `hambaktech_12_reports_${new Date().toISOString().slice(0, 10)}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+    URL.revokeObjectURL(url);
     setFeedback({ type: 'success', message: 'All 12 reports exported to JSON successfully.' });
   };
 
-  const handleExportCSV = () => {
-    if (!reportsData) return;
-    const rows: string[][] = [
-      ['HAMBAKTECH ENTERPRISE SYSTEM AUDIT REPORT', `Generated: ${reportsData.generated_at || new Date().toISOString()}`],
-      [],
-      ['1. CUSTOMER REPORT'],
-      ['Total Customers', reportsData.customer_report?.total_customers ?? 0],
-      ['Active Customers', reportsData.customer_report?.active_customers ?? 0],
-      ['Suspended Customers', reportsData.customer_report?.suspended_customers ?? 0],
-      ['Verified Customers', reportsData.customer_report?.verified_customers ?? 0],
-      ['Total Customer Balances', `₦${reportsData.customer_report?.total_customer_balance ?? 0}`],
-      [],
-      ['2. TRANSACTION REPORT'],
-      ['Total Turnover Volume', `₦${reportsData.transaction_report?.summary?.total_volume ?? 0}`],
-      ['Total Transactions', reportsData.transaction_report?.summary?.total_count ?? 0],
-      ['Successful Volume', `₦${reportsData.transaction_report?.summary?.successful_volume ?? 0}`],
-      ['Success Count', reportsData.transaction_report?.summary?.successful_count ?? 0],
-      ['Failed Count', reportsData.transaction_report?.summary?.failed_count ?? 0],
-      [],
-      ['3. WALLET & FLOAT REPORT'],
-      ['System Float in Circulation', `₦${reportsData.wallet_report?.system_float ?? 0}`],
-      ['Active Wallets Count', reportsData.wallet_report?.total_wallets ?? 0],
-      ['Average Wallet Float', `₦${reportsData.wallet_report?.average_balance ?? 0}`],
-      ['Negative Balances', reportsData.wallet_report?.negative_wallets ?? 0],
-      [],
-      ['4. FINANCIAL PROFIT REPORT'],
-      ['Total Service Sales', `₦${reportsData.profit_report?.total_revenue ?? 0}`],
-      ['Wholesale Provider Costs', `₦${reportsData.profit_report?.total_expenditure ?? 0}`],
-      ['Gross Operating Profit', `₦${reportsData.profit_report?.gross_profit ?? 0}`],
-      ['Gross Operating Margin', `${reportsData.profit_report?.margin_percent ?? 0}%`],
-      [],
-      ['12. REFERRAL & GROWTH ROI REPORT'],
-      ['Total Referrals', String(referralReport?.summary?.total_referrals ?? 0)],
-      ['Qualified Referrals', String(referralReport?.summary?.qualified_referrals ?? 0)],
-      ['Referred Revenue', `₦${referralReport?.summary?.referred_revenue ?? 0}`],
-      ['Total Reward Cost', `₦${referralReport?.summary?.total_reward_cost ?? 0}`],
-      ['Net Referral Contribution', `₦${referralReport?.summary?.net_referral_contribution ?? 0}`],
-      ['Referral ROI %', `${referralReport?.summary?.roi_percent ?? 0}%`],
-    ];
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map(r => r.join(',')).join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `hambaktech_enterprise_report_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setFeedback({ type: 'success', message: 'Report CSV exported successfully.' });
+  const handleExportCSV = async (reportScope?: string) => {
+    setExportingCsv(true);
+    setFeedback(null);
+    try {
+      const { blob, filename } = await api.exportDetailedReportsCsv({
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+        report: reportScope || undefined,
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setFeedback({ type: 'success', message: `Exported ${reportScope ? reportScope.toUpperCase() : 'all 12 reports'} to CSV successfully.` });
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'CSV export failed.' });
+    } finally {
+      setExportingCsv(false);
+    }
   };
 
   const reportTabs = [
@@ -171,25 +183,77 @@ export const ReportsManagement: React.FC = () => {
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleExportJSON}
-            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm"
+            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm whitespace-nowrap"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export JSON (All 12)</span>
           </button>
           <button
-            onClick={handleExportCSV}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition border border-slate-700"
+            onClick={() => void handleExportCSV()}
+            disabled={exportingCsv}
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-60 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition border border-slate-700 whitespace-nowrap"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export CSV</span>
+            <span>{exportingCsv ? 'Exporting CSV...' : 'Export CSV (All 12)'}</span>
           </button>
           <button
-            onClick={loadReports}
+            onClick={() => void loadReports()}
             className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition"
             title="Refresh Reports"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
+        </div>
+      </div>
+
+      {/* Global Date-Range Filter Bar */}
+      <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-wrap items-end justify-between gap-3 text-xs">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-[10px] font-medium text-slate-400 mb-1">Start Date</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-white font-mono tabular-nums focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-medium text-slate-400 mb-1">End Date</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+              className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-white font-mono tabular-nums focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadReports()}
+            className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold flex items-center gap-1.5 whitespace-nowrap transition"
+          >
+            <Filter className="w-3.5 h-3.5" />
+            <span>Apply Dates</span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
+          {[
+            { id: 'all' as const, label: 'All Time' },
+            { id: 'today' as const, label: 'Today' },
+            { id: '7d' as const, label: '7D' },
+            { id: '30d' as const, label: '30D' },
+            { id: 'month' as const, label: 'Month' },
+          ].map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => applyPresetRange(p.id)}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-800 whitespace-nowrap transition"
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -287,24 +351,49 @@ export const ReportsManagement: React.FC = () => {
           {/* Report 2: Transaction Report */}
           {activeReport === 'transaction' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 tabular-nums">
                 <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
                   <p className="text-xs text-slate-400 font-medium">Total Transactions</p>
-                  <p className="text-2xl font-bold text-white mt-1">{reportsData.transaction_report?.summary?.total_count ?? 0}</p>
+                  <p className="text-2xl font-bold font-mono text-white mt-1">{reportsData.transaction_report?.summary?.total_count ?? 0}</p>
                 </div>
                 <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                  <p className="text-xs text-emerald-400 font-medium">Successful Volume</p>
+                  <p className="text-xs text-emerald-400 font-medium">Wallet Deposits (Funding)</p>
                   <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">
-                    ₦{parseFloat(reportsData.transaction_report?.summary?.successful_volume || 0).toLocaleString()}
+                    ₦{parseFloat(reportsData.transaction_report?.summary?.credit_funding_volume ?? reportsData.profit_report?.funding_credits_volume ?? 0).toLocaleString()}
                   </p>
                 </div>
                 <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                  <p className="text-xs text-amber-400 font-medium">Pending Settlements</p>
-                  <p className="text-2xl font-bold text-amber-400 mt-1">{reportsData.transaction_report?.summary?.pending_count ?? 0}</p>
+                  <p className="text-xs text-amber-400 font-medium">Refund Credits</p>
+                  <p className="text-2xl font-bold text-amber-400 font-mono mt-1">
+                    ₦{parseFloat(reportsData.transaction_report?.summary?.refund_credit_volume ?? reportsData.profit_report?.refund_credits_volume ?? 0).toLocaleString()}
+                  </p>
                 </div>
                 <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                  <p className="text-xs text-red-400 font-medium">Failed Transactions</p>
-                  <p className="text-2xl font-bold text-red-400 mt-1">{reportsData.transaction_report?.summary?.failed_count ?? 0}</p>
+                  <p className="text-xs text-cyan-400 font-medium">Service Debit Spend</p>
+                  <p className="text-2xl font-bold text-cyan-400 font-mono mt-1">
+                    ₦{parseFloat(reportsData.transaction_report?.summary?.debit_sales_volume ?? reportsData.profit_report?.debit_sales_volume ?? 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 tabular-nums">
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl">
+                  <p className="text-[11px] text-slate-400">Successful Volume</p>
+                  <p className="text-lg font-bold font-mono text-white mt-0.5">
+                    ₦{parseFloat(reportsData.transaction_report?.summary?.successful_volume || 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl">
+                  <p className="text-[11px] text-slate-400">Success Count</p>
+                  <p className="text-lg font-bold font-mono text-emerald-400 mt-0.5">{reportsData.transaction_report?.summary?.successful_count ?? 0}</p>
+                </div>
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl">
+                  <p className="text-[11px] text-slate-400">Pending Settlements</p>
+                  <p className="text-lg font-bold font-mono text-amber-400 mt-0.5">{reportsData.transaction_report?.summary?.pending_count ?? 0}</p>
+                </div>
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl">
+                  <p className="text-[11px] text-slate-400">Failed Transactions</p>
+                  <p className="text-lg font-bold font-mono text-rose-400 mt-0.5">{reportsData.transaction_report?.summary?.failed_count ?? 0}</p>
                 </div>
               </div>
 
@@ -617,23 +706,63 @@ export const ReportsManagement: React.FC = () => {
 
           {/* Report 10: KYC Report */}
           {activeReport === 'kyc' && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                <p className="text-xs text-slate-400 font-medium">Total Submissions</p>
-                <p className="text-2xl font-bold text-white mt-1">{reportsData.kyc_report?.total_submissions ?? 0}</p>
+            <div className="space-y-4 tabular-nums">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-slate-400 font-medium">KYC Submissions</p>
+                  <p className="text-2xl font-bold font-mono text-white mt-1">{reportsData.kyc_report?.total_submissions ?? 0}</p>
+                </div>
+                <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-emerald-400 font-medium">Approved Submissions</p>
+                  <p className="text-2xl font-bold font-mono text-emerald-400 mt-1">{reportsData.kyc_report?.approved_count ?? 0}</p>
+                </div>
+                <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-amber-400 font-medium">Pending Review</p>
+                  <p className="text-2xl font-bold font-mono text-amber-400 mt-1">{reportsData.kyc_report?.pending_count ?? 0}</p>
+                </div>
+                <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-indigo-400 font-medium">Tier 2 Submissions</p>
+                  <p className="text-2xl font-bold font-mono text-indigo-400 mt-1">{reportsData.kyc_report?.tier2_count ?? 0}</p>
+                </div>
               </div>
-              <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                <p className="text-xs text-emerald-400 font-medium">Approved Submissions</p>
-                <p className="text-2xl font-bold text-emerald-400 mt-1">{reportsData.kyc_report?.approved_count ?? 0}</p>
-              </div>
-              <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                <p className="text-xs text-amber-400 font-medium">Pending Review</p>
-                <p className="text-2xl font-bold text-amber-400 mt-1">{reportsData.kyc_report?.pending_count ?? 0}</p>
-              </div>
-              <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                <p className="text-xs text-indigo-400 font-medium">Tier 2 Submissions</p>
-                <p className="text-2xl font-bold text-indigo-400 mt-1">{reportsData.kyc_report?.tier2_count ?? 0}</p>
-              </div>
+
+              {reportsData.kyc_report?.users_kyc_overview && (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+                  <h3 className="text-sm font-bold text-white">Customer Account KYC State Overview</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                    <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
+                      <p className="text-slate-400">Total Accounts</p>
+                      <p className="text-lg font-bold font-mono text-white mt-1">
+                        {reportsData.kyc_report.users_kyc_overview.total_accounts ?? 0}
+                      </p>
+                    </div>
+                    <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
+                      <p className="text-emerald-400">Verified Accounts</p>
+                      <p className="text-lg font-bold font-mono text-emerald-400 mt-1">
+                        {reportsData.kyc_report.users_kyc_overview.verified_users ?? 0}
+                      </p>
+                    </div>
+                    <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
+                      <p className="text-amber-400">Pending Users</p>
+                      <p className="text-lg font-bold font-mono text-amber-400 mt-1">
+                        {reportsData.kyc_report.users_kyc_overview.pending_users ?? 0}
+                      </p>
+                    </div>
+                    <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
+                      <p className="text-slate-400">Unverified Users</p>
+                      <p className="text-lg font-bold font-mono text-slate-300 mt-1">
+                        {reportsData.kyc_report.users_kyc_overview.unverified_users ?? 0}
+                      </p>
+                    </div>
+                    <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
+                      <p className="text-indigo-400">Tier 2+ Accounts</p>
+                      <p className="text-lg font-bold font-mono text-indigo-400 mt-1">
+                        {reportsData.kyc_report.users_kyc_overview.tier2_plus_users ?? 0}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -760,16 +889,18 @@ export const ReportsManagement: React.FC = () => {
                       <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-800">
                         <tr>
                           <th className="py-3 px-4">Referrer</th>
+                          <th className="py-3 px-4">Masked Email</th>
                           <th className="py-3 px-4">Code</th>
                           <th className="py-3 px-4">Referred / Qualified</th>
                           <th className="py-3 px-4">Generated Revenue</th>
                           <th className="py-3 px-4">Rewards Earned</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800 text-slate-300">
+                      <tbody className="divide-y divide-slate-800 text-slate-300 tabular-nums">
                         {referralReport.top_referrers.map((tr) => (
                           <tr key={tr.id} className="hover:bg-slate-800/40">
                             <td className="py-3 px-4 font-semibold text-white">{tr.full_name}</td>
+                            <td className="py-3 px-4 font-mono text-slate-400">{tr.email || '—'}</td>
                             <td className="py-3 px-4 font-mono text-indigo-400">{tr.referral_code}</td>
                             <td className="py-3 px-4 font-mono">
                               {tr.total_referred} / <span className="text-emerald-400">{tr.qualified_count}</span>

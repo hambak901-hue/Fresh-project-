@@ -1798,7 +1798,7 @@ class ModificationController
      */
     public function adminList(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         SchemaSync::syncModificationCatalog($this->db);
 
         $identityType = strtoupper(trim((string)$request->query('identity_type', 'ALL')));
@@ -1912,7 +1912,7 @@ class ModificationController
      */
     public function adminDetail(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -1936,7 +1936,7 @@ class ModificationController
      */
     public function adminPollStatus(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -1971,7 +1971,7 @@ class ModificationController
      */
     public function adminUpdateRequest(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         $id = trim((string)($params['id'] ?? ''));
         $body = $request->getBody();
 
@@ -2104,7 +2104,7 @@ class ModificationController
      */
     public function adminServices(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         SchemaSync::syncModificationCatalog($this->db);
 
         $rows = $this->db->fetchAll(
@@ -2138,7 +2138,7 @@ class ModificationController
      */
     public function adminUpdateService(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         SchemaSync::syncModificationCatalog($this->db);
 
         $key = trim((string)($params['key'] ?? ''));
@@ -2254,7 +2254,7 @@ class ModificationController
      */
     public function adminBvnTypes(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $force = filter_var($request->query('refresh', '0'), FILTER_VALIDATE_BOOLEAN);
         $syncRes = $this->syncOrFetchBvnTypes($force);
 
@@ -2284,7 +2284,7 @@ class ModificationController
      */
     public function adminUpdateBvnType(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = trim((string)($params['id'] ?? ''));
         $body = $request->getBody();
 
@@ -2332,7 +2332,7 @@ class ModificationController
      */
     public function adminSyncCatalog(Request $request): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         SchemaSync::syncModificationCatalog($this->db, true);
 
         $adapter = new TwoSureVerifyAdapter();

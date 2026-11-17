@@ -37,7 +37,7 @@ import {
   ChevronDown,
   Gift,
 } from 'lucide-react';
-import { User } from '../../types';
+import { User, isConsoleRole } from '../../types';
 
 // Child components
 import { DashboardOverview } from './DashboardOverview';
@@ -246,10 +246,16 @@ export function CustomerDashboard({
     telecomService === 'airtime'
       ? `Airtime (${airtimeDiscountPct}% Off)`
       : TELECOM_MENU_ITEMS.find(t => t.id === telecomService)?.label || 'Airtime';
+  const roleWorkspaceLabel =
+    user.role === 'student'
+      ? 'Student Portal'
+      : user.role === 'agent'
+      ? 'Agent Reseller Workspace'
+      : 'Customer Portal';
   const breadcrumbText =
     currentPage === 'telecom'
-      ? `Customer Portal / Telecom & VTU Services / ${activeTelecomLabel}`
-      : `Customer Portal / ${currentTitle}`;
+      ? `${roleWorkspaceLabel} / Telecom & VTU Services / ${activeTelecomLabel}`
+      : `${roleWorkspaceLabel} / ${currentTitle}`;
   const headerHeading = currentPage === 'telecom' ? activeTelecomLabel : currentTitle;
 
   return (
@@ -281,7 +287,7 @@ export function CustomerDashboard({
                 <span className="font-extrabold text-sm text-blue-900 dark:text-white tracking-tight flex items-center gap-1.5">
                   <span>{branding?.short_brand_name || 'HAMBAKTECH'}</span>
                 </span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">Customer Dashboard</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">{roleWorkspaceLabel}</p>
               </div>
             </div>
             <button
@@ -424,8 +430,8 @@ export function CustomerDashboard({
 
           {/* Bottom navigation links */}
           <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-2 bg-slate-50 dark:bg-slate-900/60">
-            {/* Switch to Super Admin Dashboard - Only for admins */}
-            {onSwitchToAdmin && (user.role === 'admin' || user.role === 'superadmin') && (
+            {/* Switch to Operations / Admin Console - For all CONSOLE_ROLES */}
+            {onSwitchToAdmin && isConsoleRole(user.role) && (
               <button
                 type="button"
                 onClick={onSwitchToAdmin}
@@ -433,7 +439,7 @@ export function CustomerDashboard({
               >
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>Super Admin Console</span>
+                  <span>{user.role === 'superadmin' || user.role === 'admin' ? 'Admin Console' : 'Staff Console'}</span>
                 </div>
                 <ChevronRight className="w-3 h-3 text-slate-500" />
               </button>
@@ -533,7 +539,92 @@ export function CustomerDashboard({
         </header>
 
         {/* Page View Container */}
-        <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto">
+        <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-6">
+          {currentPage === 'overview' && user.role === 'student' && (
+            <section className="rounded-2xl border border-indigo-200 dark:border-indigo-500/25 bg-white dark:bg-slate-900 p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+              <div className="space-y-1">
+                <p className="text-[11px] font-mono uppercase tracking-wider text-indigo-600 dark:text-indigo-400 font-semibold">
+                  Hambak Academy &bull; Student Workspace
+                </p>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                  Training Admissions, Study Resources &amp; Exam PINs
+                </h2>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Access your Academy enrolment status, WAEC/NECO/JAMB exam PINs, and verified identity services.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleSelectPage('academy')}
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap transition"
+                >
+                  Academy Courses
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectTelecomService('exam')}
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 text-slate-800 dark:text-slate-200 text-xs font-semibold whitespace-nowrap transition"
+                >
+                  Buy Exam PINs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPage('nin')}
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 text-slate-800 dark:text-slate-200 text-xs font-semibold whitespace-nowrap transition"
+                >
+                  NIN / BVN Desk
+                </button>
+              </div>
+            </section>
+          )}
+
+          {currentPage === 'overview' && user.role === 'agent' && (
+            <section className="rounded-2xl border border-emerald-200 dark:border-emerald-500/25 bg-white dark:bg-slate-900 p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+              <div className="space-y-1">
+                <p className="text-[11px] font-mono uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-semibold">
+                  Commercial Partner &bull; Agent Reseller Console
+                </p>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                  High-Speed Telecom Vending, Recharge Cards &amp; Identity Desk
+                </h2>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Launch instant data bundles, generate printable Airtime/Data PIN batches, print NIN/BVN slips, and track referral earnings.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleSelectTelecomService('data')}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold whitespace-nowrap transition"
+                >
+                  Vend Data
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectTelecomService('airtime_pin')}
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-800 dark:text-slate-200 text-xs font-semibold whitespace-nowrap transition"
+                >
+                  Print Recharge PINs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPage('nin')}
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-800 dark:text-slate-200 text-xs font-semibold whitespace-nowrap transition"
+                >
+                  Identity Desk
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPage('referrals')}
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-800 dark:text-slate-200 text-xs font-semibold whitespace-nowrap transition"
+                >
+                  Commissions
+                </button>
+              </div>
+            </section>
+          )}
+
           {currentPage === 'overview' && (
             <DashboardOverview
               onNavigateToPage={page => setCurrentPage(page as CustomerPageKey)}

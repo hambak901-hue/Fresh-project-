@@ -30,6 +30,7 @@ import { CustomerLoginScreen } from './components/customer/CustomerLoginScreen';
 import { SuperAdminDashboard } from './components/admin/SuperAdminDashboard';
 import { NinServicesPage } from './components/customer/NinServicesPage';
 import { MandatoryPinSetupModal } from './components/customer/MandatoryPinSetupModal';
+import { isConsoleRole } from './types';
 import { Calculator, ShieldCheck, Shield, Fingerprint, Loader2 } from 'lucide-react';
 
 function normalizePublicPageKey(raw: string): string {
@@ -122,7 +123,7 @@ function MainAppContent() {
   useEffect(() => {
     if (!user) return;
     if (activePhase === '06') {
-      if (user.role === 'admin' || user.role === 'superadmin') {
+      if (isConsoleRole(user.role)) {
         setActivePhase('04');
       } else {
         setActivePhase('03');
@@ -131,7 +132,7 @@ function MainAppContent() {
     }
     if (manualPublicBrowseRef.current || isExplicitPublicHash()) return;
     if (activePhase === '02') {
-      if (user.role === 'admin' || user.role === 'superadmin') {
+      if (isConsoleRole(user.role)) {
         setActivePhase('04');
       } else {
         setActivePhase('03');
@@ -353,7 +354,7 @@ function MainAppContent() {
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
               const role = loggedInUser?.role;
-              setActivePhase(role === 'admin' || role === 'superadmin' ? '04' : '05');
+              setActivePhase(isConsoleRole(role) ? '04' : '05');
             }}
             onOpenRegister={() => handleOpenAuth('register')}
             onSwitchToPublic={switchToPublicHome}
@@ -379,14 +380,14 @@ function MainAppContent() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {(user?.role === 'admin' || user?.role === 'superadmin') && (
+                {isConsoleRole(user?.role) && (
                   <button
                     type="button"
                     onClick={() => setActivePhase('04')}
                     className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs flex items-center gap-1.5 transition"
                   >
                     <Shield className="w-3.5 h-3.5" />
-                    <span>Admin Console</span>
+                    <span>Staff Console</span>
                   </button>
                 )}
                 <button
@@ -423,7 +424,7 @@ function MainAppContent() {
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
               const role = loggedInUser?.role || user?.role;
-              setActivePhase(role === 'admin' || role === 'superadmin' ? '04' : '03');
+              setActivePhase(isConsoleRole(role) ? '04' : '03');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onOpenRegister={() => handleOpenAuth('register')}
@@ -444,7 +445,7 @@ function MainAppContent() {
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
               const role = loggedInUser?.role;
-              setActivePhase(role === 'admin' || role === 'superadmin' ? '04' : '03');
+              setActivePhase(isConsoleRole(role) ? '04' : '03');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onOpenRegister={() => handleOpenAuth('register')}
@@ -568,7 +569,7 @@ function MainAppContent() {
         onSuccess={(loggedInUser) => {
           manualPublicBrowseRef.current = false;
           const role = loggedInUser?.role || user?.role;
-          if (role === 'admin' || role === 'superadmin') {
+          if (isConsoleRole(role)) {
             setActivePhase('04');
           } else {
             setActivePhase('03');
@@ -587,7 +588,7 @@ function MainAppContent() {
       <MandatoryPinSetupModal
         isOpen={Boolean(
           user &&
-          user.role === 'customer' &&
+          (user.role === 'customer' || user.role === 'student' || user.role === 'agent') &&
           !user.has_transaction_pin &&
           (pinPolicy?.require_pin_activation_for_all_customers || forcePinSetupOpen)
         )}

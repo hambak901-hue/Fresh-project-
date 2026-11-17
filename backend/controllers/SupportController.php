@@ -93,7 +93,16 @@ class SupportController
         $department = trim((string)$request->input('department', $category ?: 'General Support'));
         $priority = strtolower(trim((string)$request->input('priority', 'medium')));
         $message = trim((string)$request->input('message', $request->input('description', '')));
-        $attachmentUrl = (string)$request->input('attachment_url', '');
+        $attachmentUrl = trim((string)$request->input('attachment_url', ''));
+        $rawAttachments = $request->input('attachments', []);
+        if ($attachmentUrl === '' && is_array($rawAttachments) && !empty($rawAttachments)) {
+            $firstAtt = $rawAttachments[0] ?? null;
+            if (is_string($firstAtt)) {
+                $attachmentUrl = trim($firstAtt);
+            } elseif (is_array($firstAtt)) {
+                $attachmentUrl = trim((string)($firstAtt['file_url'] ?? $firstAtt['url'] ?? ''));
+            }
+        }
 
         if (empty($subject) || empty($message)) {
             Response::error('Subject and message are required to open a support ticket.', 422);
@@ -340,6 +349,9 @@ class SupportController
         foreach ($replies as &$r) {
             $r['is_staff'] = (bool)$r['is_staff'];
             $r['is_internal_note'] = (bool)($r['is_internal_note'] ?? false);
+            if (!empty($r['attachment_url']) && empty($r['attachments'])) {
+                $r['attachments'] = [['file_url' => $r['attachment_url']]];
+            }
         }
 
         $ticket = $this->normalizeTicketRow($ticket);
@@ -358,7 +370,16 @@ class SupportController
         $user = Auth::requireAuth($request);
         $ticketId = $params['id'] ?? '';
         $message = trim((string)$request->input('message', ''));
-        $attachmentUrl = (string)$request->input('attachment_url', '');
+        $attachmentUrl = trim((string)$request->input('attachment_url', ''));
+        $rawAttachments = $request->input('attachments', []);
+        if ($attachmentUrl === '' && is_array($rawAttachments) && !empty($rawAttachments)) {
+            $firstAtt = $rawAttachments[0] ?? null;
+            if (is_string($firstAtt)) {
+                $attachmentUrl = trim($firstAtt);
+            } elseif (is_array($firstAtt)) {
+                $attachmentUrl = trim((string)($firstAtt['file_url'] ?? $firstAtt['url'] ?? ''));
+            }
+        }
         $isAdmin = $this->hasStaffSupportAccess($user);
         $isInternalNote = $isAdmin && (bool)$request->input('is_internal_note', false);
         $requestedStatus = strtolower(trim((string)$request->input('status', '')));

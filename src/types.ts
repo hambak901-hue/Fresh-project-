@@ -3,12 +3,55 @@
  * HambakTech Enterprise TypeScript interfaces.
  */
 
+export type UserRole =
+  | 'customer'
+  | 'student'
+  | 'agent'
+  | 'support'
+  | 'staff'
+  | 'manager'
+  | 'admin'
+  | 'superadmin';
+
+export const ALL_USER_ROLES: UserRole[] = [
+  'customer',
+  'student',
+  'agent',
+  'support',
+  'staff',
+  'manager',
+  'admin',
+  'superadmin',
+];
+
+export const CONSOLE_ROLES: UserRole[] = ['support', 'staff', 'manager', 'admin', 'superadmin'];
+
+export function isConsoleRole(role?: string | null): boolean {
+  if (!role) return false;
+  return CONSOLE_ROLES.includes(role.toLowerCase() as UserRole);
+}
+
+export interface AdminRoleDefinition {
+  slug: UserRole;
+  name: string;
+  description: string;
+  default_dashboard: string;
+  default_permissions: string[];
+  category: 'portal' | 'console';
+}
+
+export interface AdminDashboardDefinition {
+  id: string;
+  label: string;
+}
+
 export interface User {
   id: string;
   email: string;
   full_name: string;
   phone_number: string;
-  role: 'customer' | 'admin' | 'superadmin';
+  role: UserRole;
+  assigned_dashboard?: string;
   wallet_balance: number;
   kyc_status: 'unverified' | 'pending' | 'verified' | 'rejected';
   bvn?: string;
@@ -794,6 +837,7 @@ export interface AdminOverviewData {
     totalStaff: number;
     totalWalletBalances: number;
     totalWalletFunding: number;
+    totalRefunds?: number;
     totalServiceSales: number;
     providerExpenditure: number;
     grossProfit: number;
@@ -1091,7 +1135,9 @@ export interface AdminCreateCustomerPayload {
   full_name: string;
   email: string;
   phone_number: string;
-  role: 'customer' | 'agent' | 'staff' | 'admin';
+  role: UserRole;
+  assigned_dashboard?: string;
+  permissions?: string[];
   status: 'active' | 'pending' | 'suspended';
   tier: number;
   password?: string;

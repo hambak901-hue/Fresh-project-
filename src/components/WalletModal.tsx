@@ -1,10 +1,10 @@
 /**
  * @file WalletModal.tsx
- * HAMBakTECH Stage 7: Complete Customer Wallet Top-Up & Payment Modal.
+ * Complete Customer Wallet Top-Up & Payment Modal.
  * Supports:
  * 1. Paystack Automated Merchant Checkout & Instant Verification
- * 2. Flutterwave Activated Hosted Checkout & Verification
- * 3. Moniepoint MFB Manual Transfer Instructions (Bank: Moniepoint MFB, Acc: 5210471634, Name: Hambaktech_Services)
+ * 2. Flutterwave v4 Dynamic Bank Transfer Virtual Account & Checkout Verification
+ * 3. Configured Receiving Bank Transfer Instructions
  * 4. Dedicated Manual Funding Form with File Receipt Upload & Verification Workflow
  */
 
@@ -60,6 +60,20 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
   const [receiptFileName, setReceiptFileName] = useState<string>('');
   const [submittingManual, setSubmittingManual] = useState<boolean>(false);
 
+  // Flutterwave v4 Dynamic Virtual Transfer / Hosted Checkout State
+  const [flwTransfer, setFlwTransfer] = useState<{
+    account_number: string;
+    bank_name: string;
+    account_name?: string;
+    amount: number;
+    reference: string;
+    expires_at?: string;
+    note?: string;
+    checkout_url?: string;
+  } | null>(null);
+  const [copiedFlwAcc, setCopiedFlwAcc] = useState<boolean>(false);
+  const [verifyingFlw, setVerifyingFlw] = useState<boolean>(false);
+
   useEffect(() => {
     if (isOpen) {
       loadSummary();
@@ -80,10 +94,41 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
 
   if (!isOpen) return null;
 
-  // Handle Online Payment (Paystack or Flutterwave)
+  // Verify an initialized online payment (Paystack or Flutterwave v4)
+  const handleVerifyOnlinePayment = async (ref: string, gw: 'paystack' | 'flutterwave', expectedAmount: number) => {
+    setVerifyingFlw(true);
+    setErrorMessage(null);
+    try {
+      const verifyRes = await api.verifyFunding(ref, gw);
+      if (verifyRes.success) {
+        if (typeof verifyRes.balance === 'number') {
+          updateBalance(verifyRes.balance);
+        }
+        setSuccessMessage(
+          `Payment of ₦${Number(verifyRes.transaction?.amount || expectedAmount).toLocaleString()} verified and credited to your wallet.`
+        );
+        setFlwTransfer(null);
+        confetti({
+          particleCount: 50,
+          spread: 60,
+          origin: { y: 0.7 },
+        });
+        await loadSummary();
+      } else {
+        setSuccessMessage(verifyRes.message || 'Transfer not yet settled. Once you send the transfer, click Verify again.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Payment not yet confirmed. Please wait a moment after transferring and click Verify Transfer.');
+    } finally {
+      setVerifyingFlw(false);
+    }
+  };
+
+  // Handle Online Payment (Paystack or Flutterwave v4)
   const handleOnlineCheckout = async () => {
     setErrorMessage(null);
     setSuccessMessage(null);
+    setFlwTransfer(null);
 
     const num = Number(amount);
     if (!num || num < 100) {
@@ -100,29 +145,60 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
     setLoading(true);
     try {
       const initRes = await api.initializePayment(gateway, num);
-      if (initRes.success && initRes.authorization_url) {
-        setSuccessMessage(`Redirecting to secure ${gateway === 'flutterwave' ? 'Flutterwave' : 'Paystack'} checkout...`);
-        
-        // Open secure hosted payment checkout in a new window or redirect
-        const win = window.open(initRes.authorization_url, '_blank');
-        if (!win) {
-          window.location.href = initRes.authorization_url;
-        }
+      if (!initRes.success) {
+        throw new Error(initRes.message || 'Payment initiation failed.');
+      }
 
-        // Poll or verify reference in background
-        const verifyRes = await api.verifyFunding(initRes.reference, gateway);
-        if (verifyRes.success) {
-          updateBalance(verifyRes.balance);
-          setSuccessMessage(`Payment of ₦${num.toLocaleString()} verified and credited to your wallet!`);
-          confetti({
-            particleCount: 50,
-            spread: 60,
-            origin: { y: 0.7 },
+      const checkoutUrl = initRes.authorization_url || initRes.link || '';
+      if (initRes.transfer_details && initRes.transfer_details.account_number) {
+        setFlwTransfer({
+          account_number: initRes.transfer_details.account_number,
+          bank_name: initRes.transfer_details.bank_name,
+          account_name: initRes.transfer_details.account_name,
+          amount: Number(initRes.transfer_details.amount || num),
+          reference: initRes.reference,
+          expires_at: initRes.transfer_details.expires_at,
+          note: initRes.transfer_details.note,
+          checkout_url: checkoutUrl || undefined,
+        });
+        setSuccessMessage('One-time virtual bank account generated. Transfer the exact amount shown below, then verify.');
+        return;
+      }
+
+      if (checkoutUrl) {
+        setSuccessMessage(`Redirecting to secure ${gateway === 'flutterwave' ? 'Flutterwave' : 'Paystack'} checkout...`);
+        const win = window.open(checkoutUrl, '_blank');
+        if (!win) {
+          window.location.href = checkoutUrl;
+          return;
+        }
+        try {
+          const verifyRes = await api.verifyFunding(initRes.reference, gateway);
+          if (verifyRes.success) {
+            if (typeof verifyRes.balance === 'number') {
+              updateBalance(verifyRes.balance);
+            }
+            setSuccessMessage(`Payment of ₦${num.toLocaleString()} verified and credited to your wallet!`);
+            confetti({
+              particleCount: 50,
+              spread: 60,
+              origin: { y: 0.7 },
+            });
+            await loadSummary();
+          }
+        } catch {
+          // User may still be completing checkout in opened tab; show manual verify banner
+          setFlwTransfer({
+            account_number: '',
+            bank_name: gateway === 'flutterwave' ? 'Flutterwave Checkout' : 'Paystack Checkout',
+            amount: num,
+            reference: initRes.reference,
+            checkout_url: checkoutUrl,
+            note: 'Complete payment in the opened checkout window, then click Verify Transfer.',
           });
-          await loadSummary();
         }
       } else {
-        throw new Error(initRes.message || 'Payment initiation failed.');
+        throw new Error(initRes.message || 'Payment gateway did not return bank transfer details or a checkout URL.');
       }
     } catch (err: any) {
       setErrorMessage(err.message || `Failed to initialize ${gateway} checkout.`);
@@ -179,14 +255,21 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
       return;
     }
 
+    const bankNameVal = String(summary?.bankDetails?.bank || '').trim();
+    const accountNumberVal = String(summary?.bankDetails?.accountNumber || '').trim();
+    if (!bankNameVal || !accountNumberVal) {
+      setErrorMessage('Official bank transfer details are unavailable right now. Please refresh or use online deposit.');
+      return;
+    }
+
     setSubmittingManual(true);
     try {
       const formData = new FormData();
       formData.append('amount', String(amt));
       formData.append('depositor_name', depositorName.trim());
       formData.append('sender_name', depositorName.trim());
-      formData.append('bank_name', 'Moniepoint MFB');
-      formData.append('account_number', '5210471634');
+      formData.append('bank_name', bankNameVal);
+      formData.append('account_number', accountNumberVal);
       formData.append('reference', paymentReference.trim());
       formData.append('payment_reference', paymentReference.trim());
       formData.append('payment_date', paymentDate);
@@ -214,15 +297,23 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
   };
 
   const copyBank = (text: string) => {
+    if (!text) return;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const copyFlwAccount = (text: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedFlwAcc(true);
+    setTimeout(() => setCopiedFlwAcc(false), 2000);
+  };
+
   const bankDetails = {
-    bank: summary?.bankDetails?.bank || 'Moniepoint MFB',
-    accountNumber: summary?.bankDetails?.accountNumber || '5210471634',
-    accountName: summary?.bankDetails?.accountName || 'Hambaktech_Services',
+    bank: summary?.bankDetails?.bank || '',
+    accountNumber: summary?.bankDetails?.accountNumber || '',
+    accountName: summary?.bankDetails?.accountName || '',
   };
 
   return (
@@ -380,13 +471,100 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-bold text-sky-400">Bank Transfer</span>
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
-                        OFFICIAL
+                        MANUAL
                       </span>
                     </div>
-                    <p className="text-[10px] text-slate-400">Moniepoint Dedicated Account</p>
+                    <p className="text-[10px] text-slate-400">
+                      {bankDetails.bank ? `${bankDetails.bank} Transfer` : 'Direct Bank Transfer'}
+                    </p>
                   </button>
                 </div>
               </div>
+
+              {/* Flutterwave v4 Dynamic Virtual Account / Active Transfer Instructions */}
+              {flwTransfer && (
+                <div className="p-4 rounded-2xl bg-emerald-950/25 border border-emerald-500/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
+                      <Building className="w-4 h-4 text-emerald-400" />
+                      <span>
+                        {flwTransfer.account_number
+                          ? 'Flutterwave Dynamic Transfer Account'
+                          : 'Pending Checkout Verification'}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-mono tabular-nums text-amber-300 font-semibold">
+                      ₦{Number(flwTransfer.amount || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  {flwTransfer.account_number && (
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase block">Bank Name</span>
+                        <strong className="text-white">{flwTransfer.bank_name}</strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase block">Beneficiary Name</span>
+                        <strong className="text-white truncate block">{flwTransfer.account_name || 'HambakTech Services'}</strong>
+                      </div>
+                      <div className="col-span-2 flex items-center justify-between p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase block">Transfer Account Number</span>
+                          <span className="text-base font-bold font-mono tabular-nums text-emerald-400 tracking-wider">
+                            {flwTransfer.account_number}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => copyFlwAccount(flwTransfer.account_number)}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1 transition"
+                        >
+                          {copiedFlwAcc ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedFlwAcc ? 'Copied' : 'Copy'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-[11px] text-slate-300 space-y-1">
+                    <div>
+                      Reference: <span className="font-mono text-white">{flwTransfer.reference}</span>
+                      {flwTransfer.expires_at ? ` · Expires ${new Date(flwTransfer.expires_at).toLocaleString()}` : ''}
+                    </div>
+                    {flwTransfer.note && <p className="text-slate-400">{flwTransfer.note}</p>}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={verifyingFlw}
+                      onClick={() =>
+                        handleVerifyOnlinePayment(
+                          flwTransfer.reference,
+                          gateway === 'paystack' ? 'paystack' : 'flutterwave',
+                          flwTransfer.amount
+                        )
+                      }
+                      className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${verifyingFlw ? 'animate-spin' : ''}`} />
+                      <span>{verifyingFlw ? 'Verifying Settlement...' : "I've Sent Money — Verify Transfer"}</span>
+                    </button>
+                    {flwTransfer.checkout_url && (
+                      <a
+                        href={flwTransfer.checkout_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center gap-1.5 transition whitespace-nowrap"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Open Checkout</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Dedicated Official Receiving Bank Instructions */}
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
@@ -398,30 +576,36 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
                   <span className="text-[10px] text-slate-500 font-mono">Zero Platform Surcharge</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
-                  <div>
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Bank Name</span>
-                    <strong className="text-white font-semibold">{bankDetails.bank}</strong>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Account Name</span>
-                    <strong className="text-white font-semibold">{bankDetails.accountName}</strong>
-                  </div>
-                  <div className="col-span-2 flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800 mt-1">
+                {bankDetails.accountNumber ? (
+                  <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
                     <div>
-                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Account Number</span>
-                      <span className="text-base font-bold font-mono text-emerald-400">{bankDetails.accountNumber}</span>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Bank Name</span>
+                      <strong className="text-white font-semibold">{bankDetails.bank}</strong>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => copyBank(bankDetails.accountNumber)}
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1 transition"
-                    >
-                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copied ? 'Copied' : 'Copy'}</span>
-                    </button>
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Account Name</span>
+                      <strong className="text-white font-semibold">{bankDetails.accountName}</strong>
+                    </div>
+                    <div className="col-span-2 flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800 mt-1">
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Account Number</span>
+                        <span className="text-base font-bold font-mono tabular-nums text-emerald-400">{bankDetails.accountNumber}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyBank(bankDetails.accountNumber)}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1 transition"
+                      >
+                        {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copied ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400">
+                    Loading official receiving bank account details...
+                  </p>
+                )}
               </div>
 
               {/* Action Button */}
@@ -439,7 +623,11 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4" />
-                    <span>Proceed to Deposit ₦{Number(amount || 0).toLocaleString()}</span>
+                    <span>
+                      {gateway === 'flutterwave'
+                        ? `Generate Transfer Account (₦${Number(amount || 0).toLocaleString()})`
+                        : `Proceed to Deposit ₦${Number(amount || 0).toLocaleString()}`}
+                    </span>
                   </>
                 )}
               </button>
@@ -449,7 +637,9 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
             <form onSubmit={handleManualFormSubmit} className="space-y-4">
               <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                 <span className="text-[11px] text-slate-400">
-                  After initiating a bank transfer to <strong>{bankDetails.accountNumber} ({bankDetails.bank})</strong>, fill this form and attach your transfer receipt.
+                  {bankDetails.accountNumber
+                    ? <>After initiating a bank transfer to <strong>{bankDetails.accountNumber} ({bankDetails.bank})</strong>, fill this form and attach your transfer receipt.</>
+                    : 'Loading configured official bank account...'}
                 </span>
               </div>
 

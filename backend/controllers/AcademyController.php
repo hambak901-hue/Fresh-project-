@@ -378,7 +378,7 @@ class AcademyController
      */
     public function adminOverview(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         AcademyService::ensureSeeded($this->db);
 
         $courses = $this->db->fetchAll('SELECT * FROM academy_courses ORDER BY display_order ASC, title ASC');
@@ -422,7 +422,7 @@ class AcademyController
      */
     public function getSettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         Response::success(['settings' => AcademyService::getSettings($this->db)]);
     }
 
@@ -431,7 +431,7 @@ class AcademyController
      */
     public function updateSettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $body = $request->getBody();
         $merged = array_merge(AcademyService::getSettings($this->db), $body);
 
@@ -453,7 +453,7 @@ class AcademyController
      */
     public function saveCourse(Request $request, array $params = []): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $body = $request->getBody();
         $id = $params['id'] ?? (string)($body['id'] ?? '');
         if (empty($id)) {
@@ -538,7 +538,7 @@ class AcademyController
      */
     public function deleteCourse(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = $params['id'] ?? '';
         $this->db->execute('DELETE FROM academy_courses WHERE id = :id', ['id' => $id]);
         Response::success(null, 'Academy course deleted.');
@@ -549,7 +549,7 @@ class AcademyController
      */
     public function applications(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $rows = $this->db->fetchAll(
             'SELECT a.*, c.title AS course_title, c.duration AS course_duration,
                     s.student_id, s.academic_status
@@ -566,7 +566,7 @@ class AcademyController
      */
     public function reviewApplication(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         $id = $params['id'] ?? '';
         $body = $request->getBody();
         $action = strtolower(trim((string)($body['action'] ?? 'approve')));
@@ -668,7 +668,7 @@ class AcademyController
      */
     public function students(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $rows = $this->db->fetchAll(
             'SELECT s.*, c.title AS course_title, c.duration AS course_duration
              FROM academy_students s
@@ -683,7 +683,7 @@ class AcademyController
      */
     public function updateStudent(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = $params['id'] ?? '';
         $body = $request->getBody();
 
@@ -732,7 +732,7 @@ class AcademyController
      */
     public function deleteApplication(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = $params['id'] ?? '';
         $this->db->execute('DELETE FROM academy_students WHERE application_id = :id', ['id' => $id]);
         $this->db->execute('DELETE FROM academy_applications WHERE id = :id', ['id' => $id]);

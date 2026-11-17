@@ -843,7 +843,7 @@ class TelecomController
      */
     public function syncPlans(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $recalc = filter_var($request->input('recalculate_unlocked', false), FILTER_VALIDATE_BOOLEAN);
         try {
@@ -3779,7 +3779,7 @@ class TelecomController
      */
     public function adminPlans(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
 
         try {
@@ -3845,7 +3845,7 @@ class TelecomController
      */
     public function adminUpdatePlan(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $id = (string)$request->param('id', '');
         $plan = $this->db->fetchOne('SELECT * FROM telecom_plans WHERE id = :id', ['id' => $id]);
@@ -3934,7 +3934,7 @@ class TelecomController
      */
     public function adminBulkPlanPricing(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
 
         $network = strtoupper(trim((string)$request->input('network', 'ALL')));
@@ -4010,7 +4010,7 @@ class TelecomController
      */
     public function adminToggleCategory(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $network = strtoupper(trim((string)$request->input('network', '')));
         $category = trim((string)$request->input('category', ''));
         $isActive = filter_var($request->input('is_active', true), FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
@@ -4033,7 +4033,7 @@ class TelecomController
      */
     public function adminOrders(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $limit = min(200, max(1, (int)$request->query('limit', 50)));
         $service = trim((string)$request->query('service', ''));
         $status = trim((string)$request->query('status', ''));
@@ -4098,7 +4098,7 @@ class TelecomController
      */
     public function adminAirtimePins(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
 
         try {
@@ -4165,7 +4165,7 @@ class TelecomController
      */
     public function adminSyncAirtimePins(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $recalculateUnlocked = filter_var($request->input('recalculate_unlocked', false), FILTER_VALIDATE_BOOLEAN);
 
@@ -4183,7 +4183,7 @@ class TelecomController
      */
     public function adminUpdateAirtimePin(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $id = (string)$request->param('id', '');
         $row = $this->db->fetchOne('SELECT * FROM airtime_pin_denominations WHERE id = :id LIMIT 1', ['id' => $id]);
@@ -4298,7 +4298,7 @@ class TelecomController
      */
     public function adminBulkAirtimePinPricing(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
 
         $network = strtoupper(trim((string)$request->input('network', 'ALL')));
@@ -4369,7 +4369,7 @@ class TelecomController
      */
     public function adminDataPins(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
 
         $network = strtoupper(trim((string)$request->query('network', '')));
@@ -4429,7 +4429,7 @@ class TelecomController
      */
     public function adminUpdateDataPin(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $id = (string)$request->param('id', '');
         $row = $this->db->fetchOne('SELECT * FROM data_pin_denominations WHERE id = :id LIMIT 1', ['id' => $id]);
@@ -4502,7 +4502,7 @@ class TelecomController
      */
     public function adminBulkDataPinPricing(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
 
         $network = strtoupper(trim((string)$request->input('network', 'ALL')));
@@ -4737,7 +4737,7 @@ class TelecomController
 
     public function adminCablePackages(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $rows = $this->db->fetchAll('SELECT * FROM cable_packages ORDER BY provider ASC, price ASC');
         foreach ($rows as &$r) {
@@ -4751,7 +4751,7 @@ class TelecomController
 
     public function adminSyncCablePackages(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $recalc = filter_var($request->input('recalculate_unlocked', false), FILTER_VALIDATE_BOOLEAN);
         if (!($this->adapter instanceof UlamaDataAdapter)) {
@@ -4764,7 +4764,7 @@ class TelecomController
 
     public function adminUpdateCablePackage(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $id = (string)$request->param('id', '');
         $row = $this->db->fetchOne('SELECT * FROM cable_packages WHERE id = :id LIMIT 1', ['id' => $id]);
@@ -4789,7 +4789,7 @@ class TelecomController
 
     public function adminBulkCablePricing(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $markup = (float)$request->input('markup_percent', 2.0);
         $rows = $this->db->fetchAll('SELECT id, wholesale_cost, admin_price_locked FROM cable_packages');
@@ -4809,7 +4809,7 @@ class TelecomController
 
     public function adminElectricityDiscos(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $rows = $this->db->fetchAll('SELECT * FROM electricity_discos ORDER BY name ASC');
         foreach ($rows as &$r) {
@@ -4821,7 +4821,7 @@ class TelecomController
 
     public function adminSyncElectricityDiscos(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         if (!($this->adapter instanceof UlamaDataAdapter)) {
             Response::error('Active provider does not support live electricity DISCO sync.', 422);
@@ -4833,7 +4833,7 @@ class TelecomController
 
     public function adminUpdateElectricityDisco(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $id = (string)$request->param('id', '');
         $row = $this->db->fetchOne('SELECT * FROM electricity_discos WHERE id = :id LIMIT 1', ['id' => $id]);
@@ -4855,7 +4855,7 @@ class TelecomController
 
     public function adminExamPackages(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $rows = $this->db->fetchAll('SELECT * FROM exam_packages ORDER BY price ASC');
         foreach ($rows as &$r) {
@@ -4868,7 +4868,7 @@ class TelecomController
 
     public function adminSyncExamPackages(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $recalc = filter_var($request->input('recalculate_unlocked', false), FILTER_VALIDATE_BOOLEAN);
         if (!($this->adapter instanceof UlamaDataAdapter)) {
@@ -4881,7 +4881,7 @@ class TelecomController
 
     public function adminUpdateExamPackage(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $id = (string)$request->param('id', '');
         $row = $this->db->fetchOne('SELECT * FROM exam_packages WHERE id = :id LIMIT 1', ['id' => $id]);
@@ -4906,13 +4906,13 @@ class TelecomController
 
     public function adminBulkSmsConfig(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         Response::success(['config' => self::readBulkSmsSettings($this->db)]);
     }
 
     public function adminUpdateBulkSmsConfig(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $map = [
             'enabled' => ['key' => 'bulksms_enabled', 'desc' => 'Bulk SMS enabled flag'],
             'unit_price' => ['key' => 'bulksms_unit_price', 'desc' => 'Bulk SMS customer selling price per unit'],
@@ -4938,7 +4938,7 @@ class TelecomController
 
     public function adminTelecomSettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         Response::success([
             'settings' => [
                 'active_provider' => $this->activeProviderId,
@@ -4951,7 +4951,7 @@ class TelecomController
 
     public function adminUpdateTelecomSettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $updates = [
             'airtime_discount_percent' => $request->input('airtime_discount_percent'),
             'airtime_swap_enabled' => $request->input('airtime_swap_enabled'),
@@ -4977,7 +4977,7 @@ class TelecomController
 
     public function adminCreateDataPin(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $this->ensureDataSchema();
         $network = strtoupper(trim((string)$request->input('network', 'MTN')));
         $name = trim((string)$request->input('name', ''));

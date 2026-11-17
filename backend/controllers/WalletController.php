@@ -706,23 +706,23 @@ class WalletController
         if ($data && in_array($statusLower, ['successful', 'succeeded', 'completed', 'paid'], true)) {
             $rawRef = (string)($data['meta']['wallet_reference'] ?? ($data['tx_ref'] ?? ($data['reference'] ?? '')));
             $reference = trim($rawRef);
+            $alphaRef = preg_replace('/[^A-Za-z0-9]/', '', $reference) ?: $reference;
             $amount = (float)($data['amount'] ?? 0.0);
             $currency = strtoupper((string)($data['currency'] ?? 'NGN'));
             $email = strtolower(trim((string)($data['customer']['email'] ?? '')));
 
             if (!empty($reference) && $amount > 0 && $currency === 'NGN') {
-                $user = !empty($email)
-                    ? $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE LOWER(email) = :email LIMIT 1', ['email' => $email])
-                    : null;
-                if (!$user) {
-                    $record = $this->db->fetchOne(
-                        'SELECT user_id, reference FROM payment_records WHERE reference = :ref OR REPLACE(reference, "_", "") = :aref LIMIT 1',
-                        ['ref' => $reference, 'aref' => $reference]
-                    );
-                    if ($record) {
-                        $reference = $record['reference'];
-                        $user = $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE id = :uid LIMIT 1', ['uid' => $record['user_id']]);
-                    }
+                $recordMatch = $this->db->fetchOne(
+                    'SELECT user_id, reference FROM payment_records WHERE reference = :ref OR REPLACE(reference, "_", "") = :aref LIMIT 1',
+                    ['ref' => $reference, 'aref' => $alphaRef]
+                );
+                if ($recordMatch) {
+                    $reference = (string)$recordMatch['reference'];
+                    $user = $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE id = :uid LIMIT 1', ['uid' => $recordMatch['user_id']]);
+                } else {
+                    $user = !empty($email)
+                        ? $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE LOWER(email) = :email LIMIT 1', ['email' => $email])
+                        : null;
                 }
 
                 if ($user) {
@@ -1091,15 +1091,19 @@ class WalletController
                 'created_at' => $va['created_at'],
             ]);
         } else {
-            // Return structured architectural status
+            $policy = $this->getWalletPolicy();
+            $walletBank = $policy['wallet'] ?? [];
+            $bankName = trim((string)($walletBank['manual_bank_name'] ?? $walletBank['bank_name'] ?? ''));
+            $accountNumber = trim((string)($walletBank['manual_account_number'] ?? $walletBank['bank_account_number'] ?? ''));
+            $accountName = trim((string)($walletBank['manual_account_name'] ?? $walletBank['bank_account_name'] ?? ''));
             Response::success([
                 'has_virtual_account' => false,
                 'status' => 'pending_activation',
                 'message' => 'Dedicated NGN virtual accounts will be activated once business regulatory approvals are completed on Flutterwave.',
                 'bankDetails' => [
-                    'bank' => 'Moniepoint MFB',
-                    'accountNumber' => '5210471634',
-                    'accountName' => 'Hambaktech_Services',
+                    'bank' => $bankName,
+                    'accountNumber' => $accountNumber,
+                    'accountName' => $accountName,
                 ],
             ]);
         }

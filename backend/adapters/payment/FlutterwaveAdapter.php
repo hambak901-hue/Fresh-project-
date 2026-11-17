@@ -259,76 +259,14 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
         // Step 1: Lookup or create Flutterwave v4 customer
         $customerId = $this->findOrCreateV4Customer($email, $firstName, $lastName, $cleanPhone);
 
-        // Step 2: Prefer dynamic Virtual Account endpoint (/virtual-accounts) for seamless NGN bank transfer
-        if ($customerId !== null) {
-            $vaPayload = [
-                'reference' => $alphaRef,
-                'customer_id' => $customerId,
-                'expiry' => 3600,
-                'amount' => $amount,
-                'currency' => 'NGN',
-                'account_type' => 'dynamic',
-                'meta' => array_merge($metadata, [
-                    'platform' => 'HambakTech Enterprise',
-                    'service' => 'Wallet Funding',
-                    'wallet_reference' => $reference,
-                ]),
-            ];
-
-            $vaRes = $this->requestV4('/virtual-accounts', 'POST', $vaPayload, $alphaRef);
-            if ($vaRes['ok'] && is_array($vaRes['data'])) {
-                $va = $vaRes['data'];
-                $accNum = (string)($va['account_number'] ?? ($va['virtual_account']['account_number'] ?? ''));
-                if ($accNum !== '') {
-                    $transferDetails = [
-                        'account_number' => $accNum,
-                        'bank_name' => (string)($va['account_bank_name'] ?? ($va['bank_name'] ?? 'Wema Bank')),
-                        'account_name' => (string)($va['account_name'] ?? ($fullName . ' / HAMBAKTECH')),
-                        'amount' => (float)($va['amount'] ?? $amount),
-                        'currency' => (string)($va['currency'] ?? 'NGN'),
-                        'expires_at' => (string)($va['account_expiration_datetime'] ?? ($va['expiry_datetime'] ?? '')),
-                        'note' => (string)($va['note'] ?? 'Transfer the exact amount to this temporary account to fund your wallet automatically.'),
-                        'reference' => $reference,
-                        'flw_reference' => (string)($va['reference'] ?? $alphaRef),
-                        'flw_va_id' => (string)($va['id'] ?? ''),
-                    ];
-                    return [
-                        'authorization_url' => '',
-                        'link' => '',
-                        'reference' => $reference,
-                        'tx_ref' => $reference,
-                        'flw_charge_id' => (string)($va['id'] ?? ''),
-                        'flw_va_id' => (string)($va['id'] ?? ''),
-                        'transfer_details' => $transferDetails,
-                        'amount' => $amount,
-                    ];
-                }
-            }
-        }
-
-        // Step 3: Fallback to /orchestration/direct-charges with dynamic bank transfer
-        $payload = [
+        // Step 2: Create dynamic Virtual Account (/virtual-accounts) for seamless NGN bank transfer
+        $vaPayload = [
+            'reference' => $alphaRef,
+            'customer_id' => $customerId,
+            'expiry' => 3600,
             'amount' => $amount,
             'currency' => 'NGN',
-            'reference' => $alphaRef,
-            'redirect_url' => $callbackUrl,
-            'customer' => [
-                'email' => $email,
-                'name' => [
-                    'first' => $firstName,
-                    'last' => $lastName,
-                ],
-                'phone' => [
-                    'country_code' => '234',
-                    'number' => $cleanPhone,
-                ],
-            ],
-            'payment_method' => [
-                'type' => 'bank_transfer',
-                'bank_transfer' => [
-                    'account_type' => 'dynamic',
-                ],
-            ],
+            'account_type' => 'dynamic',
             'meta' => array_merge($metadata, [
                 'platform' => 'HambakTech Enterprise',
                 'service' => 'Wallet Funding',
@@ -336,73 +274,103 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
             ]),
         ];
 
-        $chargeRes = $this->requestV4('/orchestration/direct-charges', 'POST', $payload, $reference);
-        if ($chargeRes['ok'] && is_array($chargeRes['data'])) {
-            $data = $chargeRes['data'];
-            $nextAction = $data['next_action'] ?? [];
-            $link = (string)($nextAction['redirect_url']['url'] ?? ($data['link'] ?? ''));
-            $rawInstruction = $nextAction['payment_instruction'] ?? ($nextAction['bank_transfer'] ?? null);
-            $transferDetails = null;
-            if (is_array($rawInstruction) && !empty($rawInstruction['account_number'])) {
+        $vaRes = $this->requestV4('/virtual-accounts', 'POST', $vaPayload, $alphaRef);
+        if ($vaRes['ok'] && is_array($vaRes['data'])) {
+            $va = $vaRes['data'];
+            $accNum = (string)($va['account_number'] ?? ($va['virtual_account']['account_number'] ?? ''));
+            if ($accNum !== '') {
                 $transferDetails = [
-                    'account_number' => (string)$rawInstruction['account_number'],
-                    'bank_name' => (string)($rawInstruction['bank_name'] ?? ($rawInstruction['account_bank_name'] ?? 'Flutterwave Bank')),
-                    'account_name' => (string)($rawInstruction['account_name'] ?? ($fullName . ' / HAMBAKTECH')),
-                    'amount' => (float)($rawInstruction['amount'] ?? $amount),
-                    'currency' => 'NGN',
-                    'expires_at' => (string)($rawInstruction['expiration'] ?? ($rawInstruction['expires_at'] ?? '')),
-                    'note' => (string)($rawInstruction['note'] ?? 'Transfer the exact amount to credit your wallet.'),
+                    'account_number' => $accNum,
+                    'bank_name' => (string)($va['account_bank_name'] ?? ($va['bank_name'] ?? 'Wema Bank')),
+                    'account_name' => (string)($va['account_name'] ?? ($fullName . ' / HAMBAKTECH')),
+                    'amount' => (float)($va['amount'] ?? $amount),
+                    'currency' => (string)($va['currency'] ?? 'NGN'),
+                    'expires_at' => (string)($va['account_expiration_datetime'] ?? ($va['expiry_datetime'] ?? '')),
+                    'note' => (string)($va['note'] ?? 'Transfer the exact amount to this temporary account to fund your wallet automatically.'),
                     'reference' => $reference,
-                    'flw_reference' => (string)($data['reference'] ?? $alphaRef),
-                    'flw_va_id' => (string)($data['id'] ?? ''),
+                    'flw_reference' => (string)($va['reference'] ?? $alphaRef),
+                    'flw_va_id' => (string)($va['id'] ?? ''),
                 ];
-            } elseif (is_array($rawInstruction)) {
-                $transferDetails = $rawInstruction;
+                return [
+                    'authorization_url' => '',
+                    'link' => '',
+                    'reference' => $reference,
+                    'tx_ref' => $reference,
+                    'flw_charge_id' => (string)($va['id'] ?? ''),
+                    'flw_va_id' => (string)($va['id'] ?? ''),
+                    'transfer_details' => $transferDetails,
+                    'amount' => $amount,
+                ];
             }
-            if ($link === '' && $transferDetails === null) {
-                throw new RuntimeException('Flutterwave v4 direct charge initialized without redirect link or bank transfer instruction.');
-            }
-            return [
-                'authorization_url' => $link,
-                'link' => $link,
-                'reference' => $reference,
-                'tx_ref' => $reference,
-                'flw_charge_id' => $data['id'] ?? null,
-                'transfer_details' => $transferDetails,
-                'amount' => $amount,
-            ];
         }
 
-        $parsed = $chargeRes['parsed'] ?? [];
-        $statusCode = $chargeRes['status_code'] ?? 0;
-        $msg = is_array($parsed)
-            ? ($parsed['error']['message'] ?? $parsed['message'] ?? "Flutterwave v4 checkout failed (HTTP {$statusCode})")
-            : "Flutterwave v4 checkout failed (HTTP {$statusCode})";
-        throw new RuntimeException("Flutterwave v4 Checkout Error: {$msg}");
+        $parsed = $vaRes['parsed'] ?? [];
+        $statusCode = (int)($vaRes['status_code'] ?? 0);
+        $errDetail = '';
+        if (is_array($parsed)) {
+            $errDetail = (string)($parsed['error']['message'] ?? $parsed['message'] ?? '');
+            if (!empty($parsed['error']['validation_errors']) && is_array($parsed['error']['validation_errors'])) {
+                $parts = [];
+                foreach ($parsed['error']['validation_errors'] as $ve) {
+                    if (is_array($ve) && (!empty($ve['field_name']) || !empty($ve['message']))) {
+                        $parts[] = trim(($ve['field_name'] ?? '') . ' ' . ($ve['message'] ?? ''));
+                    }
+                }
+                if (!empty($parts)) {
+                    $errDetail .= ($errDetail !== '' ? ' — ' : '') . implode('; ', $parts);
+                }
+            }
+        }
+        if ($errDetail === '') {
+            $errDetail = "Flutterwave v4 virtual account creation failed (HTTP {$statusCode})";
+        }
+        throw new RuntimeException("Flutterwave v4 Bank Transfer Error: {$errDetail}");
     }
 
-    private function findOrCreateV4Customer(string $email, string $firstName, string $lastName, string $phone): ?string
+    private function findOrCreateV4Customer(string $email, string $firstName, string $lastName, string $phone): string
     {
         $lookup = $this->requestV4('/customers?email=' . rawurlencode($email), 'GET', null, '');
         if ($lookup['ok'] && is_array($lookup['data'])) {
-            $rows = isset($lookup['data'][0]) ? $lookup['data'] : [$lookup['data']];
+            $rows = isset($lookup['data'][0]) ? $lookup['data'] : (isset($lookup['data']['id']) ? [$lookup['data']] : []);
             foreach ($rows as $cust) {
-                if (!empty($cust['id']) && strtolower((string)($cust['email'] ?? '')) === strtolower($email)) {
+                if (is_array($cust) && !empty($cust['id']) && strtolower((string)($cust['email'] ?? '')) === strtolower($email)) {
                     return (string)$cust['id'];
                 }
             }
         }
 
+        $phoneClean = preg_replace('/\D/', '', $phone) ?: '8000000000';
+        if (strlen($phoneClean) < 7) {
+            $phoneClean = '8000000000';
+        }
+
         $create = $this->requestV4('/customers', 'POST', [
             'email' => $email,
             'name' => ['first' => $firstName, 'last' => $lastName],
-            'phone' => ['country_code' => '234', 'number' => $phone],
-        ], 'cust_' . md5($email));
+            'phone' => ['country_code' => '234', 'number' => $phoneClean],
+        ], 'cust_' . md5(strtolower($email) . '_' . $phoneClean));
 
         if ($create['ok'] && !empty($create['data']['id'])) {
             return (string)$create['data']['id'];
         }
-        return null;
+
+        // Re-check customer lookup in case of concurrent creation or existing record
+        $reLookup = $this->requestV4('/customers?email=' . rawurlencode($email), 'GET', null, '');
+        if ($reLookup['ok'] && is_array($reLookup['data'])) {
+            $rows = isset($reLookup['data'][0]) ? $reLookup['data'] : (isset($reLookup['data']['id']) ? [$reLookup['data']] : []);
+            foreach ($rows as $cust) {
+                if (is_array($cust) && !empty($cust['id']) && strtolower((string)($cust['email'] ?? '')) === strtolower($email)) {
+                    return (string)$cust['id'];
+                }
+            }
+        }
+
+        $parsed = $create['parsed'] ?? [];
+        $code = (int)($create['status_code'] ?? 0);
+        $msg = is_array($parsed)
+            ? (string)($parsed['error']['message'] ?? $parsed['message'] ?? "Unable to register Flutterwave v4 customer (HTTP {$code})")
+            : "Unable to register Flutterwave v4 customer (HTTP {$code})";
+        throw new RuntimeException("Flutterwave v4 Customer Error: {$msg}");
     }
 
     private function requestV4(string $endpoint, string $method, ?array $payload, string $idempotencyKey): array
@@ -519,21 +487,20 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
     private function verifyPaymentV4(string $reference, ?string $transactionId = null): array
     {
         $alphaRef = preg_replace('/[^A-Za-z0-9]/', '', $reference) ?: $reference;
-        $candidates = [];
+        $chargeCandidates = [];
         if (!empty($transactionId)) {
-            $candidates[] = '/charges/' . rawurlencode($transactionId);
+            $chargeCandidates[] = '/charges/' . rawurlencode($transactionId);
         }
-        $candidates[] = '/charges?reference=' . rawurlencode($reference);
+        $chargeCandidates[] = '/charges?reference=' . rawurlencode($reference);
         if ($alphaRef !== $reference) {
-            $candidates[] = '/charges?reference=' . rawurlencode($alphaRef);
+            $chargeCandidates[] = '/charges?reference=' . rawurlencode($alphaRef);
         }
-        $candidates[] = '/virtual-accounts?reference=' . rawurlencode($alphaRef);
 
         $data = null;
         $lastParsed = null;
         $lastCode = 0;
 
-        foreach ($candidates as $ep) {
+        foreach ($chargeCandidates as $ep) {
             $res = $this->requestV4($ep, 'GET', null, '');
             $lastCode = $res['status_code'];
             $lastParsed = $res['parsed'];
@@ -552,30 +519,44 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
                         break 2;
                     }
                 }
-                if (str_starts_with($ep, '/charges')) {
-                    $data = $rowSet[0];
-                    break;
-                }
-            } elseif (is_array($rowSet)) {
+                $data = $rowSet[0];
+                break;
+            } elseif (is_array($rowSet) && isset($rowSet['status'])) {
                 $data = $rowSet;
                 break;
             }
         }
 
+        // Only confirmed /charges responses may mark a transaction as successful.
         if (!is_array($data) || empty($data)) {
-            $msg = is_array($lastParsed) ? ($lastParsed['message'] ?? "Awaiting bank transfer confirmation (HTTP {$lastCode})") : "Awaiting bank transfer confirmation";
+            $vaRes = $this->requestV4('/virtual-accounts?reference=' . rawurlencode($alphaRef), 'GET', null, '');
+            $vaState = 'pending';
+            $vaMsg = is_array($lastParsed)
+                ? ($lastParsed['message'] ?? "Awaiting bank transfer confirmation (HTTP {$lastCode})")
+                : "Awaiting bank transfer confirmation";
+            if ($vaRes['ok'] && is_array($vaRes['data'])) {
+                $vaRows = isset($vaRes['data'][0]) ? $vaRes['data'] : [$vaRes['data']];
+                $vaRow = is_array($vaRows[0] ?? null) ? $vaRows[0] : [];
+                $vaStatusLower = strtolower((string)($vaRow['status'] ?? ''));
+                if ($vaStatusLower === 'active') {
+                    $vaMsg = 'Virtual account active — awaiting incoming bank transfer settlement.';
+                } elseif ($vaStatusLower === 'inactive') {
+                    $vaState = 'pending';
+                    $vaMsg = 'Temporary transfer window closed or awaiting settlement confirmation.';
+                }
+            }
             return [
-                'status' => 'pending',
+                'status' => $vaState,
                 'amount' => 0.00,
                 'reference' => $reference,
-                'gateway_response' => $msg,
+                'gateway_response' => $vaMsg,
                 'raw' => $lastParsed,
             ];
         }
 
         $chargeStatus = strtolower((string)($data['status'] ?? ''));
         $isSuccess = in_array($chargeStatus, ['succeeded', 'successful', 'completed', 'paid'], true);
-        $isPending = in_array($chargeStatus, ['pending', 'active', 'awaiting_payment', 'ongoing', 'processing', ''], true);
+        $isPending = in_array($chargeStatus, ['pending', 'awaiting_payment', 'ongoing', 'processing', ''], true);
 
         return [
             'status' => $isSuccess ? 'successful' : ($isPending ? 'pending' : $chargeStatus),

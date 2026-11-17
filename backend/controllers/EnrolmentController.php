@@ -1400,7 +1400,7 @@ class EnrolmentController
      */
     public function adminList(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         SchemaSync::syncEnrolmentCatalog($this->db);
 
         $serviceKey = trim((string)$request->query('service_key', 'all'));
@@ -1513,7 +1513,7 @@ class EnrolmentController
      */
     public function adminDetail(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -1537,7 +1537,7 @@ class EnrolmentController
      */
     public function adminPollStatus(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -1572,7 +1572,7 @@ class EnrolmentController
      */
     public function adminUpdateOrder(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         $id = trim((string)($params['id'] ?? ''));
         $body = $request->getBody();
 
@@ -1709,7 +1709,7 @@ class EnrolmentController
      */
     public function adminServices(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         SchemaSync::syncEnrolmentCatalog($this->db);
 
         $rows = $this->db->fetchAll(
@@ -1739,7 +1739,7 @@ class EnrolmentController
      */
     public function adminUpdateService(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         SchemaSync::syncEnrolmentCatalog($this->db);
 
         $key = trim((string)($params['key'] ?? ''));
@@ -1855,7 +1855,7 @@ class EnrolmentController
      */
     public function adminUploadSample(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         SchemaSync::syncEnrolmentCatalog($this->db);
 
         $key = trim((string)($params['key'] ?? ''));
@@ -1956,7 +1956,7 @@ class EnrolmentController
      */
     public function adminDeleteSample(Request $request, array $params): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         $id = trim((string)($params['id'] ?? ''));
 
         $sample = $this->db->fetchOne('SELECT * FROM enrolment_sample_documents WHERE id = :id LIMIT 1', ['id' => $id]);
@@ -1991,7 +1991,7 @@ class EnrolmentController
      */
     public function adminSyncCatalog(Request $request): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'services');
         SchemaSync::syncEnrolmentCatalog($this->db, true);
 
         $adapter = new TwoSureVerifyAdapter();

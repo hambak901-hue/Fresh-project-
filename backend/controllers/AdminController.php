@@ -167,7 +167,8 @@ class AdminController
 
         $txStats = $this->db->fetchOne(
             'SELECT 
-                COALESCE(SUM(CASE WHEN type = "credit" AND status = "successful" THEN amount ELSE 0 END), 0) as total_wallet_funding,
+                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND status = "successful" THEN amount ELSE 0 END), 0) as total_wallet_funding,
+                COALESCE(SUM(CASE WHEN type = "credit" AND (category = "manual_adjustment" OR reference LIKE "REFUND_%") AND status = "successful" THEN amount ELSE 0 END), 0) as total_refunds,
                 COALESCE(SUM(CASE WHEN type = "debit" AND status = "successful" THEN amount ELSE 0 END), 0) as total_service_sales,
                 COUNT(CASE WHEN status = "successful" THEN 1 END) as successful_transactions,
                 COUNT(CASE WHEN status = "pending" THEN 1 END) as pending_transactions,
@@ -184,7 +185,7 @@ class AdminController
              WHERE status = "successful"'
         );
 
-        // 4. Verification Revenue & Wholesale Cost
+        // 4. Verification, Modification & Enrolment Revenue & Wholesale Cost
         $vrfStats = $this->db->fetchOne(
             'SELECT 
                 COALESCE(SUM(cost), 0) as vrf_revenue,
@@ -192,6 +193,22 @@ class AdminController
              FROM verification_records 
              WHERE status = "completed"'
         );
+        $modOverview = ['rev' => 0.0, 'cost' => 0.0];
+        try {
+            $mr = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as rev, COALESCE(SUM(provider_cost), 0) as cost FROM modification_requests WHERE status = "completed"');
+            if ($mr) {
+                $modOverview = ['rev' => (float)$mr['rev'], 'cost' => (float)$mr['cost']];
+            }
+        } catch (Throwable) {
+        }
+        $enrOverview = ['rev' => 0.0, 'cost' => 0.0];
+        try {
+            $er = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as rev, COALESCE(SUM(provider_cost), 0) as cost FROM enrolment_orders WHERE status = "completed"');
+            if ($er) {
+                $enrOverview = ['rev' => (float)$er['rev'], 'cost' => (float)$er['cost']];
+            }
+        } catch (Throwable) {
+        }
 
         $pendingFundingCount = (int)$this->db->fetchOne(
             'SELECT COUNT(*) as count FROM manual_funding_requests WHERE status = "pending"'
@@ -236,8 +253,10 @@ class AdminController
         );
 
         $totalSales = (float)($txStats['total_service_sales'] ?? 0);
-        $totalExpenditure = (float)($orderStats['provider_expenditure'] ?? 0) + (float)($vrfStats['vrf_wholesale'] ?? 0);
-        $grossProfit = (float)($orderStats['gross_profit'] ?? 0) + ((float)($vrfStats['vrf_revenue'] ?? 0) - (float)($vrfStats['vrf_wholesale'] ?? 0));
+        $identityWholesale = (float)($vrfStats['vrf_wholesale'] ?? 0) + (float)$modOverview['cost'] + (float)$enrOverview['cost'];
+        $identityRevenue = (float)($vrfStats['vrf_revenue'] ?? 0) + (float)$modOverview['rev'] + (float)$enrOverview['rev'];
+        $totalExpenditure = (float)($orderStats['provider_expenditure'] ?? 0) + $identityWholesale;
+        $grossProfit = (float)($orderStats['gross_profit'] ?? 0) + ($identityRevenue - $identityWholesale);
 
         $metrics = [
             'total_users' => (int)($userStats['total_customers'] ?? 0),
@@ -257,6 +276,8 @@ class AdminController
             'totalWalletBalances' => (float)($walletStats['total_wallet_balances'] ?? 0),
             'total_wallet_funding' => (float)($txStats['total_wallet_funding'] ?? 0),
             'totalWalletFunding' => (float)($txStats['total_wallet_funding'] ?? 0),
+            'total_refunds' => (float)($txStats['total_refunds'] ?? 0),
+            'totalRefunds' => (float)($txStats['total_refunds'] ?? 0),
             'total_service_sales' => $totalSales,
             'totalServiceSales' => $totalSales,
             'provider_expenditure' => $totalExpenditure,
@@ -790,41 +811,63 @@ class AdminController
 
         $fundingStats = $this->db->fetchOne(
             'SELECT 
-                SUM(CASE WHEN type = "credit" AND status = "successful" THEN amount ELSE 0 END) as total_funding,
-                SUM(CASE WHEN gateway = "paystack" AND status = "successful" THEN amount ELSE 0 END) as paystack_funding,
-                SUM(CASE WHEN gateway = "flutterwave" AND status = "successful" THEN amount ELSE 0 END) as flutterwave_funding,
-                SUM(CASE WHEN gateway = "manual_transfer" AND status = "successful" THEN amount ELSE 0 END) as manual_funding,
-                COUNT(CASE WHEN type = "credit" AND status = "successful" THEN 1 END) as count_funding
+                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND status = "successful" THEN amount ELSE 0 END), 0) as total_funding,
+                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "paystack" AND status = "successful" THEN amount ELSE 0 END), 0) as paystack_funding,
+                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "flutterwave" AND status = "successful" THEN amount ELSE 0 END), 0) as flutterwave_funding,
+                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "manual_transfer" AND status = "successful" THEN amount ELSE 0 END), 0) as manual_funding,
+                COALESCE(SUM(CASE WHEN type = "credit" AND (category = "manual_adjustment" OR reference LIKE "REFUND_%") AND status = "successful" THEN amount ELSE 0 END), 0) as total_refunds,
+                COUNT(CASE WHEN type = "credit" AND category = "funding" AND status = "successful" THEN 1 END) as count_funding
              FROM transactions'
         );
 
-        $salesStats = $this->db->fetchOne(
+        $telecomAgg = $this->db->fetchOne(
             'SELECT 
-                SUM(CASE WHEN type = "debit" AND status = "successful" THEN amount ELSE 0 END) as total_service_sales,
-                SUM(CASE WHEN category IN ("airtime", "data_purchase", "cable_tv") AND status = "successful" THEN amount ELSE 0 END) as telecom_sales,
-                SUM(CASE WHEN category = "verification" AND status = "successful" THEN amount ELSE 0 END) as verification_sales
-             FROM transactions'
-        );
-
-        $expenditureStats = $this->db->fetchOne(
-            'SELECT 
-                SUM(cost_price) as telecom_cost,
-                SUM(profit) as telecom_profit
+                COALESCE(SUM(amount), 0) as telecom_sales,
+                COALESCE(SUM(cost_price), 0) as telecom_cost,
+                COALESCE(SUM(profit), 0) as telecom_profit
              FROM telecom_orders WHERE status = "successful"'
         );
 
+        $vrfAgg = $this->db->fetchOne(
+            'SELECT 
+                COALESCE(SUM(cost), 0) as vrf_sales,
+                COALESCE(SUM(provider_cost), 0) as vrf_cost
+             FROM verification_records WHERE status = "completed"'
+        );
+        $modAgg = ['sales' => 0.0, 'cost' => 0.0];
+        try {
+            $r = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as s, COALESCE(SUM(provider_cost), 0) as c FROM modification_requests WHERE status = "completed"');
+            if ($r) {
+                $modAgg = ['sales' => (float)$r['s'], 'cost' => (float)$r['c']];
+            }
+        } catch (Throwable) {
+        }
+        $enrAgg = ['sales' => 0.0, 'cost' => 0.0];
+        try {
+            $r = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as s, COALESCE(SUM(provider_cost), 0) as c FROM enrolment_orders WHERE status = "completed"');
+            if ($r) {
+                $enrAgg = ['sales' => (float)$r['s'], 'cost' => (float)$r['c']];
+            }
+        } catch (Throwable) {
+        }
+
         $floatStats = $this->db->fetchOne(
             'SELECT 
-                SUM(balance) as total_customer_float,
+                COALESCE(SUM(balance), 0) as total_customer_float,
                 COUNT(*) as total_customers
              FROM wallets WHERE status = "active"'
         );
 
-        $totalSales = (float)($salesStats['total_service_sales'] ?? 0);
-        $telecomCost = (float)($expenditureStats['telecom_cost'] ?? 0);
-        $identityCost = (float)$totalSales * 0.45; // Average wholesale identity ratio
+        $telecomSales = (float)($telecomAgg['telecom_sales'] ?? 0);
+        $telecomCost = (float)($telecomAgg['telecom_cost'] ?? 0);
+        $telecomProfit = (float)($telecomAgg['telecom_profit'] ?? 0);
+
+        $identitySales = (float)($vrfAgg['vrf_sales'] ?? 0) + $modAgg['sales'] + $enrAgg['sales'];
+        $identityCost = (float)($vrfAgg['vrf_cost'] ?? 0) + $modAgg['cost'] + $enrAgg['cost'];
+
+        $totalSales = $telecomSales + $identitySales;
         $totalExpenditure = $telecomCost + $identityCost;
-        $grossProfit = $totalSales - $totalExpenditure;
+        $grossProfit = $telecomProfit + ($identitySales - $identityCost);
         $profitMargin = $totalSales > 0 ? round(($grossProfit / $totalSales) * 100, 2) : 0;
 
         Response::success([
@@ -834,12 +877,13 @@ class AdminController
                     'paystackFunding' => (float)($fundingStats['paystack_funding'] ?? 0),
                     'flutterwaveFunding' => (float)($fundingStats['flutterwave_funding'] ?? 0),
                     'manualFunding' => (float)($fundingStats['manual_funding'] ?? 0),
+                    'totalRefunds' => (float)($fundingStats['total_refunds'] ?? 0),
                     'fundingTransactionsCount' => (int)($fundingStats['count_funding'] ?? 0),
                 ],
                 'sales' => [
                     'totalServiceSales' => $totalSales,
-                    'telecomSales' => (float)($salesStats['telecom_sales'] ?? 0),
-                    'identityVerificationSales' => (float)($salesStats['verification_sales'] ?? 0),
+                    'telecomSales' => $telecomSales,
+                    'identityVerificationSales' => $identitySales,
                 ],
                 'expenditure' => [
                     'totalProviderExpenditure' => $totalExpenditure,
@@ -963,7 +1007,7 @@ class AdminController
             $custRange['params']
         );
 
-        // 2. Transaction Report (strict separation of funding credits vs service debits)
+        // 2. Transaction Report (strict separation of funding credits vs refunds vs service debits)
         $txRange = $buildRange('created_at', 'tx');
         $txSummary = $this->db->fetchOne(
             'SELECT 
@@ -973,7 +1017,8 @@ class AdminController
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_count,
                 SUM(CASE WHEN status = "failed" THEN 1 ELSE 0 END) as failed_count,
                 COALESCE(SUM(CASE WHEN status = "successful" THEN amount ELSE 0 END), 0) as successful_volume,
-                COALESCE(SUM(CASE WHEN status = "successful" AND type = "credit" THEN amount ELSE 0 END), 0) as credit_funding_volume,
+                COALESCE(SUM(CASE WHEN status = "successful" AND type = "credit" AND category = "funding" THEN amount ELSE 0 END), 0) as credit_funding_volume,
+                COALESCE(SUM(CASE WHEN status = "successful" AND type = "credit" AND (category = "manual_adjustment" OR reference LIKE "REFUND_%") THEN amount ELSE 0 END), 0) as refund_credit_volume,
                 COALESCE(SUM(CASE WHEN status = "successful" AND type = "debit" THEN amount ELSE 0 END), 0) as debit_sales_volume
              FROM transactions WHERE 1=1' . $txRange['sql'],
             $txRange['params']
@@ -1073,7 +1118,7 @@ class AdminController
             $modRow = $this->db->fetchOne(
                 'SELECT 
                     SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_requests,
-                    COALESCE(SUM(CASE WHEN status = "completed" THEN price ELSE 0 END), 0) as total_revenue,
+                    COALESCE(SUM(CASE WHEN status = "completed" THEN customer_price ELSE 0 END), 0) as total_revenue,
                     COALESCE(SUM(CASE WHEN status = "completed" THEN provider_cost ELSE 0 END), 0) as total_wholesale_cost
                  FROM modification_requests WHERE 1=1' . $modRange['sql'],
                 $modRange['params']
@@ -1094,7 +1139,7 @@ class AdminController
             $enrRow = $this->db->fetchOne(
                 'SELECT 
                     SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_requests,
-                    COALESCE(SUM(CASE WHEN status = "completed" THEN price ELSE 0 END), 0) as total_revenue,
+                    COALESCE(SUM(CASE WHEN status = "completed" THEN customer_price ELSE 0 END), 0) as total_revenue,
                     COALESCE(SUM(CASE WHEN status = "completed" THEN provider_cost ELSE 0 END), 0) as total_wholesale_cost
                  FROM enrolment_orders WHERE 1=1' . $enrRange['sql'],
                 $enrRange['params']
@@ -1183,7 +1228,7 @@ class AdminController
             $manRange['params']
         );
 
-        // 10. KYC Report (normalized approved/verified + target_level)
+        // 10. KYC Report (normalized submissions + account-level users KYC visibility)
         $kycRange = $buildRange('created_at', 'kyc');
         $kycSummary = $this->db->fetchOne(
             'SELECT 
@@ -1197,7 +1242,24 @@ class AdminController
                 SUM(CASE WHEN COALESCE(target_level, 2) >= 3 THEN 1 ELSE 0 END) as tier3_count
              FROM kyc_submissions WHERE 1=1' . $kycRange['sql'],
             $kycRange['params']
-        );
+        ) ?: [];
+        $kycUsersOverview = $this->db->fetchOne(
+            'SELECT
+                COUNT(*) as total_accounts,
+                SUM(CASE WHEN kyc_status IN ("verified", "approved") THEN 1 ELSE 0 END) as verified_users,
+                SUM(CASE WHEN kyc_status = "pending" THEN 1 ELSE 0 END) as pending_users,
+                SUM(CASE WHEN kyc_status NOT IN ("verified", "approved", "pending") THEN 1 ELSE 0 END) as unverified_users,
+                SUM(CASE WHEN tier >= 2 THEN 1 ELSE 0 END) as tier2_plus_users
+             FROM users WHERE role IN ("customer", "student", "agent")' . $custRange['sql'],
+            $custRange['params']
+        ) ?: [];
+        $kycSummary['users_kyc_overview'] = [
+            'total_accounts' => (int)($kycUsersOverview['total_accounts'] ?? 0),
+            'verified_users' => (int)($kycUsersOverview['verified_users'] ?? 0),
+            'pending_users' => (int)($kycUsersOverview['pending_users'] ?? 0),
+            'unverified_users' => (int)($kycUsersOverview['unverified_users'] ?? 0),
+            'tier2_plus_users' => (int)($kycUsersOverview['tier2_plus_users'] ?? 0),
+        ];
 
         // 11. Staff Activity Report (masked user emails)
         $audRange = $buildRange('created_at', 'aud');
@@ -1264,6 +1326,7 @@ class AdminController
             'profit_report' => [
                 'total_revenue' => $totalServiceRevenue,
                 'funding_credits_volume' => (float)($txSummary['credit_funding_volume'] ?? 0),
+                'refund_credits_volume' => (float)($txSummary['refund_credit_volume'] ?? 0),
                 'debit_sales_volume' => (float)($txSummary['debit_sales_volume'] ?? 0),
                 'total_expenditure' => $totalExpenditure,
                 'gross_profit' => $totalGrossProfit,
@@ -5541,7 +5604,16 @@ class AdminController
         $dbRole = $role;
         $rawDashboard = strtolower(trim((string)$request->input('assigned_dashboard', '')));
         $assignedDashboard = in_array($rawDashboard, Auth::DASHBOARDS, true) ? $rawDashboard : Auth::defaultDashboardForRole($dbRole);
-        $assignedPermsJson = json_encode(Auth::defaultPermissionsForRole($dbRole));
+        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
+        $rawPerms = $request->input('permissions', $request->input('assigned_permissions', null));
+        if ($dbRole === 'superadmin') {
+            $cleanPerms = ['*'];
+        } elseif ($admin['role'] === 'superadmin' && is_array($rawPerms)) {
+            $cleanPerms = array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
+        } else {
+            $cleanPerms = Auth::defaultPermissionsForRole($dbRole);
+        }
+        $assignedPermsJson = json_encode($cleanPerms);
         $dbStatus = ($status === 'suspended') ? 'suspended' : 'active';
         $emailVerified = ($status === 'active') ? 1 : 0;
         $kycStatus = ($tier >= 2) ? 'verified' : ($hasIdentityDocs ? 'pending' : 'unverified');

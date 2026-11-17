@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api, getStoredToken } from '../../lib/api';
-import { AdminOverviewData, Transaction } from '../../types';
+import { AdminOverviewData, Transaction, isConsoleRole } from '../../types';
 
 interface AdminOverviewProps {
   onNavigateToTab: (tab: string) => void;
@@ -42,9 +42,9 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   const [rejectReason, setRejectReason] = useState('Bank deposit could not be verified on statement');
 
   const fetchOverview = async () => {
-    if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
+    if (!user || !isConsoleRole(user.role)) {
       setLoading(false);
-      setError('Administrator authentication token required to view enterprise telemetry.');
+      setError('Administrator or Staff Console privileges required to view telemetry.');
       return;
     }
 
@@ -150,6 +150,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
     totalStaff: Number(rawMetrics.totalStaff ?? rawMetrics.total_staff ?? 0),
     totalWalletBalances: Number(rawMetrics.totalWalletBalances ?? rawMetrics.total_wallet_balances ?? 0),
     totalWalletFunding: Number(rawMetrics.totalWalletFunding ?? rawMetrics.total_wallet_funding ?? 0),
+    totalRefunds: Number(rawMetrics.totalRefunds ?? rawMetrics.total_refunds ?? 0),
     totalServiceSales: Number(rawMetrics.totalServiceSales ?? rawMetrics.total_service_sales ?? 0),
     providerExpenditure: Number(rawMetrics.providerExpenditure ?? rawMetrics.provider_expenditure ?? 0),
     grossProfit: Number(rawMetrics.grossProfit ?? rawMetrics.gross_profit ?? 0),
@@ -197,7 +198,10 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
             <p className="text-xl sm:text-2xl font-bold font-mono text-emerald-400 mt-1 tabular-nums">
               ₦{(metrics.totalWalletBalances || 0).toLocaleString()}
             </p>
-            <p className="text-[11px] text-slate-500 mt-0.5 font-mono">Liability to customers</p>
+            <p className="text-[11px] text-slate-500 mt-0.5 font-mono tabular-nums">
+              Deposits: ₦{(metrics.totalWalletFunding || 0).toLocaleString()}
+              {metrics.totalRefunds > 0 ? ` · Refunds: ₦${metrics.totalRefunds.toLocaleString()}` : ''}
+            </p>
           </div>
           <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
             <p className="text-xs text-slate-400">Gross Service Sales (Debits)</p>

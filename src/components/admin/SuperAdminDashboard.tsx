@@ -5,11 +5,11 @@
  * global website CMS, customer dashboard modules, staff RBAC, service pricing & catalogs, and audit logs.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth, MfaChallengeRequiredError } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
 import { api } from '../../lib/api';
-import { MfaChallengeResponse } from '../../types';
+import { MfaChallengeResponse, isConsoleRole } from '../../types';
 import { ThemeToggle } from '../ThemeToggle';
 import {
   LayoutDashboard,
@@ -214,6 +214,23 @@ export function SuperAdminDashboard({
   const logoSrc = branding?.logo_url || '/logo.png';
   const [activeTab, setActiveTab] = useState<AdminTabKey>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user || !isConsoleRole(user.role)) return;
+    const dash = (user.assigned_dashboard || user.role || 'admin').toLowerCase();
+    const perms = Array.isArray(user.permissions) ? user.permissions : [];
+    const hasPerm = (p: string) => user.role === 'superadmin' || perms.includes('*') || perms.includes(p);
+    if (dash === 'support' && hasPerm('support')) {
+      setActiveTab('support_admin');
+    } else if (dash === 'staff') {
+      if (hasPerm('kyc')) setActiveTab('kyc_admin');
+      else if (hasPerm('services')) setActiveTab('services');
+      else if (hasPerm('support')) setActiveTab('support_admin');
+    } else {
+      setActiveTab('overview');
+    }
+  }, [user?.id, user?.role, user?.assigned_dashboard]);
+
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -249,8 +266,8 @@ export function SuperAdminDashboard({
     setRecoveryMsg(null);
     try {
       const logged = await login(adminEmail.trim().toLowerCase(), adminPassword);
-      if (logged && logged.role !== 'admin' && logged.role !== 'superadmin') {
-        setAuthError('This account does not have Administrator privileges.');
+      if (logged && !isConsoleRole(logged.role)) {
+        setAuthError('This account does not have Administrative or Staff Console privileges.');
       }
     } catch (err: any) {
       if (err instanceof MfaChallengeRequiredError) {
@@ -273,8 +290,8 @@ export function SuperAdminDashboard({
     setAuthError(null);
     try {
       const logged = await completeMfaLogin(mfaChallenge.challenge_token, mfaCode.trim());
-      if (logged && logged.role !== 'admin' && logged.role !== 'superadmin') {
-        setAuthError('This account does not have Administrator privileges.');
+      if (logged && !isConsoleRole(logged.role)) {
+        setAuthError('This account does not have Administrative or Staff Console privileges.');
         await logout();
       } else {
         setMfaChallenge(null);
@@ -364,13 +381,13 @@ export function SuperAdminDashboard({
     );
   }
 
-  if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
+  if (!user || !isConsoleRole(user.role)) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-700 selection:text-white transition-colors">
         <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl space-y-6">
           <div className="flex items-center justify-between">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-[10px] font-mono font-bold tracking-wider uppercase">
-              Restricted &bull; Root Authorization
+              Restricted &bull; Staff Authorization
             </span>
             <ThemeToggle compact />
           </div>
@@ -387,10 +404,10 @@ export function SuperAdminDashboard({
               />
             </div>
             <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-              {brandName} Super Admin Console
+              {brandName} Operations Console
             </h2>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Sign in with authorized administrative credentials to manage platform services, academy admissions, CMS content, and system settings.
+              Sign in with authorized staff, support, manager, or administrator credentials to access your assigned operational workspace.
             </p>
           </div>
 
@@ -398,7 +415,7 @@ export function SuperAdminDashboard({
             <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-center justify-between">
               <div>
                 <p className="font-semibold text-slate-900 dark:text-white truncate max-w-[220px]">{user.email}</p>
-                <p className="text-[10px] text-amber-700 dark:text-amber-400/90 capitalize font-mono">Role: {user.role} (Non-Admin)</p>
+                <p className="text-[10px] text-amber-700 dark:text-amber-400/90 capitalize font-mono">Role: {user.role} (Portal Account)</p>
               </div>
               <button
                 type="button"
@@ -800,11 +817,13 @@ export function SuperAdminDashboard({
               <div>
                 <span className="font-extrabold text-sm text-slate-900 dark:text-white tracking-tight flex items-center gap-1.5">
                   <span>{brandName}</span>
-                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30">
-                    ROOT
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30 uppercase">
+                    {isSuperAdmin ? 'ROOT' : user.role}
                   </span>
                 </span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">Super Admin Console</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 capitalize">
+                  {user.assigned_dashboard || user.role} Workspace
+                </p>
               </div>
             </div>
             <button
@@ -918,8 +937,8 @@ export function SuperAdminDashboard({
               <Menu className="w-5 h-5" />
             </button>
             <div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">
-                HAMBAK TECH &amp; SERVICES &bull; {isSuperAdmin ? 'Root Administration' : 'Staff Administration'}
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block capitalize">
+                HAMBAK TECH &amp; SERVICES &bull; {isSuperAdmin ? 'Root Administration' : `${user.role} Workspace`}
               </p>
               <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{currentTitle}</h1>
             </div>

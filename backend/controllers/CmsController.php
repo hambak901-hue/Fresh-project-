@@ -522,7 +522,7 @@ class CmsController
      */
     public function adminData(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'cms');
 
         $branding = $this->loadNormalizedBranding();
         $defaultSections = $this->getDefaultSections();
@@ -596,7 +596,7 @@ class CmsController
      */
     public function updateBranding(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'cms');
         $b = $request->getBody();
         $defaults = $this->getOfficialBrandingDefaults();
 
@@ -663,7 +663,7 @@ class CmsController
      */
     public function updateSections(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'cms');
         $sections = $request->getBody();
 
         foreach ($sections as $key => $val) {
@@ -695,7 +695,7 @@ class CmsController
      */
     public function updateVisibility(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'cms');
         $updates = $request->getBody();
 
         // Get existing pageVisibility
@@ -722,7 +722,7 @@ class CmsController
      */
     public function saveAnnouncement(Request $request): void
     {
-        $user = Auth::requireRole($request, ['admin', 'superadmin']);
+        $user = Auth::requirePermission($request, 'cms');
         $emailSvc = new AnnouncementEmailService($this->db);
         $emailSvc->ensureSchema();
 
@@ -812,7 +812,7 @@ class CmsController
      */
     public function updateAnnouncement(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'cms');
         $emailSvc = new AnnouncementEmailService($this->db);
         $emailSvc->ensureSchema();
 
@@ -886,7 +886,7 @@ class CmsController
      */
     public function deleteAnnouncement(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'cms');
         $id = $params['id'] ?? '';
         $this->db->execute('DELETE FROM announcements WHERE id = :id', ['id' => $id]);
         try {
@@ -905,7 +905,7 @@ class CmsController
      */
     public function saveFaq(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'cms');
         $id = (string)$request->input('id', '');
         $question = trim((string)$request->input('question', ''));
         $answer = trim((string)$request->input('answer', ''));
@@ -956,7 +956,7 @@ class CmsController
      */
     public function updateFaq(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'cms');
         $id = $params['id'] ?? '';
         $b = $request->getBody();
 
@@ -988,7 +988,7 @@ class CmsController
      */
     public function deleteFaq(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'cms');
         $id = $params['id'] ?? '';
         $this->db->execute('DELETE FROM faqs WHERE id = :id', ['id' => $id]);
         Response::success(['success' => true], 'FAQ deleted successfully');
@@ -999,7 +999,7 @@ class CmsController
      */
     public function updateNavigation(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'cms');
         $items = $request->input('navigation', $request->getBody());
 
         if (is_array($items)) {

@@ -18,7 +18,9 @@ import {
   Inbox,
   Check,
   X,
-  FileText
+  FileText,
+  Download,
+  Loader2
 } from 'lucide-react';
 import { api } from '../../lib/api';
 
@@ -45,13 +47,15 @@ const formatLabel = (value?: string | null, fallback: string = 'general'): strin
 };
 
 interface TicketReply {
-  id: number;
-  ticket_id: number;
-  user_id: number;
+  id: number | string;
+  ticket_id: number | string;
+  user_id: number | string;
   author_name?: string;
   author_role?: string;
+  is_staff?: boolean | number;
   message: string;
   is_internal_note: boolean | number;
+  attachment_url?: string | null;
   attachments?: any[];
   created_at: string;
 }
@@ -80,8 +84,16 @@ export const SupportManagement: React.FC = () => {
   // Reply state
   const [replyText, setReplyText] = useState('');
   const [isInternalNote, setIsInternalNote] = useState(false);
+  const [replyAttachmentUrl, setReplyAttachmentUrl] = useState('');
+  const [replyAttachmentName, setReplyAttachmentName] = useState('');
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [submittingReply, setSubmittingReply] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [viewingAttachment, setViewingAttachment] = useState<{
+    objectUrl: string;
+    contentType: string;
+  } | null>(null);
+  const [loadingAttachment, setLoadingAttachment] = useState(false);
 
   const fetchTickets = async () => {
     setLoading(true);
@@ -126,6 +138,39 @@ export const SupportManagement: React.FC = () => {
     }
   };
 
+  const handleUploadReplyAttachment = async (file: File) => {
+    if (file.size > 5 * 1024 * 1024) {
+      setFeedback({ type: 'error', message: 'Attachment file must not exceed 5MB.' });
+      return;
+    }
+    setUploadingAttachment(true);
+    setFeedback(null);
+    try {
+      const res = await api.uploadSupportAttachment(file);
+      setReplyAttachmentUrl(res.file_url);
+      setReplyAttachmentName(res.file_name || file.name);
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Attachment upload failed.' });
+    } finally {
+      setUploadingAttachment(false);
+    }
+  };
+
+  const handleOpenAttachment = async (fileUrl: string) => {
+    if (!fileUrl) return;
+    setLoadingAttachment(true);
+    setFeedback(null);
+    try {
+      const { blob, contentType } = await api.fetchAuthenticatedBlob(fileUrl);
+      const objectUrl = URL.createObjectURL(blob);
+      setViewingAttachment({ objectUrl, contentType });
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Unable to load attachment.' });
+    } finally {
+      setLoadingAttachment(false);
+    }
+  };
+
   const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTicket || !replyText.trim()) return;
@@ -133,13 +178,20 @@ export const SupportManagement: React.FC = () => {
     setSubmittingReply(true);
     setFeedback(null);
     try {
-      const res = await api.replySupportTicket(selectedTicket.id, replyText.trim(), isInternalNote);
+      const res = await api.replySupportTicket(
+        selectedTicket.id,
+        replyText.trim(),
+        isInternalNote,
+        replyAttachmentUrl || undefined
+      );
       if (res && res.success) {
         setFeedback({
           type: 'success',
           message: isInternalNote ? 'Internal note recorded.' : 'Response sent to customer successfully.'
         });
         setReplyText('');
+        setReplyAttachmentUrl('');
+        setReplyAttachmentName('');
         // Reload details
         const updated = await api.getSupportTicketDetails(selectedTicket.id);
         if (updated && updated.success) {
@@ -484,8 +536,17 @@ export const SupportManagement: React.FC = () => {
                   </div>
                 ) : (
                   ticketReplies.map(reply => {
-                    const isStaff = reply.author_role === 'admin' || reply.author_role === 'superadmin' || reply.author_role === 'staff';
+                    const isStaff =
+                      Boolean(reply.is_staff) ||
+                      ['support', 'staff', 'manager', 'admin', 'superadmin'].includes(
+                        String(reply.author_role || '').toLowerCase()
+                      );
                     const isInternal = !!reply.is_internal_note;
+                    const attUrl =
+                      reply.attachment_url ||
+                      reply.attachments?.[0]?.file_url ||
+                      reply.attachments?.[0]?.url ||
+                      '';
 
                     return (
                       <div
@@ -510,11 +571,11 @@ export const SupportManagement: React.FC = () => {
                             )}
                             {isStaff && !isInternal && (
                               <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/20 text-indigo-300 uppercase">
-                                Staff Reply
+                                {formatLabel(reply.author_role, 'Staff')} Reply
                               </span>
                             )}
                           </div>
-                          <span className="text-[10px] text-slate-500">
+                          <span className="text-[10px] font-mono tabular-nums text-slate-500">
                             {new Date(reply.created_at).toLocaleString()}
                           </span>
                         </div>
@@ -522,6 +583,20 @@ export const SupportManagement: React.FC = () => {
                         <p className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">
                           {reply.message}
                         </p>
+
+                        {attUrl && (
+                          <div className="mt-2.5 pt-2 border-t border-slate-800/60">
+                            <button
+                              type="button"
+                              disabled={loadingAttachment}
+                              onClick={() => void handleOpenAttachment(attUrl)}
+                              className="inline-flex items-center gap-1.5 text-[11px] text-sky-400 hover:text-sky-300 font-medium"
+                            >
+                              <Paperclip className="w-3.5 h-3.5" />
+                              <span>View / Download Attachment</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })
@@ -578,10 +653,46 @@ export const SupportManagement: React.FC = () => {
                   />
                 </div>
 
-                <div className="flex items-center justify-end gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <label className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs text-slate-300 cursor-pointer flex items-center gap-1.5 transition">
+                      {uploadingAttachment ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                      ) : (
+                        <Paperclip className="w-3.5 h-3.5 text-indigo-400" />
+                      )}
+                      <span>{replyAttachmentName ? 'Replace File' : 'Attach File'}</span>
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+                        className="hidden"
+                        onChange={e => {
+                          const f = e.target.files?.[0];
+                          if (f) void handleUploadReplyAttachment(f);
+                        }}
+                      />
+                    </label>
+                    {replyAttachmentName && (
+                      <span className="text-[11px] text-emerald-400 flex items-center gap-1 truncate max-w-[180px]">
+                        <FileText className="w-3 h-3 shrink-0" />
+                        {replyAttachmentName}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyAttachmentUrl('');
+                            setReplyAttachmentName('');
+                          }}
+                          className="text-slate-400 hover:text-white ml-1"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+
                   <button
                     type="submit"
-                    disabled={submittingReply || !replyText.trim()}
+                    disabled={submittingReply || uploadingAttachment || !replyText.trim()}
                     className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50 ${
                       isInternalNote
                         ? 'bg-amber-600 hover:bg-amber-500 text-white'
@@ -611,6 +722,52 @@ export const SupportManagement: React.FC = () => {
           )}
         </div>
       </div>
+
+      {viewingAttachment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm">
+          <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800">
+              <span className="text-xs font-semibold text-white">Support Attachment</span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={viewingAttachment.objectUrl}
+                  download={`ticket_attachment_${Date.now()}`}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    URL.revokeObjectURL(viewingAttachment.objectUrl);
+                    setViewingAttachment(null);
+                  }}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="p-4 bg-slate-950 max-h-[75vh] overflow-auto flex items-center justify-center">
+              {viewingAttachment.contentType.includes('pdf') ? (
+                <iframe
+                  src={viewingAttachment.objectUrl}
+                  title="Support Attachment PDF"
+                  className="w-full h-[65vh] rounded-lg border border-slate-800"
+                />
+              ) : (
+                <img
+                  src={viewingAttachment.objectUrl}
+                  alt="Support attachment"
+                  referrerPolicy="no-referrer"
+                  className="max-w-full max-h-[68vh] rounded-lg object-contain"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1630,10 +1630,19 @@ class ReferralEngineService
              FROM referrals r
              INNER JOIN users u ON u.id = r.referrer_user_id
              LEFT JOIN referral_balances rb ON rb.user_id = u.id
+             WHERE 1=1 ' . $dateClauseRef . '
              GROUP BY u.id, u.full_name, u.email, u.referral_code, rb.available_balance, rb.points_balance
              ORDER BY generated_revenue DESC, qualified_count DESC
-             LIMIT 15'
+             LIMIT 15',
+            $params
         );
+        foreach ($topReferrers as &$tr) {
+            $rawEmail = (string)($tr['email'] ?? '');
+            if ($rawEmail !== '' && str_contains($rawEmail, '@')) {
+                [$loc, $dom] = explode('@', $rawEmail, 2);
+                $tr['email'] = (strlen($loc) > 2 ? substr($loc, 0, 2) : substr($loc, 0, 1)) . '***@' . $dom;
+            }
+        }
 
         $campaignStats = $this->db->fetchAll(
             'SELECT c.id, c.campaign_code, c.name, c.reward_mode, c.reward_value, c.budget_cap, c.spent_budget, c.is_active,

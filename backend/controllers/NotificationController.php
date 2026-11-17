@@ -70,7 +70,7 @@ class NotificationController
      */
     public function overview(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'notifications');
 
         $stats = $this->db->fetchOne(
             'SELECT
@@ -138,7 +138,7 @@ class NotificationController
      */
     public function listBroadcasts(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'notifications');
 
         $broadcasts = [];
         try {
@@ -164,7 +164,7 @@ class NotificationController
      */
     public function sendBroadcast(Request $request): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'notifications');
         $this->ensureMessagingTables();
 
         $title = mb_substr(trim((string)$request->input('title', '')), 0, 191);
@@ -350,7 +350,7 @@ class NotificationController
      */
     public function listAnnouncements(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'notifications');
 
         $emailSvc = new AnnouncementEmailService($this->db);
         $emailSvc->ensureSchema();
@@ -384,7 +384,7 @@ class NotificationController
      */
     public function saveAnnouncement(Request $request, array $params = []): void
     {
-        $admin = Auth::requireRole($request, ['admin', 'superadmin']);
+        $admin = Auth::requirePermission($request, 'notifications');
         $emailSvc = new AnnouncementEmailService($this->db);
         $emailSvc->ensureSchema();
 
@@ -519,7 +519,7 @@ class NotificationController
      */
     public function retryAnnouncementEmails(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'notifications');
         $id = trim((string)($params['id'] ?? ''));
         if ($id === '') {
             Response::error('Announcement ID is required.', 422);
@@ -556,7 +556,7 @@ class NotificationController
      */
     public function deleteAnnouncement(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'notifications');
         $id = $params['id'] ?? '';
         $this->db->execute('DELETE FROM announcements WHERE id = :id', ['id' => $id]);
         try {
