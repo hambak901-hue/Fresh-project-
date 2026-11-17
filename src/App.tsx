@@ -85,6 +85,10 @@ function isExplicitPublicHash(): boolean {
   );
 }
 
+function isInternalConsoleRole(role?: string | null): boolean {
+  return role === 'staff' || role === 'admin' || role === 'superadmin';
+}
+
 function MainAppContent() {
   const { user, loading: authLoading, logout, pinPolicy } = useAuth();
   const [forcePinSetupOpen, setForcePinSetupOpen] = useState<boolean>(false);
@@ -116,13 +120,17 @@ function MainAppContent() {
   const [activePublicPage, setActivePublicPage] = useState<string>(getInitialPublicPage);
   const [verifyStudentId, setVerifyStudentId] = useState<string>(parseVerifyStudentIdFromHash);
   const manualPublicBrowseRef = useRef<boolean>(isExplicitPublicHash());
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   // Auto-route authenticated users to their portal ONLY on login / default entry or #login,
   // preserving explicit public deep-links such as #verify-student/<id> or #academy
   useEffect(() => {
     if (!user) return;
     if (activePhase === '06') {
-      if (user.role === 'admin' || user.role === 'superadmin') {
+      if (isInternalConsoleRole(user.role)) {
         setActivePhase('04');
       } else {
         setActivePhase('03');
@@ -131,7 +139,7 @@ function MainAppContent() {
     }
     if (manualPublicBrowseRef.current || isExplicitPublicHash()) return;
     if (activePhase === '02') {
-      if (user.role === 'admin' || user.role === 'superadmin') {
+      if (isInternalConsoleRole(user.role)) {
         setActivePhase('04');
       } else {
         setActivePhase('03');
@@ -145,6 +153,7 @@ function MainAppContent() {
       const h = (window.location.hash || '').toLowerCase();
       const p = (window.location.pathname || '').toLowerCase();
       const s = (window.location.search || '').toLowerCase();
+      const currentUser = userRef.current;
 
       if (h.startsWith('#verify-student')) {
         manualPublicBrowseRef.current = true;
@@ -186,12 +195,13 @@ function MainAppContent() {
         h.includes('portal') ||
         h.includes('customer') ||
         h.startsWith('#printing') ||
+        s.includes('printing_order') ||
         p.includes('/portal') ||
         p.includes('/customer') ||
         s.includes('portal')
       ) {
         manualPublicBrowseRef.current = false;
-        if (h.startsWith('#printing') && user && (user.role === 'admin' || user.role === 'superadmin')) {
+        if ((h.startsWith('#printing') || s.includes('printing_order')) && currentUser && isInternalConsoleRole(currentUser.role)) {
           setActivePhase('04');
         } else {
           setActivePhase('03');
@@ -358,7 +368,7 @@ function MainAppContent() {
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
               const role = loggedInUser?.role;
-              setActivePhase(role === 'admin' || role === 'superadmin' ? '04' : '05');
+              setActivePhase(isInternalConsoleRole(role) ? '04' : '05');
             }}
             onOpenRegister={() => handleOpenAuth('register')}
             onSwitchToPublic={switchToPublicHome}
@@ -384,14 +394,14 @@ function MainAppContent() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {(user?.role === 'admin' || user?.role === 'superadmin') && (
+                {isInternalConsoleRole(user?.role) && (
                   <button
                     type="button"
                     onClick={() => setActivePhase('04')}
                     className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs flex items-center gap-1.5 transition"
                   >
                     <Shield className="w-3.5 h-3.5" />
-                    <span>Admin Console</span>
+                    <span>{user?.role === 'staff' ? 'Staff Console' : 'Admin Console'}</span>
                   </button>
                 )}
                 <button
@@ -428,7 +438,7 @@ function MainAppContent() {
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
               const role = loggedInUser?.role || user?.role;
-              setActivePhase(role === 'admin' || role === 'superadmin' ? '04' : '03');
+              setActivePhase(isInternalConsoleRole(role) ? '04' : '03');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onOpenRegister={() => handleOpenAuth('register')}
@@ -449,7 +459,7 @@ function MainAppContent() {
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
               const role = loggedInUser?.role;
-              setActivePhase(role === 'admin' || role === 'superadmin' ? '04' : '03');
+              setActivePhase(isInternalConsoleRole(role) ? '04' : '03');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onOpenRegister={() => handleOpenAuth('register')}
@@ -573,7 +583,7 @@ function MainAppContent() {
         onSuccess={(loggedInUser) => {
           manualPublicBrowseRef.current = false;
           const role = loggedInUser?.role || user?.role;
-          if (role === 'admin' || role === 'superadmin') {
+          if (isInternalConsoleRole(role)) {
             setActivePhase('04');
           } else {
             setActivePhase('03');
@@ -592,7 +602,7 @@ function MainAppContent() {
       <MandatoryPinSetupModal
         isOpen={Boolean(
           user &&
-          user.role === 'customer' &&
+          (user.role === 'customer' || user.role === 'agent') &&
           !user.has_transaction_pin &&
           (pinPolicy?.require_pin_activation_for_all_customers || forcePinSetupOpen)
         )}

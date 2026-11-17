@@ -479,16 +479,18 @@ class PrintingService
     {
         try {
             $admins = $this->db->fetchAll(
-                'SELECT u.id, up.assigned_permissions
+                'SELECT u.id, u.role, COALESCE(NULLIF(u.assigned_permissions, ""), up.assigned_permissions) AS assigned_permissions
                  FROM users u
                  LEFT JOIN user_profiles up ON u.id = up.user_id
-                 WHERE u.role IN ("superadmin", "admin") AND u.status = "active"'
+                 WHERE u.role IN ("superadmin", "admin", "staff") AND u.status = "active"'
             );
             $link = $orderRef !== '' ? '#printing?order=' . urlencode($orderRef) : '#printing';
             foreach ($admins as $adm) {
                 $permsRaw = $adm['assigned_permissions'] ?? null;
                 $perms = is_string($permsRaw) ? (json_decode($permsRaw, true) ?? []) : [];
-                $allowed = empty($permsRaw) ? true : (in_array('*', $perms, true) || in_array('printing', $perms, true));
+                $allowed = ($adm['role'] ?? '') === 'superadmin'
+                    || (is_array($perms) && (in_array('*', $perms, true) || in_array('printing', $perms, true)))
+                    || (($adm['role'] ?? '') === 'admin' && empty($permsRaw));
                 if (!$allowed) {
                     continue;
                 }

@@ -183,6 +183,9 @@ export const LEGACY_ADMIN_DEFAULT_PERMISSIONS = [
 export function resolveUserPermissions(user: any): string[] {
   if (!user) return [];
   if (user.role === 'superadmin') return ['*'];
+  if (user.role === 'staff') {
+    return Array.isArray(user.permissions) ? user.permissions : [];
+  }
   if (user.role !== 'admin') return [];
   if (Array.isArray(user.permissions)) {
     return user.permissions;
@@ -193,7 +196,7 @@ export function resolveUserPermissions(user: any): string[] {
 export function hasUserPermission(user: any, permission: string): boolean {
   if (!user || user.status === 'suspended') return false;
   if (user.role === 'superadmin') return true;
-  if (user.role !== 'admin') return false;
+  if (user.role !== 'admin' && user.role !== 'staff') return false;
   const perms = resolveUserPermissions(user);
   return perms.includes('*') || perms.includes(permission);
 }

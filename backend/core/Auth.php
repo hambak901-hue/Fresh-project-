@@ -339,8 +339,8 @@ class Auth
                     }
                 }
 
-                // Sliding idle timeout check for admin roles
-                if (in_array($payload['role'] ?? '', ['admin', 'superadmin'], true) && !empty($session['last_seen_at'])) {
+                // Sliding idle timeout check for admin and staff roles
+                if (in_array($payload['role'] ?? '', ['admin', 'staff', 'superadmin'], true) && !empty($session['last_seen_at'])) {
                     $idleMinutes = max(5, (int)($sec['admin_session_timeout_minutes'] ?? 60));
                     if ((time() - strtotime((string)$session['last_seen_at'])) > ($idleMinutes * 60)) {
                         self::revokeSessionByJti((string)$payload['jti'], 'idle_timeout');
@@ -485,7 +485,7 @@ class Auth
         return $user;
     }
 
-    public static function requirePermission(Request $request, string $permission, array $allowedRoles = ['admin', 'superadmin']): array
+    public static function requirePermission(Request $request, string $permission, array $allowedRoles = ['admin', 'staff', 'superadmin']): array
     {
         $user = self::requireRole($request, $allowedRoles);
         if (!self::hasPermission($user, $permission)) {
@@ -494,7 +494,7 @@ class Auth
         return $user;
     }
 
-    public static function requireAnyPermission(Request $request, array $permissions, array $allowedRoles = ['admin', 'superadmin']): array
+    public static function requireAnyPermission(Request $request, array $permissions, array $allowedRoles = ['admin', 'staff', 'superadmin']): array
     {
         $user = self::requireRole($request, $allowedRoles);
         foreach ($permissions as $perm) {

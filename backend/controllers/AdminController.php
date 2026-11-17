@@ -130,135 +130,188 @@ class AdminController
 
     public function overview(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        $actor = Auth::requireRole($request, ['admin', 'staff', 'superadmin']);
+        $canCustomers = Auth::hasPermission($actor, 'customers');
+        $canWallet = Auth::hasPermission($actor, 'wallet');
+        $canKyc = Auth::hasPermission($actor, 'kyc');
+        $canServices = Auth::hasPermission($actor, 'services');
+        $canReports = Auth::hasPermission($actor, 'reports');
+        $canAccounting = Auth::hasPermission($actor, 'accounting');
+        $canPrinting = Auth::hasPermission($actor, 'printing') || Auth::hasPermission($actor, 'printing_pricing');
+        $canFinance = $canReports || $canWallet || $canAccounting;
 
         // 1. User Metrics
         $userStats = $this->db->fetchOne(
             'SELECT 
-                SUM(CASE WHEN role = "customer" THEN 1 ELSE 0 END) as total_customers,
-                SUM(CASE WHEN status = "active" AND role = "customer" THEN 1 ELSE 0 END) as active_customers,
-                SUM(CASE WHEN status = "suspended" AND role = "customer" THEN 1 ELSE 0 END) as suspended_customers,
+                SUM(CASE WHEN role IN ("customer", "agent") THEN 1 ELSE 0 END) as total_customers,
+                SUM(CASE WHEN status = "active" AND role IN ("customer", "agent") THEN 1 ELSE 0 END) as active_customers,
+                SUM(CASE WHEN status = "suspended" AND role IN ("customer", "agent") THEN 1 ELSE 0 END) as suspended_customers,
                 SUM(CASE WHEN role IN ("admin", "superadmin", "staff") THEN 1 ELSE 0 END) as total_staff,
-                SUM(CASE WHEN role = "customer" AND DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_registrations,
-                SUM(CASE WHEN role = "customer" AND kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc_users
+                SUM(CASE WHEN role IN ("customer", "agent") AND DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_registrations,
+                SUM(CASE WHEN role IN ("customer", "agent") AND kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc_users
              FROM users'
         );
 
-        $pendingKycSubRow = $this->db->fetchOne(
-            'SELECT COUNT(*) as count FROM kyc_submissions WHERE status = "pending"'
-        );
-        $pendingKycCount = max((int)($pendingKycSubRow['count'] ?? 0), (int)($userStats['pending_kyc_users'] ?? 0));
-
-        // 2. Financial Metrics
-        $walletStats = $this->db->fetchOne(
-            'SELECT 
-                COALESCE(SUM(balance), 0) as total_wallet_balances 
-             FROM wallets'
-        );
-
-        $txStats = $this->db->fetchOne(
-            'SELECT 
-                COALESCE(SUM(CASE WHEN type = "credit" AND status = "successful" THEN amount ELSE 0 END), 0) as total_wallet_funding,
-                COALESCE(SUM(CASE WHEN type = "debit" AND status = "successful" THEN amount ELSE 0 END), 0) as total_service_sales,
-                COUNT(CASE WHEN status = "successful" THEN 1 END) as successful_transactions,
-                COUNT(CASE WHEN status = "pending" THEN 1 END) as pending_transactions,
-                COUNT(CASE WHEN status = "failed" THEN 1 END) as failed_transactions
-             FROM transactions'
-        );
-
-        // 3. Telecom Order Profits
-        $orderStats = $this->db->fetchOne(
-            'SELECT 
-                COALESCE(SUM(cost_price), 0) as provider_expenditure,
-                COALESCE(SUM(profit), 0) as gross_profit
-             FROM telecom_orders 
-             WHERE status = "successful"'
-        );
-
-        // 4. Verification Revenue & Wholesale Cost
-        $vrfStats = $this->db->fetchOne(
-            'SELECT 
-                COALESCE(SUM(cost), 0) as vrf_revenue,
-                COALESCE(SUM(provider_cost), 0) as vrf_wholesale
-             FROM verification_records 
-             WHERE status = "completed"'
-        );
-
-        $pendingFundingCount = (int)$this->db->fetchOne(
-            'SELECT COUNT(*) as count FROM manual_funding_requests WHERE status = "pending"'
-        )['count'];
-
-        $pendingFundings = $this->db->fetchAll(
-            'SELECT m.*, u.full_name, u.email, m.payment_reference as reference
-             FROM manual_funding_requests m
-             LEFT JOIN users u ON u.id = m.user_id
-             WHERE m.status = "pending"
-             ORDER BY m.created_at DESC LIMIT 5'
-        );
-
-        // 5. Recent Registrations & Orders
-        $recentUsers = $this->db->fetchAll(
-            'SELECT u.id, u.full_name, u.email, u.phone_number, u.role, COALESCE(w.balance, u.wallet_balance, 0) as wallet_balance,
-                    u.kyc_status, u.tier, u.status, u.created_at 
-             FROM users u
-             LEFT JOIN wallets w ON w.user_id = u.id
-             WHERE u.role = "customer" 
-             ORDER BY u.created_at DESC LIMIT 8'
-        );
-        foreach ($recentUsers as &$ru) {
-            $ru['wallet_balance'] = (float)$ru['wallet_balance'];
-            $ru['tier'] = (int)($ru['tier'] ?? 1);
-            $ts = !empty($ru['created_at']) ? strtotime((string)$ru['created_at']) : false;
-            $ru['is_new'] = $ts !== false && $ts >= (time() - 72 * 3600);
+        $pendingKycCount = 0;
+        if ($canKyc || $canCustomers) {
+            $pendingKycSubRow = $this->db->fetchOne(
+                'SELECT COUNT(*) as count FROM kyc_submissions WHERE status = "pending"'
+            );
+            $pendingKycCount = max((int)($pendingKycSubRow['count'] ?? 0), (int)($userStats['pending_kyc_users'] ?? 0));
         }
 
-        $recentOrders = $this->db->fetchAll(
-            'SELECT o.id, u.full_name as customer_name, o.service_type, o.plan, o.amount, o.status, o.created_at
-             FROM telecom_orders o
-             LEFT JOIN users u ON u.id = o.user_id
-             ORDER BY o.created_at DESC LIMIT 5'
-        );
+        // 2. Financial Metrics (gated by finance permissions)
+        $walletStats = ['total_wallet_balances' => 0];
+        $txStats = [
+            'total_wallet_funding' => 0,
+            'total_service_sales' => 0,
+            'successful_transactions' => 0,
+            'pending_transactions' => 0,
+            'failed_transactions' => 0,
+        ];
+        $orderStats = ['provider_expenditure' => 0, 'gross_profit' => 0];
+        $vrfStats = ['vrf_revenue' => 0, 'vrf_wholesale' => 0];
 
-        // 6. Provider Operational Status
-        $providers = $this->db->fetchAll(
-            'SELECT id, name, provider_type, is_active, is_default, balance, last_ping_status, last_ping_latency, last_ping_at 
-             FROM providers'
-        );
+        if ($canFinance) {
+            $walletStats = $this->db->fetchOne(
+                'SELECT COALESCE(SUM(balance), 0) as total_wallet_balances FROM wallets'
+            ) ?: $walletStats;
+
+            $txStats = $this->db->fetchOne(
+                'SELECT 
+                    COALESCE(SUM(CASE WHEN type = "credit" AND status = "successful" THEN amount ELSE 0 END), 0) as total_wallet_funding,
+                    COALESCE(SUM(CASE WHEN type = "debit" AND status = "successful" THEN amount ELSE 0 END), 0) as total_service_sales,
+                    COUNT(CASE WHEN status = "successful" THEN 1 END) as successful_transactions,
+                    COUNT(CASE WHEN status = "pending" THEN 1 END) as pending_transactions,
+                    COUNT(CASE WHEN status = "failed" THEN 1 END) as failed_transactions
+                 FROM transactions'
+            ) ?: $txStats;
+
+            $orderStats = $this->db->fetchOne(
+                'SELECT COALESCE(SUM(cost_price), 0) as provider_expenditure, COALESCE(SUM(profit), 0) as gross_profit
+                 FROM telecom_orders WHERE status = "successful"'
+            ) ?: $orderStats;
+
+            $vrfStats = $this->db->fetchOne(
+                'SELECT COALESCE(SUM(cost), 0) as vrf_revenue, COALESCE(SUM(provider_cost), 0) as vrf_wholesale
+                 FROM verification_records WHERE status = "completed"'
+            ) ?: $vrfStats;
+        }
+
+        $pendingFundingCount = 0;
+        $pendingFundings = [];
+        if ($canWallet) {
+            $pendingFundingCount = (int)($this->db->fetchOne(
+                'SELECT COUNT(*) as count FROM manual_funding_requests WHERE status = "pending"'
+            )['count'] ?? 0);
+
+            $pendingFundings = $this->db->fetchAll(
+                'SELECT m.*, u.full_name, u.email, m.payment_reference as reference
+                 FROM manual_funding_requests m
+                 LEFT JOIN users u ON u.id = m.user_id
+                 WHERE m.status = "pending"
+                 ORDER BY m.created_at DESC LIMIT 5'
+            );
+        }
+
+        // 5. Recent Registrations & Orders (gated by permissions)
+        $recentUsers = [];
+        if ($canCustomers) {
+            $recentUsers = $this->db->fetchAll(
+                'SELECT u.id, u.full_name, u.email, u.phone_number, u.role, COALESCE(w.balance, u.wallet_balance, 0) as wallet_balance,
+                        u.kyc_status, u.tier, u.status, u.created_at 
+                 FROM users u
+                 LEFT JOIN wallets w ON w.user_id = u.id
+                 WHERE u.role IN ("customer", "agent") 
+                 ORDER BY u.created_at DESC LIMIT 8'
+            );
+            foreach ($recentUsers as &$ru) {
+                $ru['wallet_balance'] = (float)$ru['wallet_balance'];
+                $ru['tier'] = (int)($ru['tier'] ?? 1);
+                $ts = !empty($ru['created_at']) ? strtotime((string)$ru['created_at']) : false;
+                $ru['is_new'] = $ts !== false && $ts >= (time() - 72 * 3600);
+            }
+        }
+
+        $recentOrders = [];
+        if ($canServices || $canReports) {
+            $recentOrders = $this->db->fetchAll(
+                'SELECT o.id, u.full_name as customer_name, o.service_type, o.plan, o.amount, o.status, o.created_at
+                 FROM telecom_orders o
+                 LEFT JOIN users u ON u.id = o.user_id
+                 ORDER BY o.created_at DESC LIMIT 5'
+            );
+        }
+
+        // 6. Provider Operational Status (gated by services/settings/superadmin)
+        $providers = [];
+        if ($canServices || Auth::hasPermission($actor, 'settings')) {
+            $providers = $this->db->fetchAll(
+                'SELECT id, name, provider_type, is_active, is_default, balance, last_ping_status, last_ping_latency, last_ping_at 
+                 FROM providers'
+            );
+        }
+
+        // 7. Printing Desk Summary (gated by printing permissions)
+        $printingSummary = null;
+        if ($canPrinting) {
+            try {
+                $pRow = $this->db->fetchOne(
+                    'SELECT
+                        COUNT(*) AS total_orders,
+                        SUM(CASE WHEN status IN ("Pending Review", "Under Review", "Awaiting Quotation") THEN 1 ELSE 0 END) AS pending_review,
+                        SUM(CASE WHEN status IN ("Quotation Sent", "Awaiting Payment") THEN 1 ELSE 0 END) AS awaiting_payment,
+                        SUM(CASE WHEN status IN ("Payment Confirmed", "Processing") THEN 1 ELSE 0 END) AS processing,
+                        SUM(CASE WHEN status IN ("Ready for Collection", "Ready for Dispatch", "Out for Delivery") THEN 1 ELSE 0 END) AS ready_or_transit,
+                        SUM(CASE WHEN status = "Completed" THEN 1 ELSE 0 END) AS completed
+                     FROM printing_orders'
+                );
+                $printingSummary = [
+                    'total_orders' => (int)($pRow['total_orders'] ?? 0),
+                    'pending_review' => (int)($pRow['pending_review'] ?? 0),
+                    'awaiting_payment' => (int)($pRow['awaiting_payment'] ?? 0),
+                    'processing' => (int)($pRow['processing'] ?? 0),
+                    'ready_or_transit' => (int)($pRow['ready_or_transit'] ?? 0),
+                    'completed' => (int)($pRow['completed'] ?? 0),
+                ];
+            } catch (Throwable) {
+            }
+        }
 
         $totalSales = (float)($txStats['total_service_sales'] ?? 0);
         $totalExpenditure = (float)($orderStats['provider_expenditure'] ?? 0) + (float)($vrfStats['vrf_wholesale'] ?? 0);
         $grossProfit = (float)($orderStats['gross_profit'] ?? 0) + ((float)($vrfStats['vrf_revenue'] ?? 0) - (float)($vrfStats['vrf_wholesale'] ?? 0));
 
         $metrics = [
-            'total_users' => (int)($userStats['total_customers'] ?? 0),
-            'total_customers' => (int)($userStats['total_customers'] ?? 0),
-            'totalCustomers' => (int)($userStats['total_customers'] ?? 0),
-            'active_customers' => (int)($userStats['active_customers'] ?? 0),
-            'activeCustomers' => (int)($userStats['active_customers'] ?? 0),
-            'suspended_customers' => (int)($userStats['suspended_customers'] ?? 0),
-            'suspendedCustomers' => (int)($userStats['suspended_customers'] ?? 0),
+            'total_users' => $canCustomers ? (int)($userStats['total_customers'] ?? 0) : 0,
+            'total_customers' => $canCustomers ? (int)($userStats['total_customers'] ?? 0) : 0,
+            'totalCustomers' => $canCustomers ? (int)($userStats['total_customers'] ?? 0) : 0,
+            'active_customers' => $canCustomers ? (int)($userStats['active_customers'] ?? 0) : 0,
+            'activeCustomers' => $canCustomers ? (int)($userStats['active_customers'] ?? 0) : 0,
+            'suspended_customers' => $canCustomers ? (int)($userStats['suspended_customers'] ?? 0) : 0,
+            'suspendedCustomers' => $canCustomers ? (int)($userStats['suspended_customers'] ?? 0) : 0,
             'total_staff' => (int)($userStats['total_staff'] ?? 0),
             'totalStaff' => (int)($userStats['total_staff'] ?? 0),
-            'today_registrations' => (int)($userStats['today_registrations'] ?? 0),
-            'todayRegistrations' => (int)($userStats['today_registrations'] ?? 0),
+            'today_registrations' => $canCustomers ? (int)($userStats['today_registrations'] ?? 0) : 0,
+            'todayRegistrations' => $canCustomers ? (int)($userStats['today_registrations'] ?? 0) : 0,
             'pending_kyc_count' => $pendingKycCount,
             'pendingKycCount' => $pendingKycCount,
-            'total_wallet_balances' => (float)($walletStats['total_wallet_balances'] ?? 0),
-            'totalWalletBalances' => (float)($walletStats['total_wallet_balances'] ?? 0),
-            'total_wallet_funding' => (float)($txStats['total_wallet_funding'] ?? 0),
-            'totalWalletFunding' => (float)($txStats['total_wallet_funding'] ?? 0),
-            'total_service_sales' => $totalSales,
-            'totalServiceSales' => $totalSales,
-            'provider_expenditure' => $totalExpenditure,
-            'providerExpenditure' => $totalExpenditure,
-            'gross_profit' => $grossProfit,
-            'grossProfit' => $grossProfit,
-            'successful_transactions' => (int)($txStats['successful_transactions'] ?? 0),
-            'successfulTransactions' => (int)($txStats['successful_transactions'] ?? 0),
-            'pending_transactions' => (int)($txStats['pending_transactions'] ?? 0),
-            'pendingTransactions' => (int)($txStats['pending_transactions'] ?? 0),
-            'failed_transactions' => (int)($txStats['failed_transactions'] ?? 0),
-            'failedTransactions' => (int)($txStats['failed_transactions'] ?? 0),
+            'total_wallet_balances' => $canFinance ? (float)($walletStats['total_wallet_balances'] ?? 0) : 0,
+            'totalWalletBalances' => $canFinance ? (float)($walletStats['total_wallet_balances'] ?? 0) : 0,
+            'total_wallet_funding' => $canFinance ? (float)($txStats['total_wallet_funding'] ?? 0) : 0,
+            'totalWalletFunding' => $canFinance ? (float)($txStats['total_wallet_funding'] ?? 0) : 0,
+            'total_service_sales' => $canFinance ? $totalSales : 0,
+            'totalServiceSales' => $canFinance ? $totalSales : 0,
+            'provider_expenditure' => $canFinance ? $totalExpenditure : 0,
+            'providerExpenditure' => $canFinance ? $totalExpenditure : 0,
+            'gross_profit' => $canFinance ? $grossProfit : 0,
+            'grossProfit' => $canFinance ? $grossProfit : 0,
+            'successful_transactions' => $canFinance ? (int)($txStats['successful_transactions'] ?? 0) : 0,
+            'successfulTransactions' => $canFinance ? (int)($txStats['successful_transactions'] ?? 0) : 0,
+            'pending_transactions' => $canFinance ? (int)($txStats['pending_transactions'] ?? 0) : 0,
+            'pendingTransactions' => $canFinance ? (int)($txStats['pending_transactions'] ?? 0) : 0,
+            'failed_transactions' => $canFinance ? (int)($txStats['failed_transactions'] ?? 0) : 0,
+            'failedTransactions' => $canFinance ? (int)($txStats['failed_transactions'] ?? 0) : 0,
             'pending_funding_approvals' => $pendingFundingCount,
             'pendingFundingApprovals' => $pendingFundingCount,
         ];
@@ -272,6 +325,7 @@ class AdminController
             'pendingFundings' => $pendingFundings,
             'recent_orders' => $recentOrders,
             'providers' => $providers,
+            'printing_summary' => $printingSummary,
         ]);
     }
 
@@ -286,7 +340,7 @@ class AdminController
         $filter = trim((string)$request->query('filter', ''));
         $limit = min(250, max(1, (int)$request->query('limit', 150)));
 
-        $where = 'WHERE u.role = "customer" ';
+        $where = 'WHERE u.role IN ("customer", "agent") ';
         $params = [];
 
         if (!empty($search)) {
@@ -365,7 +419,7 @@ class AdminController
                 SUM(CASE WHEN kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc,
                 SUM(CASE WHEN kyc_status = "verified" THEN 1 ELSE 0 END) as verified_kyc,
                 SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 72 HOUR) THEN 1 ELSE 0 END) as new_registrations
-             FROM users WHERE role = "customer"'
+             FROM users WHERE role IN ("customer", "agent")'
         );
 
         Response::success([
@@ -1195,8 +1249,8 @@ class AdminController
             Response::error('Customer not found.', 404);
             return;
         }
-        if (in_array(strtolower((string)$existing['role']), ['admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
-            Response::forbidden('Only a Super Admin can update an administrator account.');
+        if (in_array(strtolower((string)$existing['role']), ['admin', 'staff', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can update an administrator or staff account.');
         }
 
         $fullName = isset($body['full_name']) ? trim((string)$body['full_name']) : null;
@@ -3574,8 +3628,8 @@ class AdminController
                     p.assigned_permissions AS profile_permissions
              FROM users u
              LEFT JOIN user_profiles p ON p.user_id = u.id
-             WHERE u.role IN ("admin", "superadmin")
-             ORDER BY u.role DESC, u.full_name ASC'
+             WHERE u.role IN ("admin", "staff", "superadmin")
+             ORDER BY FIELD(u.role, "superadmin", "admin", "staff"), u.full_name ASC'
         );
 
         $defaultAdminPerms = ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'];
@@ -3594,6 +3648,8 @@ class AdminController
             }
             if (($s['role'] ?? '') === 'superadmin') {
                 $perms = ['*'];
+            } elseif (($s['role'] ?? '') === 'staff' && !$hasExplicitPerms) {
+                $perms = [];
             } elseif (!$hasExplicitPerms) {
                 $perms = $defaultAdminPerms;
             }
@@ -3637,7 +3693,7 @@ class AdminController
             $filtered = array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
             $cleanPerms = $filtered;
         }
-        $dbRole = in_array($role, ['admin', 'superadmin'], true) ? $role : 'admin';
+        $dbRole = in_array($role, ['staff', 'admin', 'superadmin'], true) ? $role : 'staff';
         if ($dbRole === 'superadmin') {
             $cleanPerms = ['*'];
         }
@@ -3736,7 +3792,7 @@ class AdminController
         $paramsDb = ['id' => $id];
         $securitySensitiveChanged = false;
 
-        if (isset($body['role']) && in_array($body['role'], ['admin', 'superadmin', 'customer'], true)) {
+        if (isset($body['role']) && in_array($body['role'], ['staff', 'admin', 'superadmin', 'customer', 'agent'], true)) {
             if ($body['role'] !== $existing['role']) {
                 $securitySensitiveChanged = true;
             }
@@ -4488,7 +4544,9 @@ class AdminController
                 str_starts_with($e, 'cust_test_') ||
                 str_starts_with($e, 'check_dash_') ||
                 str_starts_with($e, 'test_cust_') ||
-                str_starts_with($e, 'testcust_')
+                str_starts_with($e, 'testcust_') ||
+                str_starts_with($e, 'qa_reg_') ||
+                str_starts_with($e, 'e2e_')
             );
 
             $isGenuine = $isWhitelisted || (!$isTestPattern && !empty($e));
@@ -4529,6 +4587,19 @@ class AdminController
             $this->db->execute("DELETE FROM customer_messages WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM user_profiles WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM notifications WHERE user_id IN ($placeholders)", $testUserIds);
+            $this->db->execute(
+                "DELETE FROM printing_payments WHERE user_id IN ($placeholders) OR order_id IN (SELECT id FROM printing_orders WHERE user_id IN ($placeholders))",
+                array_merge($testUserIds, $testUserIds)
+            );
+            $this->db->execute(
+                "DELETE FROM printing_order_messages WHERE sender_id IN ($placeholders) OR order_id IN (SELECT id FROM printing_orders WHERE user_id IN ($placeholders))",
+                array_merge($testUserIds, $testUserIds)
+            );
+            $this->db->execute(
+                "DELETE FROM printing_order_status_history WHERE actor_id IN ($placeholders) OR order_id IN (SELECT id FROM printing_orders WHERE user_id IN ($placeholders))",
+                array_merge($testUserIds, $testUserIds)
+            );
+            $this->db->execute("DELETE FROM printing_orders WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM users WHERE id IN ($placeholders)", $testUserIds);
         }
 
@@ -4897,19 +4968,26 @@ class AdminController
         $kycId = Security::generateUuid();
         $dbRole = match ($role) {
             'superadmin' => 'superadmin',
-            'admin', 'staff' => 'admin',
+            'admin' => 'admin',
+            'staff' => 'staff',
+            'agent' => 'agent',
             default => 'customer',
         };
         $assignedPermsJson = null;
-        if ($role === 'staff') {
-            $reqPerms = $request->input('permissions', ['printing', 'support']);
+        if ($role === 'staff' || $role === 'admin') {
+            $defaultPerms = $role === 'admin'
+                ? ['customers', 'wallet', 'kyc', 'services', 'printing', 'support', 'reports']
+                : ['printing', 'support'];
+            $reqPerms = $request->input('permissions', $defaultPerms);
             $allowedStaffPerms = ['customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
             $filteredPerms = is_array($reqPerms)
                 ? array_values(array_intersect($allowedStaffPerms, array_map('strval', $reqPerms)))
-                : ['printing', 'support'];
+                : $defaultPerms;
             $assignedPermsJson = json_encode($filteredPerms);
         } elseif ($dbRole === 'superadmin') {
             $assignedPermsJson = json_encode(['*']);
+        } else {
+            $assignedPermsJson = json_encode([]);
         }
         $dbStatus = ($status === 'suspended') ? 'suspended' : 'active';
         $emailVerified = ($status === 'active') ? 1 : 0;

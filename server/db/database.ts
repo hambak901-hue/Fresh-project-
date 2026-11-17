@@ -15,7 +15,7 @@ export interface User {
   password_hash: string;
   full_name: string;
   phone_number: string;
-  role: 'customer' | 'admin' | 'superadmin';
+  role: 'customer' | 'agent' | 'staff' | 'admin' | 'superadmin';
   wallet_balance: number;
   kyc_status: 'unverified' | 'pending' | 'verified' | 'rejected';
   bvn?: string;
@@ -740,8 +740,9 @@ function getDefaultData(): DatabaseSchema {
   ];
 
   // Seed demo customer only when explicitly enabled via environment variables
-  if (process.env.SEED_DEMO_CUSTOMER === 'true' && process.env.DEMO_CUSTOMER_PASSWORD) {
-    const demoPassword = process.env.DEMO_CUSTOMER_PASSWORD;
+  const seedDemo = process.env.SEED_DEMO_CUSTOMER === 'true' && Boolean(process.env.DEMO_CUSTOMER_PASSWORD);
+  if (seedDemo) {
+    const demoPassword = process.env.DEMO_CUSTOMER_PASSWORD as string;
     defaultUsers.push({
       id: 'usr_customer_demo',
       email: 'customer@hambaktech.com.ng',
@@ -763,7 +764,7 @@ function getDefaultData(): DatabaseSchema {
 
   return {
     users: defaultUsers,
-    transactions: [
+    transactions: seedDemo ? [
       {
         id: 'txn_init_001',
         user_id: 'usr_customer_demo',
@@ -806,8 +807,8 @@ function getDefaultData(): DatabaseSchema {
         description: 'MTN SME 10GB Data Top-up to 08123456789',
         created_at: new Date(Date.now() - 86400000).toISOString(),
       },
-    ],
-    verifications: [
+    ] : [],
+    verifications: seedDemo ? [
       {
         id: 'vrf_001',
         user_id: 'usr_customer_demo',
@@ -830,8 +831,8 @@ function getDefaultData(): DatabaseSchema {
         },
         created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
       },
-    ],
-    telecom_orders: [
+    ] : [],
+    telecom_orders: seedDemo ? [
       {
         id: 'ord_001',
         user_id: 'usr_customer_demo',
@@ -847,8 +848,8 @@ function getDefaultData(): DatabaseSchema {
         status: 'successful',
         created_at: new Date(Date.now() - 86400000).toISOString(),
       },
-    ],
-    notifications: [
+    ] : [],
+    notifications: seedDemo ? [
       {
         id: 'notif_001',
         user_id: 'usr_customer_demo',
@@ -867,7 +868,7 @@ function getDefaultData(): DatabaseSchema {
         read: true,
         created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
       },
-    ],
+    ] : [],
     settings: {
       nin_fee: 250,
       bvn_fee: 350,
@@ -1507,7 +1508,7 @@ function getDefaultData(): DatabaseSchema {
           is_active: true,
         },
       ],
-      logs: [
+      logs: seedDemo ? [
         {
           id: 'smslog_01',
           timestamp: new Date(Date.now() - 3600000 * 4).toISOString(),
@@ -1516,7 +1517,7 @@ function getDefaultData(): DatabaseSchema {
           units: 1,
           status: 'delivered',
         },
-      ],
+      ] : [],
     },
     store_settings: {
       store_name: 'HambakTech Hardware & Developer Store',
@@ -1543,29 +1544,31 @@ function getDefaultData(): DatabaseSchema {
       auto_export_email: 'finance@hambaktech.com.ng',
     },
     customer_messages: [
-      {
-        id: 'msg_001',
-        user_id: 'usr_customer_demo',
-        title: 'NIN Slip Verification Verified & Ready',
-        category: 'service',
-        body: 'Your NIMC Premium NIN slip verification for 12345678901 was completed successfully. You can download your high-resolution verified slip with official tracking ID NIN-VRF-9827391.',
-        read: false,
-        reference: '2SV_NIN_INIT_002',
-        action_label: 'View Verification Record',
-        action_link: 'nin',
-        created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
-      },
-      {
-        id: 'msg_002',
-        user_id: 'usr_customer_demo',
-        title: 'Security Notice: Transaction PIN Default Set',
-        category: 'security',
-        body: 'A default transaction PIN (1234) has been provisioned for testing purposes. We recommend updating your 4-digit PIN in Settings before running live high-value commercial transactions.',
-        read: false,
-        action_label: 'Update Security PIN',
-        action_link: 'settings',
-        created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-      },
+      ...(seedDemo ? [
+        {
+          id: 'msg_001',
+          user_id: 'usr_customer_demo',
+          title: 'NIN Slip Verification Verified & Ready',
+          category: 'service' as const,
+          body: 'Your NIMC Premium NIN slip verification for 12345678901 was completed successfully. You can download your high-resolution verified slip with official tracking ID NIN-VRF-9827391.',
+          read: false,
+          reference: '2SV_NIN_INIT_002',
+          action_label: 'View Verification Record',
+          action_link: 'nin',
+          created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
+        },
+        {
+          id: 'msg_002',
+          user_id: 'usr_customer_demo',
+          title: 'Security Notice: Transaction PIN Default Set',
+          category: 'security' as const,
+          body: 'A default transaction PIN (1234) has been provisioned for testing purposes. We recommend updating your 4-digit PIN in Settings before running live high-value commercial transactions.',
+          read: false,
+          action_label: 'Update Security PIN',
+          action_link: 'settings',
+          created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
+        },
+      ] : []),
       {
         id: 'msg_003',
         user_id: 'all',
@@ -1695,7 +1698,7 @@ function getDefaultData(): DatabaseSchema {
         description: 'Individually assigned customer NUBAN for instant automated wallet funding.',
       },
     ],
-    kyc_submissions: [
+    kyc_submissions: seedDemo ? [
       {
         id: 'kyc_sub_demo_01',
         user_id: 'usr_customer_demo',
@@ -1780,8 +1783,8 @@ function getDefaultData(): DatabaseSchema {
           },
         ],
       },
-    ],
-    virtual_accounts: [
+    ] : [],
+    virtual_accounts: seedDemo ? [
       {
         id: 'va_demo_001',
         user_id: 'usr_customer_demo',
@@ -1795,7 +1798,7 @@ function getDefaultData(): DatabaseSchema {
         total_inflow: 250000,
         last_funding_at: '2026-11-05T14:20:00.000Z',
       },
-    ],
+    ] : [],
     slip_templates: [
       {
         id: 'tpl_nin_long',

@@ -49,7 +49,7 @@ class SchemaSync
                 password_hash VARCHAR(255) NOT NULL,
                 full_name VARCHAR(191) NOT NULL,
                 phone_number VARCHAR(30) NOT NULL,
-                role ENUM("customer", "admin", "superadmin") NOT NULL DEFAULT "customer",
+                role ENUM("customer", "agent", "staff", "admin", "superadmin") NOT NULL DEFAULT "customer",
                 wallet_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 kyc_status ENUM("unverified", "pending", "verified", "rejected") NOT NULL DEFAULT "unverified",
                 tier INT NOT NULL DEFAULT 1,
@@ -2348,6 +2348,19 @@ class SchemaSync
             } catch (Throwable $e) {
                 $errors[] = "col:users.{$col} => " . $e->getMessage();
             }
+        }
+
+        try {
+            $roleCol = $db->fetchOne(
+                'SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "users" AND COLUMN_NAME = "role"'
+            );
+            $colType = strtolower((string)($roleCol['COLUMN_TYPE'] ?? ''));
+            if ($colType !== '' && (!str_contains($colType, "'staff'") || !str_contains($colType, "'agent'"))) {
+                $db->execute('ALTER TABLE users MODIFY COLUMN role ENUM("customer", "agent", "staff", "admin", "superadmin") NOT NULL DEFAULT "customer"');
+                $applied[] = 'col:users.role_enum';
+            }
+        } catch (Throwable $e) {
+            $errors[] = 'col:users.role_enum => ' . $e->getMessage();
         }
 
         // Safe backfill for phone_normalized (canonical 2348XXXXXXXXX / digits)

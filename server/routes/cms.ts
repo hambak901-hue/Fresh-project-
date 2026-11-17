@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { db } from '../db/database.js';
 import { sendEmail } from '../services/mailer.js';
-import { parseToken } from './auth.js';
+import { parseToken, hasUserPermission } from './auth.js';
 
 export const cmsRouter = Router();
 
@@ -27,8 +27,8 @@ function requireAdmin(req: any, res: any, next: any) {
     return res.status(403).json({ error: 'Your account is suspended.' });
   }
 
-  if (user.role !== 'admin' && user.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Access denied: Administrator privileges required' });
+  if (!['admin', 'staff', 'superadmin'].includes(user.role) || !hasUserPermission(user, 'cms')) {
+    return res.status(403).json({ error: 'Access denied: CMS management permission required' });
   }
 
   req.user = user;

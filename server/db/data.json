@@ -85,9 +85,757 @@
           "review_notes": "Pending admin compliance review"
         }
       ]
+    },
+    {
+      "id": "usr_e2e_superadmin",
+      "email": "e2e_superadmin@hambaktech.com.ng",
+      "password_hash": "$2b$10$jN9UnLEuq/REUYkABd.eXOM/nowC8/GrsWQDBtmPFn1X4kbaBtqRq",
+      "full_name": "E2E Verification Root",
+      "phone_number": "+2348000000099",
+      "role": "superadmin",
+      "wallet_balance": 500000,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "E2E-SUPER",
+      "created_at": "2026-11-17T08:50:32.555Z",
+      "updated_at": "2026-11-17T08:50:32.556Z",
+      "status": "active",
+      "email_verified": true,
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "email": "e2e_customer@hambaktech.com.ng",
+      "password_hash": "$2b$10$rQG0vJF1L/dvmei7kpi65u1SdCvUVZbwTDDg8E8q4DhnaCckX1H6q",
+      "full_name": "E2E Test Customer",
+      "phone_number": "08090001101",
+      "role": "customer",
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-C14EBD",
+      "status": "active",
+      "id": "usr_1794905488551_3924i",
+      "created_at": "2026-11-17T08:51:28.551Z",
+      "updated_at": "2026-11-17T08:51:28.551Z"
+    },
+    {
+      "email": "e2e_cust_1794905548847@hambaktech.com.ng",
+      "password_hash": "$2b$10$86NHpOVjQIZWoxtYZOUSQ.JjuYLfq5O8f40YhL5e.xxPCjr7MG8UK",
+      "full_name": "E2E Test Customer",
+      "phone_number": "08090001101",
+      "role": "customer",
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-0702D0",
+      "status": "active",
+      "id": "usr_1794905549140_y51bv",
+      "created_at": "2026-11-17T08:52:29.140Z",
+      "updated_at": "2026-11-17T08:52:29.276Z",
+      "transaction_pin_hash": "$2b$10$yM7J.d2GcHkTywUbWw19huasgDCqV1Hz1yyiqFcPx25D5N2Vvgd4a"
+    },
+    {
+      "email": "e2e_cust_1794905571448@hambaktech.com.ng",
+      "password_hash": "$2b$10$hYl6Z5nbyfNP9HbUKvp57ObMUtJq13FX/iNVLNz9gRgKWOTb5YAy.",
+      "full_name": "E2E Test Customer",
+      "phone_number": "08090001101",
+      "role": "customer",
+      "wallet_balance": 50000,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-C18C0A",
+      "status": "active",
+      "id": "usr_1794905571743_atb49",
+      "created_at": "2026-11-17T08:52:51.744Z",
+      "updated_at": "2026-11-17T08:52:51.912Z",
+      "transaction_pin_hash": "$2b$10$EhnGtq0qXD3Dtcqi.uJ02.gXRRpu8QtRj0Dg12Uxp9a6h5Kgz233W"
+    },
+    {
+      "email": "e2e_agent_1794905571448@hambaktech.com.ng",
+      "password_hash": "$2b$10$EPWqBvhC74gBFAqauGldoezMybRBR7.2CAxEUEK2jKoKLj2MRqJrS",
+      "full_name": "E2E Commercial Agent",
+      "phone_number": "08090001102",
+      "role": "agent",
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-586F0C",
+      "status": "active",
+      "id": "usr_1794905572044_ihzbm",
+      "created_at": "2026-11-17T08:52:52.044Z",
+      "updated_at": "2026-11-17T08:52:52.059Z"
+    },
+    {
+      "email": "e2e_sp_1794905571448@hambaktech.com.ng",
+      "password_hash": "$2b$10$8u83GIOyjqJN.MdpoVIJUuQDNIou/wGbykUL0Qs.Sj2zNff/Bzlam",
+      "full_name": "E2E Print Officer",
+      "phone_number": "08090001103",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-EHHX",
+      "status": "active",
+      "permissions": [
+        "printing"
+      ],
+      "id": "usr_1794905572325_web4g",
+      "created_at": "2026-11-17T08:52:52.325Z",
+      "updated_at": "2026-11-17T08:52:52.325Z"
+    },
+    {
+      "email": "e2e_cust_1794905577105@hambaktech.com.ng",
+      "password_hash": "$2b$10$sT/yKu6DPVETm98mgJVZcO64qZ5aPhrGdFzAS40f.UumLtkTY4LEy",
+      "full_name": "E2E Test Customer",
+      "phone_number": "08090001101",
+      "role": "customer",
+      "wallet_balance": 50000,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-E4CBF2",
+      "status": "active",
+      "id": "usr_1794905577415_swwr6",
+      "created_at": "2026-11-17T08:52:57.415Z",
+      "updated_at": "2026-11-17T08:52:57.560Z",
+      "transaction_pin_hash": "$2b$10$sPZG/WqaRzKY8AY9C6o2i.rUXdOZWOBpGyrmcSCAzzzjaUjohcfGu"
+    },
+    {
+      "email": "e2e_agent_1794905577105@hambaktech.com.ng",
+      "password_hash": "$2b$10$M8xnjhNoEH91QlIe.aDmAOmjPHcQy5RFfnH3lr3x1b8axNBUbIPIu",
+      "full_name": "E2E Commercial Agent",
+      "phone_number": "08090001102",
+      "role": "agent",
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-608EF6",
+      "status": "active",
+      "id": "usr_1794905577697_okzzj",
+      "created_at": "2026-11-17T08:52:57.697Z",
+      "updated_at": "2026-11-17T08:52:57.709Z"
+    },
+    {
+      "email": "e2e_sp_1794905577105@hambaktech.com.ng",
+      "password_hash": "$2b$10$FzuwhGTJHiKEITK.QECEGuZmZUOc1Rp9u0zRSfyW05rTrPEc5h2ti",
+      "full_name": "E2E Print Officer",
+      "phone_number": "08090001103",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-0HF2",
+      "status": "active",
+      "permissions": [
+        "printing"
+      ],
+      "id": "usr_1794905577982_r9j3t",
+      "created_at": "2026-11-17T08:52:57.982Z",
+      "updated_at": "2026-11-17T08:52:57.982Z"
+    },
+    {
+      "email": "e2e_spm_1794905577105@hambaktech.com.ng",
+      "password_hash": "$2b$10$LVrrddUeW1s1nFfgnLVuIenoVyRI6/hOHeaP1y/zh1lCbVIVpNCPm",
+      "full_name": "E2E Print Manager",
+      "phone_number": "08090001104",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-GWYV",
+      "status": "active",
+      "permissions": [
+        "printing",
+        "printing_pricing"
+      ],
+      "id": "usr_1794905578256_e4whn",
+      "created_at": "2026-11-17T08:52:58.256Z",
+      "updated_at": "2026-11-17T08:52:58.256Z"
+    },
+    {
+      "email": "e2e_kyc_1794905577105@hambaktech.com.ng",
+      "password_hash": "$2b$10$FX1Fwf9Bo5kX13bn/pQhWOJLiJ1hTOnX2ZKrxdlIqg2FVF5sLlbFO",
+      "full_name": "E2E KYC Officer",
+      "phone_number": "08090001105",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-EAC7",
+      "status": "active",
+      "permissions": [
+        "customers",
+        "kyc",
+        "support"
+      ],
+      "id": "usr_1794905578501_fjp07",
+      "created_at": "2026-11-17T08:52:58.501Z",
+      "updated_at": "2026-11-17T08:52:58.501Z"
+    },
+    {
+      "email": "e2e_ops_1794905577105@hambaktech.com.ng",
+      "password_hash": "$2b$10$P6Tz1R0YDjJbW93bOl3RmOW9Z4QaQ3KKLaftkKqxV8KxPwyAc.hGm",
+      "full_name": "E2E Ops Admin",
+      "phone_number": "08090001106",
+      "role": "admin",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-IP5H",
+      "status": "active",
+      "permissions": [
+        "printing",
+        "customers"
+      ],
+      "id": "usr_1794905578765_t5f06",
+      "created_at": "2026-11-17T08:52:58.765Z",
+      "updated_at": "2026-11-17T08:52:58.765Z"
+    },
+    {
+      "email": "e2e_cust_1794905604078@hambaktech.com.ng",
+      "password_hash": "$2b$10$4SjWxzStROE7NFO0s2Fm1uVzC/J.Hf07qa7Mr7HCpmCcAOtJ4qoI.",
+      "full_name": "E2E Test Customer",
+      "phone_number": "08090001101",
+      "role": "customer",
+      "wallet_balance": 50000,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-4AC726",
+      "status": "active",
+      "id": "usr_1794905604410_mhzal",
+      "created_at": "2026-11-17T08:53:24.410Z",
+      "updated_at": "2026-11-17T08:53:24.579Z",
+      "transaction_pin_hash": "$2b$10$xFFWAOkH9QAiLlRFZ4hHie9SpRC9ZjULKs0djC6e6PInObqDAO7dK"
+    },
+    {
+      "email": "e2e_agent_1794905604078@hambaktech.com.ng",
+      "password_hash": "$2b$10$U4WFetwJ2YueI26o/cKyr.szgoQNoTbBUG7/YkJ/uPvCJKh1DSLO6",
+      "full_name": "E2E Commercial Agent",
+      "phone_number": "08090001102",
+      "role": "agent",
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-F4A5E9",
+      "status": "active",
+      "id": "usr_1794905604707_dnxk5",
+      "created_at": "2026-11-17T08:53:24.707Z",
+      "updated_at": "2026-11-17T08:53:24.722Z"
+    },
+    {
+      "email": "e2e_sp_1794905604078@hambaktech.com.ng",
+      "password_hash": "$2b$10$r0a.xn61shMs0gsRz5QJPe5UnuVWA0UwzJ3IUC0l1kcKPIRVyWJ5O",
+      "full_name": "E2E Print Officer",
+      "phone_number": "08090001103",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-5BTU",
+      "status": "active",
+      "permissions": [
+        "printing"
+      ],
+      "id": "usr_1794905604957_vl7fo",
+      "created_at": "2026-11-17T08:53:24.957Z",
+      "updated_at": "2026-11-17T08:53:24.957Z"
+    },
+    {
+      "email": "e2e_spm_1794905604078@hambaktech.com.ng",
+      "password_hash": "$2b$10$iZoAdKV3MD8iU5lCOY41MuhI.Sv8oSyk4iqsQb2GrDvfZH40915Vi",
+      "full_name": "E2E Print Manager",
+      "phone_number": "08090001104",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-IW0M",
+      "status": "active",
+      "permissions": [
+        "printing",
+        "printing_pricing"
+      ],
+      "id": "usr_1794905605196_gl2x6",
+      "created_at": "2026-11-17T08:53:25.196Z",
+      "updated_at": "2026-11-17T08:53:25.196Z"
+    },
+    {
+      "email": "e2e_kyc_1794905604078@hambaktech.com.ng",
+      "password_hash": "$2b$10$2uxsdoKwqFpq/02JjUtxC.iWNfU4zUGOZ0D1ShcTHX3JCPe6Wr1bC",
+      "full_name": "E2E KYC Officer",
+      "phone_number": "08090001105",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-4EO7",
+      "status": "active",
+      "permissions": [
+        "customers",
+        "kyc",
+        "support"
+      ],
+      "id": "usr_1794905605437_pw8fu",
+      "created_at": "2026-11-17T08:53:25.437Z",
+      "updated_at": "2026-11-17T08:53:25.437Z"
+    },
+    {
+      "email": "e2e_ops_1794905604078@hambaktech.com.ng",
+      "password_hash": "$2b$10$L3Tin/ou6.h7BdZOtq3nVOFFo5XGBsACjjTVT93U8repB.Un2uSFu",
+      "full_name": "E2E Ops Admin",
+      "phone_number": "08090001106",
+      "role": "admin",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-RPNO",
+      "status": "active",
+      "permissions": [
+        "printing",
+        "customers"
+      ],
+      "id": "usr_1794905605677_kml9u",
+      "created_at": "2026-11-17T08:53:25.677Z",
+      "updated_at": "2026-11-17T08:53:25.677Z"
+    },
+    {
+      "email": "e2e_cust_1794905658676@hambaktech.com.ng",
+      "password_hash": "$2b$10$J1HjSEWkRN4t1uSz5dnkX.iIon/3RfUxvwqs1Db0ab98aL0pEcCCq",
+      "full_name": "E2E Test Customer",
+      "phone_number": "08090001101",
+      "role": "customer",
+      "wallet_balance": 50000,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-B679C7",
+      "status": "active",
+      "id": "usr_1794905658941_jwsgq",
+      "created_at": "2026-11-17T08:54:18.941Z",
+      "updated_at": "2026-11-17T08:54:19.082Z",
+      "transaction_pin_hash": "$2b$10$Ei1VU2idz2rv6l.RnIiDSONgciBikSp5B8EBaY1vgUB78zztqdA16"
+    },
+    {
+      "email": "e2e_agent_1794905658676@hambaktech.com.ng",
+      "password_hash": "$2b$10$hYbDF1Hd4CFRCKma95Z0D.EixgrDdIlRuf.C50VdKlXyTU4XU.LTW",
+      "full_name": "E2E Commercial Agent",
+      "phone_number": "08090001102",
+      "role": "agent",
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-4659CA",
+      "status": "active",
+      "id": "usr_1794905659209_f0d0s",
+      "created_at": "2026-11-17T08:54:19.209Z",
+      "updated_at": "2026-11-17T08:54:19.223Z"
+    },
+    {
+      "email": "e2e_sp_1794905658676@hambaktech.com.ng",
+      "password_hash": "$2b$10$TcO8rM.6Uegwi5S/bElQCOQm14VkT71DpXyWGAk.nmglbVHM7Q6QS",
+      "full_name": "E2E Print Officer",
+      "phone_number": "08090001103",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-7J01",
+      "status": "active",
+      "permissions": [
+        "printing"
+      ],
+      "id": "usr_1794905659480_1cmcr",
+      "created_at": "2026-11-17T08:54:19.480Z",
+      "updated_at": "2026-11-17T08:54:19.480Z"
+    },
+    {
+      "email": "e2e_spm_1794905658676@hambaktech.com.ng",
+      "password_hash": "$2b$10$WLsoWoS4pN6H8eNX4MTHjOoYPx4SBqK5wI4mi2xeUh5AGTJmZl6re",
+      "full_name": "E2E Print Manager",
+      "phone_number": "08090001104",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-5KPU",
+      "status": "active",
+      "permissions": [
+        "printing",
+        "printing_pricing"
+      ],
+      "id": "usr_1794905659724_ugi3z",
+      "created_at": "2026-11-17T08:54:19.724Z",
+      "updated_at": "2026-11-17T08:54:19.724Z"
+    },
+    {
+      "email": "e2e_kyc_1794905658676@hambaktech.com.ng",
+      "password_hash": "$2b$10$dljzWtKmF285fjkQmpSiaOyLfmNt5yb4H/Ul8ReiBLApBANgZdNPu",
+      "full_name": "E2E KYC Officer",
+      "phone_number": "08090001105",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-DH69",
+      "status": "active",
+      "permissions": [
+        "customers",
+        "kyc",
+        "support"
+      ],
+      "id": "usr_1794905659964_k5c08",
+      "created_at": "2026-11-17T08:54:19.964Z",
+      "updated_at": "2026-11-17T08:54:19.964Z"
+    },
+    {
+      "email": "e2e_ops_1794905658676@hambaktech.com.ng",
+      "password_hash": "$2b$10$pjn7O0SUWu3it../MoXIH.oHps76Xm3LERjwgWHXvygpKR35SX376",
+      "full_name": "E2E Ops Admin",
+      "phone_number": "08090001106",
+      "role": "admin",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-M5OQ",
+      "status": "active",
+      "permissions": [
+        "printing",
+        "customers"
+      ],
+      "id": "usr_1794905660208_hzmtj",
+      "created_at": "2026-11-17T08:54:20.208Z",
+      "updated_at": "2026-11-17T08:54:20.208Z"
+    },
+    {
+      "email": "e2e_cust_1794905693753@hambaktech.com.ng",
+      "password_hash": "$2b$10$XaxfFIOPnUm2y/cFBDIn3e.oBkhe19PSeCaknkc0DFX9ye/B3I/Ke",
+      "full_name": "E2E Test Customer",
+      "phone_number": "08090001101",
+      "role": "customer",
+      "wallet_balance": 50000,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-7A50B1",
+      "status": "active",
+      "id": "usr_1794905694019_ymhi1",
+      "created_at": "2026-11-17T08:54:54.019Z",
+      "updated_at": "2026-11-17T08:54:54.165Z",
+      "transaction_pin_hash": "$2b$10$MsgjfNgEBMkOnGPLusiQEerDoZ7TE7bwC7Ekf7QVDO2V40Ee2M5pK"
+    },
+    {
+      "email": "e2e_agent_1794905693753@hambaktech.com.ng",
+      "password_hash": "$2b$10$Gg6NrfyqLATHwe551MC2sOJGMXN6PVvknM2wuNYENIXO6e13hlMzu",
+      "full_name": "E2E Commercial Agent",
+      "phone_number": "08090001102",
+      "role": "agent",
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-FF136B",
+      "status": "active",
+      "id": "usr_1794905694295_faqmx",
+      "created_at": "2026-11-17T08:54:54.295Z",
+      "updated_at": "2026-11-17T08:54:54.311Z"
+    },
+    {
+      "email": "e2e_sp_1794905693753@hambaktech.com.ng",
+      "password_hash": "$2b$10$ESr3hbKFMxnMYT9oP0RxkemwEpeYSl.AxowVdSlt2Z/WqZtRY/Kfa",
+      "full_name": "E2E Print Officer",
+      "phone_number": "08090001103",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-JT5E",
+      "status": "active",
+      "permissions": [
+        "printing"
+      ],
+      "id": "usr_1794905694554_kksb1",
+      "created_at": "2026-11-17T08:54:54.554Z",
+      "updated_at": "2026-11-17T08:54:54.554Z"
+    },
+    {
+      "email": "e2e_spm_1794905693753@hambaktech.com.ng",
+      "password_hash": "$2b$10$NmVbE5en.tNWUmAceWQ2mudO.w0szBf180uv8lbXNusxks78miz0q",
+      "full_name": "E2E Print Manager",
+      "phone_number": "08090001104",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-BB9X",
+      "status": "active",
+      "permissions": [
+        "printing",
+        "printing_pricing"
+      ],
+      "id": "usr_1794905694806_cnzfu",
+      "created_at": "2026-11-17T08:54:54.806Z",
+      "updated_at": "2026-11-17T08:54:54.806Z"
+    },
+    {
+      "email": "e2e_kyc_1794905693753@hambaktech.com.ng",
+      "password_hash": "$2b$10$KuePQ9o0g6htJXkiGMhK5Ob8mZwnXZ.Job7wVOpYoWm60/H8TRP9a",
+      "full_name": "E2E KYC Officer",
+      "phone_number": "08090001105",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-PAO9",
+      "status": "active",
+      "permissions": [
+        "customers",
+        "kyc",
+        "support"
+      ],
+      "id": "usr_1794905695059_d8gol",
+      "created_at": "2026-11-17T08:54:55.059Z",
+      "updated_at": "2026-11-17T08:54:55.059Z"
+    },
+    {
+      "email": "e2e_ops_1794905693753@hambaktech.com.ng",
+      "password_hash": "$2b$10$Ny2XXvltL5Si3OH2rQ1gO.HXPubG/jcFo/OFmxTZHA7Q0.EcmLm0m",
+      "full_name": "E2E Ops Admin",
+      "phone_number": "08090001106",
+      "role": "admin",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-41FA",
+      "status": "active",
+      "permissions": [
+        "printing",
+        "customers"
+      ],
+      "id": "usr_1794905695320_5y1ej",
+      "created_at": "2026-11-17T08:54:55.320Z",
+      "updated_at": "2026-11-17T08:54:55.320Z"
+    },
+    {
+      "email": "e2e_cust_1794905737097@hambaktech.com.ng",
+      "password_hash": "$2b$10$d18OvnbWNN1ycPCO/a5oLenYlLIpeX3XPGSRvIJRRwP10/nB2ng4C",
+      "full_name": "E2E Test Customer",
+      "phone_number": "08090001101",
+      "role": "customer",
+      "wallet_balance": 50000,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-61BF57",
+      "status": "active",
+      "id": "usr_1794905737362_saxw0",
+      "created_at": "2026-11-17T08:55:37.362Z",
+      "updated_at": "2026-11-17T08:55:37.521Z",
+      "transaction_pin_hash": "$2b$10$3LNq90ql2gd9CnPbNR7PguQRdKvF8SEyjbD3ovA5FA/HDgEYsH07O"
+    },
+    {
+      "email": "e2e_agent_1794905737097@hambaktech.com.ng",
+      "password_hash": "$2b$10$ncp2d7.WwwVrHDaIT6P/x.HsRaENx.ik09kFs7/fvij7DOoVozY96",
+      "full_name": "E2E Commercial Agent",
+      "phone_number": "08090001102",
+      "role": "agent",
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-8738C2",
+      "status": "active",
+      "id": "usr_1794905737651_xmhh7",
+      "created_at": "2026-11-17T08:55:37.651Z",
+      "updated_at": "2026-11-17T08:55:37.668Z"
+    },
+    {
+      "email": "e2e_sp_1794905737097@hambaktech.com.ng",
+      "password_hash": "$2b$10$XaTu9ZO9Hv6qGODgytoxg.K1ROpOfgNIPd/5mypeOII4EsAmZMRU2",
+      "full_name": "E2E Print Officer",
+      "phone_number": "08090001103",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-GI1V",
+      "status": "active",
+      "permissions": [
+        "printing"
+      ],
+      "id": "usr_1794905737933_u244j",
+      "created_at": "2026-11-17T08:55:37.933Z",
+      "updated_at": "2026-11-17T08:55:37.933Z"
+    },
+    {
+      "email": "e2e_spm_1794905737097@hambaktech.com.ng",
+      "password_hash": "$2b$10$64KbB7D5K8br3e.LT6sjaukmpvghHN/CXGo6657UTU.SGKs1Va4R.",
+      "full_name": "E2E Print Manager",
+      "phone_number": "08090001104",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-ZYXF",
+      "status": "active",
+      "permissions": [
+        "printing",
+        "printing_pricing"
+      ],
+      "id": "usr_1794905738196_h1lq6",
+      "created_at": "2026-11-17T08:55:38.196Z",
+      "updated_at": "2026-11-17T08:55:38.196Z"
+    },
+    {
+      "email": "e2e_kyc_1794905737097@hambaktech.com.ng",
+      "password_hash": "$2b$10$wQsiZdFdxVdwOhNTjizUleaYTstEsxAWDK8vtkdalRYH9ULP0tpbC",
+      "full_name": "E2E KYC Officer",
+      "phone_number": "08090001105",
+      "role": "staff",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-Y0AO",
+      "status": "active",
+      "permissions": [
+        "customers",
+        "kyc",
+        "support"
+      ],
+      "id": "usr_1794905738450_m9g8b",
+      "created_at": "2026-11-17T08:55:38.450Z",
+      "updated_at": "2026-11-17T08:55:38.450Z"
+    },
+    {
+      "email": "e2e_ops_1794905737097@hambaktech.com.ng",
+      "password_hash": "$2b$10$sBwFi7QlxCecolatvxy2qOzQj4AFPis8PSH7DaJ0IHYlDTBw/4W0C",
+      "full_name": "E2E Ops Admin",
+      "phone_number": "08090001106",
+      "role": "admin",
+      "wallet_balance": 0,
+      "kyc_status": "verified",
+      "tier": 3,
+      "referral_code": "STAFF-6QNI",
+      "status": "active",
+      "permissions": [
+        "printing",
+        "customers"
+      ],
+      "id": "usr_1794905738692_73eo8",
+      "created_at": "2026-11-17T08:55:38.692Z",
+      "updated_at": "2026-11-17T08:55:38.692Z"
     }
   ],
   "transactions": [
+    {
+      "id": "txn_1794905737521_fa9ln",
+      "user_id": "usr_1794905737362_saxw0",
+      "type": "credit",
+      "amount": 50000,
+      "balance_before": 0,
+      "balance_after": 50000,
+      "category": "manual_adjustment",
+      "reference": "REF_1794905737521",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "Admin CREDIT: ₦50,000 - E2E printing test funding",
+      "metadata": {
+        "adminId": "usr_e2e_superadmin",
+        "adminEmail": "e2e_superadmin@hambaktech.com.ng",
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:55:37.521Z"
+    },
+    {
+      "id": "txn_1794905694165_d1ia2",
+      "user_id": "usr_1794905694019_ymhi1",
+      "type": "credit",
+      "amount": 50000,
+      "balance_before": 0,
+      "balance_after": 50000,
+      "category": "manual_adjustment",
+      "reference": "REF_1794905694165",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "Admin CREDIT: ₦50,000 - E2E printing test funding",
+      "metadata": {
+        "adminId": "usr_e2e_superadmin",
+        "adminEmail": "e2e_superadmin@hambaktech.com.ng",
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:54:54.165Z"
+    },
+    {
+      "id": "txn_1794905659082_v5cns",
+      "user_id": "usr_1794905658941_jwsgq",
+      "type": "credit",
+      "amount": 50000,
+      "balance_before": 0,
+      "balance_after": 50000,
+      "category": "manual_adjustment",
+      "reference": "REF_1794905659082",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "Admin CREDIT: ₦50,000 - E2E printing test funding",
+      "metadata": {
+        "adminId": "usr_e2e_superadmin",
+        "adminEmail": "e2e_superadmin@hambaktech.com.ng",
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:54:19.082Z"
+    },
+    {
+      "id": "txn_1794905604579_2qy7u",
+      "user_id": "usr_1794905604410_mhzal",
+      "type": "credit",
+      "amount": 50000,
+      "balance_before": 0,
+      "balance_after": 50000,
+      "category": "manual_adjustment",
+      "reference": "REF_1794905604579",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "Admin CREDIT: ₦50,000 - E2E printing test funding",
+      "metadata": {
+        "adminId": "usr_e2e_superadmin",
+        "adminEmail": "e2e_superadmin@hambaktech.com.ng",
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:53:24.579Z"
+    },
+    {
+      "id": "txn_1794905577560_q4hw6",
+      "user_id": "usr_1794905577415_swwr6",
+      "type": "credit",
+      "amount": 50000,
+      "balance_before": 0,
+      "balance_after": 50000,
+      "category": "manual_adjustment",
+      "reference": "REF_1794905577560",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "Admin CREDIT: ₦50,000 - E2E printing test funding",
+      "metadata": {
+        "adminId": "usr_e2e_superadmin",
+        "adminEmail": "e2e_superadmin@hambaktech.com.ng",
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:52:57.560Z"
+    },
+    {
+      "id": "txn_1794905571912_we0f6",
+      "user_id": "usr_1794905571743_atb49",
+      "type": "credit",
+      "amount": 50000,
+      "balance_before": 0,
+      "balance_after": 50000,
+      "category": "manual_adjustment",
+      "reference": "REF_1794905571912",
+      "gateway": "internal",
+      "status": "successful",
+      "description": "Admin CREDIT: ₦50,000 - E2E printing test funding",
+      "metadata": {
+        "adminId": "usr_e2e_superadmin",
+        "adminEmail": "e2e_superadmin@hambaktech.com.ng",
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:52:51.912Z"
+    },
     {
       "id": "txn_1794497538311",
       "user_id": "usr_1794497537344_ajyey",
@@ -396,6 +1144,186 @@
   ],
   "notifications": [
     {
+      "id": "notif_1794905737654_utkpc",
+      "user_id": "usr_1794905737651_xmhh7",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Commercial Agent, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:55:37.654Z"
+    },
+    {
+      "id": "notif_1794905737526_hb8vf",
+      "user_id": "usr_1794905737362_saxw0",
+      "title": "Wallet Credited by Admin",
+      "message": "Received ₦50,000. Reason: E2E printing test funding",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:55:37.526Z"
+    },
+    {
+      "id": "notif_1794905737364_tmp92",
+      "user_id": "usr_1794905737362_saxw0",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Test Customer, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:55:37.364Z"
+    },
+    {
+      "id": "notif_1794905694298_ht9zp",
+      "user_id": "usr_1794905694295_faqmx",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Commercial Agent, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:54:54.298Z"
+    },
+    {
+      "id": "notif_1794905694172_p602e",
+      "user_id": "usr_1794905694019_ymhi1",
+      "title": "Wallet Credited by Admin",
+      "message": "Received ₦50,000. Reason: E2E printing test funding",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:54:54.172Z"
+    },
+    {
+      "id": "notif_1794905694021_1xhwo",
+      "user_id": "usr_1794905694019_ymhi1",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Test Customer, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:54:54.021Z"
+    },
+    {
+      "id": "notif_1794905659211_jkxqm",
+      "user_id": "usr_1794905659209_f0d0s",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Commercial Agent, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:54:19.211Z"
+    },
+    {
+      "id": "notif_1794905659086_3oypd",
+      "user_id": "usr_1794905658941_jwsgq",
+      "title": "Wallet Credited by Admin",
+      "message": "Received ₦50,000. Reason: E2E printing test funding",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:54:19.086Z"
+    },
+    {
+      "id": "notif_1794905658943_bs7cj",
+      "user_id": "usr_1794905658941_jwsgq",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Test Customer, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:54:18.943Z"
+    },
+    {
+      "id": "notif_1794905604709_gdofc",
+      "user_id": "usr_1794905604707_dnxk5",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Commercial Agent, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:53:24.709Z"
+    },
+    {
+      "id": "notif_1794905604583_2uzhi",
+      "user_id": "usr_1794905604410_mhzal",
+      "title": "Wallet Credited by Admin",
+      "message": "Received ₦50,000. Reason: E2E printing test funding",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:53:24.583Z"
+    },
+    {
+      "id": "notif_1794905604413_xrvi5",
+      "user_id": "usr_1794905604410_mhzal",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Test Customer, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:53:24.413Z"
+    },
+    {
+      "id": "notif_1794905577698_jwyqq",
+      "user_id": "usr_1794905577697_okzzj",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Commercial Agent, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:52:57.698Z"
+    },
+    {
+      "id": "notif_1794905577570_iblud",
+      "user_id": "usr_1794905577415_swwr6",
+      "title": "Wallet Credited by Admin",
+      "message": "Received ₦50,000. Reason: E2E printing test funding",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:52:57.570Z"
+    },
+    {
+      "id": "notif_1794905577417_ni3s3",
+      "user_id": "usr_1794905577415_swwr6",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Test Customer, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:52:57.417Z"
+    },
+    {
+      "id": "notif_1794905572046_7hnfu",
+      "user_id": "usr_1794905572044_ihzbm",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Commercial Agent, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:52:52.046Z"
+    },
+    {
+      "id": "notif_1794905571916_v945g",
+      "user_id": "usr_1794905571743_atb49",
+      "title": "Wallet Credited by Admin",
+      "message": "Received ₦50,000. Reason: E2E printing test funding",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:52:51.916Z"
+    },
+    {
+      "id": "notif_1794905571745_hlog1",
+      "user_id": "usr_1794905571743_atb49",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Test Customer, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:52:51.745Z"
+    },
+    {
+      "id": "notif_1794905549143_krv7v",
+      "user_id": "usr_1794905549140_y51bv",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Test Customer, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:52:29.143Z"
+    },
+    {
+      "id": "notif_1794905488553_7rnl7",
+      "user_id": "usr_1794905488551_3924i",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello E2E Test Customer, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-17T08:51:28.553Z"
+    },
+    {
       "id": "notif_1794497538374_37idd",
       "user_id": "usr_1794497537344_ajyey",
       "title": "KYC Submission Received",
@@ -524,6 +1452,1258 @@
     "support_email": "support@hambaktech.com.ng"
   },
   "audit_logs": [
+    {
+      "id": "audit_1794905741207",
+      "user_id": "usr_1794905737362_saxw0",
+      "user_email": "e2e_cust_1794905737097@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:55:41.207Z"
+    },
+    {
+      "id": "audit_1794905738878",
+      "user_id": "usr_1794905738196_h1lq6",
+      "user_email": "e2e_spm_1794905737097@hambaktech.com.ng",
+      "action": "PRINTING_CATEGORY_UPDATED",
+      "details": {
+        "category_key": "doc_printing"
+      },
+      "created_at": "2026-11-17T08:55:38.878Z"
+    },
+    {
+      "id": "audit_1794905738869",
+      "user_id": "usr_1794905738196_h1lq6",
+      "user_email": "e2e_spm_1794905737097@hambaktech.com.ng",
+      "action": "PRINTING_CATEGORY_UPDATED",
+      "details": {
+        "category_key": "doc_printing"
+      },
+      "created_at": "2026-11-17T08:55:38.869Z"
+    },
+    {
+      "id": "audit_1794905738813",
+      "user_id": "usr_1794905738692_73eo8",
+      "user_email": "e2e_ops_1794905737097@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "admin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:55:38.813Z"
+    },
+    {
+      "id": "audit_1794905738695",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905738692_73eo8",
+        "email": "e2e_ops_1794905737097@hambaktech.com.ng",
+        "role": "admin",
+        "permissions": [
+          "printing",
+          "customers"
+        ]
+      },
+      "created_at": "2026-11-17T08:55:38.695Z"
+    },
+    {
+      "id": "audit_1794905738572",
+      "user_id": "usr_1794905738450_m9g8b",
+      "user_email": "e2e_kyc_1794905737097@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:55:38.572Z"
+    },
+    {
+      "id": "audit_1794905738452",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905738450_m9g8b",
+        "email": "e2e_kyc_1794905737097@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "customers",
+          "kyc",
+          "support"
+        ]
+      },
+      "created_at": "2026-11-17T08:55:38.452Z"
+    },
+    {
+      "id": "audit_1794905738326",
+      "user_id": "usr_1794905738196_h1lq6",
+      "user_email": "e2e_spm_1794905737097@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:55:38.326Z"
+    },
+    {
+      "id": "audit_1794905738199",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905738196_h1lq6",
+        "email": "e2e_spm_1794905737097@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing",
+          "printing_pricing"
+        ]
+      },
+      "created_at": "2026-11-17T08:55:38.199Z"
+    },
+    {
+      "id": "audit_1794905738063",
+      "user_id": "usr_1794905737933_u244j",
+      "user_email": "e2e_sp_1794905737097@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:55:38.063Z"
+    },
+    {
+      "id": "audit_1794905737936",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905737933_u244j",
+        "email": "e2e_sp_1794905737097@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing"
+        ]
+      },
+      "created_at": "2026-11-17T08:55:37.936Z"
+    },
+    {
+      "id": "audit_1794905737796",
+      "user_id": "usr_1794905737651_xmhh7",
+      "user_email": "e2e_agent_1794905737097@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "agent"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:55:37.796Z"
+    },
+    {
+      "id": "audit_1794905737671",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "ADMIN_CUSTOMER_UPDATED",
+      "details": {
+        "targetUserId": "usr_1794905737651_xmhh7",
+        "updates": {
+          "role": "agent"
+        }
+      },
+      "created_at": "2026-11-17T08:55:37.671Z"
+    },
+    {
+      "id": "audit_1794905737656",
+      "user_id": "usr_1794905737651_xmhh7",
+      "user_email": "e2e_agent_1794905737097@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_agent_1794905737097@hambaktech.com.ng",
+        "phone": "08090001102"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:55:37.656Z"
+    },
+    {
+      "id": "audit_1794905737523",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "WALLET_ADJUSTMENT",
+      "details": {
+        "targetUserId": "usr_1794905737362_saxw0",
+        "targetEmail": "e2e_cust_1794905737097@hambaktech.com.ng",
+        "type": "credit",
+        "amount": 50000,
+        "balanceBefore": 0,
+        "balanceAfter": 50000,
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:55:37.523Z"
+    },
+    {
+      "id": "audit_1794905737511",
+      "user_id": "usr_1794905737362_saxw0",
+      "user_email": "e2e_cust_1794905737097@hambaktech.com.ng",
+      "action": "TRANSACTION_PIN_CONFIGURED",
+      "details": {
+        "userId": "usr_1794905737362_saxw0"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:55:37.511Z"
+    },
+    {
+      "id": "audit_1794905737367",
+      "user_id": "usr_1794905737362_saxw0",
+      "user_email": "e2e_cust_1794905737097@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_cust_1794905737097@hambaktech.com.ng",
+        "phone": "08090001101"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:55:37.367Z"
+    },
+    {
+      "id": "audit_1794905737232",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:55:37.232Z"
+    },
+    {
+      "id": "audit_1794905697831",
+      "user_id": "usr_1794905694019_ymhi1",
+      "user_email": "e2e_cust_1794905693753@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:57.831Z"
+    },
+    {
+      "id": "audit_1794905695551",
+      "user_id": "usr_1794905694806_cnzfu",
+      "user_email": "e2e_spm_1794905693753@hambaktech.com.ng",
+      "action": "PRINTING_CATEGORY_UPDATED",
+      "details": {
+        "category_key": "doc_printing"
+      },
+      "created_at": "2026-11-17T08:54:55.551Z"
+    },
+    {
+      "id": "audit_1794905695541",
+      "user_id": "usr_1794905694806_cnzfu",
+      "user_email": "e2e_spm_1794905693753@hambaktech.com.ng",
+      "action": "PRINTING_CATEGORY_UPDATED",
+      "details": {
+        "category_key": "doc_printing"
+      },
+      "created_at": "2026-11-17T08:54:55.541Z"
+    },
+    {
+      "id": "audit_1794905695466",
+      "user_id": "usr_1794905695320_5y1ej",
+      "user_email": "e2e_ops_1794905693753@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "admin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:55.466Z"
+    },
+    {
+      "id": "audit_1794905695323",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905695320_5y1ej",
+        "email": "e2e_ops_1794905693753@hambaktech.com.ng",
+        "role": "admin",
+        "permissions": [
+          "printing",
+          "customers"
+        ]
+      },
+      "created_at": "2026-11-17T08:54:55.323Z"
+    },
+    {
+      "id": "audit_1794905695194",
+      "user_id": "usr_1794905695059_d8gol",
+      "user_email": "e2e_kyc_1794905693753@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:55.194Z"
+    },
+    {
+      "id": "audit_1794905695063",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905695059_d8gol",
+        "email": "e2e_kyc_1794905693753@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "customers",
+          "kyc",
+          "support"
+        ]
+      },
+      "created_at": "2026-11-17T08:54:55.063Z"
+    },
+    {
+      "id": "audit_1794905694932",
+      "user_id": "usr_1794905694806_cnzfu",
+      "user_email": "e2e_spm_1794905693753@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:54.932Z"
+    },
+    {
+      "id": "audit_1794905694808",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905694806_cnzfu",
+        "email": "e2e_spm_1794905693753@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing",
+          "printing_pricing"
+        ]
+      },
+      "created_at": "2026-11-17T08:54:54.808Z"
+    },
+    {
+      "id": "audit_1794905694679",
+      "user_id": "usr_1794905694554_kksb1",
+      "user_email": "e2e_sp_1794905693753@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:54.679Z"
+    },
+    {
+      "id": "audit_1794905694557",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905694554_kksb1",
+        "email": "e2e_sp_1794905693753@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing"
+        ]
+      },
+      "created_at": "2026-11-17T08:54:54.557Z"
+    },
+    {
+      "id": "audit_1794905694435",
+      "user_id": "usr_1794905694295_faqmx",
+      "user_email": "e2e_agent_1794905693753@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "agent"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:54.435Z"
+    },
+    {
+      "id": "audit_1794905694314",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "ADMIN_CUSTOMER_UPDATED",
+      "details": {
+        "targetUserId": "usr_1794905694295_faqmx",
+        "updates": {
+          "role": "agent"
+        }
+      },
+      "created_at": "2026-11-17T08:54:54.314Z"
+    },
+    {
+      "id": "audit_1794905694300",
+      "user_id": "usr_1794905694295_faqmx",
+      "user_email": "e2e_agent_1794905693753@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_agent_1794905693753@hambaktech.com.ng",
+        "phone": "08090001102"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:54.300Z"
+    },
+    {
+      "id": "audit_1794905694169",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "WALLET_ADJUSTMENT",
+      "details": {
+        "targetUserId": "usr_1794905694019_ymhi1",
+        "targetEmail": "e2e_cust_1794905693753@hambaktech.com.ng",
+        "type": "credit",
+        "amount": 50000,
+        "balanceBefore": 0,
+        "balanceAfter": 50000,
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:54:54.169Z"
+    },
+    {
+      "id": "audit_1794905694156",
+      "user_id": "usr_1794905694019_ymhi1",
+      "user_email": "e2e_cust_1794905693753@hambaktech.com.ng",
+      "action": "TRANSACTION_PIN_CONFIGURED",
+      "details": {
+        "userId": "usr_1794905694019_ymhi1"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:54.156Z"
+    },
+    {
+      "id": "audit_1794905694023",
+      "user_id": "usr_1794905694019_ymhi1",
+      "user_email": "e2e_cust_1794905693753@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_cust_1794905693753@hambaktech.com.ng",
+        "phone": "08090001101"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:54.023Z"
+    },
+    {
+      "id": "audit_1794905693890",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:53.890Z"
+    },
+    {
+      "id": "audit_1794905662768",
+      "user_id": "usr_1794905658941_jwsgq",
+      "user_email": "e2e_cust_1794905658676@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:22.768Z"
+    },
+    {
+      "id": "audit_1794905660413",
+      "user_id": "usr_1794905659724_ugi3z",
+      "user_email": "e2e_spm_1794905658676@hambaktech.com.ng",
+      "action": "PRINTING_CATEGORY_UPDATED",
+      "details": {
+        "category_key": "doc_printing"
+      },
+      "created_at": "2026-11-17T08:54:20.413Z"
+    },
+    {
+      "id": "audit_1794905660402",
+      "user_id": "usr_1794905659724_ugi3z",
+      "user_email": "e2e_spm_1794905658676@hambaktech.com.ng",
+      "action": "PRINTING_CATEGORY_UPDATED",
+      "details": {
+        "category_key": "doc_printing"
+      },
+      "created_at": "2026-11-17T08:54:20.402Z"
+    },
+    {
+      "id": "audit_1794905660339",
+      "user_id": "usr_1794905660208_hzmtj",
+      "user_email": "e2e_ops_1794905658676@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "admin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:20.339Z"
+    },
+    {
+      "id": "audit_1794905660211",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905660208_hzmtj",
+        "email": "e2e_ops_1794905658676@hambaktech.com.ng",
+        "role": "admin",
+        "permissions": [
+          "printing",
+          "customers"
+        ]
+      },
+      "created_at": "2026-11-17T08:54:20.211Z"
+    },
+    {
+      "id": "audit_1794905660084",
+      "user_id": "usr_1794905659964_k5c08",
+      "user_email": "e2e_kyc_1794905658676@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:20.084Z"
+    },
+    {
+      "id": "audit_1794905659966",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905659964_k5c08",
+        "email": "e2e_kyc_1794905658676@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "customers",
+          "kyc",
+          "support"
+        ]
+      },
+      "created_at": "2026-11-17T08:54:19.966Z"
+    },
+    {
+      "id": "audit_1794905659845",
+      "user_id": "usr_1794905659724_ugi3z",
+      "user_email": "e2e_spm_1794905658676@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:19.845Z"
+    },
+    {
+      "id": "audit_1794905659726",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905659724_ugi3z",
+        "email": "e2e_spm_1794905658676@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing",
+          "printing_pricing"
+        ]
+      },
+      "created_at": "2026-11-17T08:54:19.726Z"
+    },
+    {
+      "id": "audit_1794905659603",
+      "user_id": "usr_1794905659480_1cmcr",
+      "user_email": "e2e_sp_1794905658676@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:19.603Z"
+    },
+    {
+      "id": "audit_1794905659482",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905659480_1cmcr",
+        "email": "e2e_sp_1794905658676@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing"
+        ]
+      },
+      "created_at": "2026-11-17T08:54:19.482Z"
+    },
+    {
+      "id": "audit_1794905659360",
+      "user_id": "usr_1794905659209_f0d0s",
+      "user_email": "e2e_agent_1794905658676@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "agent"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:19.360Z"
+    },
+    {
+      "id": "audit_1794905659225",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "ADMIN_CUSTOMER_UPDATED",
+      "details": {
+        "targetUserId": "usr_1794905659209_f0d0s",
+        "updates": {
+          "role": "agent"
+        }
+      },
+      "created_at": "2026-11-17T08:54:19.225Z"
+    },
+    {
+      "id": "audit_1794905659213",
+      "user_id": "usr_1794905659209_f0d0s",
+      "user_email": "e2e_agent_1794905658676@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_agent_1794905658676@hambaktech.com.ng",
+        "phone": "08090001102"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:19.213Z"
+    },
+    {
+      "id": "audit_1794905659084",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "WALLET_ADJUSTMENT",
+      "details": {
+        "targetUserId": "usr_1794905658941_jwsgq",
+        "targetEmail": "e2e_cust_1794905658676@hambaktech.com.ng",
+        "type": "credit",
+        "amount": 50000,
+        "balanceBefore": 0,
+        "balanceAfter": 50000,
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:54:19.084Z"
+    },
+    {
+      "id": "audit_1794905659073",
+      "user_id": "usr_1794905658941_jwsgq",
+      "user_email": "e2e_cust_1794905658676@hambaktech.com.ng",
+      "action": "TRANSACTION_PIN_CONFIGURED",
+      "details": {
+        "userId": "usr_1794905658941_jwsgq"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:19.073Z"
+    },
+    {
+      "id": "audit_1794905658945",
+      "user_id": "usr_1794905658941_jwsgq",
+      "user_email": "e2e_cust_1794905658676@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_cust_1794905658676@hambaktech.com.ng",
+        "phone": "08090001101"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:18.945Z"
+    },
+    {
+      "id": "audit_1794905658814",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:54:18.814Z"
+    },
+    {
+      "id": "audit_1794905609769",
+      "user_id": "usr_1794905604410_mhzal",
+      "user_email": "e2e_cust_1794905604078@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "customer"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:53:29.769Z"
+    },
+    {
+      "id": "audit_1794905605871",
+      "user_id": "usr_1794905605196_gl2x6",
+      "user_email": "e2e_spm_1794905604078@hambaktech.com.ng",
+      "action": "PRINTING_CATEGORY_UPDATED",
+      "details": {
+        "category_key": "doc_printing"
+      },
+      "created_at": "2026-11-17T08:53:25.871Z"
+    },
+    {
+      "id": "audit_1794905605859",
+      "user_id": "usr_1794905605196_gl2x6",
+      "user_email": "e2e_spm_1794905604078@hambaktech.com.ng",
+      "action": "PRINTING_CATEGORY_UPDATED",
+      "details": {
+        "category_key": "doc_printing"
+      },
+      "created_at": "2026-11-17T08:53:25.859Z"
+    },
+    {
+      "id": "audit_1794905605798",
+      "user_id": "usr_1794905605677_kml9u",
+      "user_email": "e2e_ops_1794905604078@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "admin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:53:25.798Z"
+    },
+    {
+      "id": "audit_1794905605679",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905605677_kml9u",
+        "email": "e2e_ops_1794905604078@hambaktech.com.ng",
+        "role": "admin",
+        "permissions": [
+          "printing",
+          "customers"
+        ]
+      },
+      "created_at": "2026-11-17T08:53:25.679Z"
+    },
+    {
+      "id": "audit_1794905605557",
+      "user_id": "usr_1794905605437_pw8fu",
+      "user_email": "e2e_kyc_1794905604078@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:53:25.557Z"
+    },
+    {
+      "id": "audit_1794905605439",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905605437_pw8fu",
+        "email": "e2e_kyc_1794905604078@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "customers",
+          "kyc",
+          "support"
+        ]
+      },
+      "created_at": "2026-11-17T08:53:25.439Z"
+    },
+    {
+      "id": "audit_1794905605318",
+      "user_id": "usr_1794905605196_gl2x6",
+      "user_email": "e2e_spm_1794905604078@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:53:25.318Z"
+    },
+    {
+      "id": "audit_1794905605197",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905605196_gl2x6",
+        "email": "e2e_spm_1794905604078@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing",
+          "printing_pricing"
+        ]
+      },
+      "created_at": "2026-11-17T08:53:25.197Z"
+    },
+    {
+      "id": "audit_1794905605078",
+      "user_id": "usr_1794905604957_vl7fo",
+      "user_email": "e2e_sp_1794905604078@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:53:25.078Z"
+    },
+    {
+      "id": "audit_1794905604959",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905604957_vl7fo",
+        "email": "e2e_sp_1794905604078@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing"
+        ]
+      },
+      "created_at": "2026-11-17T08:53:24.959Z"
+    },
+    {
+      "id": "audit_1794905604841",
+      "user_id": "usr_1794905604707_dnxk5",
+      "user_email": "e2e_agent_1794905604078@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "agent"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:53:24.841Z"
+    },
+    {
+      "id": "audit_1794905604723",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "ADMIN_CUSTOMER_UPDATED",
+      "details": {
+        "targetUserId": "usr_1794905604707_dnxk5",
+        "updates": {
+          "role": "agent"
+        }
+      },
+      "created_at": "2026-11-17T08:53:24.723Z"
+    },
+    {
+      "id": "audit_1794905604711",
+      "user_id": "usr_1794905604707_dnxk5",
+      "user_email": "e2e_agent_1794905604078@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_agent_1794905604078@hambaktech.com.ng",
+        "phone": "08090001102"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:53:24.711Z"
+    },
+    {
+      "id": "audit_1794905604581",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "WALLET_ADJUSTMENT",
+      "details": {
+        "targetUserId": "usr_1794905604410_mhzal",
+        "targetEmail": "e2e_cust_1794905604078@hambaktech.com.ng",
+        "type": "credit",
+        "amount": 50000,
+        "balanceBefore": 0,
+        "balanceAfter": 50000,
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:53:24.581Z"
+    },
+    {
+      "id": "audit_1794905604550",
+      "user_id": "usr_1794905604410_mhzal",
+      "user_email": "e2e_cust_1794905604078@hambaktech.com.ng",
+      "action": "TRANSACTION_PIN_CONFIGURED",
+      "details": {
+        "userId": "usr_1794905604410_mhzal"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:53:24.550Z"
+    },
+    {
+      "id": "audit_1794905604414",
+      "user_id": "usr_1794905604410_mhzal",
+      "user_email": "e2e_cust_1794905604078@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_cust_1794905604078@hambaktech.com.ng",
+        "phone": "08090001101"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:53:24.414Z"
+    },
+    {
+      "id": "audit_1794905604261",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:53:24.261Z"
+    },
+    {
+      "id": "audit_1794905578892",
+      "user_id": "usr_1794905578765_t5f06",
+      "user_email": "e2e_ops_1794905577105@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "admin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:58.892Z"
+    },
+    {
+      "id": "audit_1794905578767",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905578765_t5f06",
+        "email": "e2e_ops_1794905577105@hambaktech.com.ng",
+        "role": "admin",
+        "permissions": [
+          "printing",
+          "customers"
+        ]
+      },
+      "created_at": "2026-11-17T08:52:58.767Z"
+    },
+    {
+      "id": "audit_1794905578627",
+      "user_id": "usr_1794905578501_fjp07",
+      "user_email": "e2e_kyc_1794905577105@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:58.627Z"
+    },
+    {
+      "id": "audit_1794905578504",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905578501_fjp07",
+        "email": "e2e_kyc_1794905577105@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "customers",
+          "kyc",
+          "support"
+        ]
+      },
+      "created_at": "2026-11-17T08:52:58.504Z"
+    },
+    {
+      "id": "audit_1794905578381",
+      "user_id": "usr_1794905578256_e4whn",
+      "user_email": "e2e_spm_1794905577105@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:58.381Z"
+    },
+    {
+      "id": "audit_1794905578259",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905578256_e4whn",
+        "email": "e2e_spm_1794905577105@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing",
+          "printing_pricing"
+        ]
+      },
+      "created_at": "2026-11-17T08:52:58.259Z"
+    },
+    {
+      "id": "audit_1794905578127",
+      "user_id": "usr_1794905577982_r9j3t",
+      "user_email": "e2e_sp_1794905577105@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "staff"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:58.127Z"
+    },
+    {
+      "id": "audit_1794905577985",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905577982_r9j3t",
+        "email": "e2e_sp_1794905577105@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing"
+        ]
+      },
+      "created_at": "2026-11-17T08:52:57.985Z"
+    },
+    {
+      "id": "audit_1794905577851",
+      "user_id": "usr_1794905577697_okzzj",
+      "user_email": "e2e_agent_1794905577105@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "agent"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:57.851Z"
+    },
+    {
+      "id": "audit_1794905577712",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "ADMIN_CUSTOMER_UPDATED",
+      "details": {
+        "targetUserId": "usr_1794905577697_okzzj",
+        "updates": {
+          "role": "agent"
+        }
+      },
+      "created_at": "2026-11-17T08:52:57.712Z"
+    },
+    {
+      "id": "audit_1794905577701",
+      "user_id": "usr_1794905577697_okzzj",
+      "user_email": "e2e_agent_1794905577105@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_agent_1794905577105@hambaktech.com.ng",
+        "phone": "08090001102"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:57.701Z"
+    },
+    {
+      "id": "audit_1794905577564",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "WALLET_ADJUSTMENT",
+      "details": {
+        "targetUserId": "usr_1794905577415_swwr6",
+        "targetEmail": "e2e_cust_1794905577105@hambaktech.com.ng",
+        "type": "credit",
+        "amount": 50000,
+        "balanceBefore": 0,
+        "balanceAfter": 50000,
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:52:57.564Z"
+    },
+    {
+      "id": "audit_1794905577551",
+      "user_id": "usr_1794905577415_swwr6",
+      "user_email": "e2e_cust_1794905577105@hambaktech.com.ng",
+      "action": "TRANSACTION_PIN_CONFIGURED",
+      "details": {
+        "userId": "usr_1794905577415_swwr6"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:57.551Z"
+    },
+    {
+      "id": "audit_1794905577420",
+      "user_id": "usr_1794905577415_swwr6",
+      "user_email": "e2e_cust_1794905577105@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_cust_1794905577105@hambaktech.com.ng",
+        "phone": "08090001101"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:57.420Z"
+    },
+    {
+      "id": "audit_1794905577265",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:57.265Z"
+    },
+    {
+      "id": "audit_1794905572327",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "STAFF_CREATED",
+      "details": {
+        "staffId": "usr_1794905572325_web4g",
+        "email": "e2e_sp_1794905571448@hambaktech.com.ng",
+        "role": "staff",
+        "permissions": [
+          "printing"
+        ]
+      },
+      "created_at": "2026-11-17T08:52:52.327Z"
+    },
+    {
+      "id": "audit_1794905572197",
+      "user_id": "usr_1794905572044_ihzbm",
+      "user_email": "e2e_agent_1794905571448@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "agent"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:52.197Z"
+    },
+    {
+      "id": "audit_1794905572061",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "ADMIN_CUSTOMER_UPDATED",
+      "details": {
+        "targetUserId": "usr_1794905572044_ihzbm",
+        "updates": {
+          "role": "agent"
+        }
+      },
+      "created_at": "2026-11-17T08:52:52.061Z"
+    },
+    {
+      "id": "audit_1794905572048",
+      "user_id": "usr_1794905572044_ihzbm",
+      "user_email": "e2e_agent_1794905571448@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_agent_1794905571448@hambaktech.com.ng",
+        "phone": "08090001102"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:52.048Z"
+    },
+    {
+      "id": "audit_1794905571914",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "WALLET_ADJUSTMENT",
+      "details": {
+        "targetUserId": "usr_1794905571743_atb49",
+        "targetEmail": "e2e_cust_1794905571448@hambaktech.com.ng",
+        "type": "credit",
+        "amount": 50000,
+        "balanceBefore": 0,
+        "balanceAfter": 50000,
+        "reason": "E2E printing test funding"
+      },
+      "created_at": "2026-11-17T08:52:51.914Z"
+    },
+    {
+      "id": "audit_1794905571879",
+      "user_id": "usr_1794905571743_atb49",
+      "user_email": "e2e_cust_1794905571448@hambaktech.com.ng",
+      "action": "TRANSACTION_PIN_CONFIGURED",
+      "details": {
+        "userId": "usr_1794905571743_atb49"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:51.879Z"
+    },
+    {
+      "id": "audit_1794905571747",
+      "user_id": "usr_1794905571743_atb49",
+      "user_email": "e2e_cust_1794905571448@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_cust_1794905571448@hambaktech.com.ng",
+        "phone": "08090001101"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:51.747Z"
+    },
+    {
+      "id": "audit_1794905571609",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:51.609Z"
+    },
+    {
+      "id": "audit_1794905549277",
+      "user_id": "usr_1794905549140_y51bv",
+      "user_email": "e2e_cust_1794905548847@hambaktech.com.ng",
+      "action": "TRANSACTION_PIN_CONFIGURED",
+      "details": {
+        "userId": "usr_1794905549140_y51bv"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:29.277Z"
+    },
+    {
+      "id": "audit_1794905549145",
+      "user_id": "usr_1794905549140_y51bv",
+      "user_email": "e2e_cust_1794905548847@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_cust_1794905548847@hambaktech.com.ng",
+        "phone": "08090001101"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:29.145Z"
+    },
+    {
+      "id": "audit_1794905549003",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:52:29.003Z"
+    },
+    {
+      "id": "audit_1794905488554",
+      "user_id": "usr_1794905488551_3924i",
+      "user_email": "e2e_customer@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "e2e_customer@hambaktech.com.ng",
+        "phone": "08090001101"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:51:28.554Z"
+    },
+    {
+      "id": "audit_1794905488412",
+      "user_id": "usr_e2e_superadmin",
+      "user_email": "e2e_superadmin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-17T08:51:28.412Z"
+    },
     {
       "id": "audit_1794580791003",
       "user_email": "admin@hambaktech.co.ng",
@@ -2833,6 +5013,104 @@
     "last_test_message": "Production SMTP handshake confirmed on port 587 (STARTTLS)",
     "logs": [
       {
+        "id": "smtplog_1794905737659_sc1e",
+        "timestamp": "2026-11-17T08:55:37.659Z",
+        "recipient": "e2e_agent_1794905737097@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905737369_7mw1",
+        "timestamp": "2026-11-17T08:55:37.369Z",
+        "recipient": "e2e_cust_1794905737097@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905694302_0wlg",
+        "timestamp": "2026-11-17T08:54:54.302Z",
+        "recipient": "e2e_agent_1794905693753@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905694026_k24d",
+        "timestamp": "2026-11-17T08:54:54.026Z",
+        "recipient": "e2e_cust_1794905693753@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905659215_9yuf",
+        "timestamp": "2026-11-17T08:54:19.215Z",
+        "recipient": "e2e_agent_1794905658676@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905658947_wh7k",
+        "timestamp": "2026-11-17T08:54:18.947Z",
+        "recipient": "e2e_cust_1794905658676@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905604712_7fof",
+        "timestamp": "2026-11-17T08:53:24.712Z",
+        "recipient": "e2e_agent_1794905604078@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905604417_yfyc",
+        "timestamp": "2026-11-17T08:53:24.417Z",
+        "recipient": "e2e_cust_1794905604078@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905577702_oqul",
+        "timestamp": "2026-11-17T08:52:57.702Z",
+        "recipient": "e2e_agent_1794905577105@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905577422_7ih8",
+        "timestamp": "2026-11-17T08:52:57.422Z",
+        "recipient": "e2e_cust_1794905577105@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905572050_ochk",
+        "timestamp": "2026-11-17T08:52:52.050Z",
+        "recipient": "e2e_agent_1794905571448@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905571749_hdlh",
+        "timestamp": "2026-11-17T08:52:51.749Z",
+        "recipient": "e2e_cust_1794905571448@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905549146_v439",
+        "timestamp": "2026-11-17T08:52:29.146Z",
+        "recipient": "e2e_cust_1794905548847@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1794905488557_2vls",
+        "timestamp": "2026-11-17T08:51:28.557Z",
+        "recipient": "e2e_customer@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
         "id": "smtplog_1794497537347_m6xn",
         "timestamp": "2026-11-12T15:32:17.347Z",
         "recipient": "qa_reg_1794497537207@hambaktech.com.ng",
@@ -3622,7 +5900,8 @@
       "requires_manual_quote": true,
       "internal_cost_estimate": 25,
       "is_active": true,
-      "display_order": 1
+      "display_order": 1,
+      "updated_at": "2026-11-17T08:55:38.878Z"
     },
     {
       "id": "pcat_copy",
@@ -4146,5 +6425,79 @@
     ],
     "collection_notice": "Office collection is free (₦0 delivery fee). Wait for your \"Ready for Collection\" alert before coming.",
     "delivery_notice": "Paid delivery is available across Lagos LGAs & LCDAs. Delivery charges are billed separately from printing charges."
-  }
+  },
+  "uploaded_documents": [
+    {
+      "id": "4f48f7f3-e902-4571-b055-9f7f2cdb1bdb",
+      "user_id": "usr_1794905737362_saxw0",
+      "document_type": "printing_artwork",
+      "original_name": "e2e_spec_sheet.pdf",
+      "stored_name": "prt_1794905743354_59e8ff61.pdf",
+      "mime_type": "application/pdf",
+      "file_size": 302,
+      "file_path": "/app/applet/server/db/printing_uploads/prt_1794905743354_59e8ff61.pdf",
+      "file_url": "/api/printing/files/4f48f7f3-e902-4571-b055-9f7f2cdb1bdb",
+      "created_at": "2026-11-17T08:55:43.354Z"
+    },
+    {
+      "id": "dd8c74d4-b6b4-406e-8372-8d25f710c7b8",
+      "user_id": "usr_1794905737362_saxw0",
+      "document_type": "printing_artwork",
+      "original_name": "e2e_banner_art.png",
+      "stored_name": "prt_1794905743313_929b5fde.png",
+      "mime_type": "image/png",
+      "file_size": 68,
+      "file_path": "/app/applet/server/db/printing_uploads/prt_1794905743313_929b5fde.png",
+      "file_url": "/api/printing/files/dd8c74d4-b6b4-406e-8372-8d25f710c7b8",
+      "created_at": "2026-11-17T08:55:43.314Z"
+    },
+    {
+      "id": "7f3d62f6-4d91-4fb9-a5ed-b7456dee9888",
+      "user_id": "usr_1794905694019_ymhi1",
+      "document_type": "printing_artwork",
+      "original_name": "e2e_spec_sheet.pdf",
+      "stored_name": "prt_1794905699698_d2eff8c0.pdf",
+      "mime_type": "application/pdf",
+      "file_size": 302,
+      "file_path": "/app/applet/server/db/printing_uploads/prt_1794905699698_d2eff8c0.pdf",
+      "file_url": "/api/printing/files/7f3d62f6-4d91-4fb9-a5ed-b7456dee9888",
+      "created_at": "2026-11-17T08:54:59.698Z"
+    },
+    {
+      "id": "d8d82c78-90cb-453b-bf22-beddc8bd18be",
+      "user_id": "usr_1794905694019_ymhi1",
+      "document_type": "printing_artwork",
+      "original_name": "e2e_banner_art.png",
+      "stored_name": "prt_1794905699664_1bd5b9e5.png",
+      "mime_type": "image/png",
+      "file_size": 68,
+      "file_path": "/app/applet/server/db/printing_uploads/prt_1794905699664_1bd5b9e5.png",
+      "file_url": "/api/printing/files/d8d82c78-90cb-453b-bf22-beddc8bd18be",
+      "created_at": "2026-11-17T08:54:59.664Z"
+    },
+    {
+      "id": "80f51f46-7c0a-4640-b8cd-6fcd52062fa5",
+      "user_id": "usr_1794905658941_jwsgq",
+      "document_type": "printing_artwork",
+      "original_name": "e2e_spec_sheet.pdf",
+      "stored_name": "prt_1794905664642_6f6bb8a4.pdf",
+      "mime_type": "application/pdf",
+      "file_size": 302,
+      "file_path": "/app/applet/server/db/printing_uploads/prt_1794905664642_6f6bb8a4.pdf",
+      "file_url": "/api/printing/files/80f51f46-7c0a-4640-b8cd-6fcd52062fa5",
+      "created_at": "2026-11-17T08:54:24.642Z"
+    },
+    {
+      "id": "0e55130c-e2b1-4192-9a77-49463ff8e4b5",
+      "user_id": "usr_1794905658941_jwsgq",
+      "document_type": "printing_artwork",
+      "original_name": "e2e_banner_art.png",
+      "stored_name": "prt_1794905664610_fab1cb26.png",
+      "mime_type": "image/png",
+      "file_size": 68,
+      "file_path": "/app/applet/server/db/printing_uploads/prt_1794905664610_fab1cb26.png",
+      "file_url": "/api/printing/files/0e55130c-e2b1-4192-9a77-49463ff8e4b5",
+      "created_at": "2026-11-17T08:54:24.610Z"
+    }
+  ]
 }

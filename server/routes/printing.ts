@@ -368,7 +368,7 @@ function notifyCustomerLifecycle(order: any, title: string, message: string, typ
 function notifyPrintingAdmins(title: string, message: string, orderRef = '') {
   const link = orderRef ? `#printing?order=${encodeURIComponent(orderRef)}` : '#printing';
   for (const adm of db.data.users) {
-    if ((adm.role === 'superadmin' || adm.role === 'admin') && adm.status === 'active' && hasUserPermission(adm, 'printing')) {
+    if ((adm.role === 'superadmin' || adm.role === 'admin' || adm.role === 'staff') && adm.status === 'active' && hasUserPermission(adm, 'printing')) {
       const notif = db.addNotification(adm.id, title, message, 'alert');
       (notif as any).action_link = link;
     }
@@ -968,7 +968,7 @@ printingRouter.post('/orders/:id/pay', requireAuthUser, (req: any, res) => {
       if (!verifyPin(pin, req.user.transaction_pin_hash)) {
         return res.status(401).json({ error: 'Incorrect transaction PIN.' });
       }
-    } else if (req.user.role === 'customer') {
+    } else if (req.user.role === 'customer' || req.user.role === 'agent') {
       return res.status(403).json({
         error: 'Please configure your 4-digit Transaction PIN in Security Settings before paying from wallet.',
         code: 'PIN_SETUP_REQUIRED',
@@ -1080,7 +1080,7 @@ printingRouter.post('/orders/:id/pay', requireAuthUser, (req: any, res) => {
   });
   db.saveDatabase();
 
-  const checkoutUrl = `/dashboard#printing?printing_order=${encodeURIComponent(order.id)}&gateway=${gateway}&reference=${payRef}`;
+  const checkoutUrl = `/#printing?printing_order=${encodeURIComponent(order.id)}&gateway=${gateway}&reference=${payRef}`;
   return res.json({
     success: true,
     message: 'Payment gateway checkout initialized.',
@@ -1464,7 +1464,7 @@ adminPrintingRouter.post('/orders/:id/assign', requirePrintingOps, (req: any, re
   let staff: any = null;
   if (staffId) {
     staff = db.data.users.find(
-      (u) => u.id === staffId && (u.role === 'admin' || u.role === 'superadmin') && u.status === 'active'
+      (u) => u.id === staffId && (u.role === 'admin' || u.role === 'staff' || u.role === 'superadmin') && u.status === 'active'
     );
     if (!staff) return res.status(404).json({ error: 'Selected active staff member not found.' });
   }
@@ -1704,7 +1704,7 @@ adminPrintingRouter.get('/reports', requirePrintingOps, (req, res) => {
 
 adminPrintingRouter.get('/staff-list', requirePrintingOps, (req, res) => {
   const staff = db.data.users
-    .filter((u) => (u.role === 'superadmin' || u.role === 'admin') && u.status === 'active' && hasUserPermission(u, 'printing'))
+    .filter((u) => (u.role === 'superadmin' || u.role === 'admin' || u.role === 'staff') && u.status === 'active' && hasUserPermission(u, 'printing'))
     .map((u) => ({ id: u.id, full_name: u.full_name, email: u.email, role: u.role }));
   res.json({ success: true, staff });
 });

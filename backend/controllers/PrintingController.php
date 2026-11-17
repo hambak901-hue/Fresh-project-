@@ -502,9 +502,9 @@ class PrintingController
             'user_id' => $user['id'],
             'user_email' => $user['email'] ?? null,
             'user_name' => $user['full_name'] ?? null,
-            'category' => 'printing',
+            'category' => 'service',
             'action' => 'PRINTING_ORDER_SUBMITTED',
-            'service_type' => $catDecoded['category_key'],
+            'service_type' => 'printing_' . $catDecoded['category_key'],
             'reference' => $orderRef,
             'status' => 'Pending Review',
             'amount' => $est['total_estimate'],
@@ -756,7 +756,7 @@ class PrintingController
         }
 
         // Paystack / Flutterwave checkout initialization
-        $callbackUrl = (string)($body['callback_url'] ?? 'https://hambaktech.com.ng/dashboard#printing');
+        $callbackUrl = (string)($body['callback_url'] ?? 'https://hambaktech.com.ng/#printing');
         $sep = str_contains($callbackUrl, '?') ? '&' : '?';
 
         $this->db->execute(
@@ -1359,7 +1359,7 @@ class PrintingController
 
         $staff = null;
         if ($staffId !== '') {
-            $staff = $this->db->fetchOne('SELECT id, full_name, email, role FROM users WHERE id = :id AND role IN ("admin","superadmin") AND status = "active" LIMIT 1', ['id' => $staffId]);
+            $staff = $this->db->fetchOne('SELECT id, full_name, email, role FROM users WHERE id = :id AND role IN ("admin","staff","superadmin") AND status = "active" LIMIT 1', ['id' => $staffId]);
             if (!$staff) {
                 Response::notFound('Selected active staff member not found.');
             }
@@ -1693,16 +1693,19 @@ class PrintingController
     {
         $this->requirePrintingOps($request);
         $rows = $this->db->fetchAll(
-            'SELECT u.id, u.full_name, u.email, u.role, up.assigned_permissions
+            'SELECT u.id, u.full_name, u.email, u.role, COALESCE(NULLIF(u.assigned_permissions, ""), up.assigned_permissions) AS assigned_permissions
              FROM users u
              LEFT JOIN user_profiles up ON u.id = up.user_id
-             WHERE u.role IN ("superadmin", "admin") AND u.status = "active"
+             WHERE u.role IN ("superadmin", "admin", "staff") AND u.status = "active"
              ORDER BY u.full_name ASC'
         );
         $staff = [];
         foreach ($rows as $r) {
-            $perms = !empty($r['assigned_permissions']) ? json_decode((string)$r['assigned_permissions'], true) : [];
-            if ($r['role'] === 'superadmin' || (is_array($perms) && (in_array('*', $perms, true) || in_array('printing', $perms, true)))) {
+            $rawPerms = $r['assigned_permissions'] ?? null;
+            $perms = is_string($rawPerms) && trim($rawPerms) !== '' ? json_decode($rawPerms, true) : null;
+            $allowed = $r['role'] === 'superadmin'
+                || (is_array($perms) && (in_array('*', $perms, true) || in_array('printing', $perms, true)));
+            if ($allowed) {
                 $staff[] = [
                     'id' => $r['id'],
                     'full_name' => $r['full_name'],

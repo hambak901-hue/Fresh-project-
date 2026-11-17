@@ -110,18 +110,26 @@ export function CustomerDashboard({
   const { user, logout, refreshUser } = useAuth();
   const { branding } = useCms();
   const [currentPage, setCurrentPage] = useState<CustomerPageKey>(() => {
-    if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('printing')) {
-      return 'printing';
+    if (typeof window !== 'undefined') {
+      const h = window.location.hash.toLowerCase();
+      const s = window.location.search.toLowerCase();
+      if (h.includes('printing') || s.includes('printing_order')) {
+        return 'printing';
+      }
     }
     return 'overview';
   });
   const [initialPrintOrderRef, setInitialPrintOrderRef] = useState<string | undefined>(() => {
-    if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('printing')) {
-      const qIdx = window.location.hash.indexOf('?');
-      if (qIdx !== -1) {
-        const params = new URLSearchParams(window.location.hash.slice(qIdx + 1));
-        return params.get('order') || params.get('printing_order') || undefined;
+    if (typeof window !== 'undefined') {
+      const h = window.location.hash || '';
+      const qIdx = h.indexOf('?');
+      if (h.toLowerCase().includes('printing') && qIdx !== -1) {
+        const hashParams = new URLSearchParams(h.slice(qIdx + 1));
+        const fromHash = hashParams.get('order') || hashParams.get('printing_order');
+        if (fromHash) return fromHash;
       }
+      const searchParams = new URLSearchParams(window.location.search || '');
+      return searchParams.get('order') || searchParams.get('printing_order') || undefined;
     }
     return undefined;
   });
@@ -131,14 +139,21 @@ export function CustomerDashboard({
     if (typeof window === 'undefined') return;
     const syncPrintHash = () => {
       const h = window.location.hash || '';
-      if (h.toLowerCase().includes('printing')) {
+      const s = window.location.search || '';
+      if (h.toLowerCase().includes('printing') || s.toLowerCase().includes('printing_order')) {
         setCurrentPage('printing');
         const qIdx = h.indexOf('?');
         if (qIdx !== -1) {
-          const params = new URLSearchParams(h.slice(qIdx + 1));
-          const ord = params.get('order') || params.get('printing_order') || undefined;
-          if (ord) setInitialPrintOrderRef(ord);
+          const hashParams = new URLSearchParams(h.slice(qIdx + 1));
+          const ord = hashParams.get('order') || hashParams.get('printing_order');
+          if (ord) {
+            setInitialPrintOrderRef(ord);
+            return;
+          }
         }
+        const searchParams = new URLSearchParams(s);
+        const ordSearch = searchParams.get('order') || searchParams.get('printing_order') || undefined;
+        if (ordSearch) setInitialPrintOrderRef(ordSearch);
       }
     };
     window.addEventListener('hashchange', syncPrintHash);
@@ -343,8 +358,8 @@ export function CustomerDashboard({
 
           {/* Bottom navigation links */}
           <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-2 bg-slate-50 dark:bg-slate-900/60">
-            {/* Switch to Super Admin Dashboard - Only for admins */}
-            {onSwitchToAdmin && (user.role === 'admin' || user.role === 'superadmin') && (
+            {/* Switch to Staff / Admin Console - Only for internal staff & admins */}
+            {onSwitchToAdmin && (user.role === 'staff' || user.role === 'admin' || user.role === 'superadmin') && (
               <button
                 type="button"
                 onClick={onSwitchToAdmin}
@@ -352,7 +367,7 @@ export function CustomerDashboard({
               >
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>Super Admin Console</span>
+                  <span>{user.role === 'superadmin' ? 'Super Admin Console' : 'Staff / Admin Console'}</span>
                 </div>
                 <ChevronRight className="w-3 h-3 text-slate-500" />
               </button>

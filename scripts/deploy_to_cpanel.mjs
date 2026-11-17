@@ -32,15 +32,18 @@ function uploadFile(localPath, remotePath) {
   }
 }
 
-function uploadDirectory(localDir, remoteDir) {
+function uploadDirectory(localDir, remoteDir, skipDirs = new Set(), skipFiles = new Set()) {
   if (!fs.existsSync(localDir)) return;
   const entries = fs.readdirSync(localDir, { withFileTypes: true });
   for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
     const fullLocal = path.join(localDir, entry.name);
     const fullRemote = `${remoteDir}/${entry.name}`;
     if (entry.isDirectory()) {
-      uploadDirectory(fullLocal, fullRemote);
+      if (skipDirs.has(entry.name)) continue;
+      uploadDirectory(fullLocal, fullRemote, skipDirs, skipFiles);
     } else {
+      if (skipFiles.has(entry.name) || entry.name.endsWith('.log')) continue;
       uploadFile(fullLocal, fullRemote);
     }
   }
@@ -51,10 +54,12 @@ console.log('\n📦 Step 1: Uploading Frontend Production Bundle (/dist)...');
 uploadDirectory('dist/assets', `${REMOTE_ROOT}/assets`);
 uploadFile('dist/index.html', `${REMOTE_ROOT}/index.html`);
 
-// 2. Upload Backend to /api and /backend
+// 2. Upload Backend to /api and /backend (preserving live config/, storage/, uploads/, .env)
 console.log('\n📦 Step 2: Uploading PHP Backend Services & Controllers...');
-uploadDirectory('backend', `${REMOTE_ROOT}/api`);
-uploadDirectory('backend', `${REMOTE_ROOT}/backend`);
+const skipBackendDirs = new Set(['config', 'storage', 'uploads']);
+const skipBackendFiles = new Set(['error_log', '.env']);
+uploadDirectory('backend', `${REMOTE_ROOT}/api`, skipBackendDirs, skipBackendFiles);
+uploadDirectory('backend', `${REMOTE_ROOT}/backend`, skipBackendDirs, skipBackendFiles);
 
 // 3. Verify Live Site
 console.log('\n🔍 Step 3: Verifying Live Production Endpoints...');

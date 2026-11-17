@@ -57,6 +57,7 @@ export function CustomerManagement() {
   const [tierFilter, setTierFilter] = useState('all');
   const [kycStatusFilter, setKycStatusFilter] = useState('all');
   const [newFilter, setNewFilter] = useState<'all' | 'new'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'customer' | 'agent'>('all');
 
   // Selected customer for inspection drawer/modal
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -110,6 +111,7 @@ export function CustomerManagement() {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
+  const [editRole, setEditRole] = useState<'customer' | 'agent'>('customer');
   const [editTier, setEditTier] = useState<number>(1);
   const [editKycStatus, setEditKycStatus] = useState<string>('pending');
   const [editDob, setEditDob] = useState('');
@@ -263,6 +265,7 @@ export function CustomerManagement() {
         tier: tierFilter !== 'all' ? tierFilter : undefined,
         kyc_status: kycStatusFilter !== 'all' ? kycStatusFilter : undefined,
         filter: newFilter === 'new' ? 'new' : undefined,
+        role: roleFilter !== 'all' ? roleFilter : undefined,
       });
       setCustomers(res.customers || []);
       if (res.summary) {
@@ -277,12 +280,13 @@ export function CustomerManagement() {
 
   useEffect(() => {
     fetchCustomers();
-  }, [search, statusFilter, tierFilter, kycStatusFilter, newFilter]);
+  }, [search, statusFilter, tierFilter, kycStatusFilter, newFilter, roleFilter]);
 
   const populateEditFields = (u: User, kyc?: any) => {
     setEditName(u.full_name || '');
     setEditEmail(u.email || '');
     setEditPhone(u.phone_number || '');
+    setEditRole(u.role === 'agent' ? 'agent' : 'customer');
     setEditTier(Number(u.tier || 1));
     setEditKycStatus(u.kyc_status || 'pending');
     setEditDob(u.date_of_birth || kyc?.date_of_birth || '');
@@ -464,6 +468,7 @@ export function CustomerManagement() {
         full_name: editName.trim(),
         email: editEmail.trim().toLowerCase(),
         phone_number: editPhone.trim(),
+        role: editRole,
         tier: editTier as any,
         kyc_status: editKycStatus as any,
         date_of_birth: editDob || undefined,
@@ -672,6 +677,16 @@ export function CustomerManagement() {
 
         <div className="flex flex-wrap items-center gap-2">
           <select
+            value={roleFilter}
+            onChange={e => setRoleFilter(e.target.value as 'all' | 'customer' | 'agent')}
+            className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+          >
+            <option value="all">All Account Roles</option>
+            <option value="customer">Customers Only</option>
+            <option value="agent">Agents Only</option>
+          </select>
+
+          <select
             value={newFilter}
             onChange={e => setNewFilter(e.target.value as any)}
             className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
@@ -752,8 +767,13 @@ export function CustomerManagement() {
                             className="w-8 h-8 rounded-lg object-cover border border-slate-700"
                           />
                           <div>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <p className="font-medium text-white">{user.full_name}</p>
+                              {user.role === 'agent' && (
+                                <span className="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[9px] font-bold uppercase tracking-wider">
+                                  AGENT
+                                </span>
+                              )}
                               {isNewReg && (
                                 <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-bold uppercase tracking-wider">
                                   NEW
@@ -873,6 +893,11 @@ export function CustomerManagement() {
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2 flex-wrap">
                     <span>{selectedUser.full_name}</span>
+                    {selectedUser.role === 'agent' && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 uppercase">
+                        AGENT ACCOUNT
+                      </span>
+                    )}
                     {selectedUser.is_new && (
                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
                         NEW REGISTRATION
@@ -1063,6 +1088,17 @@ export function CustomerManagement() {
                         onChange={e => setEditBvn(e.target.value.replace(/\D/g, '').slice(0, 11))}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
                       />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-slate-400">Account Role</label>
+                      <select
+                        value={editRole}
+                        onChange={e => setEditRole(e.target.value as 'customer' | 'agent')}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                      >
+                        <option value="customer">Customer (Standard User)</option>
+                        <option value="agent">Agent (Commercial Partner)</option>
+                      </select>
                     </div>
                     <div className="space-y-1">
                       <label className="text-slate-400">Account Tier</label>

@@ -43,6 +43,56 @@ const PERMISSION_OPTIONS = [
   { id: 'accounting_config', label: 'Accounting: Daily Email Reports & Accounting Configuration' },
 ];
 
+const ROLE_APPOINTMENTS: Array<{
+  key: string;
+  label: string;
+  role: 'staff' | 'admin' | 'superadmin';
+  permissions: string[];
+}> = [
+  {
+    key: 'printing_officer',
+    label: 'Printing Desk Officer',
+    role: 'staff',
+    permissions: ['printing'],
+  },
+  {
+    key: 'printing_manager',
+    label: 'Printing Pricing & Delivery Manager',
+    role: 'staff',
+    permissions: ['printing', 'printing_pricing'],
+  },
+  {
+    key: 'front_desk',
+    label: 'Front Desk / Physical Counter Staff',
+    role: 'staff',
+    permissions: ['printing', 'accounting_physical'],
+  },
+  {
+    key: 'kyc_support',
+    label: 'KYC & Support Officer',
+    role: 'staff',
+    permissions: ['customers', 'kyc', 'support', 'notifications'],
+  },
+  {
+    key: 'finance_officer',
+    label: 'Finance & Reconciliation Officer',
+    role: 'staff',
+    permissions: ['wallet', 'accounting', 'accounting_reconcile', 'reports'],
+  },
+  {
+    key: 'operations_admin',
+    label: 'Operations Admin',
+    role: 'admin',
+    permissions: ['customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing', 'support', 'notifications', 'reports'],
+  },
+  {
+    key: 'superadmin_root',
+    label: 'Super Admin (Full Root)',
+    role: 'superadmin',
+    permissions: ['*'],
+  },
+];
+
 export function StaffPermissionsManagement() {
   const [staff, setStaff] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,15 +104,8 @@ export function StaffPermissionsManagement() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'admin' | 'superadmin'>('admin');
-  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([
-    'customers',
-    'wallet',
-    'kyc',
-    'services',
-    'cms',
-    'audit',
-  ]);
+  const [role, setRole] = useState<'staff' | 'admin' | 'superadmin'>('staff');
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>(['printing']);
 
   // Edit staff modal
   const [editingStaff, setEditingStaff] = useState<User | null>(null);
@@ -269,7 +312,7 @@ export function StaffPermissionsManagement() {
                             </span>
                           ))
                         ) : (
-                          <span className="text-slate-500 italic text-[10px]">Standard Admin Read</span>
+                          <span className="text-slate-500 italic text-[10px]">No Permissions Assigned</span>
                         )}
                       </div>
                     </td>
@@ -288,7 +331,7 @@ export function StaffPermissionsManagement() {
                             onClick={() => {
                               setEditingStaff(s);
                               setEditRole(s.role);
-                              setEditPermissions(s.permissions || ['customers', 'wallet']);
+                              setEditPermissions(Array.isArray(s.permissions) ? s.permissions : []);
                             }}
                             className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-semibold"
                           >
@@ -387,6 +430,7 @@ export function StaffPermissionsManagement() {
                   onChange={e => setRole(e.target.value as any)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
                 >
+                  <option value="staff">Staff (Internal Desk Operator)</option>
                   <option value="admin">Admin Operator</option>
                   <option value="superadmin">Super Admin (Full Root)</option>
                 </select>
@@ -394,21 +438,42 @@ export function StaffPermissionsManagement() {
             </div>
 
             <div className="space-y-2 pt-2 border-t border-slate-800">
-              <label className="text-slate-400 font-semibold">Granted Permission Scopes</label>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {PERMISSION_OPTIONS.map(opt => (
-                  <label key={opt.id} className="flex items-center gap-2 p-2 rounded-lg bg-slate-950 border border-slate-800/80 cursor-pointer hover:border-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={selectedPermissions.includes(opt.id)}
-                      onChange={() => togglePermission(opt.id, selectedPermissions, setSelectedPermissions)}
-                      className="accent-indigo-600 rounded"
-                    />
-                    <span className="text-white text-xs">{opt.label}</span>
-                  </label>
+              <label className="text-slate-400 font-semibold">Quick Role Appointment Presets</label>
+              <div className="flex flex-wrap gap-1.5">
+                {ROLE_APPOINTMENTS.map(preset => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    onClick={() => {
+                      setRole(preset.role);
+                      setSelectedPermissions(preset.permissions);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 hover:border-indigo-500 text-[11px] text-slate-200 transition"
+                  >
+                    {preset.label}
+                  </button>
                 ))}
               </div>
             </div>
+
+            {role !== 'superadmin' && (
+              <div className="space-y-2 pt-2 border-t border-slate-800">
+                <label className="text-slate-400 font-semibold">Granted Permission Scopes</label>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {PERMISSION_OPTIONS.map(opt => (
+                    <label key={opt.id} className="flex items-center gap-2 p-2 rounded-lg bg-slate-950 border border-slate-800/80 cursor-pointer hover:border-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={selectedPermissions.includes(opt.id)}
+                        onChange={() => togglePermission(opt.id, selectedPermissions, setSelectedPermissions)}
+                        className="accent-indigo-600 rounded"
+                      />
+                      <span className="text-white text-xs">{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center gap-3 pt-2">
               <button
@@ -453,27 +518,51 @@ export function StaffPermissionsManagement() {
                 onChange={e => setEditRole(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
               >
+                <option value="staff">Staff (Internal Desk Operator)</option>
                 <option value="admin">Admin Operator</option>
                 <option value="superadmin">Super Admin</option>
+                <option value="customer">Customer (Remove Console Access)</option>
+                <option value="agent">Agent (Commercial Portal Only)</option>
               </select>
             </div>
 
             <div className="space-y-2 pt-2 border-t border-slate-800">
-              <label className="text-slate-400 font-semibold">Active Permission Scopes</label>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {PERMISSION_OPTIONS.map(opt => (
-                  <label key={opt.id} className="flex items-center gap-2 p-2 rounded-lg bg-slate-950 border border-slate-800/80 cursor-pointer hover:border-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={editPermissions.includes(opt.id)}
-                      onChange={() => togglePermission(opt.id, editPermissions, setEditPermissions)}
-                      className="accent-indigo-600 rounded"
-                    />
-                    <span className="text-white text-xs">{opt.label}</span>
-                  </label>
+              <label className="text-slate-400 font-semibold">Quick Role Appointment Presets</label>
+              <div className="flex flex-wrap gap-1.5">
+                {ROLE_APPOINTMENTS.map(preset => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    onClick={() => {
+                      setEditRole(preset.role);
+                      setEditPermissions(preset.permissions);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 hover:border-indigo-500 text-[11px] text-slate-200 transition"
+                  >
+                    {preset.label}
+                  </button>
                 ))}
               </div>
             </div>
+
+            {(editRole === 'staff' || editRole === 'admin') && (
+              <div className="space-y-2 pt-2 border-t border-slate-800">
+                <label className="text-slate-400 font-semibold">Active Permission Scopes</label>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {PERMISSION_OPTIONS.map(opt => (
+                    <label key={opt.id} className="flex items-center gap-2 p-2 rounded-lg bg-slate-950 border border-slate-800/80 cursor-pointer hover:border-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={editPermissions.includes(opt.id)}
+                        onChange={() => togglePermission(opt.id, editPermissions, setEditPermissions)}
+                        className="accent-indigo-600 rounded"
+                      />
+                      <span className="text-white text-xs">{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center gap-3 pt-2">
               <button

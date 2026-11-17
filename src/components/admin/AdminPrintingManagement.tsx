@@ -43,6 +43,7 @@ import {
   Lock,
   ShieldCheck,
   Wallet,
+  Download,
 } from 'lucide-react';
 
 type AdminPrintingTab = 'orders' | 'pricing' | 'zones' | 'payments' | 'reports';
@@ -172,6 +173,7 @@ export const AdminPrintingManagement: React.FC<{ initialOrderRef?: string }> = (
 
   // Settings Save State
   const [settingsSaving, setSettingsSaving] = useState<boolean>(false);
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; mimeType: string } | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -254,11 +256,24 @@ export const AdminPrintingManagement: React.FC<{ initialOrderRef?: string }> = (
     }
   }, [initialOrderRef, canOperateOrders, openOrder]);
 
-  const handlePreviewFile = async (fileUrl: string) => {
+  const closePreviewModal = () => {
+    if (previewFile?.url) {
+      URL.revokeObjectURL(previewFile.url);
+    }
+    setPreviewFile(null);
+  };
+
+  const handlePreviewFile = async (fileUrl: string, fileName?: string) => {
     try {
-      const { blobUrl } = await api.fetchPrintingFileBlobUrl(fileUrl);
-      window.open(blobUrl, '_blank', 'noopener,noreferrer');
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      const { blobUrl, mimeType } = await api.fetchPrintingFileBlobUrl(fileUrl);
+      if (previewFile?.url) {
+        URL.revokeObjectURL(previewFile.url);
+      }
+      setPreviewFile({
+        url: blobUrl,
+        name: fileName || 'Customer Uploaded File',
+        mimeType: mimeType || 'application/octet-stream',
+      });
     } catch (err: any) {
       setError(err.message || 'Unable to preview uploaded file.');
     }
@@ -1293,7 +1308,7 @@ export const AdminPrintingManagement: React.FC<{ initialOrderRef?: string }> = (
                         <button
                           key={f.id}
                           type="button"
-                          onClick={() => handlePreviewFile(f.file_url)}
+                          onClick={() => handlePreviewFile(f.file_url, f.file_name)}
                           className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-blue-400 hover:underline text-[11px]"
                         >
                           <span className="truncate">{f.file_name}</span>
@@ -2089,6 +2104,72 @@ export const AdminPrintingManagement: React.FC<{ initialOrderRef?: string }> = (
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Inline File Preview Modal */}
+      {previewFile && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="text-sm font-bold text-white truncate">
+                  {previewFile.name}
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 shrink-0">
+                  {previewFile.mimeType}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={previewFile.url}
+                  download={previewFile.name}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={closePreviewModal}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-950 flex items-center justify-center p-4 overflow-auto min-h-[360px]">
+              {previewFile.mimeType.startsWith('image/') ? (
+                <img
+                  src={previewFile.url}
+                  alt={previewFile.name}
+                  className="max-w-full max-h-[72vh] object-contain rounded-lg shadow"
+                />
+              ) : previewFile.mimeType === 'application/pdf' ? (
+                <iframe
+                  src={previewFile.url}
+                  title={previewFile.name}
+                  className="w-full h-[72vh] rounded-lg border border-slate-800 bg-white"
+                />
+              ) : (
+                <div className="text-center space-y-3 py-8">
+                  <FileText className="w-10 h-10 text-slate-500 mx-auto" />
+                  <p className="text-xs text-slate-300">
+                    Inline browser preview is not supported for <strong>{previewFile.mimeType}</strong>. Use Download to inspect the file locally.
+                  </p>
+                  <a
+                    href={previewFile.url}
+                    download={previewFile.name}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download File</span>
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

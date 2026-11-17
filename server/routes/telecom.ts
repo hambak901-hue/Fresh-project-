@@ -19,7 +19,7 @@
 import { Router } from 'express';
 import { db } from '../db/database.js';
 import { telecomManager } from '../adapters/telecom/TelecomAdapter.js';
-import { parseToken } from './auth.js';
+import { parseToken, hasUserPermission } from './auth.js';
 
 export const telecomRouter = Router();
 
@@ -38,8 +38,8 @@ function requireAuth(req: any, res: any, next: any) {
 
 function requireAdmin(req: any, res: any, next: any) {
   requireAuth(req, res, () => {
-    if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Administrative privilege required' });
+    if (!['admin', 'staff', 'superadmin'].includes(req.user.role) || !hasUserPermission(req.user, 'services')) {
+      return res.status(403).json({ error: 'Access denied. Service administration permission required.' });
     }
     next();
   });

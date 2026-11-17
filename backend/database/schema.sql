@@ -94,7 +94,7 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(191) NOT NULL,
     phone_number VARCHAR(30) NOT NULL,
-    role ENUM('customer', 'admin', 'superadmin') NOT NULL DEFAULT 'customer',
+    role ENUM('customer', 'agent', 'staff', 'admin', 'superadmin') NOT NULL DEFAULT 'customer',
     wallet_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
     kyc_status ENUM('unverified', 'pending', 'verified', 'rejected') NOT NULL DEFAULT 'unverified',
     tier INT NOT NULL DEFAULT 1,

@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import { db, User, KycSubmission, ServiceSecurityRule, VirtualAccountItem, verifyPin } from '../db/database.js';
-import { parseToken } from './auth.js';
+import { parseToken, hasUserPermission } from './auth.js';
 import { validateUploadFile } from '../services/security.js';
 import { sendEmail } from '../services/mailer.js';
 import { verificationManager } from '../adapters/verification/VerificationAdapter.js';
@@ -41,8 +41,8 @@ function requireAuth(req: any, res: any, next: any) {
 
 function requireAdmin(req: any, res: any, next: any) {
   requireAuth(req, res, () => {
-    if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Administrative privilege required' });
+    if (!['admin', 'staff', 'superadmin'].includes(req.user.role) || !hasUserPermission(req.user, 'kyc')) {
+      return res.status(403).json({ error: 'Access denied. KYC compliance permission required.' });
     }
     next();
   });

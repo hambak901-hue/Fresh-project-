@@ -8,7 +8,7 @@ export interface User {
   email: string;
   full_name: string;
   phone_number: string;
-  role: 'customer' | 'admin' | 'superadmin';
+  role: 'customer' | 'agent' | 'staff' | 'admin' | 'superadmin';
   wallet_balance: number;
   kyc_status: 'unverified' | 'pending' | 'verified' | 'rejected';
   bvn?: string;
@@ -782,6 +782,15 @@ export interface AuditLogItem {
   created_at: string;
 }
 
+export interface PrintingOverviewSummary {
+  total_orders: number;
+  pending_review: number;
+  awaiting_payment: number;
+  processing: number;
+  ready_or_transit: number;
+  completed: number;
+}
+
 export interface AdminOverviewData {
   metrics: {
     totalCustomers: number;
@@ -798,7 +807,10 @@ export interface AdminOverviewData {
     failedTransactions: number;
     pendingFundingApprovals: number;
     pendingKycCount: number;
+    today_registrations?: number;
   };
+  printing_summary?: PrintingOverviewSummary;
+  printingSummary?: PrintingOverviewSummary;
   recentRegistrations: User[];
   recentOrders: TelecomOrder[];
   pendingFundings: Transaction[];

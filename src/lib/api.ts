@@ -4089,6 +4089,7 @@ export const api = {
       bank_reference?: string;
       proof_url?: string;
       remarks?: string;
+      callback_url?: string;
     }
   ): Promise<{
     success: boolean;

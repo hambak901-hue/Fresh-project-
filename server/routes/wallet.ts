@@ -16,7 +16,7 @@
 import { Router } from 'express';
 import { db, User, Transaction } from '../db/database.js';
 import { paymentManager, PaystackAdapter } from '../adapters/payment/PaymentAdapter.js';
-import { parseToken } from './auth.js';
+import { parseToken, hasAnyUserPermission } from './auth.js';
 import { sendEmail } from '../services/mailer.js';
 
 export const walletRouter = Router();
@@ -43,8 +43,8 @@ function requireAuth(req: any, res: any, next: any) {
 
 function requireAdmin(req: any, res: any, next: any) {
   requireAuth(req, res, () => {
-    if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Administrative privilege required' });
+    if (!['admin', 'staff', 'superadmin'].includes(req.user.role) || !hasAnyUserPermission(req.user, ['wallet', 'reports'])) {
+      return res.status(403).json({ error: 'Access denied. Wallet management permission required.' });
     }
     next();
   });

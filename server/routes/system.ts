@@ -8,7 +8,7 @@ import { Router } from 'express';
 import { db } from '../db/database.js';
 import { CREDENTIALS } from '../config/credentials.js';
 import { testSmtpConnection, sendEmail } from '../services/mailer.js';
-import { parseToken } from './auth.js';
+import { parseToken, hasAnyUserPermission } from './auth.js';
 
 export const systemRouter = Router();
 
@@ -28,8 +28,8 @@ function requireAdmin(req: any, res: any, next: any) {
     return res.status(403).json({ error: 'Your account is suspended.' });
   }
 
-  if (user.role !== 'admin' && user.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Access denied: Administrator privileges required' });
+  if (!['admin', 'staff', 'superadmin'].includes(user.role) || !hasAnyUserPermission(user, ['settings', 'audit'])) {
+    return res.status(403).json({ error: 'Access denied: System settings or audit permission required' });
   }
 
   req.user = user;

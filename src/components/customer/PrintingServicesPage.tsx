@@ -56,6 +56,8 @@ import {
   ArrowRight,
   ChevronRight,
   Lock,
+  ExternalLink,
+  Download,
 } from 'lucide-react';
 
 type PrintingTab = 'submit' | 'orders' | 'rates' | 'delivery' | 'support';
@@ -200,6 +202,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
   const [proofUrl, setProofUrl] = useState<string>('');
   const [payRemarks, setPayRemarks] = useState<string>('');
   const [pendingVerifyRef, setPendingVerifyRef] = useState<string | null>(null);
+  const [pendingCheckoutUrl, setPendingCheckoutUrl] = useState<string | null>(null);
   const [chatMessage, setChatMessage] = useState<string>('');
 
   // Support Tab State
@@ -207,6 +210,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
   const [supportOrderRef, setSupportOrderRef] = useState<string>('');
   const [supportMessage, setSupportMessage] = useState<string>('');
   const [supportBusy, setSupportBusy] = useState<boolean>(false);
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; mimeType: string } | null>(null);
 
   const selectedCategory = categories.find(c => c.category_key === selectedCategoryKey) || categories[0] || null;
 
@@ -258,6 +262,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
       setDetailLoading(true);
       setShowDeclineBox(false);
       setPendingVerifyRef(null);
+      setPendingCheckoutUrl(null);
       const res = await api.getPrintingOrderDetail(idOrRef);
       if (res.success) {
         setSelectedOrder(res.order);
@@ -287,7 +292,22 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
   useEffect(() => {
     if (initialOrderRef) {
       setActiveTab('orders');
-      openOrderDetail(initialOrderRef);
+      openOrderDetail(initialOrderRef).then(() => {
+        if (typeof window !== 'undefined') {
+          const hashStr = window.location.hash || '';
+          const qIdx = hashStr.indexOf('?');
+          const hashParams = qIdx !== -1 ? new URLSearchParams(hashStr.slice(qIdx + 1)) : new URLSearchParams('');
+          const searchParams = new URLSearchParams(window.location.search || '');
+          const retRef =
+            hashParams.get('reference') ||
+            hashParams.get('trxref') ||
+            searchParams.get('reference') ||
+            searchParams.get('trxref');
+          if (retRef) {
+            setPendingVerifyRef(retRef);
+          }
+        }
+      });
     }
   }, [initialOrderRef, openOrderDetail]);
 
@@ -390,17 +410,24 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
     }
   };
 
-  const handlePreviewFile = async (fileUrl: string) => {
+  const closePreviewModal = () => {
+    if (previewFile?.url) {
+      URL.revokeObjectURL(previewFile.url);
+    }
+    setPreviewFile(null);
+  };
+
+  const handlePreviewFile = async (fileUrl: string, fileName?: string) => {
     try {
-      const { blobUrl } = await api.fetchPrintingFileBlobUrl(fileUrl);
-      const win = window.open(blobUrl, '_blank', 'noopener,noreferrer');
-      if (!win) {
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.target = '_blank';
-        a.click();
+      const { blobUrl, mimeType } = await api.fetchPrintingFileBlobUrl(fileUrl);
+      if (previewFile?.url) {
+        URL.revokeObjectURL(previewFile.url);
       }
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      setPreviewFile({
+        url: blobUrl,
+        name: fileName || 'Uploaded Artwork / Document',
+        mimeType: mimeType || 'application/octet-stream',
+      });
     } catch (err: any) {
       setGlobalError(err.message || 'Unable to open file.');
     }
@@ -507,12 +534,18 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
         bank_reference: payGateway === 'manual_transfer' ? bankReference : undefined,
         proof_url: payGateway === 'manual_transfer' ? proofUrl : undefined,
         remarks: payGateway === 'manual_transfer' ? payRemarks : undefined,
+        callback_url: typeof window !== 'undefined' ? `${window.location.origin}/#printing` : undefined,
       });
       if (res.success) {
         setTxPin('');
         if (payGateway === 'paystack' || payGateway === 'flutterwave') {
+          const checkoutLink = res.authorization_url || res.link || null;
           setPendingVerifyRef(res.reference || null);
-          setGlobalSuccess(`Checkout initialized (Ref: ${res.reference}). Confirm payment verification below once completed.`);
+          setPendingCheckoutUrl(checkoutLink);
+          setGlobalSuccess(`Checkout initialized (Ref: ${res.reference}). Use the checkout button or confirm verification below.`);
+          await refreshUser();
+          await loadOrders(statusFilter);
+          return;
         } else {
           setGlobalSuccess(res.message);
         }
@@ -535,6 +568,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
       const res = await api.verifyPrintingPayment(selectedOrder.id, pendingVerifyRef);
       if (res.success) {
         setPendingVerifyRef(null);
+        setPendingCheckoutUrl(null);
         setGlobalSuccess(res.message);
         await loadOrders(statusFilter);
         await openOrderDetail(selectedOrder.id);
@@ -673,7 +707,12 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+                if (tab.id === 'orders') {
+                  loadOrders(statusFilter);
+                }
+              }}
               className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition ${
                 active
                   ? 'bg-blue-700 text-white shadow-sm'
@@ -1082,7 +1121,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
                       <div className="flex items-center gap-2 shrink-0">
                         <button
                           type="button"
-                          onClick={() => handlePreviewFile(file.file_url)}
+                          onClick={() => handlePreviewFile(file.file_url, file.file_name)}
                           className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 text-[11px]"
                         >
                           <Eye className="w-3.5 h-3.5" />
@@ -1829,7 +1868,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
                           <button
                             key={f.id}
                             type="button"
-                            onClick={() => handlePreviewFile(f.file_url)}
+                            onClick={() => handlePreviewFile(f.file_url, f.file_name)}
                             className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
                           >
                             <span className="truncate">{f.file_name}</span>
@@ -2156,6 +2195,18 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
                           </span>
                         </button>
 
+                        {pendingCheckoutUrl && (
+                          <a
+                            href={pendingCheckoutUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-1.5"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Open Gateway Checkout</span>
+                          </a>
+                        )}
+
                         {pendingVerifyRef && (
                           <button
                             type="button"
@@ -2254,6 +2305,72 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Inline File Preview Modal */}
+      {previewFile && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                  {previewFile.name}
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0">
+                  {previewFile.mimeType}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={previewFile.url}
+                  download={previewFile.name}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={closePreviewModal}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-100 dark:bg-slate-950 flex items-center justify-center p-4 overflow-auto min-h-[360px]">
+              {previewFile.mimeType.startsWith('image/') ? (
+                <img
+                  src={previewFile.url}
+                  alt={previewFile.name}
+                  className="max-w-full max-h-[72vh] object-contain rounded-lg shadow"
+                />
+              ) : previewFile.mimeType === 'application/pdf' ? (
+                <iframe
+                  src={previewFile.url}
+                  title={previewFile.name}
+                  className="w-full h-[72vh] rounded-lg border border-slate-200 dark:border-slate-800 bg-white"
+                />
+              ) : (
+                <div className="text-center space-y-3 py-8">
+                  <FileText className="w-10 h-10 text-slate-400 mx-auto" />
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
+                    Inline browser preview is not supported for <strong>{previewFile.mimeType}</strong>. Use Download to inspect the file locally.
+                  </p>
+                  <a
+                    href={previewFile.url}
+                    download={previewFile.name}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download File</span>
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
