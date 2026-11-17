@@ -37,7 +37,9 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         $dbKey = !empty($dbRow['api_key']) ? (string)$dbRow['api_key'] : '';
 
         $resolvedUrl = $baseUrl ?: ($dbUrl ?: ($envUrl ?: ($cfg['base_url'] ?? 'https://2sureverify.com')));
-        $this->baseUrl = rtrim($resolvedUrl, '/');
+        $cleanResolved = rtrim($resolvedUrl, '/');
+        $cleanResolved = preg_replace('#/api/v1$#i', '', $cleanResolved) ?? $cleanResolved;
+        $this->baseUrl = $cleanResolved !== '' ? $cleanResolved : 'https://2sureverify.com';
         $this->apiKey = $apiKey ?: ($dbKey ?: ($envKey ?: (string)($cfg['api_key'] ?? '')));
         $configuredTimeout = $timeout ?? (int)($dbRow['timeout_seconds'] ?? ($cfg['timeout'] ?? 35));
         $this->timeout = max(15, min(40, $configuredTimeout > 0 ? $configuredTimeout : 35));
@@ -207,9 +209,13 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
 
     private function executeSingleCall(string $endpoint, array $payload, string $reference): array
     {
-        $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
+        $epNorm = '/' . ltrim(trim($endpoint), '/');
+        if (!str_starts_with($epNorm, '/api/')) {
+            $epNorm = '/api/v1' . $epNorm;
+        }
+        $url = $this->baseUrl . $epNorm;
         $startTime = microtime(true);
-        $requestPayload = $this->buildRequestPayload($endpoint, $payload);
+        $requestPayload = $this->buildRequestPayload($epNorm, $payload);
         $ch = curl_init($url);
         $jsonPayload = json_encode(array_merge($requestPayload, ['api_key' => $this->apiKey]));
 
@@ -235,13 +241,21 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         curl_close($ch);
 
         $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
-        $this->logTransaction($endpoint, $requestPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $reference);
+        $this->logTransaction($epNorm, $requestPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $reference);
 
         if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
             $decoded = json_decode($responseBody, true);
             if (is_array($decoded)) {
                 $statusLower = strtolower((string)($decoded['status'] ?? ''));
-                $isSuccess = (!isset($decoded['success']) || (bool)$decoded['success'] === true) && $statusLower !== 'failed' && $statusLower !== 'error';
+                $nestedData = $decoded['data'] ?? null;
+                $nestedStatus = is_array($nestedData) ? strtolower((string)($nestedData['status'] ?? '')) : '';
+                $badStatuses = ['failed', 'error', 'not_found', 'no_record', 'rejected'];
+                $isSuccess = (!isset($decoded['success']) || (bool)$decoded['success'] === true)
+                    && !in_array($statusLower, $badStatuses, true)
+                    && !in_array($nestedStatus, $badStatuses, true);
+                if ($isSuccess && empty($decoded['pending']) && isset($decoded['data']) && is_array($decoded['data']) && empty($decoded['data'])) {
+                    $isSuccess = false;
+                }
                 if ($isSuccess) {
                     $decoded = $this->normalizePhotoField($decoded);
                     $decoded['reference'] = $decoded['reference'] ?? $reference;
@@ -251,11 +265,12 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                     $decoded['success'] = true;
                     return $decoded;
                 }
+                $nestedMsg = is_array($nestedData) ? ($nestedData['message'] ?? null) : null;
                 return [
                     'status' => 'failed',
                     'success' => false,
                     'code' => $statusCode,
-                    'message' => (string)($decoded['message'] ?? $decoded['error'] ?? 'Provider verification request failed'),
+                    'message' => (string)($decoded['message'] ?? $decoded['error'] ?? $nestedMsg ?? 'Provider verification request failed'),
                     'reference' => $decoded['reference'] ?? $reference,
                     'raw_error' => $responseBody,
                 ];
@@ -284,9 +299,172 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ];
     }
 
-    /**
-     * Execute authenticated GET request against 2SureVerify v1 helper endpoints
-     */
+    public function verify(string $endpoint, array $payload): array
+    {
+        $reference = (string)($payload['reference'] ?? ('2SV_' . strtoupper(bin2hex(random_bytes(6)))));
+
+        if (empty($this->apiKey)) {
+            return [
+                'status' => 'failed',
+                'success' => false,
+                'code' => 503,
+                'message' => '2SureVerify API key is not configured on the production host. Please set TWOSUREVERIFY_API_KEY.',
+                'reference' => $reference,
+            ];
+        }
+
+        $isVninRoute = str_contains(strtolower($endpoint), 'vnin_verification')
+            || strtolower((string)($payload['service_key'] ?? '')) === 'vnin_verification'
+            || strtolower((string)($payload['tier'] ?? '')) === 'vnin';
+        if (str_contains(strtolower($endpoint), 'vnin_verification')) {
+            $endpoint = '/api/v1/nin_v2.php';
+            $payload['tier'] = 'vnin';
+        }
+
+        $result = $this->executeSingleCall($endpoint, $payload, $reference);
+        if (!empty($result['success'])) {
+            return $result;
+        }
+
+        $isInsufficient = static function (array $res): bool {
+            return str_contains(strtolower((string)($res['message'] ?? '')), 'insufficient');
+        };
+        $isNoRecord = static function (array $res): bool {
+            $m = strtolower((string)($res['message'] ?? ''));
+            return str_contains($m, 'no record found') || str_contains($m, 'not found in nimc') || str_contains($m, 'no matching record');
+        };
+        $isTransientFail = static function (array $res) use ($isInsufficient, $isNoRecord): bool {
+            if ($isInsufficient($res) || $isNoRecord($res)) {
+                return false;
+            }
+            $msgLower = strtolower((string)($res['message'] ?? ''));
+            $code = (int)($res['code'] ?? 0);
+            return str_contains($msgLower, 'try a different version')
+                || str_contains($msgLower, 'could not be completed right now')
+                || str_contains($msgLower, 'currently unavailable')
+                || str_contains($msgLower, 'temporarily unavailable')
+                || str_contains($msgLower, 'service unavailable')
+                || str_contains($msgLower, 'maintenance')
+                || str_contains($msgLower, 'timed out')
+                || $code === 0
+                || $code === 404
+                || $code >= 500;
+        };
+
+        if ($isInsufficient($result)) {
+            return $result;
+        }
+
+        // For VNIN verification, fall back to V1/V3 with ninVnin slip format if V2 tier=vnin is transiently unavailable
+        if ($isVninRoute && $isTransientFail($result)) {
+            $vninFallbacks = [
+                ['/api/v1/nin_v1.php', array_merge($payload, ['slip_type' => 'ninVnin'])],
+                ['/api/v1/nin_v3.php', array_merge($payload, ['tier' => 'v1', 'slip_type' => 'ninVnin'])],
+            ];
+            $firstNoRec = null;
+            foreach ($vninFallbacks as $idx => [$fbEp, $fbPayload]) {
+                $fbRes = $this->executeSingleCall($fbEp, $fbPayload, $reference . '_VNFB' . ($idx + 1));
+                if (!empty($fbRes['success'])) {
+                    return $fbRes;
+                }
+                if ($isInsufficient($fbRes)) {
+                    return $fbRes;
+                }
+                if ($isNoRecord($fbRes) && $firstNoRec === null) {
+                    $firstNoRec = $fbRes;
+                }
+            }
+            if ($firstNoRec !== null) {
+                return $firstNoRec;
+            }
+            return $result;
+        }
+
+        // Generalized sibling version failover for _v1.php / _v2.php / _v3.php endpoints
+        if ($isTransientFail($result) && preg_match('/^(.*)_v([123])\.php$/i', $endpoint, $m)) {
+            $prefix = $m[1];
+            $verNum = $m[2];
+            $firstNoRec = null;
+
+            // V3 supports independent internal channels (v1, v2): try v2 on same endpoint first when v1 fails transiently
+            if ($verNum === '3' && strtolower((string)($payload['tier'] ?? 'v1')) === 'v1') {
+                $v3Tier2Payload = array_merge($payload, ['tier' => 'v2']);
+                $v3Res = $this->executeSingleCall($endpoint, $v3Tier2Payload, $reference . '_T2');
+                if (!empty($v3Res['success'])) {
+                    return $v3Res;
+                }
+                if ($isInsufficient($v3Res)) {
+                    return $v3Res;
+                }
+                if ($isNoRecord($v3Res)) {
+                    $firstNoRec = $v3Res;
+                }
+            }
+
+            $siblings = match ($verNum) {
+                '2' => [$prefix . '_v1.php', $prefix . '_v3.php'],
+                '3' => [$prefix . '_v1.php', $prefix . '_v2.php'],
+                default => [$prefix . '_v3.php', $prefix . '_v2.php'],
+            };
+
+            foreach ($siblings as $idx => $fallbackEp) {
+                $fbRes = $this->executeSingleCall($fallbackEp, $payload, $reference . '_VFB' . ($idx + 1));
+                if (!empty($fbRes['success'])) {
+                    return $fbRes;
+                }
+                if ($isInsufficient($fbRes)) {
+                    return $fbRes;
+                }
+                if ($isNoRecord($fbRes) && $firstNoRec === null) {
+                    $firstNoRec = $fbRes;
+                }
+            }
+            if ($firstNoRec !== null) {
+                return $firstNoRec;
+            }
+        }
+
+        return $result;
+    }
+
+    public function ping(): array
+    {
+        if (empty($this->apiKey)) {
+            return [
+                'provider' => '2sureverify',
+                'status' => 'unconfigured',
+                'latency_ms' => 0,
+                'message' => '2SureVerify API key is not configured.',
+                'timestamp' => date('c'),
+            ];
+        }
+
+        $start = microtime(true);
+        $ch = curl_init($this->baseUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_NOBODY => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        $ok = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        $latency = (int)round((microtime(true) - $start) * 1000);
+
+        return [
+            'provider' => '2sureverify',
+            'status' => ($ok !== false && $code > 0 && $code < 500) ? 'operational' : 'error',
+            'http_code' => $code,
+            'latency_ms' => $latency,
+            'message' => ($ok !== false && $code > 0 && $code < 500)
+                ? "2SureVerify reachable (HTTP {$code}, {$latency}ms)"
+                : ("2SureVerify check failed: " . ($err ?: "HTTP {$code}")),
+            'timestamp' => date('c'),
+        ];
+    }
+
     public function executeGet(string $endpoint): array
     {
         if (empty($this->apiKey)) {
@@ -298,8 +476,13 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             ];
         }
 
-        $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
+        $epNorm = '/' . ltrim(trim($endpoint), '/');
+        if (!str_starts_with($epNorm, '/api/')) {
+            $epNorm = '/api/v1' . $epNorm;
+        }
+        $url = $this->baseUrl . $epNorm;
         $startTime = microtime(true);
+
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -321,7 +504,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         curl_close($ch);
 
         $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
-        $this->logTransaction($endpoint, ['method' => 'GET'], $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, null, 'GET');
+        $this->logTransaction($epNorm, ['method' => 'GET'], $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, null, 'GET');
 
         if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
             $decoded = json_decode($responseBody, true);
@@ -363,13 +546,6 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         return $this->executeGet('/api/v1/status.php?reference=' . rawurlencode($cleanRef));
     }
 
-    /**
-     * Central 2SureVerify modification parameter & multipart file mapping registry.
-     * Note: https://2sureverify.com/api_docs.php documents endpoint URLs, methods, prices, and Manual behavior,
-     * while stating exact per-endpoint parameter names come from per-file headers / OpenAPI spec on request.
-     * Therefore `provider_schema_verified` is explicitly false until confirmed against 2SureVerify OpenAPI/headers,
-     * and every mapping can be overridden without code changes via Admin Service Config (`provider_param` / `provider_file_param`).
-     */
     public static function getAllModificationMappingSpecs(): array
     {
         return [
@@ -725,9 +901,6 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ];
     }
 
-    /**
-     * Transform internal customer fields & document attachments into allowlisted 2SureVerify parameters.
-     */
     public function mapModificationPayload(
         string $serviceKey,
         array $fields,
@@ -751,7 +924,6 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             if ($strVal === '') {
                 continue;
             }
-            // Enforce strict allowlist when mapping spec or schema is defined
             if (!empty($fieldMap) && !array_key_exists($key, $fieldMap)) {
                 continue;
             }
@@ -786,7 +958,6 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
     /**
      * Submit Manual NIN/BVN Modification Request to 2SureVerify.
      * Supports multipart/form-data when local uploaded files exist or JSON otherwise.
-     * IMPORTANT: Detects `pending` responses FIRST so manual pending requests are NEVER treated as failures.
      */
     public function submitModification(
         string $endpoint,
@@ -797,11 +968,11 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         array $formSchema = [],
         array $requiredDocs = []
     ): array {
-        $ref = $reference ?: ('2SV_MOD_' . strtoupper(bin2hex(random_bytes(6))));
-
+        $ref = ($reference !== null && $reference !== '') ? $reference : ('2SV_MOD_' . strtoupper(bin2hex(random_bytes(6))));
         if (empty($this->apiKey)) {
             return [
                 'success' => false,
+                'accepted' => false,
                 'pending' => false,
                 'status' => 'failed',
                 'code' => 503,
@@ -810,7 +981,11 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             ];
         }
 
-        $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
+        $epNorm = '/' . ltrim(trim($endpoint), '/');
+        if (!str_starts_with($epNorm, '/api/')) {
+            $epNorm = '/api/v1' . $epNorm;
+        }
+        $url = $this->baseUrl . $epNorm;
         $startTime = microtime(true);
 
         $resolvedKey = trim((string)($serviceKey ?? ($fields['service_key'] ?? '')));
@@ -834,15 +1009,21 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
 
         $curlFiles = [];
         $fileIndex = 0;
-        foreach ($resolvedFiles as $fileItem) {
-            if (!is_array($fileItem)) {
+        foreach ($resolvedFiles as $k => $fileItem) {
+            if (is_array($fileItem)) {
+                $filePath = (string)($fileItem['file_path'] ?? $fileItem['path'] ?? '');
+                $mime = (string)($fileItem['mime_type'] ?? $fileItem['mime'] ?? 'application/octet-stream');
+                $origName = basename((string)($fileItem['original_name'] ?? $fileItem['name'] ?? ('document_' . $fileIndex)));
+                $rawParam = (string)($fileItem['provider_file_param'] ?? $fileItem['doc_key'] ?? (is_string($k) ? $k : 'document_' . $fileIndex));
+            } elseif (is_string($fileItem) && $fileItem !== '') {
+                $filePath = $fileItem;
+                $mime = is_file($filePath) ? (mime_content_type($filePath) ?: 'application/octet-stream') : 'application/octet-stream';
+                $origName = basename($filePath);
+                $rawParam = is_string($k) ? $k : ('document_' . $fileIndex);
+            } else {
                 continue;
             }
-            $filePath = (string)($fileItem['file_path'] ?? '');
             if ($filePath !== '' && is_file($filePath) && is_readable($filePath)) {
-                $mime = (string)($fileItem['mime_type'] ?? 'application/octet-stream');
-                $origName = basename((string)($fileItem['original_name'] ?? ('document_' . $fileIndex)));
-                $rawParam = (string)($fileItem['provider_file_param'] ?? $fileItem['doc_key'] ?? ('document_' . $fileIndex));
                 $fieldKey = preg_replace('/[^a-zA-Z0-9_]/', '_', $rawParam) ?: ('document_' . $fileIndex);
                 if (isset($curlFiles[$fieldKey])) {
                     $fieldKey .= '_' . $fileIndex;
@@ -857,6 +1038,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             $postBody = array_merge($cleanFields, ['api_key' => $this->apiKey], $curlFiles);
             $headers = [
                 'Accept: application/json',
+                'Expect:',
                 'Authorization: Bearer ' . $this->apiKey,
                 'X-Api-Key: ' . $this->apiKey,
             ];
@@ -891,14 +1073,15 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         if (!empty($curlFiles)) {
             $logPayload['_attached_files'] = array_keys($curlFiles);
         }
-        $this->logTransaction($endpoint, $logPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $ref, 'POST');
+        $this->logTransaction($epNorm, $logPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $ref, 'POST');
 
         if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
             $decoded = json_decode($responseBody, true);
             if (is_array($decoded)) {
-                $provRef = (string)($decoded['reference'] ?? $decoded['data']['reference'] ?? $decoded['request_id'] ?? $ref);
-                $statusLower = strtolower(trim((string)($decoded['status'] ?? $decoded['data']['status'] ?? '')));
-                $pendingFlag = $decoded['pending'] ?? $decoded['data']['pending'] ?? null;
+                $nested = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
+                $provRef = (string)($decoded['reference'] ?? $nested['reference'] ?? $decoded['request_id'] ?? $decoded['transaction_id'] ?? $ref);
+                $statusLower = strtolower(trim((string)($decoded['status'] ?? $nested['status'] ?? '')));
+                $pendingFlag = $decoded['pending'] ?? $nested['pending'] ?? null;
                 $isPending = ($pendingFlag === true || $pendingFlag === 1 || strtolower((string)$pendingFlag) === 'true' || in_array($statusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true));
 
                 $providerCost = 0.0;
@@ -907,36 +1090,38 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                         $providerCost = (float)$decoded[$costKey];
                         break;
                     }
-                    if (isset($decoded['data'][$costKey]) && is_numeric($decoded['data'][$costKey])) {
-                        $providerCost = (float)$decoded['data'][$costKey];
+                    if (isset($nested[$costKey]) && is_numeric($nested[$costKey])) {
+                        $providerCost = (float)$nested[$costKey];
                         break;
                     }
                 }
 
-                // 1. Check PENDING FIRST before interpreting success/failure!
                 if ($isPending) {
                     return [
                         'success' => true,
+                        'accepted' => true,
                         'pending' => true,
                         'status' => 'pending',
                         'provider_status' => $statusLower !== '' ? $statusLower : 'pending',
                         'reference' => $provRef,
+                        'provider_reference' => $provRef,
                         'provider_cost' => $providerCost,
                         'message' => (string)($decoded['message'] ?? 'Request received by 2SureVerify and queued for manual processing.'),
                         'raw' => $decoded,
                     ];
                 }
 
-                // 2. Check explicit failure
                 $explicitSuccess = $decoded['success'] ?? null;
                 $isFailed = ($explicitSuccess === false || strtolower((string)$explicitSuccess) === 'false' || in_array($statusLower, ['failed', 'error', 'rejected', 'declined'], true));
                 if (!$isFailed) {
                     return [
                         'success' => true,
+                        'accepted' => true,
                         'pending' => false,
                         'status' => in_array($statusLower, ['completed', 'success', 'approved'], true) ? 'completed' : 'pending',
                         'provider_status' => $statusLower !== '' ? $statusLower : 'submitted',
                         'reference' => $provRef,
+                        'provider_reference' => $provRef,
                         'provider_cost' => $providerCost,
                         'message' => (string)($decoded['message'] ?? 'Modification request accepted.'),
                         'raw' => $decoded,
@@ -945,6 +1130,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
 
                 return [
                     'success' => false,
+                    'accepted' => false,
                     'pending' => false,
                     'status' => 'failed',
                     'code' => $statusCode,
@@ -969,6 +1155,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
 
         return [
             'success' => false,
+            'accepted' => false,
             'pending' => false,
             'status' => 'failed',
             'code' => $curlErrno === CURLE_OPERATION_TIMEDOUT ? 504 : ($statusCode ?: 502),
@@ -978,11 +1165,6 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ];
     }
 
-    /**
-     * Stage 4 — Verified 2SureVerify NIN Enrolment parameter & multipart file mapping registry.
-     * Note: bvn_enroll_adult.php and bvn_enroll_child.php are explicitly NIN Enrolment endpoints
-     * per https://2sureverify.com/api_docs.php and /api/v1/services.php.
-     */
     public static function getAllEnrolmentMappingSpecs(): array
     {
         return [
@@ -1157,10 +1339,6 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ];
     }
 
-    /**
-     * Submit Manual NIN Enrolment Request to 2SureVerify (/api/v1/bvn_enroll_adult.php or /api/v1/bvn_enroll_child.php).
-     * Manual enrolment orders ALWAYS stay `pending` on initial submission until provider confirms completion via /api/v1/status.php.
-     */
     public function submitEnrolment(
         string $endpoint,
         array $fields,
@@ -1170,8 +1348,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         array $formSchema = [],
         array $requiredDocs = []
     ): array {
-        $ref = $reference ?: ('2SV_ENR_' . strtoupper(bin2hex(random_bytes(6))));
-
+        $ref = ($reference !== null && $reference !== '') ? $reference : ('2SV_ENR_' . strtoupper(bin2hex(random_bytes(6))));
         if (empty($this->apiKey)) {
             return [
                 'success' => false,
@@ -1183,7 +1360,11 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             ];
         }
 
-        $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
+        $epNorm = '/' . ltrim(trim($endpoint), '/');
+        if (!str_starts_with($epNorm, '/api/')) {
+            $epNorm = '/api/v1' . $epNorm;
+        }
+        $url = $this->baseUrl . $epNorm;
         $startTime = microtime(true);
 
         $resolvedKey = trim((string)($serviceKey ?? ($fields['service_key'] ?? '')));
@@ -1214,16 +1395,19 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
 
         $ch = curl_init($url);
         if (!empty($curlFiles)) {
-            $postBody = array_merge($cleanFields, $curlFiles);
+            $postBody = array_merge($cleanFields, ['api_key' => $this->apiKey], $curlFiles);
             $headers = [
                 'Accept: application/json',
+                'Expect:',
+                'Authorization: Bearer ' . $this->apiKey,
                 'X-Api-Key: ' . $this->apiKey,
             ];
         } else {
-            $postBody = json_encode($cleanFields);
+            $postBody = json_encode(array_merge($cleanFields, ['api_key' => $this->apiKey]));
             $headers = [
                 'Content-Type: application/json',
                 'Accept: application/json',
+                'Authorization: Bearer ' . $this->apiKey,
                 'X-Api-Key: ' . $this->apiKey,
             ];
         }
@@ -1249,14 +1433,15 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         if (!empty($curlFiles)) {
             $logPayload['_attached_files'] = array_keys($curlFiles);
         }
-        $this->logTransaction($endpoint, $logPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $ref, 'POST');
+        $this->logTransaction($epNorm, $logPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $ref, 'POST');
 
         if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
             $decoded = json_decode($responseBody, true);
             if (is_array($decoded)) {
-                $provRef = (string)($decoded['reference'] ?? $decoded['data']['reference'] ?? $decoded['request_id'] ?? $ref);
-                $statusLower = strtolower(trim((string)($decoded['status'] ?? $decoded['data']['status'] ?? '')));
-                $pendingFlag = $decoded['pending'] ?? $decoded['data']['pending'] ?? null;
+                $nested = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
+                $provRef = (string)($decoded['reference'] ?? $nested['reference'] ?? $decoded['request_id'] ?? $ref);
+                $statusLower = strtolower(trim((string)($decoded['status'] ?? $nested['status'] ?? '')));
+                $pendingFlag = $decoded['pending'] ?? $nested['pending'] ?? null;
                 $isPending = ($pendingFlag === true || $pendingFlag === 1 || strtolower((string)$pendingFlag) === 'true' || in_array($statusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true));
 
                 $providerCost = 0.0;
@@ -1265,20 +1450,18 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                         $providerCost = (float)$decoded[$costKey];
                         break;
                     }
-                    if (isset($decoded['data'][$costKey]) && is_numeric($decoded['data'][$costKey])) {
-                        $providerCost = (float)$decoded['data'][$costKey];
+                    if (isset($nested[$costKey]) && is_numeric($nested[$costKey])) {
+                        $providerCost = (float)$nested[$costKey];
                         break;
                     }
                 }
 
-                // Explicit failure check first ONLY when not flagged pending
                 $explicitSuccess = $decoded['success'] ?? null;
                 $isFailed = !$isPending && (
                     $explicitSuccess === false
                     || strtolower((string)$explicitSuccess) === 'false'
                     || in_array($statusLower, ['failed', 'error', 'rejected', 'declined'], true)
                 );
-
                 if ($isFailed) {
                     return [
                         'success' => false,
@@ -1291,7 +1474,6 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                     ];
                 }
 
-                // Manual enrolment orders ALWAYS stay `pending` on initial submission
                 return [
                     'success' => true,
                     'pending' => true,
@@ -1328,98 +1510,140 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ];
     }
 
-    public function verify(string $endpoint, array $payload): array
+    /**
+     * Poll 2SureVerify /api/v1/status.php?reference=... for an existing modification request.
+     */
+    public function pollModificationStatus(string $providerReference): array
     {
-        $reference = (string)($payload['reference'] ?? ('2SV_' . strtoupper(bin2hex(random_bytes(6)))));
-
         if (empty($this->apiKey)) {
             return [
-                'status' => 'failed',
                 'success' => false,
-                'code' => 503,
-                'message' => '2SureVerify API key is not configured on the production host. Please set TWOSUREVERIFY_API_KEY.',
-                'reference' => $reference,
+                'status' => 'pending',
+                'message' => 'Identity gateway credentials not configured.',
+                'raw' => null,
             ];
         }
 
-        if (str_contains(strtolower($endpoint), 'vnin_verification')) {
-            $endpoint = '/api/v1/nin_v2.php';
-            $payload['tier'] = 'vnin';
-        }
+        $epNorm = '/api/v1/status.php?reference=' . urlencode($providerReference);
+        $url = $this->baseUrl . $epNorm;
+        $startTime = microtime(true);
 
-        $result = $this->executeSingleCall($endpoint, $payload, $reference);
-        if (!empty($result['success'])) {
-            return $result;
-        }
-
-        $isTransientFail = static function (array $res): bool {
-            $msgLower = strtolower((string)($res['message'] ?? ''));
-            $code = (int)($res['code'] ?? 0);
-            if (str_contains($msgLower, 'insufficient') || str_contains($msgLower, 'no record found') || str_contains($msgLower, 'not found in nimc')) {
-                return false;
-            }
-            return str_contains($msgLower, 'try a different version')
-                || str_contains($msgLower, 'could not be completed right now')
-                || str_contains($msgLower, 'currently unavailable')
-                || str_contains($msgLower, 'temporarily unavailable')
-                || str_contains($msgLower, 'service unavailable')
-                || str_contains($msgLower, 'maintenance')
-                || $code === 404
-                || $code >= 500;
-        };
-
-        // If a _v1.php endpoint fails transiently or asks callers to try V2 or V3, fail over internally
-        if ($isTransientFail($result) && preg_match('/^(.*)_v1\.php$/i', $endpoint, $m)) {
-            $prefix = $m[1];
-            foreach ([$prefix . '_v3.php', $prefix . '_v2.php'] as $idx => $fallbackEp) {
-                $fbRes = $this->executeSingleCall($fallbackEp, $payload, $reference . '_VFB' . ($idx + 1));
-                if (!empty($fbRes['success'])) {
-                    return $fbRes;
-                }
-                if (!$isTransientFail($fbRes)) {
-                    return $fbRes;
-                }
-            }
-        }
-
-        return $result;
-    }
-
-    public function ping(): array
-    {
-        if (empty($this->apiKey)) {
-            return [
-                'provider' => '2sureverify',
-                'status' => 'unconfigured',
-                'latency_ms' => 0,
-                'message' => '2SureVerify API key is not configured.',
-                'timestamp' => date('c'),
-            ];
-        }
-
-        $start = microtime(true);
-        $ch = curl_init($this->baseUrl);
+        $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_NOBODY => true,
-            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'Authorization: Bearer ' . $this->apiKey,
+                'X-Api-Key: ' . $this->apiKey,
+            ],
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_SSL_VERIFYPEER => true,
         ]);
-        $ok = curl_exec($ch);
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $err = curl_error($ch);
+
+        $responseBody = curl_exec($ch);
+        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
         curl_close($ch);
-        $latency = (int)round((microtime(true) - $start) * 1000);
+
+        $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
+        $this->logTransaction('/api/v1/status.php', ['reference' => $providerReference], $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $providerReference, 'GET');
+
+        if ($responseBody === false || $statusCode === 0) {
+            return [
+                'success' => false,
+                'code' => 502,
+                'status' => null,
+                'message' => 'Unable to reach verification status desk.',
+                'raw' => null,
+            ];
+        }
+
+        $decoded = json_decode((string)$responseBody, true);
+        if (!is_array($decoded)) {
+            return [
+                'success' => false,
+                'code' => $statusCode,
+                'status' => null,
+                'message' => 'Unexpected status response.',
+                'raw' => ['raw_text' => mb_substr((string)$responseBody, 0, 500)],
+            ];
+        }
+
+        $nested = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
+        $rawStatus = strtolower(trim((string)($nested['status'] ?? $decoded['status'] ?? '')));
+        $isPending = !empty($decoded['pending']) || !empty($nested['pending']);
+        $remarks = trim((string)(
+            $nested['remarks']
+            ?? $nested['reason']
+            ?? $nested['note']
+            ?? $decoded['remarks']
+            ?? $decoded['message']
+            ?? ''
+        ));
+
+        $mapped = null;
+        if (in_array($rawStatus, ['completed', 'complete', 'success', 'successful', 'approved', 'done', 'delivered'], true)) {
+            $mapped = 'completed';
+        } elseif (in_array($rawStatus, ['processing', 'in_progress', 'in-progress', 'queued', 'submitted', 'under_review', 'reviewing'], true)) {
+            $mapped = 'processing';
+        } elseif (in_array($rawStatus, ['query', 'query_required', 'action_required', 'info_required', 'clarification'], true)) {
+            $mapped = 'query_required';
+        } elseif (in_array($rawStatus, ['rejected', 'declined', 'cancelled', 'canceled'], true)) {
+            $mapped = 'rejected';
+        } elseif (in_array($rawStatus, ['failed', 'error'], true)) {
+            $mapped = 'failed';
+        } elseif ($rawStatus === 'pending' || $rawStatus === 'waiting' || $isPending) {
+            $mapped = 'pending';
+        }
 
         return [
-            'provider' => '2sureverify',
-            'status' => ($ok !== false && $code > 0 && $code < 500) ? 'operational' : 'error',
-            'http_code' => $code,
-            'latency_ms' => $latency,
-            'message' => ($ok !== false && $code > 0 && $code < 500)
-                ? "2SureVerify reachable (HTTP {$code}, {$latency}ms)"
-                : ("2SureVerify check failed: " . ($err ?: "HTTP {$code}")),
-            'timestamp' => date('c'),
+            'success' => $statusCode >= 200 && $statusCode < 300,
+            'code' => $statusCode,
+            'status' => $mapped,
+            'provider_status' => $rawStatus ?: ($isPending ? 'pending' : 'unknown'),
+            'remarks' => $remarks,
+            'data' => $nested,
+            'raw' => $decoded,
+        ];
+    }
+
+    /**
+     * Fetch official BVN Modification bank list + wholesale pricing from 2SureVerify.
+     */
+    public function fetchBvnModificationBanks(): array
+    {
+        if (empty($this->apiKey)) {
+            return ['success' => false, 'data' => [], 'message' => 'Missing API key'];
+        }
+        $url = $this->baseUrl . '/api/v1/bvn_modification_banks.php';
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'Authorization: Bearer ' . $this->apiKey,
+                'X-Api-Key: ' . $this->apiKey,
+            ],
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        $body = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if (!$body || $code < 200 || $code >= 300) {
+            return ['success' => false, 'data' => [], 'message' => "HTTP {$code}"];
+        }
+        $decoded = json_decode((string)$body, true);
+        if (!is_array($decoded) || empty($decoded['data']) || !is_array($decoded['data'])) {
+            return ['success' => false, 'data' => [], 'message' => 'Empty bank payload'];
+        }
+        return [
+            'success' => true,
+            'data' => $decoded['data'],
         ];
     }
 
@@ -1457,7 +1681,12 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
     ): void {
         try {
             $safeReq = $requestBody;
-            foreach (['nin', 'bvn', 'parent_nin', 'phone', 'phone_number', 'previous_phone'] as $k) {
+            foreach (['password', 'api_key', 'secret_key', 'token', 'pin', 'transaction_pin', 'photo', 'passport_photo'] as $secretKey) {
+                if (isset($safeReq[$secretKey]) && $safeReq[$secretKey] !== '') {
+                    $safeReq[$secretKey] = '[REDACTED]';
+                }
+            }
+            foreach (['nin', 'bvn', 'child_nin', 'guardian_nin', 'parent_nin', 'phone', 'phone_number', 'new_phone', 'new_phone_number', 'previous_phone'] as $k) {
                 if (!empty($safeReq[$k])) {
                     $v = (string)$safeReq[$k];
                     $safeReq[$k] = strlen($v) > 5 ? substr($v, 0, 3) . '•••••' . substr($v, -2) : 'REDACTED';
@@ -1466,11 +1695,6 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             foreach (['dob', 'birthdate', 'residence_address', 'address', 'email'] as $pk) {
                 if (!empty($safeReq[$pk]) && is_string($safeReq[$pk])) {
                     $safeReq[$pk] = '[MASKED]';
-                }
-            }
-            foreach (['password', 'api_key', 'secret_key', 'pin', 'transaction_pin', 'photo', 'passport_photo'] as $sk) {
-                if (isset($safeReq[$sk]) && $safeReq[$sk] !== '') {
-                    $safeReq[$sk] = '[REDACTED]';
                 }
             }
             foreach ($safeReq as $k => $v) {

@@ -436,7 +436,7 @@ class ModificationController
                     null,
                     [
                         'from_email' => 'notification@hambaktech.com.ng',
-                        'from_name' => 'HAMBAKTECH Support',
+                        'from_name' => 'HAMBAKTECH Notifications',
                         'reply_to' => 'support@hambaktech.com.ng',
                         'audit_action' => 'MODIFICATION_NOTIFICATION_EMAIL',
                     ]
@@ -1643,9 +1643,18 @@ class ModificationController
      */
     public function webhook(Request $request): void
     {
-        $configuredSecret = trim((string)(getenv('TWOSUREVERIFY_WEBHOOK_SECRET') ?: ''));
+        $rawInput = file_get_contents('php://input') ?: '';
+        $body = $request->getBody();
+        if (empty($body) && $rawInput !== '') {
+            $decoded = json_decode($rawInput, true);
+            if (is_array($decoded)) {
+                $body = $decoded;
+            }
+        }
+
+        $configuredSecret = trim((string)(getenv('TWOSUREVERIFY_WEBHOOK_SECRET') ?: ($_ENV['TWOSUREVERIFY_WEBHOOK_SECRET'] ?? '')));
+        $secretAuthenticated = false;
         if ($configuredSecret !== '') {
-            $rawInput = file_get_contents('php://input') ?: '';
             $sigHeader = trim((string)($request->header('x-webhook-signature') ?: $request->header('x-signature') ?: ''));
             $authHeader = trim((string)($request->header('authorization') ?: ''));
             $bearer = str_starts_with(strtolower($authHeader), 'bearer ') ? trim(substr($authHeader, 7)) : '';
@@ -1654,13 +1663,15 @@ class ModificationController
                 || ($bearer !== '' && hash_equals($configuredSecret, $bearer));
             if (!$validSig) {
                 Response::unauthorized('Invalid webhook signature.');
+                return;
             }
+            $secretAuthenticated = true;
         }
 
-        $body = $request->getBody();
         $ref = trim((string)($body['reference'] ?? $body['data']['reference'] ?? $body['request_id'] ?? ''));
         if ($ref === '') {
             Response::error('Reference missing in webhook payload.', 422);
+            return;
         }
 
         $row = $this->db->fetchOne(
@@ -1668,25 +1679,57 @@ class ModificationController
             ['r1' => $ref, 'r2' => $ref, 'r3' => $ref]
         );
         if (!$row) {
+            if (!$secretAuthenticated) {
+                Response::unauthorized('Webhook authentication failed.');
+                return;
+            }
             Response::notFound('No matching modification request found for reference.');
+            return;
+        }
+
+        // Fail-closed upstream verification when TWOSUREVERIFY_WEBHOOK_SECRET is not configured
+        if (!$secretAuthenticated) {
+            $lookupRef = trim((string)($row['provider_reference'] ?: $row['payment_reference'] ?: ''));
+            if ($lookupRef === '') {
+                Response::unauthorized('Webhook authentication failed: secret not configured and no provider reference to re-verify.');
+                return;
+            }
+            $adapter = new TwoSureVerifyAdapter();
+            if (!$adapter->hasCredentials()) {
+                Response::unauthorized('Webhook authentication failed: provider verification credentials unavailable.');
+                return;
+            }
+            $verified = $adapter->checkStatus($lookupRef);
+            $verifiedRaw = strtolower(trim((string)($verified['status'] ?? $verified['data']['status'] ?? '')));
+            if ($verifiedRaw === '') {
+                Response::unauthorized('Webhook authentication failed: upstream status check returned no confirmation.');
+                return;
+            }
+            $body['status'] = $verifiedRaw;
+            if (!isset($body['data']) || !is_array($body['data'])) {
+                $body['data'] = [];
+            }
+            $body['data']['status'] = $verifiedRaw;
+            $body['upstream_reverified'] = true;
         }
 
         $prevStatus = (string)$row['status'];
         if (in_array($prevStatus, ['completed', 'refunded'], true)) {
             Response::success(['processed' => false, 'status' => $prevStatus, 'message' => 'Terminal state already recorded.']);
+            return;
         }
 
         $statusRaw = strtolower(trim((string)($body['status'] ?? $body['data']['status'] ?? '')));
         $remarks = trim((string)($body['message'] ?? $body['remarks'] ?? $body['data']['remarks'] ?? ''));
         $newStatus = $prevStatus;
 
-        if (in_array($statusRaw, ['completed', 'complete', 'approved', 'success', 'successful'], true)) {
+        if (in_array($statusRaw, ['completed', 'complete', 'approved', 'success', 'successful', 'done'], true)) {
             $newStatus = 'completed';
-        } elseif (in_array($statusRaw, ['processing', 'in_progress'], true)) {
+        } elseif (in_array($statusRaw, ['processing', 'in_progress', 'in-progress', 'reviewing'], true)) {
             $newStatus = 'processing';
-        } elseif (in_array($statusRaw, ['query', 'query_required', 'info_required'], true)) {
+        } elseif (in_array($statusRaw, ['query', 'query_required', 'info_required', 'action_required'], true)) {
             $newStatus = 'query_required';
-        } elseif (in_array($statusRaw, ['failed', 'rejected', 'declined', 'error'], true)) {
+        } elseif (in_array($statusRaw, ['failed', 'rejected', 'declined', 'cancelled', 'canceled', 'error'], true)) {
             $newStatus = 'rejected';
         }
 

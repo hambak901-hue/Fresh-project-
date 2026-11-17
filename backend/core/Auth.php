@@ -10,9 +10,37 @@ namespace HambakTech\Core;
 
 class Auth
 {
+    public const ALL_ROLES = ['customer', 'student', 'agent', 'support', 'staff', 'manager', 'admin', 'superadmin'];
+    public const CONSOLE_ROLES = ['support', 'staff', 'manager', 'admin', 'superadmin'];
+    public const DASHBOARDS = ['customer', 'student', 'agent', 'support', 'staff', 'manager', 'admin'];
+
     private static ?array $cachedPayload = null;
     private static ?array $cachedUser = null;
     private static ?string $cachedToken = null;
+
+    public static function defaultDashboardForRole(string $role): string
+    {
+        return match (strtolower(trim($role))) {
+            'superadmin', 'admin' => 'admin',
+            'manager' => 'manager',
+            'staff' => 'staff',
+            'support' => 'support',
+            'agent' => 'agent',
+            'student' => 'student',
+            default => 'customer',
+        };
+    }
+
+    public static function defaultPermissionsForRole(string $role): array
+    {
+        return match (strtolower(trim($role))) {
+            'superadmin' => ['*'],
+            'admin', 'manager' => ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'],
+            'staff' => ['customers', 'kyc', 'services', 'support', 'reports'],
+            'support' => ['support', 'customers', 'kyc'],
+            default => [],
+        };
+    }
 
     private static function getSecret(): string
     {
@@ -151,7 +179,7 @@ class Auth
     public static function generateToken(array $user, ?Request $request = null, ?int $ttlSeconds = null): string
     {
         $sec = self::getSecuritySettings();
-        $isAdminRole = in_array($user['role'] ?? 'customer', ['admin', 'superadmin'], true);
+        $isAdminRole = in_array(strtolower((string)($user['role'] ?? 'customer')), self::CONSOLE_ROLES, true);
 
         if ($ttlSeconds === null) {
             if ($isAdminRole) {
@@ -178,6 +206,7 @@ class Auth
             'sub' => $user['id'],
             'email' => $user['email'],
             'role' => $user['role'],
+            'assigned_dashboard' => trim((string)($user['assigned_dashboard'] ?? '')) ?: self::defaultDashboardForRole((string)($user['role'] ?? 'customer')),
             'full_name' => $user['full_name'],
             'jti' => $jti,
             'tv' => $tokenVersion,
@@ -339,8 +368,8 @@ class Auth
                     }
                 }
 
-                // Sliding idle timeout check for admin roles
-                if (in_array($payload['role'] ?? '', ['admin', 'superadmin'], true) && !empty($session['last_seen_at'])) {
+                // Sliding idle timeout check for console roles
+                if (in_array(strtolower((string)($payload['role'] ?? '')), self::CONSOLE_ROLES, true) && !empty($session['last_seen_at'])) {
                     $idleMinutes = max(5, (int)($sec['admin_session_timeout_minutes'] ?? 60));
                     if ((time() - strtotime((string)$session['last_seen_at'])) > ($idleMinutes * 60)) {
                         self::revokeSessionByJti((string)$payload['jti'], 'idle_timeout');
@@ -359,7 +388,7 @@ class Auth
 
         try {
             $user = $db->fetchOne(
-                'SELECT u.id, u.email, u.full_name, u.phone_number, u.phone_normalized, u.role, u.wallet_balance, 
+                'SELECT u.id, u.email, u.full_name, u.phone_number, u.phone_normalized, u.role, u.assigned_dashboard, u.wallet_balance, 
                         u.kyc_status, u.kyc_level, u.tier, u.referral_code, u.referred_by_user_id, u.referral_source,
                         u.referral_campaign_code, u.referral_bound_at,
                         u.status, u.avatar_url, u.email_verified, u.token_version, u.assigned_permissions,
@@ -417,6 +446,7 @@ class Auth
             $user['security_settings'] = json_decode($user['security_settings'], true);
         }
 
+        $user['assigned_dashboard'] = trim((string)($user['assigned_dashboard'] ?? '')) ?: self::defaultDashboardForRole((string)($user['role'] ?? 'customer'));
         $perms = [];
         foreach ([$user['assigned_permissions'] ?? null, $user['profile_permissions'] ?? null] as $rawPerm) {
             if (is_string($rawPerm) && $rawPerm !== '') {
@@ -432,9 +462,8 @@ class Auth
         }
         if ($user['role'] === 'superadmin') {
             $perms = ['*'];
-        } elseif ($user['role'] === 'admin' && empty($perms)) {
-            // Safe default operational permissions for legacy admins without explicit custom ACL yet
-            $perms = ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'];
+        } elseif (empty($perms)) {
+            $perms = self::defaultPermissionsForRole((string)($user['role'] ?? 'customer'));
         }
         $user['permissions'] = $perms;
         unset($user['assigned_permissions'], $user['profile_permissions']);
@@ -473,7 +502,7 @@ class Auth
         return $user;
     }
 
-    public static function requirePermission(Request $request, string $permission, array $allowedRoles = ['admin', 'superadmin']): array
+    public static function requirePermission(Request $request, string $permission, array $allowedRoles = self::CONSOLE_ROLES): array
     {
         $user = self::requireRole($request, $allowedRoles);
         if ($user['role'] === 'superadmin') {

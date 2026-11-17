@@ -49,7 +49,8 @@ class SchemaSync
                 password_hash VARCHAR(255) NOT NULL,
                 full_name VARCHAR(191) NOT NULL,
                 phone_number VARCHAR(30) NOT NULL,
-                role ENUM("customer", "admin", "superadmin") NOT NULL DEFAULT "customer",
+                role VARCHAR(32) NOT NULL DEFAULT "customer",
+                assigned_dashboard VARCHAR(32) NULL,
                 wallet_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 kyc_status ENUM("unverified", "pending", "verified", "rejected") NOT NULL DEFAULT "unverified",
                 tier INT NOT NULL DEFAULT 1,
@@ -1028,6 +1029,7 @@ class SchemaSync
         // Column checks via INFORMATION_SCHEMA
         $columnAlterations = [
             'users' => [
+                'assigned_dashboard' => 'ADD COLUMN assigned_dashboard VARCHAR(32) NULL AFTER role',
                 'kyc_level' => 'ADD COLUMN kyc_level INT NOT NULL DEFAULT 1',
                 'phone_normalized' => 'ADD COLUMN phone_normalized VARCHAR(32) NULL',
                 'token_version' => 'ADD COLUMN token_version INT NOT NULL DEFAULT 1',
@@ -1179,6 +1181,7 @@ class SchemaSync
 
         // Enum updates
         $enumUpdates = [
+            'users.role' => 'ALTER TABLE users MODIFY COLUMN role VARCHAR(32) NOT NULL DEFAULT "customer"',
             'kyc_submissions.status' => 'ALTER TABLE kyc_submissions MODIFY COLUMN status ENUM("pending", "verified", "approved", "rejected", "info_requested") NOT NULL DEFAULT "pending"',
             'support_tickets.status' => 'ALTER TABLE support_tickets MODIFY COLUMN status ENUM("open", "pending", "in_progress", "waiting_customer", "resolved", "closed") NOT NULL DEFAULT "open"',
             'providers.last_ping_status' => 'ALTER TABLE providers MODIFY COLUMN last_ping_status ENUM("operational", "error", "untested", "unconfigured") NOT NULL DEFAULT "untested"',
@@ -1229,7 +1232,12 @@ class SchemaSync
                 'INSERT IGNORE INTO roles (id, name, slug, description) VALUES
                  ("rol_superadmin", "Super Administrator", "superadmin", "Global system authority with unrestricted access"),
                  ("rol_admin", "Administrator", "admin", "Management authority over services, customers, and transactions"),
-                 ("rol_customer", "Customer / Agent", "customer", "Standard portal customer with digital wallet and API access")'
+                 ("rol_manager", "Operations Manager", "manager", "Senior console operations across customers, wallets, KYC, and reports"),
+                 ("rol_staff", "Internal Staff", "staff", "Operational staff console access with scoped permissions"),
+                 ("rol_support", "Support Specialist", "support", "Customer Support Centre and KYC desk specialist"),
+                 ("rol_agent", "Commercial Agent / Reseller", "agent", "High-volume VTU, identity, and reseller portal workspace"),
+                 ("rol_student", "Academy Student", "student", "HAMBAKTECH Digital Training Academy student portal workspace"),
+                 ("rol_customer", "Customer", "customer", "Standard portal customer with digital wallet and identity access")'
             );
             $db->execute(
                 'INSERT IGNORE INTO service_categories (id, code, name, icon, display_order, is_active) VALUES
@@ -2309,6 +2317,7 @@ class SchemaSync
         $errors = [];
 
         $userCols = [
+            'assigned_dashboard' => 'ADD COLUMN assigned_dashboard VARCHAR(32) NULL AFTER role',
             'kyc_level' => 'ADD COLUMN kyc_level INT NOT NULL DEFAULT 1',
             'phone_normalized' => 'ADD COLUMN phone_normalized VARCHAR(32) NULL',
             'token_version' => 'ADD COLUMN token_version INT NOT NULL DEFAULT 1',

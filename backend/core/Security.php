@@ -119,4 +119,67 @@ class Security
         }
         return $value;
     }
+
+    /**
+     * Resolves authoritative client IP address without blindly trusting spoofable proxy headers.
+     * Forwarded headers are honored ONLY when REMOTE_ADDR belongs to TRUSTED_PROXY_IPS.
+     */
+    public static function resolveClientIp(): string
+    {
+        $remoteRaw = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+        $remoteIp = filter_var($remoteRaw, FILTER_VALIDATE_IP) ? $remoteRaw : '';
+
+        if ($remoteIp !== '' && self::isTrustedProxy($remoteIp)) {
+            $cfIp = trim((string)($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
+            if ($cfIp !== '' && filter_var($cfIp, FILTER_VALIDATE_IP)) {
+                return $cfIp;
+            }
+
+            $xff = trim((string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+            if ($xff !== '') {
+                $parts = array_reverse(array_map('trim', explode(',', $xff)));
+                foreach ($parts as $candidate) {
+                    if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_IP) && !self::isTrustedProxy($candidate)) {
+                        return $candidate;
+                    }
+                }
+            }
+
+            $realIp = trim((string)($_SERVER['HTTP_X_REAL_IP'] ?? ''));
+            if ($realIp !== '' && filter_var($realIp, FILTER_VALIDATE_IP) && !self::isTrustedProxy($realIp)) {
+                return $realIp;
+            }
+        }
+
+        return $remoteIp !== '' ? $remoteIp : '127.0.0.1';
+    }
+
+    private static function isTrustedProxy(string $ip): bool
+    {
+        $rawList = (string)($_ENV['TRUSTED_PROXY_IPS'] ?? getenv('TRUSTED_PROXY_IPS') ?: '');
+        if (trim($rawList) === '') {
+            return false;
+        }
+        $entries = array_filter(array_map('trim', explode(',', $rawList)));
+        foreach ($entries as $entry) {
+            if ($entry === $ip) {
+                return true;
+            }
+            if (str_contains($entry, '/') && str_contains($ip, '.')) {
+                [$subnet, $bitsStr] = explode('/', $entry, 2);
+                $bits = (int)$bitsStr;
+                if ($bits >= 0 && $bits <= 32 && filter_var($subnet, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                    $ipLong = ip2long($ip);
+                    $subLong = ip2long($subnet);
+                    if ($ipLong !== false && $subLong !== false) {
+                        $mask = $bits === 0 ? 0 : (~0 << (32 - $bits));
+                        if (($ipLong & $mask) === ($subLong & $mask)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
 }

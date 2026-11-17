@@ -18,6 +18,7 @@ use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\AnnouncementEmailService;
 use HambakTech\Services\PinSecurityService;
+use HambakTech\Services\MailService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Verification\VeripineAdapter;
 
@@ -187,37 +188,6 @@ class CustomerController
         $accNum = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_number"');
         $accName = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_name"');
 
-        $pointsBalance = 0;
-        $referralAvailableBalance = 0.0;
-        try {
-            $refRow = $this->db->fetchOne(
-                'SELECT points_balance, available_balance FROM referral_balances WHERE user_id = :uid LIMIT 1',
-                ['uid' => $user['id']]
-            );
-            if ($refRow) {
-                $pointsBalance = (int)($refRow['points_balance'] ?? 0);
-                $referralAvailableBalance = (float)($refRow['available_balance'] ?? 0);
-            }
-        } catch (Throwable) {
-        }
-
-        $dashboardModules = [];
-        try {
-            $mods = $this->db->fetchAll('SELECT id, module_key, name, description, status, is_visible as visible, coming_soon_message FROM dashboard_modules ORDER BY display_order ASC');
-            foreach ($mods as $m) {
-                $dashboardModules[] = [
-                    'id' => (string)($m['id'] ?? $m['module_key'] ?? ''),
-                    'module_key' => (string)($m['module_key'] ?? $m['id'] ?? ''),
-                    'name' => (string)($m['name'] ?? ''),
-                    'description' => (string)($m['description'] ?? ''),
-                    'status' => (string)($m['status'] ?? 'active'),
-                    'visible' => (bool)($m['visible'] ?? true),
-                    'coming_soon_message' => (string)($m['coming_soon_message'] ?? ''),
-                ];
-            }
-        } catch (Throwable) {
-        }
-
         Response::success([
             'user' => $user,
             'metrics' => [
@@ -228,9 +198,6 @@ class CustomerController
                 'failed_transactions' => (int)$walletSummary['failed_count'],
                 'total_funded' => (float)$walletSummary['total_funded'],
                 'total_spent' => (float)$walletSummary['total_spent'],
-                'total_refunded' => (float)($walletSummary['total_refunded'] ?? 0),
-                'points_balance' => $pointsBalance,
-                'referral_available_balance' => $referralAvailableBalance,
                 'total_orders' => (int)($ordersCountRow['cnt'] ?? 0),
                 'total_verifications' => (int)($verifCountRow['cnt'] ?? 0),
                 'unread_notifications_count' => (int)($unreadRow['cnt'] ?? 0),
@@ -240,7 +207,6 @@ class CustomerController
             'recent_verifications' => $recentVerifications,
             'notifications' => $notifications,
             'announcements' => $announcements,
-            'dashboard_modules' => $dashboardModules,
             'bank_details' => [
                 'bank' => $bankName['setting_value'] ?? 'Moniepoint MFB',
                 'accountNumber' => $accNum['setting_value'] ?? '5210471634',
@@ -422,53 +388,203 @@ class CustomerController
             $bvn = preg_replace('/\D/', '', $idNumber);
         }
 
+        if ($nin !== '' && strlen($nin) !== 11) {
+            Response::error('NIN must be exactly 11 numeric digits.', 422);
+            return;
+        }
+        if ($bvn !== '' && strlen($bvn) !== 11) {
+            Response::error('BVN must be exactly 11 numeric digits.', 422);
+            return;
+        }
+
+        // Prevent claiming an NIN/BVN already verified on another customer's account
+        if ($nin !== '') {
+            $dupNin = $this->db->fetchOne(
+                'SELECT user_id FROM user_profiles WHERE nin = :nin AND user_id != :uid LIMIT 1',
+                ['nin' => $nin, 'uid' => $user['id']]
+            );
+            if ($dupNin) {
+                Response::error('This NIN is already linked to another HambakTech account.', 409);
+                return;
+            }
+        }
+        if ($bvn !== '') {
+            $dupBvn = $this->db->fetchOne(
+                'SELECT user_id FROM user_profiles WHERE bvn = :bvn AND user_id != :uid LIMIT 1',
+                ['bvn' => $bvn, 'uid' => $user['id']]
+            );
+            if ($dupBvn) {
+                Response::error('This BVN is already linked to another HambakTech account.', 409);
+                return;
+            }
+        }
+
         $kycId = Security::generateUuid();
         $status = 'pending';
         $instantVerified = false;
         $verifRef = null;
         $autoResult = null;
+        $feeCharged = 0.0;
+        $feeRef = 'KYC_FEE_' . strtoupper(bin2hex(random_bytes(5)));
 
+        // Instant self-approval is strictly forbidden for Level 3 (requires manual selfie/POA audit)
+        // and for Level 2 requires wallet verification fee payment + strict identity matching.
         if ($autoVerify && ($nin || $bvn)) {
-            try {
-                $veripine = new VeripineAdapter();
-                $twoSure = new TwoSureVerifyAdapter();
-                $actRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_verification_provider"');
-                $primary = strtolower(trim((string)($actRow['setting_value'] ?? '2sureverify')));
-                $order = ($primary === 'veripine') ? ['veripine', '2sureverify'] : ['2sureverify', 'veripine'];
+            if ($targetLevel >= 3) {
+                $autoResult = [
+                    'verified' => false,
+                    'status' => 'pending_manual_review',
+                    'reason' => 'Level 3 Enhanced KYC requires manual compliance inspection of selfie and proof of address.',
+                ];
+            } else {
+                // Determine configured verification fee (never free bypass)
+                $feeKey = $nin !== '' ? 'nin_v1' : 'bvn_v1';
+                $feeRow = $this->db->fetchOne(
+                    'SELECT selling_price FROM service_catalogue WHERE service_key = :sk AND is_active = 1 LIMIT 1',
+                    ['sk' => $feeKey]
+                );
+                $kycFee = ($feeRow && (float)$feeRow['selling_price'] > 0)
+                    ? (float)$feeRow['selling_price']
+                    : ($nin !== '' ? 200.00 : 250.00);
 
-                $res = null;
-                foreach ($order as $prov) {
-                    if ($prov === 'veripine' && $veripine->hasCredentials()) {
-                        $endpoint = $nin ? '/nin-verification' : '/bvn-verification';
-                        $payload = $nin ? ['nin' => $nin] : ['bvn' => $bvn];
-                        $attempt = $veripine->verify($endpoint, $payload);
-                    } elseif ($prov === '2sureverify' && $twoSure->hasCredentials()) {
-                        $endpoint = $nin ? 'api/v1/nin_v1.php' : 'api/v1/bvn_v1.php';
-                        $payload = $nin ? ['nin' => $nin, 'slip_type' => 'ninStandard'] : ['bvn' => $bvn, 'slip_type' => 'bvnBasic'];
-                        $attempt = $twoSure->verify($endpoint, $payload);
+                $walletService = new \HambakTech\Services\WalletService();
+                try {
+                    $walletService->debit(
+                        (string)$user['id'],
+                        $kycFee,
+                        'verification',
+                        $feeRef,
+                        'Automated KYC Identity Verification Fee (' . ($nin !== '' ? 'NIN' : 'BVN') . ')',
+                        'internal',
+                        ['kyc_id' => $kycId, 'target_level' => $targetLevel]
+                    );
+                    $feeCharged = $kycFee;
+                } catch (Throwable $walletErr) {
+                    Response::error(
+                        'Instant KYC verification requires a ₦' . number_format($kycFee, 2) . ' verification fee from your wallet (' . $walletErr->getMessage() . '). Disable Instant Auto-Verify to submit for free manual review.',
+                        402
+                    );
+                    return;
+                }
+
+                try {
+                    $veripine = new VeripineAdapter();
+                    $twoSure = new TwoSureVerifyAdapter();
+                    $actRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "active_verification_provider"');
+                    $primary = strtolower(trim((string)($actRow['setting_value'] ?? '2sureverify')));
+                    $order = ($primary === 'veripine') ? ['veripine', '2sureverify'] : ['2sureverify', 'veripine'];
+
+                    $res = null;
+                    foreach ($order as $prov) {
+                        if ($prov === 'veripine' && $veripine->hasCredentials()) {
+                            $endpoint = $nin ? '/nin-verification' : '/bvn-verification';
+                            $payload = $nin ? ['nin' => $nin] : ['bvn' => $bvn];
+                            $attempt = $veripine->verify($endpoint, $payload);
+                        } elseif ($prov === '2sureverify' && $twoSure->hasCredentials()) {
+                            $endpoint = $nin ? 'api/v1/nin_v1.php' : 'api/v1/bvn_v1.php';
+                            $payload = $nin ? ['nin' => $nin, 'slip_type' => 'ninStandard'] : ['bvn' => $bvn, 'slip_type' => 'bvnBasic'];
+                            $attempt = $twoSure->verify($endpoint, $payload);
+                        } else {
+                            continue;
+                        }
+                        if (!empty($attempt['success']) && empty($attempt['is_simulated'])) {
+                            $res = $attempt;
+                            break;
+                        }
+                        $res = $res ?? $attempt;
+                    }
+
+                    if (is_array($res) && !empty($res['success']) && empty($res['is_simulated'])) {
+                        $verifRef = $res['reference'] ?? $feeRef;
+                        $rawData = is_array($res['data'] ?? null) ? $res['data'] : $res;
+
+                        $registryName = strtolower(trim(implode(' ', array_filter([
+                            (string)($rawData['firstname'] ?? $rawData['first_name'] ?? ''),
+                            (string)($rawData['middlename'] ?? $rawData['middle_name'] ?? ''),
+                            (string)($rawData['surname'] ?? $rawData['last_name'] ?? $rawData['lastname'] ?? ''),
+                        ]))));
+
+                        $matchNameTokens = static function (string $candidate, string $registry): bool {
+                            $cand = strtolower(trim($candidate));
+                            if ($cand === '' || $registry === '') {
+                                return false;
+                            }
+                            $parts = array_values(array_filter(preg_split('/\s+/', $cand) ?: [], static fn($p) => strlen($p) > 1));
+                            if (empty($parts)) {
+                                return false;
+                            }
+                            $hits = 0;
+                            foreach ($parts as $p) {
+                                if (str_contains($registry, $p)) {
+                                    $hits++;
+                                }
+                            }
+                            return $hits >= min(2, count($parts));
+                        };
+
+                        $legalMatched = $matchNameTokens($fullLegalName, $registryName);
+                        $accountMatched = $matchNameTokens((string)($user['full_name'] ?? $fullLegalName), $registryName);
+
+                        $dobMatched = true;
+                        $registryDobRaw = (string)($rawData['birthdate'] ?? $rawData['dob'] ?? $rawData['date_of_birth'] ?? '');
+                        if ($dob !== '' && $registryDobRaw !== '') {
+                            $subTs = strtotime($dob);
+                            $regTs = strtotime($registryDobRaw);
+                            $dobMatched = ($subTs !== false && $regTs !== false && date('Y-m-d', $subTs) === date('Y-m-d', $regTs));
+                        }
+
+                        $identityMatched = $legalMatched && $accountMatched && $dobMatched;
+
+                        $safeSummary = [
+                            'verified' => $identityMatched,
+                            'legal_name_matched' => $legalMatched,
+                            'account_name_matched' => $accountMatched,
+                            'dob_matched' => $dobMatched,
+                            'fee_paid' => $feeCharged,
+                            'fee_reference' => $feeRef,
+                            'reference' => $verifRef,
+                            'timestamp' => date('c'),
+                        ];
+                        $autoResult = $safeSummary;
+
+                        if ($identityMatched) {
+                            $status = 'verified';
+                            $instantVerified = true;
+                        } else {
+                            $status = 'pending';
+                            $instantVerified = false;
+                            $autoResult['reason'] = 'Identity details returned by registry do not match your account profile / submitted legal details. Escalated for manual compliance review.';
+                        }
                     } else {
-                        continue;
+                        // Provider lookup failed/unavailable — refund KYC fee immediately and route to manual review
+                        if ($feeCharged > 0) {
+                            $walletService->credit(
+                                (string)$user['id'],
+                                $feeCharged,
+                                'manual_adjustment',
+                                'REFUND_' . $feeRef,
+                                'Refund for unavailable automated KYC lookup'
+                            );
+                            $feeCharged = 0.0;
+                        }
+                        $autoResult = ['error' => $res['message'] ?? 'Automated verification unavailable; routed to manual review'];
                     }
-                    if (!empty($attempt['success']) && empty($attempt['is_simulated'])) {
-                        $res = $attempt;
-                        break;
+                } catch (Throwable $e) {
+                    if ($feeCharged > 0) {
+                        try {
+                            $walletService->credit(
+                                (string)$user['id'],
+                                $feeCharged,
+                                'manual_adjustment',
+                                'REFUND_' . $feeRef,
+                                'Refund for failed automated KYC lookup'
+                            );
+                            $feeCharged = 0.0;
+                        } catch (Throwable) {
+                        }
                     }
-                    $res = $res ?? $attempt;
+                    $autoResult = ['error' => $e->getMessage()];
                 }
-
-                if (is_array($res) && !empty($res['success']) && empty($res['is_simulated'])) {
-                    $verifRef = $res['reference'] ?? null;
-                    $autoResult = $res['data'] ?? $res;
-                    if (is_array($autoResult)) {
-                        unset($autoResult['provider'], $autoResult['provider_id'], $autoResult['provider_cost'], $autoResult['raw_error']);
-                    }
-                    $status = 'verified';
-                    $instantVerified = true;
-                } else {
-                    $autoResult = ['error' => $res['message'] ?? 'Automated verification unavailable'];
-                }
-            } catch (Throwable $e) {
-                $autoResult = ['error' => $e->getMessage()];
             }
         }
 
@@ -476,7 +592,9 @@ class CustomerController
             'action' => 'submitted',
             'status' => $status,
             'by' => $user['full_name'] ?? $user['email'],
-            'notes' => $instantVerified ? 'Submitted and verified via live identity gateway.' : 'Submitted for compliance review.',
+            'notes' => $instantVerified
+                ? 'Submitted, paid, and identity-matched via live verification gateway.'
+                : 'Submitted for compliance review.',
             'timestamp' => date('c'),
         ]];
 
@@ -534,7 +652,7 @@ class CustomerController
             );
         }
 
-        // Update user KYC status/tier if verified or pending
+        // Update user KYC status/tier ONLY on genuine verified match — NEVER downgrade an already-verified customer
         if ($instantVerified) {
             try {
                 $this->db->execute(
@@ -547,56 +665,99 @@ class CustomerController
                     ['lvl' => $targetLevel, 'id' => $user['id']]
                 );
             }
-        } else {
+        } elseif (strtolower((string)($user['kyc_status'] ?? '')) !== 'verified') {
             $this->db->execute(
-                'UPDATE users SET kyc_status = "pending", updated_at = NOW() WHERE id = :id',
+                'UPDATE users SET kyc_status = "pending", updated_at = NOW() WHERE id = :id AND LOWER(COALESCE(kyc_status, "")) != "verified"',
                 ['id' => $user['id']]
             );
         }
 
-        // Sync user_profiles
+        // Sync user_profiles ONLY for pending metadata if verified or profile empty (never overwrite verified NIN/BVN silently)
+        if ($instantVerified) {
+            try {
+                $this->db->execute(
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, updated_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, NOW())
+                     ON DUPLICATE KEY UPDATE
+                        nin = COALESCE(NULLIF(:nin2, ""), nin),
+                        bvn = COALESCE(NULLIF(:bvn2, ""), bvn),
+                        address = COALESCE(NULLIF(:addr2, ""), address),
+                        state = COALESCE(NULLIF(:st2, ""), state),
+                        lga = COALESCE(NULLIF(:lga2, ""), lga),
+                        date_of_birth = COALESCE(NULLIF(:dob2, ""), date_of_birth),
+                        updated_at = NOW()',
+                    [
+                        'uid' => $user['id'],
+                        'nin' => $nin ?: null,
+                        'bvn' => $bvn ?: null,
+                        'addr' => $resAddress ?: null,
+                        'st' => $state ?: null,
+                        'lga' => $lga ?: null,
+                        'dob' => $dob ?: null,
+                        'nin2' => $nin,
+                        'bvn2' => $bvn,
+                        'addr2' => $resAddress,
+                        'st2' => $state,
+                        'lga2' => $lga,
+                        'dob2' => $dob,
+                    ]
+                );
+            } catch (Throwable) {
+            }
+        }
+
+        // Notify compliance staff/admins with valid NOT NULL user_id
         try {
-            $this->db->execute(
-                'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, updated_at)
-                 VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, NOW())
-                 ON DUPLICATE KEY UPDATE
-                    nin = COALESCE(NULLIF(:nin2, ""), nin),
-                    bvn = COALESCE(NULLIF(:bvn2, ""), bvn),
-                    address = COALESCE(NULLIF(:addr2, ""), address),
-                    state = COALESCE(NULLIF(:st2, ""), state),
-                    lga = COALESCE(NULLIF(:lga2, ""), lga),
-                    date_of_birth = COALESCE(NULLIF(:dob2, ""), date_of_birth),
-                    updated_at = NOW()',
-                [
-                    'uid' => $user['id'],
-                    'nin' => $nin ?: null,
-                    'bvn' => $bvn ?: null,
-                    'addr' => $resAddress ?: null,
-                    'st' => $state ?: null,
-                    'lga' => $lga ?: null,
-                    'dob' => $dob ?: null,
-                    'nin2' => $nin,
-                    'bvn2' => $bvn,
-                    'addr2' => $resAddress,
-                    'st2' => $state,
-                    'lga2' => $lga,
-                    'dob2' => $dob,
-                ]
-            );
+            $admins = $this->db->fetchAll('SELECT id, email, full_name FROM users WHERE role IN ("admin", "superadmin", "manager", "staff") AND status = "active"');
+            foreach ($admins as $adm) {
+                $this->db->execute(
+                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                     VALUES (:id, :uid, :title, :msg, "info", 0, NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'uid' => $adm['id'],
+                        'title' => "KYC Submission: {$fullLegalName} (Tier {$targetLevel})",
+                        'msg' => "Customer {$fullLegalName} submitted {$idType} KYC upgrade request. Status: {$status}.",
+                    ]
+                );
+            }
         } catch (Throwable) {
         }
 
-        // Notify administrators
+        // Dispatch official KYC automated email notifications (best-effort)
         try {
-            $this->db->execute(
-                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                 VALUES (:id, NULL, :title, :msg, "info", 0, NOW())',
-                [
-                    'id' => Security::generateUuid(),
-                    'title' => "KYC Submission: {$fullLegalName} (Tier {$targetLevel})",
-                    'msg' => "Customer {$fullLegalName} submitted {$idType} KYC upgrade request. Status: {$status}.",
-                ]
-            );
+            $mailer = new MailService();
+            $safeName = htmlspecialchars((string)($user['full_name'] ?? $fullLegalName), ENT_QUOTES, 'UTF-8');
+            $safeType = htmlspecialchars((string)$idType, ENT_QUOTES, 'UTF-8');
+            if ($instantVerified) {
+                $custHtml = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
+                    . "<h2 style='margin:0 0 12px;color:#059669;'>KYC Tier {$targetLevel} Verified</h2>"
+                    . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
+                    . "<p style='color:#334155;'>Your {$safeType} KYC submission has been verified automatically and your account is now upgraded to <strong>Tier {$targetLevel}</strong>.</p>"
+                    . "<p style='margin-top:20px;color:#64748b;font-size:12px;'>Need assistance? Reply to this email or contact support@hambaktech.com.ng.</p></div>";
+                $mailer->send(
+                    (string)$user['email'],
+                    (string)($user['full_name'] ?? $fullLegalName),
+                    "KYC Tier {$targetLevel} Approved — HAMBAKTECH",
+                    $custHtml,
+                    null,
+                    MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'KYC_INSTANT_VERIFIED_EMAIL']
+                );
+            } else {
+                $custHtml = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
+                    . "<h2 style='margin:0 0 12px;color:#0f172a;'>KYC Submission Received</h2>"
+                    . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
+                    . "<p style='color:#334155;'>We have received your <strong>Tier {$targetLevel} ({$safeType})</strong> KYC verification submission (Reference: <code>{$kycId}</code>). Our compliance team will review and notify you shortly.</p>"
+                    . "<p style='margin-top:20px;color:#64748b;font-size:12px;'>Questions? Reply directly to support@hambaktech.com.ng.</p></div>";
+                $mailer->send(
+                    (string)$user['email'],
+                    (string)($user['full_name'] ?? $fullLegalName),
+                    "KYC Tier {$targetLevel} Submission Received — HAMBAKTECH",
+                    $custHtml,
+                    null,
+                    MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'KYC_SUBMISSION_RECEIPT_EMAIL']
+                );
+            }
         } catch (Throwable) {
         }
 
@@ -802,8 +963,16 @@ class CustomerController
             Response::notFound('Document not found.');
         }
 
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
-        if (!$isAdmin && $doc['user_id'] !== $user['id']) {
+        $role = strtolower((string)($user['role'] ?? 'customer'));
+        $perms = is_array($user['permissions'] ?? null) ? $user['permissions'] : [];
+        $canReviewDocs = in_array($role, Auth::CONSOLE_ROLES, true) && (
+            $role === 'superadmin' ||
+            in_array('*', $perms, true) ||
+            in_array('kyc', $perms, true) ||
+            in_array('support', $perms, true) ||
+            in_array('customers', $perms, true)
+        );
+        if (!$canReviewDocs && $doc['user_id'] !== $user['id']) {
             Response::forbidden('Unauthorized access to document.');
         }
 

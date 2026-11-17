@@ -71,6 +71,14 @@ class SystemController
             'glo_1gb' => 260,
             'nine_mobile_1gb' => 250,
             'airtime_discount_percent' => \HambakTech\Controllers\TelecomController::readAirtimeDiscountPercent($this->db),
+            'bulksms_unit_price' => \HambakTech\Controllers\TelecomController::readBulkSmsSettings($this->db)['unit_price'] ?? 3.50,
+            'bulksms' => [
+                'enabled' => (bool)(\HambakTech\Controllers\TelecomController::readBulkSmsSettings($this->db)['enabled'] ?? true),
+                'unit_price' => (float)(\HambakTech\Controllers\TelecomController::readBulkSmsSettings($this->db)['unit_price'] ?? 3.50),
+                'max_recipients' => (int)(\HambakTech\Controllers\TelecomController::readBulkSmsSettings($this->db)['max_recipients'] ?? 500),
+                'default_sender' => (string)(\HambakTech\Controllers\TelecomController::readBulkSmsSettings($this->db)['default_sender'] ?? 'HAMBAK'),
+            ],
+            'airtime_swap_enabled' => \HambakTech\Controllers\TelecomController::readAirtimeSwapEnabled($this->db),
             'maintenance_mode' => false,
             'bank_transfer_account_name' => $accNameRow['setting_value'] ?? 'Hambaktech_Services',
             'bank_transfer_bank' => $bankRow['setting_value'] ?? 'Moniepoint MFB',
@@ -256,6 +264,27 @@ class SystemController
     public function initDatabase(Request $request): void
     {
         Auth::requireSuperAdmin($request);
+
+        $cfgFile = HAMBAKTECH_ROOT . '/config/config.php';
+        $appCfg = file_exists($cfgFile) ? require $cfgFile : [];
+        $appEnv = strtolower((string)($appCfg['app']['env'] ?? getenv('APP_ENV') ?: 'production'));
+
+        if ($appEnv === 'production') {
+            Response::error(
+                'Destructive database re-initialization is disabled in production. Use SchemaSync (/api/system/sync-schema) instead.',
+                403
+            );
+            return;
+        }
+
+        if ($request->getMethod() !== 'POST' || $request->input('confirm_reset') !== 'CONFIRM_RESET') {
+            Response::error(
+                'Database initialization requires POST with confirm_reset="CONFIRM_RESET" in non-production environments.',
+                400
+            );
+            return;
+        }
+
         $schemaFile = HAMBAKTECH_ROOT . '/database/schema.sql';
         $seedFile = HAMBAKTECH_ROOT . '/database/seed.sql';
 

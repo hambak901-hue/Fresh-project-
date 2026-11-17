@@ -239,9 +239,10 @@ class AuthController
         }
         if ($user['role'] === 'superadmin') {
             $perms = ['*'];
-        } elseif ($user['role'] === 'admin' && empty($perms)) {
-            $perms = ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'];
+        } elseif (empty($perms)) {
+            $perms = Auth::defaultPermissionsForRole((string)($user['role'] ?? 'customer'));
         }
+        $user['assigned_dashboard'] = trim((string)($user['assigned_dashboard'] ?? '')) ?: Auth::defaultDashboardForRole((string)($user['role'] ?? 'customer'));
         $user['permissions'] = $perms;
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance'], $user['assigned_permissions'], $user['profile_permissions']);
 
@@ -578,7 +579,42 @@ class AuthController
                     <p><a href='https://hambaktech.com.ng/#admin' style='display: inline-block; padding: 10px 20px; background: #1d4ed8; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;'>View in Admin Console</a></p>
                 </div>
             </div>";
-            $mailService->send($adminEmail, 'Administrator', "[HAMBAKTECH] New Customer Registration (KYC Level 1): {$fullName}", $mailBody);
+            $mailService->send(
+                $adminEmail,
+                'Administrator',
+                "[HAMBAKTECH] New Customer Registration (KYC Level 1): {$fullName}",
+                $mailBody,
+                null,
+                MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'ADMIN_REGISTRATION_ALERT']
+            );
+
+            // Automated Customer Welcome Confirmation from notification@hambaktech.com.ng
+            $welcomeHtml = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;'>
+                <div style='background: #0f172a; color: #ffffff; padding: 18px 22px; border-radius: 8px 8px 0 0;'>
+                    <h2 style='margin: 0; font-size: 18px;'>Welcome to HAMBAK TECH &amp; SERVICES</h2>
+                    <p style='margin: 4px 0 0; font-size: 12px; color: #cbd5e1;'>Automated Account Registration Confirmation</p>
+                </div>
+                <div style='padding: 20px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;'>
+                    <p>Dear <strong>{$safeName}</strong>,</p>
+                    <p>Your HAMBAKTECH portal account has been created at <strong>KYC Level 1</strong> and your digital NGN wallet is ready.</p>
+                    <table style='width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px;'>
+                        <tr><td style='padding: 6px 0; color: #64748b;'><strong>Account Email:</strong></td><td>{$email}</td></tr>
+                        <tr><td style='padding: 6px 0; color: #64748b;'><strong>Referral Code:</strong></td><td><strong>{$referralCode}</strong></td></tr>
+                        <tr><td style='padding: 6px 0; color: #64748b;'><strong>Registered:</strong></td><td>{$nowStr} (WAT)</td></tr>
+                    </table>
+                    <p><a href='https://hambaktech.com.ng/#dashboard' style='display: inline-block; padding: 10px 20px; background: #1d4ed8; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;'>Open Customer Dashboard</a></p>
+                    <p style='font-size: 12px; color: #64748b; margin-top: 18px;'>Need assistance? Reply to this email to reach our Customer Support desk at support@hambaktech.com.ng.</p>
+                </div>
+            </div>";
+            $mailService->send(
+                $email,
+                $fullName,
+                'Welcome to HAMBAKTECH — Your Account Is Ready',
+                $welcomeHtml,
+                null,
+                MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'CUSTOMER_WELCOME_EMAIL']
+            );
         } catch (Throwable $e) {
             error_log('[Registration Admin Email Error] ' . $e->getMessage());
         }
@@ -619,7 +655,8 @@ class AuthController
         $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
         $user['mfa_enabled'] = false;
         $user['pin_is_locked'] = false;
-        $user['permissions'] = [];
+        $user['assigned_dashboard'] = trim((string)($user['assigned_dashboard'] ?? '')) ?: Auth::defaultDashboardForRole((string)($user['role'] ?? 'customer'));
+        $user['permissions'] = Auth::defaultPermissionsForRole((string)($user['role'] ?? 'customer'));
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
 
         Response::success([
@@ -955,7 +992,9 @@ class AuthController
         $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
         $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
         $user['pin_is_locked'] = false;
-        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
+        $user['assigned_dashboard'] = trim((string)($user['assigned_dashboard'] ?? '')) ?: Auth::defaultDashboardForRole((string)($user['role'] ?? 'customer'));
+        $user['permissions'] = Auth::defaultPermissionsForRole((string)($user['role'] ?? 'customer'));
+        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance'], $user['assigned_permissions']);
 
         // Log audit event
         $this->db->execute(
