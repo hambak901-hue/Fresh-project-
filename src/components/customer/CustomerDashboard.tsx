@@ -5,10 +5,9 @@
  * quick wallet funding, unread notification counter, and seamless app switches.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
-import { api } from '../../lib/api';
 import { ThemeToggle } from '../ThemeToggle';
 import { getInitialsAvatar } from '../../lib/avatar';
 import {
@@ -34,16 +33,17 @@ import {
   ExternalLink,
   LogOut,
   ChevronRight,
-  ChevronDown,
+  Sparkles,
+  Layers,
   Gift,
+  Printer,
 } from 'lucide-react';
-import { User, isConsoleRole } from '../../types';
+import { User } from '../../types';
 
 // Child components
 import { DashboardOverview } from './DashboardOverview';
 import { NinServicesPage } from './NinServicesPage';
 import { TelecomPage } from './TelecomPage';
-import { TELECOM_MENU_ITEMS, TelecomTab } from './telecom/types';
 import { WalletPage } from './WalletPage';
 import { DigitalServicesPage } from './DigitalServicesPage';
 import { StoreComingSoonPage } from './StoreComingSoonPage';
@@ -58,6 +58,7 @@ import { SettingsPage } from './SettingsPage';
 import { SupportPage } from './SupportPage';
 import { CustomerKycPage } from './CustomerKycPage';
 import { ReferralCentrePage } from './ReferralCentrePage';
+import { PrintingServicesPage } from './PrintingServicesPage';
 
 interface CustomerDashboardProps {
   onOpenFundModal: () => void;
@@ -71,6 +72,7 @@ export type CustomerPageKey =
   | 'overview'
   | 'nin'
   | 'telecom'
+  | 'printing'
   | 'wallet'
   | 'referrals'
   | 'store'
@@ -107,44 +109,41 @@ export function CustomerDashboard({
 }: CustomerDashboardProps) {
   const { user, logout, refreshUser } = useAuth();
   const { branding } = useCms();
-  const [currentPage, setCurrentPage] = useState<CustomerPageKey>('overview');
-  const [telecomService, setTelecomService] = useState<TelecomTab>('airtime');
-  const [telecomMenuExpanded, setTelecomMenuExpanded] = useState<boolean>(false);
-  const [airtimeDiscountPct, setAirtimeDiscountPct] = useState<number>(2.5);
-  const [telecomModuleStatus, setTelecomModuleStatus] = useState<{
-    status: string;
-    name?: string;
-    coming_soon_message?: string;
-  } | undefined>(undefined);
+  const [currentPage, setCurrentPage] = useState<CustomerPageKey>(() => {
+    if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('printing')) {
+      return 'printing';
+    }
+    return 'overview';
+  });
+  const [initialPrintOrderRef, setInitialPrintOrderRef] = useState<string | undefined>(() => {
+    if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('printing')) {
+      const qIdx = window.location.hash.indexOf('?');
+      if (qIdx !== -1) {
+        const params = new URLSearchParams(window.location.hash.slice(qIdx + 1));
+        return params.get('order') || params.get('printing_order') || undefined;
+      }
+    }
+    return undefined;
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!user) return;
-    api
-      .getTelecomPlans()
-      .then((res) => {
-        if (typeof res?.airtime_discount_percent === 'number') {
-          setAirtimeDiscountPct(res.airtime_discount_percent);
+    if (typeof window === 'undefined') return;
+    const syncPrintHash = () => {
+      const h = window.location.hash || '';
+      if (h.toLowerCase().includes('printing')) {
+        setCurrentPage('printing');
+        const qIdx = h.indexOf('?');
+        if (qIdx !== -1) {
+          const params = new URLSearchParams(h.slice(qIdx + 1));
+          const ord = params.get('order') || params.get('printing_order') || undefined;
+          if (ord) setInitialPrintOrderRef(ord);
         }
-      })
-      .catch(() => {});
-    api
-      .getCustomerSummary()
-      .then((res) => {
-        const mods = res?.dashboard_modules || [];
-        const tMod = mods.find(
-          (m) => (m.module_key || m.id) === 'telecom' || m.id === 'mod_telecom'
-        );
-        if (tMod) {
-          setTelecomModuleStatus({
-            status: tMod.visible === false ? 'disabled' : tMod.status,
-            name: tMod.name,
-            coming_soon_message: tMod.coming_soon_message,
-          });
-        }
-      })
-      .catch(() => {});
-  }, [user?.id]);
+      }
+    };
+    window.addEventListener('hashchange', syncPrintHash);
+    return () => window.removeEventListener('hashchange', syncPrintHash);
+  }, []);
 
   const handleSignOut = () => {
     if (onLogout) {
@@ -181,6 +180,7 @@ export function CustomerDashboard({
         { id: 'overview', label: 'Dashboard Overview', icon: LayoutDashboard },
         { id: 'nin', label: 'NIN & Identity Services', icon: ShieldCheck, badge: 'Official' },
         { id: 'telecom', label: 'Telecom & VTU Services', icon: Smartphone },
+        { id: 'printing', label: 'Printing & Document Services', icon: Printer, badge: 'Print' },
         { id: 'wallet', label: 'My Wallet', icon: Wallet },
         { id: 'referrals', label: 'Referrals & Rewards', icon: Gift, badge: 'Earn' },
       ],
@@ -220,16 +220,6 @@ export function CustomerDashboard({
 
   const handleSelectPage = (id: CustomerPageKey) => {
     setCurrentPage(id);
-    if (id === 'telecom') {
-      setTelecomMenuExpanded(true);
-    }
-    setMobileMenuOpen(false);
-  };
-
-  const handleSelectTelecomService = (service: TelecomTab) => {
-    setTelecomService(service);
-    setCurrentPage('telecom');
-    setTelecomMenuExpanded(true);
     setMobileMenuOpen(false);
   };
 
@@ -242,21 +232,6 @@ export function CustomerDashboard({
       break;
     }
   }
-  const activeTelecomLabel =
-    telecomService === 'airtime'
-      ? `Airtime (${airtimeDiscountPct}% Off)`
-      : TELECOM_MENU_ITEMS.find(t => t.id === telecomService)?.label || 'Airtime';
-  const roleWorkspaceLabel =
-    user.role === 'student'
-      ? 'Student Portal'
-      : user.role === 'agent'
-      ? 'Agent Reseller Workspace'
-      : 'Customer Portal';
-  const breadcrumbText =
-    currentPage === 'telecom'
-      ? `${roleWorkspaceLabel} / Telecom & VTU Services / ${activeTelecomLabel}`
-      : `${roleWorkspaceLabel} / ${currentTitle}`;
-  const headerHeading = currentPage === 'telecom' ? activeTelecomLabel : currentTitle;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex transition-colors">
@@ -287,7 +262,7 @@ export function CustomerDashboard({
                 <span className="font-extrabold text-sm text-blue-900 dark:text-white tracking-tight flex items-center gap-1.5">
                   <span>{branding?.short_brand_name || 'HAMBAKTECH'}</span>
                 </span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">{roleWorkspaceLabel}</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Customer Dashboard</p>
               </div>
             </div>
             <button
@@ -333,68 +308,6 @@ export function CustomerDashboard({
                   {section.items.map(item => {
                     const Icon = item.icon;
                     const isActive = currentPage === item.id;
-
-                    if (item.id === 'telecom') {
-                      const isExpanded = telecomMenuExpanded || currentPage === 'telecom';
-                      return (
-                        <div key={item.id} className="space-y-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (currentPage !== 'telecom') {
-                                setCurrentPage('telecom');
-                                setTelecomMenuExpanded(true);
-                              } else {
-                                setTelecomMenuExpanded(prev => !prev);
-                              }
-                            }}
-                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition ${
-                              isActive
-                                ? 'bg-blue-700 text-white font-semibold shadow-md shadow-blue-700/20'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 truncate">
-                              <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-500 dark:text-slate-400'}`} />
-                              <span className="truncate">{item.label}</span>
-                            </div>
-                            {isExpanded ? (
-                              <ChevronDown className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                            ) : (
-                              <ChevronRight className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                            )}
-                          </button>
-
-                          {isExpanded && (
-                            <div className="pl-3 pt-0.5">
-                              <div className="relative">
-                                <select
-                                  aria-label="Telecom & VTU Service Menu"
-                                  data-testid="sidebar-telecom-dropdown"
-                                  value={telecomService}
-                                  onChange={e => handleSelectTelecomService(e.target.value as TelecomTab)}
-                                  className="w-full appearance-none rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 pl-2.5 pr-7 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 cursor-pointer transition"
-                                >
-                                  {TELECOM_MENU_ITEMS.map(sub => {
-                                    const subLabel =
-                                      sub.id === 'airtime'
-                                        ? `Airtime (${airtimeDiscountPct}% Off)`
-                                        : sub.label;
-                                    return (
-                                      <option key={sub.id} value={sub.id}>
-                                        {subLabel}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-                                <ChevronDown className="w-3.5 h-3.5 text-slate-400 pointer-events-none absolute right-2 top-1/2 -translate-y-1/2" />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    }
-
                     return (
                       <button
                         key={item.id}
@@ -430,8 +343,8 @@ export function CustomerDashboard({
 
           {/* Bottom navigation links */}
           <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-2 bg-slate-50 dark:bg-slate-900/60">
-            {/* Switch to Operations / Admin Console - For all CONSOLE_ROLES */}
-            {onSwitchToAdmin && isConsoleRole(user.role) && (
+            {/* Switch to Super Admin Dashboard - Only for admins */}
+            {onSwitchToAdmin && (user.role === 'admin' || user.role === 'superadmin') && (
               <button
                 type="button"
                 onClick={onSwitchToAdmin}
@@ -439,7 +352,7 @@ export function CustomerDashboard({
               >
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>{user.role === 'superadmin' || user.role === 'admin' ? 'Admin Console' : 'Staff Console'}</span>
+                  <span>Super Admin Console</span>
                 </div>
                 <ChevronRight className="w-3 h-3 text-slate-500" />
               </button>
@@ -497,8 +410,8 @@ export function CustomerDashboard({
               <Menu className="w-5 h-5" />
             </button>
             <div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">{breadcrumbText}</p>
-              <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{headerHeading}</h1>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">Customer Portal / {currentTitle}</p>
+              <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{currentTitle}</h1>
             </div>
           </div>
 
@@ -539,108 +452,22 @@ export function CustomerDashboard({
         </header>
 
         {/* Page View Container */}
-        <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-6">
-          {currentPage === 'overview' && user.role === 'student' && (
-            <section className="rounded-2xl border border-indigo-200 dark:border-indigo-500/25 bg-white dark:bg-slate-900 p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-              <div className="space-y-1">
-                <p className="text-[11px] font-mono uppercase tracking-wider text-indigo-600 dark:text-indigo-400 font-semibold">
-                  Hambak Academy &bull; Student Workspace
-                </p>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                  Training Admissions, Study Resources &amp; Exam PINs
-                </h2>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Access your Academy enrolment status, WAEC/NECO/JAMB exam PINs, and verified identity services.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => handleSelectPage('academy')}
-                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap transition"
-                >
-                  Academy Courses
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectTelecomService('exam')}
-                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 text-slate-800 dark:text-slate-200 text-xs font-semibold whitespace-nowrap transition"
-                >
-                  Buy Exam PINs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectPage('nin')}
-                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 text-slate-800 dark:text-slate-200 text-xs font-semibold whitespace-nowrap transition"
-                >
-                  NIN / BVN Desk
-                </button>
-              </div>
-            </section>
-          )}
-
-          {currentPage === 'overview' && user.role === 'agent' && (
-            <section className="rounded-2xl border border-emerald-200 dark:border-emerald-500/25 bg-white dark:bg-slate-900 p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-              <div className="space-y-1">
-                <p className="text-[11px] font-mono uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-semibold">
-                  Commercial Partner &bull; Agent Reseller Console
-                </p>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                  High-Speed Telecom Vending, Recharge Cards &amp; Identity Desk
-                </h2>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Launch instant data bundles, generate printable Airtime/Data PIN batches, print NIN/BVN slips, and track referral earnings.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => handleSelectTelecomService('data')}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold whitespace-nowrap transition"
-                >
-                  Vend Data
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectTelecomService('airtime_pin')}
-                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-800 dark:text-slate-200 text-xs font-semibold whitespace-nowrap transition"
-                >
-                  Print Recharge PINs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectPage('nin')}
-                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-800 dark:text-slate-200 text-xs font-semibold whitespace-nowrap transition"
-                >
-                  Identity Desk
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectPage('referrals')}
-                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-emerald-500 text-slate-800 dark:text-slate-200 text-xs font-semibold whitespace-nowrap transition"
-                >
-                  Commissions
-                </button>
-              </div>
-            </section>
-          )}
-
+        <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto">
           {currentPage === 'overview' && (
             <DashboardOverview
               onNavigateToPage={page => setCurrentPage(page as CustomerPageKey)}
-              onNavigateToTelecom={srv => handleSelectTelecomService(srv as TelecomTab)}
               onOpenFundModal={onOpenFundModal}
             />
           )}
 
           {currentPage === 'nin' && <NinServicesPage />}
 
-          {currentPage === 'telecom' && (
-            <TelecomPage
-              initialService={telecomService}
-              onServiceChange={setTelecomService}
-              onDiscountLoaded={setAirtimeDiscountPct}
-              moduleStatus={telecomModuleStatus}
+          {currentPage === 'telecom' && <TelecomPage />}
+
+          {currentPage === 'printing' && (
+            <PrintingServicesPage
+              initialOrderRef={initialPrintOrderRef}
+              onNavigateToSecurity={() => setCurrentPage('settings')}
             />
           )}
 

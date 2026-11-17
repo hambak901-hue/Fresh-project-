@@ -32,6 +32,7 @@ use HambakTech\Controllers\ModificationController;
 use HambakTech\Controllers\EnrolmentController;
 use HambakTech\Controllers\ReferralController;
 use HambakTech\Controllers\AccountingController;
+use HambakTech\Controllers\PrintingController;
 
 $request = new Request();
 $router = new Router();
@@ -46,7 +47,7 @@ $router->get('/api/system/rates', [SystemController::class, 'rates']);
 $router->get('/api/system/audit-logs', [AdminController::class, 'auditLogs']);
 $router->post('/api/system/test-smtp', [SystemController::class, 'testSmtp']);
 $router->post('/api/system/sync-schema', [SystemController::class, 'syncSchema']);
-$router->post('/api/system/init-database', [SystemController::class, 'initDatabase']);
+$router->get('/api/system/init-database', [SystemController::class, 'initDatabase']);
 $router->get('/api/cpanel/diagnostics', [SystemController::class, 'cpanelDiagnostics']);
 $router->get('/api/cpanel/info', [SystemController::class, 'cpanelInfo']);
 $router->post('/api/cpanel/test-sftp', [SystemController::class, 'testSftp']);
@@ -205,8 +206,6 @@ $router->post('/api/telecom/exam/purchase', [TelecomController::class, 'vendExam
 $router->post('/api/telecom/purchase-exam-pin', [TelecomController::class, 'vendExamPin']);
 $router->post('/api/telecom/bulksms', [TelecomController::class, 'sendBulkSms']);
 $router->post('/api/telecom/send-bulksms', [TelecomController::class, 'sendBulkSms']);
-$router->get('/api/telecom/bulksms/report', [TelecomController::class, 'smsReport']);
-$router->get('/api/telecom/config', [TelecomController::class, 'telecomConfig']);
 $router->post('/api/telecom/webhook', [TelecomController::class, 'webhook']);
 $router->post('/api/telecom/webhook/ulamadata', [TelecomController::class, 'webhook']);
 $router->post('/api/telecom/webhook/vtpass', [TelecomController::class, 'vtpassWebhook']);
@@ -282,7 +281,6 @@ $router->post('/api/admin/customers/:id/kyc', [AdminController::class, 'reviewCu
 $router->post('/api/admin/customers/:id/notify', [AdminController::class, 'notifyCustomer']);
 $router->post('/api/admin/customers/adjust-balance', [AdminController::class, 'creditDebitUser']);
 $router->post('/api/admin/customers/create', [AdminController::class, 'createCustomer']);
-$router->post('/api/admin/customers/:id/role', [AdminController::class, 'assignCustomerRole']);
 $router->delete('/api/admin/customers/:id', [AdminController::class, 'deleteCustomer']);
 
 // Funding Approvals
@@ -381,25 +379,8 @@ $router->post('/api/admin/telecom/airtime-pins/sync', [TelecomController::class,
 $router->put('/api/admin/telecom/airtime-pins/:id', [TelecomController::class, 'adminUpdateAirtimePin']);
 $router->post('/api/admin/telecom/airtime-pins/bulk-pricing', [TelecomController::class, 'adminBulkAirtimePinPricing']);
 $router->get('/api/admin/telecom/data-pins', [TelecomController::class, 'adminDataPins']);
-$router->post('/api/admin/telecom/data-pins', [TelecomController::class, 'adminCreateDataPin']);
 $router->put('/api/admin/telecom/data-pins/:id', [TelecomController::class, 'adminUpdateDataPin']);
 $router->post('/api/admin/telecom/data-pins/bulk-pricing', [TelecomController::class, 'adminBulkDataPinPricing']);
-
-// Admin Telecom Complete VTU & Utilities Management (Stage 5)
-$router->get('/api/admin/telecom/cable-packages', [TelecomController::class, 'adminCablePackages']);
-$router->post('/api/admin/telecom/cable-packages/sync', [TelecomController::class, 'adminSyncCablePackages']);
-$router->put('/api/admin/telecom/cable-packages/:id', [TelecomController::class, 'adminUpdateCablePackage']);
-$router->post('/api/admin/telecom/cable-packages/bulk-pricing', [TelecomController::class, 'adminBulkCablePricing']);
-$router->get('/api/admin/telecom/electricity-discos', [TelecomController::class, 'adminElectricityDiscos']);
-$router->post('/api/admin/telecom/electricity-discos/sync', [TelecomController::class, 'adminSyncElectricityDiscos']);
-$router->put('/api/admin/telecom/electricity-discos/:id', [TelecomController::class, 'adminUpdateElectricityDisco']);
-$router->get('/api/admin/telecom/exam-packages', [TelecomController::class, 'adminExamPackages']);
-$router->post('/api/admin/telecom/exam-packages/sync', [TelecomController::class, 'adminSyncExamPackages']);
-$router->put('/api/admin/telecom/exam-packages/:id', [TelecomController::class, 'adminUpdateExamPackage']);
-$router->get('/api/admin/telecom/bulksms/config', [TelecomController::class, 'adminBulkSmsConfig']);
-$router->put('/api/admin/telecom/bulksms/config', [TelecomController::class, 'adminUpdateBulkSmsConfig']);
-$router->get('/api/admin/telecom/settings', [TelecomController::class, 'adminTelecomSettings']);
-$router->put('/api/admin/telecom/settings', [TelecomController::class, 'adminUpdateTelecomSettings']);
 
 // Hardware Store & Settings
 $router->get('/api/admin/store', [AdminController::class, 'store']);
@@ -446,7 +427,6 @@ $router->get('/api/admin/dashboard-modules', [AdminController::class, 'dashboard
 $router->put('/api/admin/dashboard-modules/:id', [AdminController::class, 'updateDashboardModule']);
 
 // Staff & Role-Based Access Control
-$router->get('/api/admin/roles', [AdminController::class, 'rolesCatalog']);
 $router->get('/api/admin/staff', [AdminController::class, 'staff']);
 $router->post('/api/admin/staff', [AdminController::class, 'createStaff']);
 $router->put('/api/admin/staff/:id', [AdminController::class, 'updateStaff']);
@@ -473,7 +453,6 @@ $router->put('/api/kyc/admin/service-rules/:key', [AdminController::class, 'upda
 // Support & Help Centre Routes
 $router->get('/api/support/tickets', [SupportController::class, 'customerTickets']);
 $router->post('/api/support/tickets', [SupportController::class, 'createTicket']);
-$router->post('/api/support/upload', [SupportController::class, 'uploadAttachment']);
 $router->post('/api/customer/support-ticket', [SupportController::class, 'createTicket']);
 $router->get('/api/support/tickets/:id', [SupportController::class, 'getTicketDetails']);
 $router->post('/api/support/tickets/:id/reply', [SupportController::class, 'replyTicket']);
@@ -563,6 +542,46 @@ $router->get('/api/admin/accounting/config', [AccountingController::class, 'getC
 $router->put('/api/admin/accounting/config', [AccountingController::class, 'updateConfig']);
 $router->post('/api/admin/accounting/config', [AccountingController::class, 'updateConfig']);
 $router->put('/api/admin/accounting/accounts/:code', [AccountingController::class, 'updateAccount']);
+
+// -----------------------------------------------------------------------------
+// 9. PRINTING & DOCUMENT SERVICES MODULE (PHASE 2)
+// -----------------------------------------------------------------------------
+// Customer Printing Routes
+$router->get('/api/printing/catalog', [PrintingController::class, 'catalog']);
+$router->post('/api/printing/estimate', [PrintingController::class, 'estimate']);
+$router->post('/api/printing/upload', [PrintingController::class, 'uploadFile']);
+$router->get('/api/printing/files/:id', [PrintingController::class, 'getFile']);
+$router->get('/api/printing/orders', [PrintingController::class, 'orders']);
+$router->post('/api/printing/orders', [PrintingController::class, 'createOrder']);
+$router->get('/api/printing/orders/:id', [PrintingController::class, 'orderDetail']);
+$router->post('/api/printing/orders/:id/quote-response', [PrintingController::class, 'respondQuote']);
+$router->post('/api/printing/orders/:id/pay', [PrintingController::class, 'payOrder']);
+$router->post('/api/printing/orders/:id/pay/verify', [PrintingController::class, 'verifyPayment']);
+$router->post('/api/printing/orders/:id/cancel', [PrintingController::class, 'cancelOrder']);
+$router->post('/api/printing/orders/:id/messages', [PrintingController::class, 'sendMessage']);
+
+// Admin & Staff Printing Management Routes
+$router->get('/api/admin/printing/metrics', [PrintingController::class, 'adminMetrics']);
+$router->get('/api/admin/printing/orders', [PrintingController::class, 'adminOrders']);
+$router->get('/api/admin/printing/orders/:id', [PrintingController::class, 'adminOrderDetail']);
+$router->post('/api/admin/printing/orders/:id/quote', [PrintingController::class, 'adminSendQuote']);
+$router->post('/api/admin/printing/orders/:id/status', [PrintingController::class, 'adminUpdateStatus']);
+$router->post('/api/admin/printing/orders/:id/assign', [PrintingController::class, 'adminAssignStaff']);
+$router->post('/api/admin/printing/orders/:id/confirm-dispatch', [PrintingController::class, 'adminConfirmDispatch']);
+$router->post('/api/admin/printing/orders/:id/payments', [PrintingController::class, 'adminRecordPayment']);
+$router->post('/api/admin/printing/orders/:id/messages', [PrintingController::class, 'adminSendMessage']);
+$router->get('/api/admin/printing/payments', [PrintingController::class, 'adminListPayments']);
+$router->post('/api/admin/printing/payments/:pid/review', [PrintingController::class, 'adminReviewPayment']);
+$router->get('/api/admin/printing/reports', [PrintingController::class, 'adminReports']);
+$router->get('/api/admin/printing/staff-list', [PrintingController::class, 'adminStaffList']);
+$router->get('/api/admin/printing/categories', [PrintingController::class, 'adminCategories']);
+$router->post('/api/admin/printing/categories', [PrintingController::class, 'adminSaveCategory']);
+$router->put('/api/admin/printing/categories/:id', [PrintingController::class, 'adminSaveCategory']);
+$router->get('/api/admin/printing/delivery-zones', [PrintingController::class, 'adminDeliveryZones']);
+$router->post('/api/admin/printing/delivery-zones', [PrintingController::class, 'adminSaveDeliveryZone']);
+$router->put('/api/admin/printing/delivery-zones/:id', [PrintingController::class, 'adminSaveDeliveryZone']);
+$router->get('/api/admin/printing/settings', [PrintingController::class, 'adminSettings']);
+$router->put('/api/admin/printing/settings', [PrintingController::class, 'adminSettings']);
 
 // Dispatch Request
 $router->dispatch($request);

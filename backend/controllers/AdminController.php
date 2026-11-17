@@ -44,7 +44,7 @@ class AdminController
     {
         try {
             $row = $this->db->fetchOne(
-                'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.assigned_dashboard, u.assigned_permissions, u.wallet_balance,
+                'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.wallet_balance,
                         u.kyc_status, u.tier, u.kyc_level, u.referral_code, u.status, u.avatar_url, u.email_verified,
                         u.created_at, u.updated_at,
                         w.balance as live_balance,
@@ -74,15 +74,6 @@ class AdminController
             return null;
         }
 
-        $roleNorm = strtolower(trim((string)($row['role'] ?? 'customer')));
-        $row['assigned_dashboard'] = !empty($row['assigned_dashboard'])
-            ? strtolower(trim((string)$row['assigned_dashboard']))
-            : Auth::defaultDashboardForRole($roleNorm);
-        $decodedPerms = is_string($row['assigned_permissions'] ?? null) ? json_decode($row['assigned_permissions'], true) : [];
-        $row['permissions'] = ($roleNorm === 'superadmin')
-            ? ['*']
-            : (!empty($decodedPerms) && is_array($decodedPerms) ? $decodedPerms : Auth::defaultPermissionsForRole($roleNorm));
-        unset($row['assigned_permissions']);
         $row['wallet_balance'] = (float)($row['live_balance'] ?? $row['wallet_balance'] ?? 0);
         $row['tier'] = (int)($row['tier'] ?? 1);
         $row['kyc_level'] = (int)($row['kyc_level'] ?? $row['tier']);
@@ -139,17 +130,17 @@ class AdminController
 
     public function overview(Request $request): void
     {
-        Auth::requireRole($request, Auth::CONSOLE_ROLES);
+        Auth::requireRole($request, ['admin', 'superadmin']);
 
         // 1. User Metrics
         $userStats = $this->db->fetchOne(
             'SELECT 
-                SUM(CASE WHEN role IN ("customer", "student", "agent") THEN 1 ELSE 0 END) as total_customers,
-                SUM(CASE WHEN status = "active" AND role IN ("customer", "student", "agent") THEN 1 ELSE 0 END) as active_customers,
-                SUM(CASE WHEN status = "suspended" AND role IN ("customer", "student", "agent") THEN 1 ELSE 0 END) as suspended_customers,
-                SUM(CASE WHEN role IN ("support", "staff", "manager", "admin", "superadmin") THEN 1 ELSE 0 END) as total_staff,
-                SUM(CASE WHEN role IN ("customer", "student", "agent") AND DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_registrations,
-                SUM(CASE WHEN role IN ("customer", "student", "agent") AND kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc_users
+                SUM(CASE WHEN role = "customer" THEN 1 ELSE 0 END) as total_customers,
+                SUM(CASE WHEN status = "active" AND role = "customer" THEN 1 ELSE 0 END) as active_customers,
+                SUM(CASE WHEN status = "suspended" AND role = "customer" THEN 1 ELSE 0 END) as suspended_customers,
+                SUM(CASE WHEN role IN ("admin", "superadmin", "staff") THEN 1 ELSE 0 END) as total_staff,
+                SUM(CASE WHEN role = "customer" AND DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_registrations,
+                SUM(CASE WHEN role = "customer" AND kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc_users
              FROM users'
         );
 
@@ -167,8 +158,7 @@ class AdminController
 
         $txStats = $this->db->fetchOne(
             'SELECT 
-                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND status = "successful" THEN amount ELSE 0 END), 0) as total_wallet_funding,
-                COALESCE(SUM(CASE WHEN type = "credit" AND (category = "manual_adjustment" OR reference LIKE "REFUND_%") AND status = "successful" THEN amount ELSE 0 END), 0) as total_refunds,
+                COALESCE(SUM(CASE WHEN type = "credit" AND status = "successful" THEN amount ELSE 0 END), 0) as total_wallet_funding,
                 COALESCE(SUM(CASE WHEN type = "debit" AND status = "successful" THEN amount ELSE 0 END), 0) as total_service_sales,
                 COUNT(CASE WHEN status = "successful" THEN 1 END) as successful_transactions,
                 COUNT(CASE WHEN status = "pending" THEN 1 END) as pending_transactions,
@@ -185,7 +175,7 @@ class AdminController
              WHERE status = "successful"'
         );
 
-        // 4. Verification, Modification & Enrolment Revenue & Wholesale Cost
+        // 4. Verification Revenue & Wholesale Cost
         $vrfStats = $this->db->fetchOne(
             'SELECT 
                 COALESCE(SUM(cost), 0) as vrf_revenue,
@@ -193,22 +183,6 @@ class AdminController
              FROM verification_records 
              WHERE status = "completed"'
         );
-        $modOverview = ['rev' => 0.0, 'cost' => 0.0];
-        try {
-            $mr = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as rev, COALESCE(SUM(provider_cost), 0) as cost FROM modification_requests WHERE status = "completed"');
-            if ($mr) {
-                $modOverview = ['rev' => (float)$mr['rev'], 'cost' => (float)$mr['cost']];
-            }
-        } catch (Throwable) {
-        }
-        $enrOverview = ['rev' => 0.0, 'cost' => 0.0];
-        try {
-            $er = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as rev, COALESCE(SUM(provider_cost), 0) as cost FROM enrolment_orders WHERE status = "completed"');
-            if ($er) {
-                $enrOverview = ['rev' => (float)$er['rev'], 'cost' => (float)$er['cost']];
-            }
-        } catch (Throwable) {
-        }
 
         $pendingFundingCount = (int)$this->db->fetchOne(
             'SELECT COUNT(*) as count FROM manual_funding_requests WHERE status = "pending"'
@@ -224,17 +198,16 @@ class AdminController
 
         // 5. Recent Registrations & Orders
         $recentUsers = $this->db->fetchAll(
-            'SELECT u.id, u.full_name, u.email, u.phone_number, u.role, u.assigned_dashboard, COALESCE(w.balance, u.wallet_balance, 0) as wallet_balance,
+            'SELECT u.id, u.full_name, u.email, u.phone_number, u.role, COALESCE(w.balance, u.wallet_balance, 0) as wallet_balance,
                     u.kyc_status, u.tier, u.status, u.created_at 
              FROM users u
              LEFT JOIN wallets w ON w.user_id = u.id
-             WHERE u.role IN ("customer", "student", "agent") 
+             WHERE u.role = "customer" 
              ORDER BY u.created_at DESC LIMIT 8'
         );
         foreach ($recentUsers as &$ru) {
             $ru['wallet_balance'] = (float)$ru['wallet_balance'];
             $ru['tier'] = (int)($ru['tier'] ?? 1);
-            $ru['assigned_dashboard'] = !empty($ru['assigned_dashboard']) ? $ru['assigned_dashboard'] : Auth::defaultDashboardForRole((string)($ru['role'] ?? 'customer'));
             $ts = !empty($ru['created_at']) ? strtotime((string)$ru['created_at']) : false;
             $ru['is_new'] = $ts !== false && $ts >= (time() - 72 * 3600);
         }
@@ -253,10 +226,8 @@ class AdminController
         );
 
         $totalSales = (float)($txStats['total_service_sales'] ?? 0);
-        $identityWholesale = (float)($vrfStats['vrf_wholesale'] ?? 0) + (float)$modOverview['cost'] + (float)$enrOverview['cost'];
-        $identityRevenue = (float)($vrfStats['vrf_revenue'] ?? 0) + (float)$modOverview['rev'] + (float)$enrOverview['rev'];
-        $totalExpenditure = (float)($orderStats['provider_expenditure'] ?? 0) + $identityWholesale;
-        $grossProfit = (float)($orderStats['gross_profit'] ?? 0) + ($identityRevenue - $identityWholesale);
+        $totalExpenditure = (float)($orderStats['provider_expenditure'] ?? 0) + (float)($vrfStats['vrf_wholesale'] ?? 0);
+        $grossProfit = (float)($orderStats['gross_profit'] ?? 0) + ((float)($vrfStats['vrf_revenue'] ?? 0) - (float)($vrfStats['vrf_wholesale'] ?? 0));
 
         $metrics = [
             'total_users' => (int)($userStats['total_customers'] ?? 0),
@@ -276,8 +247,6 @@ class AdminController
             'totalWalletBalances' => (float)($walletStats['total_wallet_balances'] ?? 0),
             'total_wallet_funding' => (float)($txStats['total_wallet_funding'] ?? 0),
             'totalWalletFunding' => (float)($txStats['total_wallet_funding'] ?? 0),
-            'total_refunds' => (float)($txStats['total_refunds'] ?? 0),
-            'totalRefunds' => (float)($txStats['total_refunds'] ?? 0),
             'total_service_sales' => $totalSales,
             'totalServiceSales' => $totalSales,
             'provider_expenditure' => $totalExpenditure,
@@ -314,20 +283,11 @@ class AdminController
         $status = trim((string)$request->query('status', ''));
         $tier = trim((string)$request->query('tier', ''));
         $kycStatus = trim((string)$request->query('kyc_status', ''));
-        $roleFilter = strtolower(trim((string)$request->query('role', '')));
-        $includeAll = (string)$request->query('include_all', '') === '1' || $roleFilter === 'all';
         $filter = trim((string)$request->query('filter', ''));
         $limit = min(250, max(1, (int)$request->query('limit', 150)));
 
+        $where = 'WHERE u.role = "customer" ';
         $params = [];
-        if ($roleFilter !== '' && $roleFilter !== 'all' && in_array($roleFilter, Auth::ALL_ROLES, true)) {
-            $where = 'WHERE u.role = :rfilter ';
-            $params['rfilter'] = $roleFilter;
-        } elseif ($includeAll) {
-            $where = 'WHERE 1=1 ';
-        } else {
-            $where = 'WHERE u.role IN ("customer", "student", "agent") ';
-        }
 
         if (!empty($search)) {
             $where .= 'AND (u.full_name LIKE :s1 OR u.email LIKE :s2 OR u.phone_number LIKE :s3 OR COALESCE(u.referral_code, "") LIKE :s4 OR COALESCE(p.nin, "") LIKE :s5 OR COALESCE(p.bvn, "") LIKE :s6) ';
@@ -351,12 +311,8 @@ class AdminController
         }
 
         if (!empty($kycStatus) && $kycStatus !== 'all') {
-            if ($kycStatus === 'approved' || $kycStatus === 'verified') {
-                $where .= 'AND u.kyc_status IN ("verified", "approved") ';
-            } else {
-                $where .= 'AND u.kyc_status = :ks ';
-                $params['ks'] = $kycStatus;
-            }
+            $where .= 'AND u.kyc_status = :ks ';
+            $params['ks'] = $kycStatus;
         }
 
         if ($filter === 'new') {
@@ -364,7 +320,7 @@ class AdminController
         }
 
         try {
-            $sql = 'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.assigned_dashboard, u.assigned_permissions, u.wallet_balance, 
+            $sql = 'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.wallet_balance, 
                            u.kyc_status, u.tier, u.kyc_level, u.referral_code, u.status, u.avatar_url, u.email_verified,
                            u.created_at, u.updated_at,
                            w.balance as live_balance,
@@ -390,13 +346,6 @@ class AdminController
 
         $nowCutoff = time() - (72 * 3600);
         foreach ($rows as &$r) {
-            $rRole = strtolower(trim((string)($r['role'] ?? 'customer')));
-            $r['assigned_dashboard'] = !empty($r['assigned_dashboard']) ? $r['assigned_dashboard'] : Auth::defaultDashboardForRole($rRole);
-            $decodedPerms = is_string($r['assigned_permissions'] ?? null) ? json_decode($r['assigned_permissions'], true) : [];
-            $r['permissions'] = ($rRole === 'superadmin')
-                ? ['*']
-                : (!empty($decodedPerms) && is_array($decodedPerms) ? $decodedPerms : Auth::defaultPermissionsForRole($rRole));
-            unset($r['assigned_permissions']);
             $r['wallet_balance'] = (float)($r['live_balance'] ?? $r['wallet_balance'] ?? 0);
             $r['tier'] = (int)($r['tier'] ?? 1);
             $r['kyc_level'] = (int)($r['kyc_level'] ?? $r['tier']);
@@ -414,9 +363,9 @@ class AdminController
                 SUM(CASE WHEN status = "active" THEN 1 ELSE 0 END) as active,
                 SUM(CASE WHEN status = "suspended" THEN 1 ELSE 0 END) as suspended,
                 SUM(CASE WHEN kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc,
-                SUM(CASE WHEN kyc_status IN ("verified", "approved") THEN 1 ELSE 0 END) as verified_kyc,
+                SUM(CASE WHEN kyc_status = "verified" THEN 1 ELSE 0 END) as verified_kyc,
                 SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 72 HOUR) THEN 1 ELSE 0 END) as new_registrations
-             FROM users WHERE role IN ("customer", "student", "agent")'
+             FROM users WHERE role = "customer"'
         );
 
         Response::success([
@@ -597,138 +546,57 @@ class AdminController
         $action = strtolower((string)$request->input('action', 'approve')); // approve or reject
         $reason = trim((string)$request->input('reason', 'Receipt verification could not be validated with receiving bank records'));
 
-        $reference = 'MAN_CRED_' . strtoupper(str_replace('-', '', (string)$requestId));
-
-        $outcome = $this->db->withTransaction(function (Database $db) use ($requestId, $action, $reason, $admin, $reference) {
-            $req = $db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id FOR UPDATE', ['id' => $requestId]);
-            if (!$req) {
-                return ['error' => 'Funding request not found.', 'code' => 404];
-            }
-            if ($req['status'] !== 'pending') {
-                return ['error' => "Request already {$req['status']}. Duplicate decision prevented.", 'code' => 400];
-            }
-
-            $amount = (float)$req['amount'];
-            $custRef = $req['payment_reference'] ?: ('REQ_' . substr((string)$req['id'], 0, 8));
-
-            if ($action === 'approve') {
-                $existingLedger = $db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $reference]);
-                if ($existingLedger) {
-                    return ['error' => 'Duplicate credit prevented for this manual funding request.', 'code' => 409];
-                }
-
-                $txResult = $this->walletService->credit(
-                    $req['user_id'],
-                    $amount,
-                    'funding',
-                    $reference,
-                    "Approved manual transfer deposit ({$req['bank_name']}) - Ref: {$custRef}",
-                    'manual_transfer',
-                    [
-                        'funding_request_id' => $requestId,
-                        'approved_by' => $admin['email'],
-                        'customer_reference' => $custRef,
-                    ]
-                );
-
-                $db->execute(
-                    'UPDATE manual_funding_requests 
-                     SET status = "approved", reviewed_by = :admin, reviewed_at = NOW(), admin_notes = :notes 
-                     WHERE id = :id',
-                    ['admin' => $admin['id'], 'notes' => 'Approved by ' . $admin['email'], 'id' => $requestId]
-                );
-
-                $db->execute(
-                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                     VALUES (:id, :uid, "Funding Approved", :msg, "success", 0, NOW())',
-                    [
-                        'id' => Security::generateUuid(),
-                        'uid' => $req['user_id'],
-                        'msg' => "Your manual transfer deposit of ₦" . number_format($amount, 2) . " (Ref: {$custRef}) has been verified and credited to your wallet balance.",
-                    ]
-                );
-
-                $updatedReq = $db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
-                return [
-                    'ok' => true,
-                    'action' => 'approve',
-                    'req' => $req,
-                    'updatedReq' => $updatedReq,
-                    'txResult' => $txResult,
-                    'amount' => $amount,
-                    'custRef' => $custRef,
-                ];
-            }
-
-            $db->execute(
-                'UPDATE manual_funding_requests 
-                 SET status = "rejected", reviewed_by = :admin, reviewed_at = NOW(), admin_notes = :reason 
-                 WHERE id = :id',
-                ['admin' => $admin['id'], 'reason' => $reason, 'id' => $requestId]
-            );
-
-            $db->execute(
-                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                 VALUES (:id, :uid, "Funding Request Rejected", :msg, "alert", 0, NOW())',
-                [
-                    'id' => Security::generateUuid(),
-                    'uid' => $req['user_id'],
-                    'msg' => "Your manual deposit request for ₦" . number_format($amount, 2) . " (Ref: {$custRef}) was rejected. Reason: {$reason}",
-                ]
-            );
-
-            $updatedReq = $db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
-            return [
-                'ok' => true,
-                'action' => 'reject',
-                'req' => $req,
-                'updatedReq' => $updatedReq,
-                'amount' => $amount,
-                'custRef' => $custRef,
-            ];
-        });
-
-        if (!empty($outcome['error'])) {
-            Response::error($outcome['error'], (int)($outcome['code'] ?? 400));
+        $req = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
+        if (!$req) {
+            Response::error('Funding request not found.', 404);
             return;
         }
 
-        $req = $outcome['req'];
-        $amount = (float)$outcome['amount'];
-        $custRef = (string)$outcome['custRef'];
-
-        // Notify customer via HAMBAKTECH Notifications (notification@hambaktech.com.ng)
-        try {
-            $cust = $this->db->fetchOne('SELECT email, full_name FROM users WHERE id = :uid', ['uid' => $req['user_id']]);
-            if ($cust && !empty($cust['email'])) {
-                $mailer = new MailService();
-                $safeName = htmlspecialchars((string)($cust['full_name'] ?: 'Valued Customer'), ENT_QUOTES, 'UTF-8');
-                $amtFmt = '₦' . number_format($amount, 2);
-                if ($outcome['action'] === 'approve') {
-                    $balFmt = '₦' . number_format((float)($outcome['txResult']['balance_after'] ?? 0), 2);
-                    $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                        . "<h2 style='margin:0 0 12px;color:#059669;'>Manual Funding Approved: {$amtFmt}</h2>"
-                        . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                        . "<p style='color:#334155;'>Your bank transfer deposit of <strong>{$amtFmt}</strong> (Ref: <code>{$custRef}</code>) has been verified and credited to your wallet.</p>"
-                        . "<p style='color:#334155;'><strong>New Wallet Balance:</strong> {$balFmt}</p>"
-                        . "<p style='color:#64748b;font-size:12px;margin-top:20px;'>Need assistance? Reply to this email to reach HAMBAKTECH Support.</p></div>";
-                    $mailer->send((string)$cust['email'], (string)($cust['full_name'] ?: 'Customer'), "Wallet Funding Approved ({$amtFmt}) — HAMBAKTECH", $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'MANUAL_FUNDING_APPROVED_EMAIL']);
-                } else {
-                    $safeReason = htmlspecialchars($reason, ENT_QUOTES, 'UTF-8');
-                    $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                        . "<h2 style='margin:0 0 12px;color:#dc2626;'>Manual Funding Request Declined</h2>"
-                        . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                        . "<p style='color:#334155;'>Your manual transfer submission for <strong>{$amtFmt}</strong> (Ref: <code>{$custRef}</code>) could not be approved.</p>"
-                        . "<p style='color:#334155;'><strong>Reason:</strong> {$safeReason}</p>"
-                        . "<p style='color:#64748b;font-size:12px;margin-top:20px;'>If you have proof of debit, reply to this email or open a Support ticket.</p></div>";
-                    $mailer->send((string)$cust['email'], (string)($cust['full_name'] ?: 'Customer'), "Manual Funding Update ({$amtFmt}) — HAMBAKTECH", $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'MANUAL_FUNDING_REJECTED_EMAIL']);
-                }
-            }
-        } catch (Throwable) {
+        if ($req['status'] !== 'pending') {
+            Response::error("Request already {$req['status']}. Duplicate decision prevented.", 400);
+            return;
         }
 
-        if ($outcome['action'] === 'approve') {
-            $txResult = $outcome['txResult'];
+        $amount = (float)$req['amount'];
+        $custRef = $req['payment_reference'] ?: ('REQ_' . substr($req['id'], 0, 8));
+
+        if ($action === 'approve') {
+            $reference = 'MAN_CRED_' . strtoupper(bin2hex(random_bytes(6)));
+
+            // Execute atomic credit with row locking and immutable ledger entry
+            $txResult = $this->walletService->credit(
+                $req['user_id'],
+                $amount,
+                'funding',
+                $reference,
+                "Approved manual transfer deposit ({$req['bank_name']}) - Ref: {$custRef}",
+                'manual_transfer',
+                [
+                    'funding_request_id' => $requestId,
+                    'approved_by' => $admin['email'],
+                    'customer_reference' => $custRef,
+                ]
+            );
+
+            $this->db->execute(
+                'UPDATE manual_funding_requests 
+                 SET status = "approved", reviewed_by = :admin, reviewed_at = NOW(), admin_notes = :notes 
+                 WHERE id = :id',
+                ['admin' => $admin['id'], 'notes' => 'Approved by ' . $admin['email'], 'id' => $requestId]
+            );
+
+            // Send in-app notification to customer
+            $this->db->execute(
+                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                 VALUES (:id, :uid, "Funding Approved", :msg, "success", 0, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $req['user_id'],
+                    'msg' => "Your manual transfer deposit of ₦" . number_format($amount, 2) . " (Ref: {$custRef}) has been verified and credited to your wallet balance.",
+                ]
+            );
+
+            $updatedReq = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
             $txObj = [
                 'id' => $txResult['transaction_id'] ?? $reference,
                 'reference' => $reference,
@@ -740,7 +608,7 @@ class AdminController
 
             Response::success([
                 'request_id' => $requestId,
-                'request' => $outcome['updatedReq'],
+                'request' => $updatedReq,
                 'status' => 'approved',
                 'amount' => $amount,
                 'balance_after' => (float)$txResult['balance_after'],
@@ -748,9 +616,29 @@ class AdminController
                 'transaction' => $txObj,
             ], "Manual funding request approved and ₦{$amount} credited to customer.");
         } else {
+            $this->db->execute(
+                'UPDATE manual_funding_requests 
+                 SET status = "rejected", reviewed_by = :admin, reviewed_at = NOW(), admin_notes = :reason 
+                 WHERE id = :id',
+                ['admin' => $admin['id'], 'reason' => $reason, 'id' => $requestId]
+            );
+
+            // Send rejection notification to customer
+            $this->db->execute(
+                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                 VALUES (:id, :uid, "Funding Request Rejected", :msg, "alert", 0, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $req['user_id'],
+                    'msg' => "Your manual deposit request for ₦" . number_format($amount, 2) . " (Ref: {$custRef}) was rejected. Reason: {$reason}",
+                ]
+            );
+
+            $updatedReq = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
+
             Response::success([
                 'request_id' => $requestId,
-                'request' => $outcome['updatedReq'],
+                'request' => $updatedReq,
                 'status' => 'rejected',
                 'reason' => $reason,
                 'transaction' => [
@@ -766,8 +654,55 @@ class AdminController
 
     public function rejectFunding(Request $request, array $params): void
     {
-        $request->setBody(array_merge($request->getBody(), ['action' => 'reject']));
-        $this->approveFunding($request, $params);
+        $admin = Auth::requirePermission($request, 'wallet');
+        $requestId = $params['id'] ?? '';
+        $reason = trim((string)$request->input('reason', 'Receipt verification could not be validated with receiving bank records'));
+
+        $req = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
+        if (!$req) {
+            Response::error('Funding request not found.', 404);
+            return;
+        }
+        if ($req['status'] !== 'pending') {
+            Response::error("Request already {$req['status']}. Duplicate decision prevented.", 400);
+            return;
+        }
+
+        $amount = (float)$req['amount'];
+        $custRef = $req['payment_reference'] ?: ('REQ_' . substr($req['id'], 0, 8));
+
+        $this->db->execute(
+            'UPDATE manual_funding_requests 
+             SET status = "rejected", reviewed_by = :admin, reviewed_at = NOW(), admin_notes = :reason 
+             WHERE id = :id',
+            ['admin' => $admin['id'], 'reason' => $reason, 'id' => $requestId]
+        );
+
+        $this->db->execute(
+            'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+             VALUES (:id, :uid, "Funding Request Rejected", :msg, "alert", 0, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $req['user_id'],
+                'msg' => "Your manual deposit request for ₦" . number_format($amount, 2) . " (Ref: {$custRef}) was rejected. Reason: {$reason}",
+            ]
+        );
+
+        $updatedReq = $this->db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
+
+        Response::success([
+            'request_id' => $requestId,
+            'request' => $updatedReq,
+            'status' => 'rejected',
+            'reason' => $reason,
+            'transaction' => [
+                'id' => $requestId,
+                'reference' => $custRef,
+                'amount' => $amount,
+                'type' => 'credit',
+                'status' => 'rejected',
+            ],
+        ], 'Manual funding request marked as rejected.');
     }
 
     /**
@@ -811,63 +746,41 @@ class AdminController
 
         $fundingStats = $this->db->fetchOne(
             'SELECT 
-                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND status = "successful" THEN amount ELSE 0 END), 0) as total_funding,
-                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "paystack" AND status = "successful" THEN amount ELSE 0 END), 0) as paystack_funding,
-                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "flutterwave" AND status = "successful" THEN amount ELSE 0 END), 0) as flutterwave_funding,
-                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "manual_transfer" AND status = "successful" THEN amount ELSE 0 END), 0) as manual_funding,
-                COALESCE(SUM(CASE WHEN type = "credit" AND (category = "manual_adjustment" OR reference LIKE "REFUND_%") AND status = "successful" THEN amount ELSE 0 END), 0) as total_refunds,
-                COUNT(CASE WHEN type = "credit" AND category = "funding" AND status = "successful" THEN 1 END) as count_funding
+                SUM(CASE WHEN type = "credit" AND status = "successful" THEN amount ELSE 0 END) as total_funding,
+                SUM(CASE WHEN gateway = "paystack" AND status = "successful" THEN amount ELSE 0 END) as paystack_funding,
+                SUM(CASE WHEN gateway = "flutterwave" AND status = "successful" THEN amount ELSE 0 END) as flutterwave_funding,
+                SUM(CASE WHEN gateway = "manual_transfer" AND status = "successful" THEN amount ELSE 0 END) as manual_funding,
+                COUNT(CASE WHEN type = "credit" AND status = "successful" THEN 1 END) as count_funding
              FROM transactions'
         );
 
-        $telecomAgg = $this->db->fetchOne(
+        $salesStats = $this->db->fetchOne(
             'SELECT 
-                COALESCE(SUM(amount), 0) as telecom_sales,
-                COALESCE(SUM(cost_price), 0) as telecom_cost,
-                COALESCE(SUM(profit), 0) as telecom_profit
+                SUM(CASE WHEN type = "debit" AND status = "successful" THEN amount ELSE 0 END) as total_service_sales,
+                SUM(CASE WHEN category IN ("airtime", "data_purchase", "cable_tv") AND status = "successful" THEN amount ELSE 0 END) as telecom_sales,
+                SUM(CASE WHEN category = "verification" AND status = "successful" THEN amount ELSE 0 END) as verification_sales
+             FROM transactions'
+        );
+
+        $expenditureStats = $this->db->fetchOne(
+            'SELECT 
+                SUM(cost_price) as telecom_cost,
+                SUM(profit) as telecom_profit
              FROM telecom_orders WHERE status = "successful"'
         );
 
-        $vrfAgg = $this->db->fetchOne(
-            'SELECT 
-                COALESCE(SUM(cost), 0) as vrf_sales,
-                COALESCE(SUM(provider_cost), 0) as vrf_cost
-             FROM verification_records WHERE status = "completed"'
-        );
-        $modAgg = ['sales' => 0.0, 'cost' => 0.0];
-        try {
-            $r = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as s, COALESCE(SUM(provider_cost), 0) as c FROM modification_requests WHERE status = "completed"');
-            if ($r) {
-                $modAgg = ['sales' => (float)$r['s'], 'cost' => (float)$r['c']];
-            }
-        } catch (Throwable) {
-        }
-        $enrAgg = ['sales' => 0.0, 'cost' => 0.0];
-        try {
-            $r = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as s, COALESCE(SUM(provider_cost), 0) as c FROM enrolment_orders WHERE status = "completed"');
-            if ($r) {
-                $enrAgg = ['sales' => (float)$r['s'], 'cost' => (float)$r['c']];
-            }
-        } catch (Throwable) {
-        }
-
         $floatStats = $this->db->fetchOne(
             'SELECT 
-                COALESCE(SUM(balance), 0) as total_customer_float,
+                SUM(balance) as total_customer_float,
                 COUNT(*) as total_customers
              FROM wallets WHERE status = "active"'
         );
 
-        $telecomSales = (float)($telecomAgg['telecom_sales'] ?? 0);
-        $telecomCost = (float)($telecomAgg['telecom_cost'] ?? 0);
-        $telecomProfit = (float)($telecomAgg['telecom_profit'] ?? 0);
-
-        $identitySales = (float)($vrfAgg['vrf_sales'] ?? 0) + $modAgg['sales'] + $enrAgg['sales'];
-        $identityCost = (float)($vrfAgg['vrf_cost'] ?? 0) + $modAgg['cost'] + $enrAgg['cost'];
-
-        $totalSales = $telecomSales + $identitySales;
+        $totalSales = (float)($salesStats['total_service_sales'] ?? 0);
+        $telecomCost = (float)($expenditureStats['telecom_cost'] ?? 0);
+        $identityCost = (float)$totalSales * 0.45; // Average wholesale identity ratio
         $totalExpenditure = $telecomCost + $identityCost;
-        $grossProfit = $telecomProfit + ($identitySales - $identityCost);
+        $grossProfit = $totalSales - $totalExpenditure;
         $profitMargin = $totalSales > 0 ? round(($grossProfit / $totalSales) * 100, 2) : 0;
 
         Response::success([
@@ -877,13 +790,12 @@ class AdminController
                     'paystackFunding' => (float)($fundingStats['paystack_funding'] ?? 0),
                     'flutterwaveFunding' => (float)($fundingStats['flutterwave_funding'] ?? 0),
                     'manualFunding' => (float)($fundingStats['manual_funding'] ?? 0),
-                    'totalRefunds' => (float)($fundingStats['total_refunds'] ?? 0),
                     'fundingTransactionsCount' => (int)($fundingStats['count_funding'] ?? 0),
                 ],
                 'sales' => [
                     'totalServiceSales' => $totalSales,
-                    'telecomSales' => $telecomSales,
-                    'identityVerificationSales' => $identitySales,
+                    'telecomSales' => (float)($salesStats['telecom_sales'] ?? 0),
+                    'identityVerificationSales' => (float)($salesStats['verification_sales'] ?? 0),
                 ],
                 'expenditure' => [
                     'totalProviderExpenditure' => $totalExpenditure,
@@ -907,7 +819,7 @@ class AdminController
      */
     public function updateBankSettings(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'wallet');
 
         $bank = trim((string)$request->input('bank', 'Moniepoint MFB'));
         $accountNumber = trim((string)$request->input('account_number', '5210471634'));
@@ -941,74 +853,27 @@ class AdminController
         ], 'Bank transfer instructions updated successfully.');
     }
 
-    private function maskEmailForReport(?string $email): string
-    {
-        $clean = trim((string)$email);
-        if ($clean === '' || !str_contains($clean, '@')) {
-            return $clean ?: 'system';
-        }
-        [$local, $domain] = explode('@', $clean, 2);
-        $prefix = strlen($local) > 2 ? substr($local, 0, 2) : substr($local, 0, 1);
-        return $prefix . '***@' . $domain;
-    }
-
-    private function csvSafeCell($value): string
-    {
-        if (is_bool($value)) {
-            $value = $value ? 'true' : 'false';
-        } elseif (is_array($value) || is_object($value)) {
-            $value = json_encode($value);
-        }
-        $str = (string)($value ?? '');
-        if ($str !== '' && in_array($str[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
-            $str = "'" . $str;
-        }
-        return $str;
-    }
-
     /**
-     * All 12 Detailed System Reports (with global start_date/end_date filtering & CSV export)
+     * All 11 Detailed System Reports
      */
     public function detailedReports(Request $request): void
     {
         Auth::requirePermission($request, 'reports');
 
-        $rawStart = trim((string)$request->query('start_date', ''));
-        $rawEnd = trim((string)$request->query('end_date', ''));
-        $startDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawStart) ? $rawStart : '';
-        $endDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawEnd) ? $rawEnd : '';
-
-        $buildRange = static function (string $col, string $prefix) use ($startDate, $endDate): array {
-            $sql = '';
-            $params = [];
-            if ($startDate !== '') {
-                $sql .= " AND {$col} >= :{$prefix}_s";
-                $params["{$prefix}_s"] = $startDate . ' 00:00:00';
-            }
-            if ($endDate !== '') {
-                $sql .= " AND {$col} <= :{$prefix}_e";
-                $params["{$prefix}_e"] = $endDate . ' 23:59:59';
-            }
-            return ['sql' => $sql, 'params' => $params];
-        };
-
         // 1. Customer Report
-        $custRange = $buildRange('created_at', 'cust');
         $customerSummary = $this->db->fetchOne(
             'SELECT 
                 COUNT(*) as total_customers,
                 SUM(CASE WHEN status = "active" THEN 1 ELSE 0 END) as active_customers,
                 SUM(CASE WHEN status = "suspended" THEN 1 ELSE 0 END) as suspended_customers,
-                SUM(CASE WHEN kyc_status IN ("verified", "approved") THEN 1 ELSE 0 END) as verified_customers,
-                SUM(CASE WHEN kyc_status NOT IN ("verified", "approved") THEN 1 ELSE 0 END) as unverified_customers,
+                SUM(CASE WHEN kyc_status = "verified" THEN 1 ELSE 0 END) as verified_customers,
+                SUM(CASE WHEN kyc_status != "verified" THEN 1 ELSE 0 END) as unverified_customers,
                 SUM(CASE WHEN tier >= 2 THEN 1 ELSE 0 END) as tier2_plus_customers,
                 COALESCE(SUM(wallet_balance), 0) as total_customer_balance
-             FROM users WHERE role IN ("customer", "student", "agent")' . $custRange['sql'],
-            $custRange['params']
+             FROM users WHERE role = "customer"'
         );
 
-        // 2. Transaction Report (strict separation of funding credits vs refunds vs service debits)
-        $txRange = $buildRange('created_at', 'tx');
+        // 2. Transaction Report
         $txSummary = $this->db->fetchOne(
             'SELECT 
                 COUNT(*) as total_count,
@@ -1016,24 +881,17 @@ class AdminController
                 SUM(CASE WHEN status = "successful" THEN 1 ELSE 0 END) as successful_count,
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_count,
                 SUM(CASE WHEN status = "failed" THEN 1 ELSE 0 END) as failed_count,
-                COALESCE(SUM(CASE WHEN status = "successful" THEN amount ELSE 0 END), 0) as successful_volume,
-                COALESCE(SUM(CASE WHEN status = "successful" AND type = "credit" AND category = "funding" THEN amount ELSE 0 END), 0) as credit_funding_volume,
-                COALESCE(SUM(CASE WHEN status = "successful" AND type = "credit" AND (category = "manual_adjustment" OR reference LIKE "REFUND_%") THEN amount ELSE 0 END), 0) as refund_credit_volume,
-                COALESCE(SUM(CASE WHEN status = "successful" AND type = "debit" THEN amount ELSE 0 END), 0) as debit_sales_volume
-             FROM transactions WHERE 1=1' . $txRange['sql'],
-            $txRange['params']
+                COALESCE(SUM(CASE WHEN status = "successful" THEN amount ELSE 0 END), 0) as successful_volume
+             FROM transactions'
         );
 
-        $txCatRange = $buildRange('created_at', 'txc');
         $txCategories = $this->db->fetchAll(
-            'SELECT category, type, COUNT(*) as count, COALESCE(SUM(amount), 0) as volume 
-             FROM transactions WHERE status = "successful"' . $txCatRange['sql'] . ' 
-             GROUP BY category, type ORDER BY volume DESC',
-            $txCatRange['params']
+            'SELECT category, COUNT(*) as count, COALESCE(SUM(amount), 0) as volume 
+             FROM transactions WHERE status = "successful" 
+             GROUP BY category ORDER BY volume DESC'
         );
 
         // 3. Wallet Report
-        $walRange = $buildRange('created_at', 'wal');
         $walletSummary = $this->db->fetchOne(
             'SELECT 
                 COUNT(*) as total_wallets,
@@ -1041,131 +899,54 @@ class AdminController
                 COALESCE(AVG(balance), 0) as average_balance,
                 COALESCE(MAX(balance), 0) as highest_balance,
                 SUM(CASE WHEN balance < 0 THEN 1 ELSE 0 END) as negative_wallets
-             FROM wallets WHERE 1=1' . $walRange['sql'],
-            $walRange['params']
+             FROM wallets'
         );
 
-        // 4. Payment Report (combined online payment_records + manual_funding_requests)
-        $payOnlineRange = $buildRange('created_at', 'pr');
-        $onlineGatewayRows = $this->db->fetchAll(
+        // 4. Payment Report
+        $gatewayStats = $this->db->fetchAll(
             'SELECT 
-                COALESCE(NULLIF(LOWER(gateway), ""), "online") as gateway,
+                gateway,
                 COUNT(*) as transaction_count,
-                COALESCE(SUM(CASE WHEN status = "successful" THEN amount ELSE 0 END), 0) as settled_amount,
                 COALESCE(SUM(amount), 0) as total_amount,
                 SUM(CASE WHEN status = "successful" THEN 1 ELSE 0 END) as successful_count,
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_count,
                 SUM(CASE WHEN status = "failed" THEN 1 ELSE 0 END) as failed_count
-             FROM payment_records WHERE 1=1' . $payOnlineRange['sql'] . '
-             GROUP BY COALESCE(NULLIF(LOWER(gateway), ""), "online")',
-            $payOnlineRange['params']
+             FROM transactions 
+             WHERE type = "credit"
+             GROUP BY gateway'
         );
 
-        $manPayRange = $buildRange('created_at', 'mp');
-        $manualPayRow = $this->db->fetchOne(
-            'SELECT 
-                COUNT(*) as transaction_count,
-                COALESCE(SUM(CASE WHEN status = "approved" THEN amount ELSE 0 END), 0) as settled_amount,
-                COALESCE(SUM(amount), 0) as total_amount,
-                SUM(CASE WHEN status = "approved" THEN 1 ELSE 0 END) as successful_count,
-                SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_count,
-                SUM(CASE WHEN status = "rejected" THEN 1 ELSE 0 END) as failed_count
-             FROM manual_funding_requests WHERE 1=1' . $manPayRange['sql'],
-            $manPayRange['params']
-        );
-
-        $gatewayStats = $onlineGatewayRows;
-        if ((int)($manualPayRow['transaction_count'] ?? 0) > 0) {
-            $gatewayStats[] = [
-                'gateway' => 'manual_transfer',
-                'transaction_count' => (int)$manualPayRow['transaction_count'],
-                'settled_amount' => (float)$manualPayRow['settled_amount'],
-                'total_amount' => (float)$manualPayRow['total_amount'],
-                'successful_count' => (int)$manualPayRow['successful_count'],
-                'pending_count' => (int)$manualPayRow['pending_count'],
-                'failed_count' => (int)$manualPayRow['failed_count'],
-            ];
-        }
-
-        // 5. Identity Service Report (Verification + Modification + Enrolment, completed revenue/wholesale only)
-        $vrfRange = $buildRange('created_at', 'vrf');
+        // 5. NIN Service Report
         $ninSummary = $this->db->fetchOne(
             'SELECT 
                 COUNT(*) as total_requests,
                 SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_requests,
                 SUM(CASE WHEN status = "failed" THEN 1 ELSE 0 END) as failed_requests,
-                COALESCE(SUM(CASE WHEN status = "completed" THEN cost ELSE 0 END), 0) as total_revenue,
-                COALESCE(SUM(CASE WHEN status = "completed" THEN provider_cost ELSE 0 END), 0) as total_wholesale_cost
-             FROM verification_records WHERE 1=1' . $vrfRange['sql'],
-            $vrfRange['params']
+                COALESCE(SUM(cost), 0) as total_revenue,
+                COALESCE(SUM(provider_cost), 0) as total_wholesale_cost
+             FROM verification_records'
         );
 
         $ninServiceBreakdown = $this->db->fetchAll(
             'SELECT 
                 COALESCE(service_key, type) as service_code,
                 COUNT(*) as count,
-                COALESCE(SUM(CASE WHEN status = "completed" THEN cost ELSE 0 END), 0) as revenue,
-                COALESCE(SUM(CASE WHEN status = "completed" THEN provider_cost ELSE 0 END), 0) as wholesale_cost,
+                COALESCE(SUM(cost), 0) as revenue,
                 SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed
-             FROM verification_records WHERE 1=1' . $vrfRange['sql'] . ' 
-             GROUP BY COALESCE(service_key, type) ORDER BY count DESC',
-            $vrfRange['params']
+             FROM verification_records 
+             GROUP BY COALESCE(service_key, type) ORDER BY count DESC'
         );
 
-        $modStats = ['completed_requests' => 0, 'total_revenue' => 0.0, 'total_wholesale_cost' => 0.0];
-        try {
-            $modRange = $buildRange('created_at', 'mod');
-            $modRow = $this->db->fetchOne(
-                'SELECT 
-                    SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_requests,
-                    COALESCE(SUM(CASE WHEN status = "completed" THEN customer_price ELSE 0 END), 0) as total_revenue,
-                    COALESCE(SUM(CASE WHEN status = "completed" THEN provider_cost ELSE 0 END), 0) as total_wholesale_cost
-                 FROM modification_requests WHERE 1=1' . $modRange['sql'],
-                $modRange['params']
-            );
-            if ($modRow) {
-                $modStats = [
-                    'completed_requests' => (int)($modRow['completed_requests'] ?? 0),
-                    'total_revenue' => (float)($modRow['total_revenue'] ?? 0),
-                    'total_wholesale_cost' => (float)($modRow['total_wholesale_cost'] ?? 0),
-                ];
-            }
-        } catch (Throwable) {
-        }
-
-        $enrStats = ['completed_requests' => 0, 'total_revenue' => 0.0, 'total_wholesale_cost' => 0.0];
-        try {
-            $enrRange = $buildRange('created_at', 'enr');
-            $enrRow = $this->db->fetchOne(
-                'SELECT 
-                    SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_requests,
-                    COALESCE(SUM(CASE WHEN status = "completed" THEN customer_price ELSE 0 END), 0) as total_revenue,
-                    COALESCE(SUM(CASE WHEN status = "completed" THEN provider_cost ELSE 0 END), 0) as total_wholesale_cost
-                 FROM enrolment_orders WHERE 1=1' . $enrRange['sql'],
-                $enrRange['params']
-            );
-            if ($enrRow) {
-                $enrStats = [
-                    'completed_requests' => (int)($enrRow['completed_requests'] ?? 0),
-                    'total_revenue' => (float)($enrRow['total_revenue'] ?? 0),
-                    'total_wholesale_cost' => (float)($enrRow['total_wholesale_cost'] ?? 0),
-                ];
-            }
-        } catch (Throwable) {
-        }
-
-        // 6. Telecom Report (completed/successful orders only for revenue, cost, profit)
-        $telRange = $buildRange('created_at', 'tel');
+        // 6. Telecom Report
         $telecomSummary = $this->db->fetchOne(
             'SELECT 
                 COUNT(*) as total_orders,
                 SUM(CASE WHEN status = "successful" THEN 1 ELSE 0 END) as successful_orders,
                 SUM(CASE WHEN status = "failed" THEN 1 ELSE 0 END) as failed_orders,
-                COALESCE(SUM(CASE WHEN status = "successful" THEN amount ELSE 0 END), 0) as total_sales,
-                COALESCE(SUM(CASE WHEN status = "successful" THEN cost_price ELSE 0 END), 0) as total_cost,
-                COALESCE(SUM(CASE WHEN status = "successful" THEN profit ELSE 0 END), 0) as gross_profit
-             FROM telecom_orders WHERE 1=1' . $telRange['sql'],
-            $telRange['params']
+                COALESCE(SUM(amount), 0) as total_sales,
+                COALESCE(SUM(cost_price), 0) as total_cost,
+                COALESCE(SUM(profit), 0) as gross_profit
+             FROM telecom_orders'
         );
 
         $telecomNetworks = $this->db->fetchAll(
@@ -1173,12 +954,10 @@ class AdminController
                 network,
                 COUNT(*) as orders_count,
                 COALESCE(SUM(amount), 0) as sales,
-                COALESCE(SUM(cost_price), 0) as cost,
                 COALESCE(SUM(profit), 0) as profit
              FROM telecom_orders 
-             WHERE status = "successful"' . $telRange['sql'] . '
-             GROUP BY network',
-            $telRange['params']
+             WHERE status = "successful"
+             GROUP BY network'
         );
 
         // 7. Provider Expenditure Report
@@ -1194,29 +973,17 @@ class AdminController
              FROM providers'
         );
 
-        // 8. Profit Report (true completed service sales & wholesale COGS across all 4 vertical lines)
-        $telecomRevenue = (float)($telecomSummary['total_sales'] ?? 0);
+        // 8. Profit Report
+        $totalSales = (float)($txSummary['successful_volume'] ?? 0);
         $telecomCost = (float)($telecomSummary['total_cost'] ?? 0);
-        $telecomProfit = (float)($telecomSummary['gross_profit'] ?? 0);
-
-        $vrfRevenue = (float)($ninSummary['total_revenue'] ?? 0);
-        $vrfCost = (float)($ninSummary['total_wholesale_cost'] ?? 0);
-        $modRevenue = (float)$modStats['total_revenue'];
-        $modCost = (float)$modStats['total_wholesale_cost'];
-        $enrRevenue = (float)$enrStats['total_revenue'];
-        $enrCost = (float)$enrStats['total_wholesale_cost'];
-
-        $identityTotalRevenue = $vrfRevenue + $modRevenue + $enrRevenue;
-        $ninCost = $vrfCost + $modCost + $enrCost;
-        $identityProfit = $identityTotalRevenue - $ninCost;
-
-        $totalServiceRevenue = $telecomRevenue + $identityTotalRevenue;
+        $ninCost = (float)($ninSummary['total_wholesale_cost'] ?? 0);
         $totalExpenditure = $telecomCost + $ninCost;
-        $totalGrossProfit = $telecomProfit + $identityProfit;
-        $marginPercent = $totalServiceRevenue > 0 ? round(($totalGrossProfit / $totalServiceRevenue) * 100, 2) : 0;
+        $telecomProfit = (float)($telecomSummary['gross_profit'] ?? 0);
+        $ninProfit = (float)($ninSummary['total_revenue'] ?? 0) - $ninCost;
+        $totalGrossProfit = $telecomProfit + $ninProfit;
+        $marginPercent = $totalSales > 0 ? round(($totalGrossProfit / $totalSales) * 100, 2) : 0;
 
         // 9. Manual Funding Report
-        $manRange = $buildRange('created_at', 'man');
         $manualFundingSummary = $this->db->fetchOne(
             'SELECT 
                 COUNT(*) as total_requests,
@@ -1224,186 +991,76 @@ class AdminController
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_count,
                 SUM(CASE WHEN status = "rejected" THEN 1 ELSE 0 END) as rejected_count,
                 COALESCE(SUM(CASE WHEN status = "approved" THEN amount ELSE 0 END), 0) as approved_amount
-             FROM manual_funding_requests WHERE 1=1' . $manRange['sql'],
-            $manRange['params']
+             FROM manual_funding_requests'
         );
 
-        // 10. KYC Report (normalized submissions + account-level users KYC visibility)
-        $kycRange = $buildRange('created_at', 'kyc');
+        // 10. KYC Report
         $kycSummary = $this->db->fetchOne(
             'SELECT 
                 COUNT(*) as total_submissions,
-                SUM(CASE WHEN status IN ("verified", "approved") THEN 1 ELSE 0 END) as approved_count,
+                SUM(CASE WHEN status = "verified" THEN 1 ELSE 0 END) as approved_count,
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_count,
-                SUM(CASE WHEN status = "info_requested" THEN 1 ELSE 0 END) as info_requested_count,
                 SUM(CASE WHEN status = "rejected" THEN 1 ELSE 0 END) as rejected_count,
-                SUM(CASE WHEN COALESCE(target_level, CASE WHEN id_type = "nin" THEN 1 WHEN id_type = "bvn" THEN 2 ELSE 2 END) = 1 THEN 1 ELSE 0 END) as tier1_count,
-                SUM(CASE WHEN COALESCE(target_level, 2) = 2 THEN 1 ELSE 0 END) as tier2_count,
-                SUM(CASE WHEN COALESCE(target_level, 2) >= 3 THEN 1 ELSE 0 END) as tier3_count
-             FROM kyc_submissions WHERE 1=1' . $kycRange['sql'],
-            $kycRange['params']
-        ) ?: [];
-        $kycUsersOverview = $this->db->fetchOne(
-            'SELECT
-                COUNT(*) as total_accounts,
-                SUM(CASE WHEN kyc_status IN ("verified", "approved") THEN 1 ELSE 0 END) as verified_users,
-                SUM(CASE WHEN kyc_status = "pending" THEN 1 ELSE 0 END) as pending_users,
-                SUM(CASE WHEN kyc_status NOT IN ("verified", "approved", "pending") THEN 1 ELSE 0 END) as unverified_users,
-                SUM(CASE WHEN tier >= 2 THEN 1 ELSE 0 END) as tier2_plus_users
-             FROM users WHERE role IN ("customer", "student", "agent")' . $custRange['sql'],
-            $custRange['params']
-        ) ?: [];
-        $kycSummary['users_kyc_overview'] = [
-            'total_accounts' => (int)($kycUsersOverview['total_accounts'] ?? 0),
-            'verified_users' => (int)($kycUsersOverview['verified_users'] ?? 0),
-            'pending_users' => (int)($kycUsersOverview['pending_users'] ?? 0),
-            'unverified_users' => (int)($kycUsersOverview['unverified_users'] ?? 0),
-            'tier2_plus_users' => (int)($kycUsersOverview['tier2_plus_users'] ?? 0),
-        ];
+                SUM(CASE WHEN id_type = "nin" THEN 1 ELSE 0 END) as tier1_count,
+                SUM(CASE WHEN id_type = "bvn" THEN 1 ELSE 0 END) as tier2_count,
+                SUM(CASE WHEN id_type NOT IN ("nin", "bvn") THEN 1 ELSE 0 END) as tier3_count
+             FROM kyc_submissions'
+        );
 
-        // 11. Staff Activity Report (masked user emails)
-        $audRange = $buildRange('created_at', 'aud');
+        // 11. Staff Activity Report
         $staffActivitySummary = $this->db->fetchOne(
-            'SELECT COUNT(*) as total_logs FROM audit_logs WHERE 1=1' . $audRange['sql'],
-            $audRange['params']
+            'SELECT COUNT(*) as total_logs FROM audit_logs'
         );
-        $rawLogs = $this->db->fetchAll(
+        $recentLogs = $this->db->fetchAll(
             'SELECT id, user_email as entity, action, ip_address, created_at 
-             FROM audit_logs WHERE 1=1' . $audRange['sql'] . ' ORDER BY created_at DESC LIMIT 25',
-            $audRange['params']
+             FROM audit_logs ORDER BY created_at DESC LIMIT 10'
         );
-        $recentLogs = array_map(function (array $row) {
-            $row['entity'] = $this->maskEmailForReport($row['entity'] ?? '');
-            return $row;
-        }, $rawLogs);
 
-        $staffBreakdownRaw = $this->db->fetchAll(
-            'SELECT COALESCE(NULLIF(user_email, ""), "system") as actor, COUNT(*) as actions_count, MAX(created_at) as last_active
-             FROM audit_logs WHERE 1=1' . $audRange['sql'] . '
-             GROUP BY COALESCE(NULLIF(user_email, ""), "system")
-             ORDER BY actions_count DESC LIMIT 15',
-            $audRange['params']
-        );
-        $staffBreakdown = array_map(function (array $row) {
-            $row['actor'] = $this->maskEmailForReport($row['actor'] ?? '');
-            $row['actions_count'] = (int)($row['actions_count'] ?? 0);
-            return $row;
-        }, $staffBreakdownRaw);
-
-        // 12. Referral Growth & ROI Report
-        $referralReport = (new ReferralEngineService($this->db))->getReferralGrowthReport([
-            'start_date' => $startDate,
-            'end_date' => $endDate,
+        Response::success([
+            'reports' => [
+                'generated_at' => date('c'),
+                'customer_report' => $customerSummary,
+                'transaction_report' => [
+                    'summary' => $txSummary,
+                    'categories' => $txCategories,
+                ],
+                'wallet_report' => $walletSummary,
+                'payment_report' => $gatewayStats,
+                'nin_service_report' => [
+                    'summary' => $ninSummary,
+                    'breakdown' => $ninServiceBreakdown,
+                ],
+                'telecom_report' => [
+                    'summary' => $telecomSummary,
+                    'networks' => $telecomNetworks,
+                ],
+                'provider_expenditure_report' => [
+                    'telecom_cost' => $telecomCost,
+                    'nin_wholesale_cost' => $ninCost,
+                    'total_cost' => $totalExpenditure,
+                    'providers' => $providerExpenditures,
+                ],
+                'profit_report' => [
+                    'total_revenue' => $totalSales,
+                    'total_expenditure' => $totalExpenditure,
+                    'gross_profit' => $totalGrossProfit,
+                    'margin_percent' => $marginPercent,
+                    'telecom_profit' => $telecomProfit,
+                    'nin_profit' => $ninProfit,
+                ],
+                'manual_funding_report' => $manualFundingSummary,
+                'kyc_report' => $kycSummary,
+                'staff_activity_report' => [
+                    'total_audit_events' => (int)($staffActivitySummary['total_logs'] ?? 0),
+                    'recent_events' => $recentLogs,
+                ],
+                // 12. Referral Growth & ROI Report
+                'referral_growth_report' => (new ReferralEngineService($this->db))->getReferralGrowthReport([
+                    'start_date' => trim((string)$request->query('start_date', '')),
+                    'end_date' => trim((string)$request->query('end_date', '')),
+                ]),
+            ]
         ]);
-
-        $reportsPayload = [
-            'generated_at' => date('c'),
-            'date_range' => ['start_date' => $startDate ?: null, 'end_date' => $endDate ?: null],
-            'customer_report' => $customerSummary,
-            'transaction_report' => [
-                'summary' => $txSummary,
-                'categories' => $txCategories,
-            ],
-            'wallet_report' => $walletSummary,
-            'payment_report' => $gatewayStats,
-            'nin_service_report' => [
-                'summary' => $ninSummary,
-                'breakdown' => $ninServiceBreakdown,
-                'modification_summary' => $modStats,
-                'enrolment_summary' => $enrStats,
-            ],
-            'telecom_report' => [
-                'summary' => $telecomSummary,
-                'networks' => $telecomNetworks,
-            ],
-            'provider_expenditure_report' => [
-                'telecom_cost' => $telecomCost,
-                'nin_wholesale_cost' => $ninCost,
-                'identity_wholesale_cost' => $ninCost,
-                'total_cost' => $totalExpenditure,
-                'providers' => $providerExpenditures,
-            ],
-            'profit_report' => [
-                'total_revenue' => $totalServiceRevenue,
-                'funding_credits_volume' => (float)($txSummary['credit_funding_volume'] ?? 0),
-                'refund_credits_volume' => (float)($txSummary['refund_credit_volume'] ?? 0),
-                'debit_sales_volume' => (float)($txSummary['debit_sales_volume'] ?? 0),
-                'total_expenditure' => $totalExpenditure,
-                'gross_profit' => $totalGrossProfit,
-                'margin_percent' => $marginPercent,
-                'telecom_profit' => $telecomProfit,
-                'nin_profit' => $identityProfit,
-                'modification_revenue' => $modRevenue,
-                'enrolment_revenue' => $enrRevenue,
-            ],
-            'manual_funding_report' => $manualFundingSummary,
-            'kyc_report' => $kycSummary,
-            'staff_activity_report' => [
-                'total_audit_events' => (int)($staffActivitySummary['total_logs'] ?? 0),
-                'recent_events' => $recentLogs,
-                'staff_breakdown' => $staffBreakdown,
-            ],
-            'referral_growth_report' => $referralReport,
-        ];
-
-        $format = strtolower(trim((string)$request->query('format', 'json')));
-        if ($format === 'csv') {
-            $reportKey = trim((string)$request->query('report', 'all'));
-            $filename = 'hambaktech_' . preg_replace('/[^a-zA-Z0-9_-]/', '_', $reportKey) . '_' . date('Ymd_His') . '.csv';
-            header('Content-Type: text/csv; charset=utf-8');
-            header('Content-Disposition: attachment; filename="' . $filename . '"');
-            header('Cache-Control: no-store, no-cache, must-revalidate');
-
-            $out = fopen('php://output', 'wb');
-            fprintf($out, "\xEF\xBB\xBF");
-            fputcsv($out, ['Report', 'Section', 'Metric / Record', 'Value / Detail 1', 'Detail 2', 'Detail 3', 'Timestamp']);
-
-            $emitKey = function (string $key, $section) use ($out, &$emitKey) {
-                if (!is_array($section)) {
-                    fputcsv($out, [$this->csvSafeCell($key), 'summary', 'value', $this->csvSafeCell($section), '', '', '']);
-                    return;
-                }
-                if (array_is_list($section)) {
-                    foreach ($section as $idx => $item) {
-                        if (is_array($item)) {
-                            $cols = array_values($item);
-                            fputcsv($out, [
-                                $this->csvSafeCell($key),
-                                'row_' . ($idx + 1),
-                                $this->csvSafeCell($cols[0] ?? ''),
-                                $this->csvSafeCell($cols[1] ?? ''),
-                                $this->csvSafeCell($cols[2] ?? ''),
-                                $this->csvSafeCell($cols[3] ?? ''),
-                                $this->csvSafeCell($cols[4] ?? ''),
-                            ]);
-                        }
-                    }
-                    return;
-                }
-                foreach ($section as $k => $v) {
-                    if (is_array($v)) {
-                        $emitKey("{$key}.{$k}", $v);
-                    } else {
-                        fputcsv($out, [$this->csvSafeCell($key), 'summary', $this->csvSafeCell($k), $this->csvSafeCell($v), '', '', '']);
-                    }
-                }
-            };
-
-            if ($reportKey !== 'all' && array_key_exists($reportKey, $reportsPayload)) {
-                $emitKey($reportKey, $reportsPayload[$reportKey]);
-            } else {
-                foreach ($reportsPayload as $rKey => $rVal) {
-                    if ($rKey === 'generated_at' || $rKey === 'date_range') {
-                        continue;
-                    }
-                    $emitKey($rKey, $rVal);
-                }
-            }
-            fclose($out);
-            exit;
-        }
-
-        Response::success(['reports' => $reportsPayload]);
     }
 
     // =========================================================================
@@ -1549,8 +1206,6 @@ class AdminController
         $kycStatus = isset($body['kyc_status']) ? strtolower(trim((string)$body['kyc_status'])) : null;
         $status = isset($body['status']) ? strtolower(trim((string)$body['status'])) : null;
         $newPassword = isset($body['new_password']) ? (string)$body['new_password'] : '';
-        $requestedRole = isset($body['role']) ? strtolower(trim((string)$body['role'])) : null;
-        $requestedDashboard = isset($body['assigned_dashboard']) ? strtolower(trim((string)$body['assigned_dashboard'])) : null;
 
         $address = $body['address'] ?? $body['residential_address'] ?? null;
         $state = $body['state'] ?? null;
@@ -1562,34 +1217,6 @@ class AdminController
 
         $updates = [];
         $paramsDb = ['id' => $customerId];
-
-        if ($requestedRole !== null && $requestedRole !== '' && $requestedRole !== strtolower((string)$existing['role'])) {
-            if ($admin['role'] !== 'superadmin') {
-                Response::forbidden('Only a Super Admin can reassign account roles.');
-            }
-            if (!in_array($requestedRole, Auth::ALL_ROLES, true)) {
-                Response::error('Invalid role specified.', 422);
-            }
-            if ($customerId === $admin['id'] && $requestedRole !== 'superadmin') {
-                Response::forbidden('You cannot demote your own Super Admin account.');
-            }
-            $updates[] = 'role = :roleVal';
-            $paramsDb['roleVal'] = $requestedRole;
-            if ($requestedDashboard === null || $requestedDashboard === '') {
-                $requestedDashboard = Auth::defaultDashboardForRole($requestedRole);
-            }
-        }
-
-        if ($requestedDashboard !== null && $requestedDashboard !== '') {
-            if ($admin['role'] !== 'superadmin') {
-                Response::forbidden('Only a Super Admin can change assigned dashboards.');
-            }
-            if (!in_array($requestedDashboard, Auth::DASHBOARDS, true)) {
-                Response::error('Invalid assigned dashboard.', 422);
-            }
-            $updates[] = 'assigned_dashboard = :dashVal';
-            $paramsDb['dashVal'] = $requestedDashboard;
-        }
 
         if ($fullName !== null && $fullName !== '') {
             $updates[] = 'full_name = :fn';
@@ -1626,9 +1253,9 @@ class AdminController
             $updates[] = 'tier = :tr';
             $paramsDb['tr'] = $tier;
         }
-        if ($kycStatus !== null && in_array($kycStatus, ['unverified', 'pending', 'verified', 'approved', 'rejected'], true)) {
+        if ($kycStatus !== null && in_array($kycStatus, ['unverified', 'pending', 'verified', 'rejected'], true)) {
             $updates[] = 'kyc_status = :ks';
-            $paramsDb['ks'] = ($kycStatus === 'approved') ? 'verified' : $kycStatus;
+            $paramsDb['ks'] = $kycStatus;
         }
         if ($status !== null && in_array($status, ['active', 'suspended'], true)) {
             $updates[] = 'status = :st';
@@ -1659,8 +1286,8 @@ class AdminController
                 } catch (Throwable) {
                 }
             }
-            if ($status === 'suspended' || $newPassword !== '' || isset($paramsDb['roleVal']) || isset($paramsDb['dashVal'])) {
-                Auth::revokeAllUserSessions($customerId, $status === 'suspended' ? 'account_suspended' : 'admin_account_security_update', true);
+            if ($status === 'suspended' || $newPassword !== '') {
+                Auth::revokeAllUserSessions($customerId, $status === 'suspended' ? 'account_suspended' : 'admin_password_reset', true);
             }
         }
 
@@ -1910,23 +1537,6 @@ class AdminController
                 'type' => $status === 'verified' ? 'success' : 'warning',
             ]
         );
-
-        try {
-            if (!empty($existing['email'])) {
-                $mailer = new MailService();
-                $safeName = htmlspecialchars((string)($existing['full_name'] ?: 'Customer'), ENT_QUOTES, 'UTF-8');
-                $safeNotes = htmlspecialchars($notes, ENT_QUOTES, 'UTF-8');
-                $subject = $status === 'verified' ? "KYC Tier {$tier} Approved — HAMBAKTECH" : 'KYC Verification Update — HAMBAKTECH';
-                $color = $status === 'verified' ? '#059669' : '#d97706';
-                $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                    . "<h2 style='margin:0 0 12px;color:{$color};'>" . ($status === 'verified' ? "KYC Level {$tier} Approved" : 'KYC Status Updated: ' . strtoupper($status)) . "</h2>"
-                    . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                    . "<p style='color:#334155;'>" . ($status === 'verified' ? "Your Identity & KYC verification has been approved and your account is active at Level {$tier}." : "Your KYC status has been updated to <strong>" . strtoupper($status) . "</strong>.") . "</p>"
-                    . "<p style='color:#475569;font-size:13px;'><strong>Reviewer Notes:</strong> {$safeNotes}</p></div>";
-                $mailer->send((string)$existing['email'], (string)($existing['full_name'] ?: 'Customer'), $subject, $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'KYC_DECISION_EMAIL']);
-            }
-        } catch (Throwable) {
-        }
 
         $updated = $this->hydrateCustomerRow($customerId);
         Response::success(['customer' => $updated], "Customer KYC status updated to {$status}");
@@ -3361,14 +2971,12 @@ class AdminController
         }
 
         $target = ($enc === 'ssl') ? ('ssl://' . $host) : ('tcp://' . $host);
-        $sslOptions = [
-            'verify_peer' => true,
-            'verify_peer_name' => true,
-            'allow_self_signed' => false,
-            'peer_name' => $host,
-        ];
         $context = stream_context_create([
-            'ssl' => $sslOptions,
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true,
+            ],
         ]);
         $errno = 0;
         $errstr = '';
@@ -3416,35 +3024,6 @@ class AdminController
             $ehlo = $readSmtp($socket);
             $ehloOk = ($ehlo['code'] === 250);
             $lastStep = $ehlo['text'];
-            if ($ehloOk && $enc === 'tls') {
-                @fwrite($socket, "STARTTLS\r\n");
-                $startTlsResp = $readSmtp($socket);
-                if ($startTlsResp['code'] === 220) {
-                    foreach ($sslOptions as $optKey => $optVal) {
-                        stream_context_set_option($socket, 'ssl', $optKey, $optVal);
-                    }
-                    $cryptoMethod = STREAM_CRYPTO_METHOD_TLS_CLIENT;
-                    if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) {
-                        $cryptoMethod |= STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
-                    }
-                    if (defined('STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT')) {
-                        $cryptoMethod |= STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT;
-                    }
-                    $tlsOk = @stream_socket_enable_crypto($socket, true, $cryptoMethod);
-                    if (!$tlsOk) {
-                        $ehloOk = false;
-                        $lastStep = 'SMTP STARTTLS certificate verification failed';
-                    } else {
-                        @fwrite($socket, "EHLO hambaktech.com.ng\r\n");
-                        $ehlo2 = $readSmtp($socket);
-                        $ehloOk = ($ehlo2['code'] === 250);
-                        $lastStep = $ehlo2['text'];
-                    }
-                } else {
-                    $ehloOk = false;
-                    $lastStep = 'STARTTLS rejected: ' . $startTlsResp['text'];
-                }
-            }
             @fwrite($socket, "QUIT\r\n");
         } else {
             $lastStep = $banner['text'] ?: 'No 220 banner received';
@@ -3984,236 +3563,40 @@ class AdminController
     }
 
     // =========================================================================
-    // 20. STAFF & RBAC PERMISSIONS + ROLE CATALOG / DASHBOARD ASSIGNMENT
+    // 20. STAFF & RBAC PERMISSIONS
     // =========================================================================
-    public function rolesCatalog(Request $request): void
-    {
-        Auth::requireRole($request, Auth::CONSOLE_ROLES);
-
-        $roles = [
-            [
-                'slug' => 'customer',
-                'name' => 'Customer',
-                'description' => 'Standard consumer portal access (Telecom, Identity, Wallet, Support)',
-                'default_dashboard' => 'customer',
-                'default_permissions' => [],
-                'category' => 'portal',
-            ],
-            [
-                'slug' => 'student',
-                'name' => 'Student',
-                'description' => 'Hambak Academy learner workspace with portal services access',
-                'default_dashboard' => 'student',
-                'default_permissions' => [],
-                'category' => 'portal',
-            ],
-            [
-                'slug' => 'agent',
-                'name' => 'Agent / Reseller',
-                'description' => 'Bulk telecom & verification reseller workspace with commission tools',
-                'default_dashboard' => 'agent',
-                'default_permissions' => [],
-                'category' => 'portal',
-            ],
-            [
-                'slug' => 'support',
-                'name' => 'Support Agent',
-                'description' => 'Customer Care & Helpdesk queue with customer lookup and KYC inspection',
-                'default_dashboard' => 'support',
-                'default_permissions' => Auth::defaultPermissionsForRole('support'),
-                'category' => 'console',
-            ],
-            [
-                'slug' => 'staff',
-                'name' => 'Operations Staff',
-                'description' => 'Day-to-day verification, KYC review, support, and service operations',
-                'default_dashboard' => 'staff',
-                'default_permissions' => Auth::defaultPermissionsForRole('staff'),
-                'category' => 'console',
-            ],
-            [
-                'slug' => 'manager',
-                'name' => 'Operations Manager',
-                'description' => 'Supervisory console across customers, wallet funding, KYC, services, and reports',
-                'default_dashboard' => 'manager',
-                'default_permissions' => Auth::defaultPermissionsForRole('manager'),
-                'category' => 'console',
-            ],
-            [
-                'slug' => 'admin',
-                'name' => 'Administrator',
-                'description' => 'Full platform administration excluding protected super-admin overrides',
-                'default_dashboard' => 'admin',
-                'default_permissions' => Auth::defaultPermissionsForRole('admin'),
-                'category' => 'console',
-            ],
-            [
-                'slug' => 'superadmin',
-                'name' => 'Super Administrator',
-                'description' => 'Unrestricted platform authority including role & security governance',
-                'default_dashboard' => 'admin',
-                'default_permissions' => ['*'],
-                'category' => 'console',
-            ],
-        ];
-
-        $dashboards = [
-            ['id' => 'customer', 'label' => 'Customer Dashboard'],
-            ['id' => 'student', 'label' => 'Student Academy Workspace'],
-            ['id' => 'agent', 'label' => 'Agent Reseller Console'],
-            ['id' => 'support', 'label' => 'Support Helpdesk Desk'],
-            ['id' => 'staff', 'label' => 'Staff Operations Workspace'],
-            ['id' => 'manager', 'label' => 'Manager Operations Console'],
-            ['id' => 'admin', 'label' => 'Admin Control Centre'],
-        ];
-
-        $permissionModules = [
-            'customers', 'wallet', 'kyc', 'services', 'support', 'reports',
-            'referrals', 'withdrawals', 'staff', 'cms', 'audit',
-            'pin_security', 'security', 'settings', 'notifications',
-            'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config',
-        ];
-
-        Response::success([
-            'roles' => $roles,
-            'dashboards' => $dashboards,
-            'permission_modules' => $permissionModules,
-        ]);
-    }
-
-    public function assignCustomerRole(Request $request, array $params): void
-    {
-        $super = Auth::requireSuperAdmin($request);
-        $userId = trim((string)($params['id'] ?? ''));
-        $newRole = strtolower(trim((string)$request->input('role', '')));
-        $rawDashboard = strtolower(trim((string)$request->input('assigned_dashboard', '')));
-        $rawPerms = $request->input('permissions', $request->input('assigned_permissions', null));
-
-        if ($userId === '' || !in_array($newRole, Auth::ALL_ROLES, true)) {
-            Response::error('Valid user ID and role are required.', 422);
-        }
-
-        $targetDashboard = $rawDashboard !== '' ? $rawDashboard : Auth::defaultDashboardForRole($newRole);
-        if (!in_array($targetDashboard, Auth::DASHBOARDS, true)) {
-            Response::error('Invalid assigned dashboard selected.', 422);
-        }
-
-        $existing = $this->db->fetchOne('SELECT id, email, full_name, role, status, assigned_dashboard FROM users WHERE id = :id LIMIT 1', ['id' => $userId]);
-        if (!$existing) {
-            Response::notFound('User account not found.');
-        }
-
-        if ($userId === $super['id'] && $newRole !== 'superadmin') {
-            Response::forbidden('You cannot demote your own active Super Admin account.');
-        }
-        if ($userId === 'usr_superadmin' && $super['id'] !== 'usr_superadmin') {
-            Response::forbidden('Only the primary Super Admin account can modify its own role.');
-        }
-        if (strtolower((string)$existing['role']) === 'superadmin' && $newRole !== 'superadmin') {
-            $activeSupers = $this->db->fetchOne('SELECT COUNT(*) AS cnt FROM users WHERE role = "superadmin" AND status = "active" AND id != :id', ['id' => $userId]);
-            if ((int)($activeSupers['cnt'] ?? 0) < 1) {
-                Response::forbidden('At least one active Super Admin account must remain on the platform.');
-            }
-        }
-
-        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
-        if ($newRole === 'superadmin') {
-            $cleanPerms = ['*'];
-        } elseif (is_array($rawPerms)) {
-            $cleanPerms = array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
-        } else {
-            $cleanPerms = Auth::defaultPermissionsForRole($newRole);
-        }
-        $permsJson = json_encode($cleanPerms);
-
-        $this->db->withTransaction(function (Database $db) use ($userId, $newRole, $targetDashboard, $permsJson) {
-            $db->execute(
-                'UPDATE users SET role = :r, assigned_dashboard = :d, assigned_permissions = :p, updated_at = NOW() WHERE id = :id',
-                ['r' => $newRole, 'd' => $targetDashboard, 'p' => $permsJson, 'id' => $userId]
-            );
-            $db->execute(
-                'INSERT INTO user_profiles (user_id, assigned_permissions, created_at, updated_at)
-                 VALUES (:uid, :p1, NOW(), NOW())
-                 ON DUPLICATE KEY UPDATE assigned_permissions = :p2, updated_at = NOW()',
-                ['uid' => $userId, 'p1' => $permsJson, 'p2' => $permsJson]
-            );
-        });
-
-        Auth::revokeAllUserSessions($userId, 'role_or_dashboard_reassigned', true);
-
-        $this->db->execute(
-            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
-             VALUES (:id, :uid, :email, "ROLE_DASHBOARD_ASSIGNED", :det, :ip, NOW())',
-            [
-                'id' => Security::generateUuid(),
-                'uid' => $super['id'],
-                'email' => $super['email'],
-                'det' => json_encode([
-                    'target_user_id' => $userId,
-                    'previous_role' => $existing['role'],
-                    'new_role' => $newRole,
-                    'assigned_dashboard' => $targetDashboard,
-                    'permissions' => $cleanPerms,
-                ]),
-                'ip' => $request->getIp(),
-            ]
-        );
-
-        try {
-            if (!empty($existing['email'])) {
-                $mailer = new MailService();
-                $safeName = htmlspecialchars((string)($existing['full_name'] ?: 'User'), ENT_QUOTES, 'UTF-8');
-                $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                    . "<h2 style='margin:0 0 12px;color:#0f172a;'>Account Role & Workspace Updated</h2>"
-                    . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                    . "<p style='color:#334155;'>Your HAMBAKTECH account role is now <strong>" . strtoupper($newRole) . "</strong> with access to the <strong>" . strtoupper($targetDashboard) . " Dashboard</strong>.</p>"
-                    . "<p style='color:#475569;font-size:13px;'>For your security, please sign in again on your next visit to activate your updated workspace permissions.</p></div>";
-                $mailer->send((string)$existing['email'], (string)($existing['full_name'] ?: 'User'), 'HAMBAKTECH Access Role Updated', $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'ROLE_REASSIGN_EMAIL']);
-            }
-        } catch (Throwable) {
-        }
-
-        $updated = $this->hydrateCustomerRow($userId);
-        Response::success([
-            'customer' => $updated,
-            'user' => $updated,
-            'role' => $newRole,
-            'assigned_dashboard' => $targetDashboard,
-            'permissions' => $cleanPerms,
-        ], "Role updated to {$newRole} ({$targetDashboard} dashboard). Existing sessions revoked.");
-    }
-
     public function staff(Request $request): void
     {
         Auth::requirePermission($request, 'staff');
         $staff = $this->db->fetchAll(
-            'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.assigned_dashboard, u.kyc_status, u.tier, u.status,
+            'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.kyc_status, u.tier, u.status,
                     u.assigned_permissions, u.mfa_enabled, u.last_login_at, u.created_at,
                     p.assigned_permissions AS profile_permissions
              FROM users u
              LEFT JOIN user_profiles p ON p.user_id = u.id
-             WHERE u.role IN ("support", "staff", "manager", "admin", "superadmin")
-             ORDER BY FIELD(u.role, "superadmin", "admin", "manager", "staff", "support"), u.full_name ASC'
+             WHERE u.role IN ("admin", "superadmin")
+             ORDER BY u.role DESC, u.full_name ASC'
         );
 
+        $defaultAdminPerms = ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'];
         foreach ($staff as &$s) {
-            $r = strtolower(trim((string)($s['role'] ?? 'staff')));
             $perms = [];
+            $hasExplicitPerms = false;
             foreach ([$s['assigned_permissions'] ?? null, $s['profile_permissions'] ?? null] as $raw) {
-                if (is_string($raw) && $raw !== '') {
+                if (is_string($raw) && trim($raw) !== '') {
                     $decoded = json_decode($raw, true);
                     if (is_array($decoded)) {
                         $perms = $decoded;
+                        $hasExplicitPerms = true;
                         break;
                     }
                 }
             }
-            if ($r === 'superadmin') {
+            if (($s['role'] ?? '') === 'superadmin') {
                 $perms = ['*'];
-            } elseif (empty($perms)) {
-                $perms = Auth::defaultPermissionsForRole($r);
+            } elseif (!$hasExplicitPerms) {
+                $perms = $defaultAdminPerms;
             }
-            $s['assigned_dashboard'] = !empty($s['assigned_dashboard']) ? $s['assigned_dashboard'] : Auth::defaultDashboardForRole($r);
             $s['permissions'] = array_values(array_unique($perms));
             $s['mfa_enabled'] = (bool)($s['mfa_enabled'] ?? false);
             unset($s['assigned_permissions'], $s['profile_permissions']);
@@ -4229,8 +3612,7 @@ class AdminController
         $email = trim(strtolower((string)$request->input('email', '')));
         $password = (string)$request->input('password', '');
         $phone = trim((string)$request->input('phone_number', '')) ?: '+2348000000000';
-        $role = strtolower(trim((string)$request->input('role', 'staff')));
-        $rawDashboard = strtolower(trim((string)$request->input('assigned_dashboard', '')));
+        $role = strtolower(trim((string)$request->input('role', 'admin')));
         $rawPerms = $request->input('permissions', $request->input('assigned_permissions', null));
 
         if (empty($fullName) || empty($email) || empty($password)) {
@@ -4249,17 +3631,13 @@ class AdminController
             return;
         }
 
-        $dbRole = in_array($role, Auth::CONSOLE_ROLES, true) ? $role : 'staff';
-        $assignedDashboard = in_array($rawDashboard, Auth::DASHBOARDS, true) ? $rawDashboard : Auth::defaultDashboardForRole($dbRole);
-
-        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
-        $cleanPerms = Auth::defaultPermissionsForRole($dbRole);
+        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
+        $cleanPerms = ['customers', 'wallet', 'kyc', 'support', 'reports'];
         if (is_array($rawPerms)) {
             $filtered = array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
-            if (!empty($filtered)) {
-                $cleanPerms = $filtered;
-            }
+            $cleanPerms = $filtered;
         }
+        $dbRole = in_array($role, ['admin', 'superadmin'], true) ? $role : 'admin';
         if ($dbRole === 'superadmin') {
             $cleanPerms = ['*'];
         }
@@ -4269,10 +3647,10 @@ class AdminController
         $hash = password_hash($password, PASSWORD_BCRYPT);
         $refCode = (new ReferralEngineService($this->db))->generateUniqueCode('STF', 6);
 
-        $this->db->withTransaction(function (Database $db) use ($id, $email, $hash, $fullName, $phone, $phoneNorm, $dbRole, $assignedDashboard, $refCode, $permsJson) {
+        $this->db->withTransaction(function (Database $db) use ($id, $email, $hash, $fullName, $phone, $phoneNorm, $dbRole, $refCode, $permsJson) {
             $db->execute(
-                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, assigned_dashboard, wallet_balance, kyc_status, tier, kyc_level, referral_code, assigned_permissions, status, email_verified, token_version, created_at)
-                 VALUES (:id, :email, :hash, :name, :phone, :pnorm, :role, :dash, 0.00, "verified", 3, 3, :ref, :perms, "active", 1, 1, NOW())',
+                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, wallet_balance, kyc_status, tier, kyc_level, referral_code, assigned_permissions, status, email_verified, token_version, created_at)
+                 VALUES (:id, :email, :hash, :name, :phone, :pnorm, :role, 0.00, "verified", 3, 3, :ref, :perms, "active", 1, 1, NOW())',
                 [
                     'id' => $id,
                     'email' => $email,
@@ -4281,7 +3659,6 @@ class AdminController
                     'phone' => $phone,
                     'pnorm' => $phoneNorm ?: null,
                     'role' => $dbRole,
-                    'dash' => $assignedDashboard,
                     'ref' => $refCode,
                     'perms' => $permsJson,
                 ]
@@ -4306,24 +3683,12 @@ class AdminController
                 'id' => Security::generateUuid(),
                 'uid' => $super['id'],
                 'email' => $super['email'],
-                'det' => json_encode(['staff_id' => $id, 'staff_email' => $email, 'role' => $dbRole, 'assigned_dashboard' => $assignedDashboard, 'permissions' => $cleanPerms]),
+                'det' => json_encode(['staff_id' => $id, 'staff_email' => $email, 'role' => $dbRole, 'permissions' => $cleanPerms]),
                 'ip' => $request->getIp(),
             ]
         );
 
-        try {
-            $mailer = new MailService();
-            $safeName = htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8');
-            $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                . "<h2 style='margin:0 0 12px;color:#0f172a;'>Staff Account Provisioned</h2>"
-                . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                . "<p style='color:#334155;'>A HAMBAKTECH staff/console account has been created for <strong>{$email}</strong> with role <strong>" . strtoupper($dbRole) . "</strong> ({$assignedDashboard} workspace).</p>"
-                . "<p style='color:#475569;font-size:13px;'>Sign in at <a href='https://hambaktech.com.ng/#login'>https://hambaktech.com.ng</a> using the credentials provided by your administrator.</p></div>";
-            $mailer->send($email, $fullName, 'Welcome to HAMBAKTECH Operations Team', $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'STAFF_ONBOARDING_EMAIL']);
-        } catch (Throwable) {
-        }
-
-        $row = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, assigned_dashboard, status, assigned_permissions FROM users WHERE id = :id', ['id' => $id]);
+        $row = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, status, assigned_permissions FROM users WHERE id = :id', ['id' => $id]);
         if ($row) {
             $row['permissions'] = $cleanPerms;
             unset($row['assigned_permissions']);
@@ -4337,7 +3702,7 @@ class AdminController
         $id = $params['id'] ?? '';
         $body = $request->getBody();
 
-        $existing = $this->db->fetchOne('SELECT id, email, full_name, role, assigned_dashboard, status, assigned_permissions FROM users WHERE id = :id LIMIT 1', ['id' => $id]);
+        $existing = $this->db->fetchOne('SELECT id, email, role, status, assigned_permissions FROM users WHERE id = :id LIMIT 1', ['id' => $id]);
         if (!$existing) {
             Response::notFound('Staff account not found.');
         }
@@ -4371,25 +3736,12 @@ class AdminController
         $paramsDb = ['id' => $id];
         $securitySensitiveChanged = false;
 
-        if (isset($body['role']) && in_array(strtolower((string)$body['role']), Auth::ALL_ROLES, true)) {
-            $newRole = strtolower((string)$body['role']);
-            if ($newRole !== $existing['role']) {
+        if (isset($body['role']) && in_array($body['role'], ['admin', 'superadmin', 'customer'], true)) {
+            if ($body['role'] !== $existing['role']) {
                 $securitySensitiveChanged = true;
             }
             $updates[] = 'role = :r';
-            $paramsDb['r'] = $newRole;
-            if (!isset($body['assigned_dashboard'])) {
-                $updates[] = 'assigned_dashboard = :dash_auto';
-                $paramsDb['dash_auto'] = Auth::defaultDashboardForRole($newRole);
-            }
-        }
-        if (isset($body['assigned_dashboard']) && in_array(strtolower((string)$body['assigned_dashboard']), Auth::DASHBOARDS, true)) {
-            $newDash = strtolower((string)$body['assigned_dashboard']);
-            if ($newDash !== ($existing['assigned_dashboard'] ?? '')) {
-                $securitySensitiveChanged = true;
-            }
-            $updates[] = 'assigned_dashboard = :dash';
-            $paramsDb['dash'] = $newDash;
+            $paramsDb['r'] = $body['role'];
         }
         if (isset($body['status']) && in_array($body['status'], ['active', 'suspended'], true)) {
             if ($body['status'] !== $existing['status']) {
@@ -4412,7 +3764,7 @@ class AdminController
         $rawPerms = $body['permissions'] ?? ($body['assigned_permissions'] ?? null);
         $cleanPerms = null;
         if (is_array($rawPerms)) {
-            $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
+            $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
             $effectiveRole = $paramsDb['r'] ?? $existing['role'];
             $cleanPerms = ($effectiveRole === 'superadmin')
                 ? ['*']
@@ -4451,11 +3803,10 @@ class AdminController
             ]
         );
 
-        $updated = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, assigned_dashboard, status, assigned_permissions FROM users WHERE id = :id', ['id' => $id]);
+        $updated = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, status, assigned_permissions FROM users WHERE id = :id', ['id' => $id]);
         if ($updated) {
             $decoded = is_string($updated['assigned_permissions'] ?? null) ? json_decode($updated['assigned_permissions'], true) : [];
-            $updated['permissions'] = ($updated['role'] === 'superadmin') ? ['*'] : (is_array($decoded) ? $decoded : Auth::defaultPermissionsForRole((string)$updated['role']));
-            $updated['assigned_dashboard'] = !empty($updated['assigned_dashboard']) ? $updated['assigned_dashboard'] : Auth::defaultDashboardForRole((string)$updated['role']);
+            $updated['permissions'] = ($updated['role'] === 'superadmin') ? ['*'] : (is_array($decoded) ? $decoded : []);
             unset($updated['assigned_permissions']);
         }
         Response::success(['staff' => $updated], 'Staff account updated');
@@ -4767,23 +4118,6 @@ class AdminController
             ]
         );
 
-        try {
-            $cust = $this->db->fetchOne('SELECT email, full_name FROM users WHERE id = :uid', ['uid' => $sub['user_id']]);
-            if ($cust && !empty($cust['email'])) {
-                $mailer = new MailService();
-                $safeName = htmlspecialchars((string)($cust['full_name'] ?: 'Valued Customer'), ENT_QUOTES, 'UTF-8');
-                $safeMsg = htmlspecialchars($notifMsg, ENT_QUOTES, 'UTF-8');
-                $color = ($action === 'approve') ? '#059669' : (($action === 'request_info') ? '#d97706' : '#dc2626');
-                $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                    . "<h2 style='margin:0 0 12px;color:{$color};'>{$notifTitle}</h2>"
-                    . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                    . "<p style='color:#334155;'>{$safeMsg}</p>"
-                    . "<p style='color:#64748b;font-size:12px;margin-top:20px;'>Log into your HAMBAKTECH portal under Identity &amp; KYC for details.</p></div>";
-                $mailer->send((string)$cust['email'], (string)($cust['full_name'] ?: 'Customer'), "{$notifTitle} — HAMBAKTECH", $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'KYC_SUBMISSION_REVIEW_EMAIL']);
-            }
-        } catch (Throwable) {
-        }
-
         $updated = $this->db->fetchOne('SELECT * FROM kyc_submissions WHERE id = :id', ['id' => $id]);
         Response::success(['submission' => $updated], "KYC submission marked as {$newStatus}");
     }
@@ -5061,24 +4395,40 @@ class AdminController
     {
         $admin = Auth::requireRole($request, ['superadmin']);
 
-        // 1. Create an encrypted AES-256-GCM database backup first (never plaintext SQL)
-        require_once HAMBAKTECH_ROOT . '/database/backup.php';
+        // 1. Create a full database backup first
         $backupDir = HAMBAKTECH_ROOT . '/storage/backups';
-        \HambakTech\Database\BackupManager::ensureBackupDirProtection($backupDir);
-        $backupFilename = 'hambaktech_backup_pre_cleanup_' . date('Ymd_His') . '.sql.enc';
+        if (!is_dir($backupDir)) {
+            mkdir($backupDir, 0755, true);
+        }
+        $backupFilename = 'hambaktech_backup_pre_cleanup_' . date('Ymd_His') . '.sql';
         $backupFile = $backupDir . '/' . $backupFilename;
 
-        try {
-            $bm = new \HambakTech\Database\BackupManager($this->db->getPdo());
-            $ok = $bm->backup($backupFile, (string)$admin['email']);
-            if (!$ok) {
-                Response::error('Unable to write encrypted pre-cleanup backup. Cleanup aborted for safety.', 500);
-                return;
+        $tables = $this->db->fetchAll('SHOW TABLES');
+        $out = "-- =====================================================================\n";
+        $out .= "-- HAMBAKTECH PRE-CLEANUP PRODUCTION BACKUP\n";
+        $out .= "-- Generated: " . date('Y-m-d H:i:s') . "\n";
+        $out .= "-- Initiated by: " . $admin['email'] . "\n";
+        $out .= "-- =====================================================================\n\n";
+        $out .= "SET FOREIGN_KEY_CHECKS = 0;\n\n";
+
+        foreach ($tables as $tRow) {
+            $table = array_values($tRow)[0];
+            $create = $this->db->fetchOne("SHOW CREATE TABLE `{$table}`");
+            if ($create && isset($create['Create Table'])) {
+                $out .= "DROP TABLE IF EXISTS `{$table}`;\n" . $create['Create Table'] . ";\n\n";
+                $rows = $this->db->fetchAll("SELECT * FROM `{$table}`");
+                if (!empty($rows)) {
+                    $cols = array_map(fn($c) => "`{$c}`", array_keys($rows[0]));
+                    foreach ($rows as $r) {
+                        $vals = array_map(fn($v) => $v === null ? 'NULL' : "'" . addslashes((string)$v) . "'", array_values($r));
+                        $out .= "INSERT INTO `{$table}` (" . implode(', ', $cols) . ") VALUES (" . implode(', ', $vals) . ");\n";
+                    }
+                    $out .= "\n";
+                }
             }
-        } catch (Throwable $e) {
-            Response::error('Encrypted backup creation failed (' . $e->getMessage() . '). Cleanup aborted for safety.', 500);
-            return;
         }
+        $out .= "SET FOREIGN_KEY_CHECKS = 1;\n";
+        file_put_contents($backupFile, $out);
 
         // 2. Genuine users whitelist - strictly protected
         $genuineEmails = [
@@ -5397,47 +4747,7 @@ class AdminController
         Auth::requirePermission($request, 'audit');
         FootprintService::ensureTable();
 
-        $category = trim((string)$request->query('category', ''));
-        $status = trim((string)$request->query('status', ''));
-        $search = trim((string)$request->query('search', ''));
-        $startDate = trim((string)$request->query('start_date', ''));
-        $endDate = trim((string)$request->query('end_date', ''));
-
-        $conditions = ['1=1'];
-        $params = [];
-
-        if (!empty($category) && $category !== 'all') {
-            $conditions[] = 'category = :cat';
-            $params['cat'] = $category;
-        }
-        if (!empty($status) && $status !== 'all') {
-            $conditions[] = 'status = :st';
-            $params['st'] = $status;
-        }
-        if (!empty($search)) {
-            $conditions[] = '(user_email LIKE :s1 OR user_name LIKE :s2 OR action LIKE :s3 OR reference LIKE :s4 OR ip_address LIKE :s5 OR service_type LIKE :s6)';
-            $searchPattern = '%' . $search . '%';
-            $params['s1'] = $searchPattern;
-            $params['s2'] = $searchPattern;
-            $params['s3'] = $searchPattern;
-            $params['s4'] = $searchPattern;
-            $params['s5'] = $searchPattern;
-            $params['s6'] = $searchPattern;
-        }
-        if (!empty($startDate)) {
-            $conditions[] = 'created_at >= :start';
-            $params['start'] = $startDate . ' 00:00:00';
-        }
-        if (!empty($endDate)) {
-            $conditions[] = 'created_at <= :end';
-            $params['end'] = $endDate . ' 23:59:59';
-        }
-
-        $whereClause = implode(' AND ', $conditions);
-        $exportIdRows = $this->db->fetchAll(
-            "SELECT id FROM activity_footprints WHERE {$whereClause} ORDER BY created_at DESC LIMIT 2000",
-            $params
-        );
+        $exportIdRows = $this->db->fetchAll('SELECT id FROM activity_footprints ORDER BY created_at DESC LIMIT 1000');
         $rows = [];
         if (!empty($exportIdRows)) {
             $ids = array_values(array_filter(array_column($exportIdRows, 'id')));
@@ -5460,43 +4770,28 @@ class AdminController
             }
         }
 
-        while (ob_get_level() > 0) {
-            @ob_end_clean();
-        }
-
-        $sanitizeCsv = static function (mixed $val): string {
-            $str = (string)($val ?? '');
-            if ($str !== '' && preg_match('/^[=+\-@\t\r]/', $str) === 1) {
-                return "'" . $str;
-            }
-            return $str;
-        };
-
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="hambaktech_footprints_' . date('Ymd_His') . '.csv"');
-        header('Cache-Control: no-store, no-cache, must-revalidate');
-        header('Pragma: no-cache');
-        header('X-Content-Type-Options: nosniff');
 
         $out = fopen('php://output', 'w');
         fputcsv($out, ['ID', 'Timestamp', 'Category', 'Action', 'User Email', 'User Name', 'Service Type', 'Reference', 'Provider', 'Status', 'Amount (NGN)', 'IP Address', 'Device', 'Browser', 'Error']);
         foreach ($rows as $r) {
             fputcsv($out, [
-                $sanitizeCsv($r['id']),
-                $sanitizeCsv($r['created_at']),
-                $sanitizeCsv($r['category']),
-                $sanitizeCsv($r['action']),
-                $sanitizeCsv($r['user_email'] ?? 'N/A'),
-                $sanitizeCsv($r['user_name'] ?? 'N/A'),
-                $sanitizeCsv($r['service_type'] ?? 'N/A'),
-                $sanitizeCsv($r['reference'] ?? 'N/A'),
-                $sanitizeCsv($r['provider'] ?? 'N/A'),
-                $sanitizeCsv($r['status']),
-                $sanitizeCsv($r['amount'] ?? '0.00'),
-                $sanitizeCsv($r['ip_address'] ?? 'N/A'),
-                $sanitizeCsv($r['device_info'] ?? 'N/A'),
-                $sanitizeCsv($r['browser_info'] ?? 'N/A'),
-                $sanitizeCsv($r['error_message'] ?? ''),
+                $r['id'],
+                $r['created_at'],
+                $r['category'],
+                $r['action'],
+                $r['user_email'] ?? 'N/A',
+                $r['user_name'] ?? 'N/A',
+                $r['service_type'] ?? 'N/A',
+                $r['reference'] ?? 'N/A',
+                $r['provider'] ?? 'N/A',
+                $r['status'],
+                $r['amount'] ?? '0.00',
+                $r['ip_address'] ?? 'N/A',
+                $r['device_info'] ?? 'N/A',
+                $r['browser_info'] ?? 'N/A',
+                $r['error_message'] ?? '',
             ]);
         }
         fclose($out);
@@ -5541,11 +4836,11 @@ class AdminController
             Response::error('Please enter a valid email address.', 422);
         }
 
-        if (!in_array($role, Auth::ALL_ROLES, true)) {
+        if (!in_array($role, ['customer', 'agent', 'staff', 'admin'], true)) {
             $role = 'customer';
         }
-        if (in_array($role, Auth::CONSOLE_ROLES, true) && $admin['role'] !== 'superadmin') {
-            Response::forbidden('Only a Super Admin can assign console or administrator roles.');
+        if (in_array($role, ['staff', 'admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can create staff or administrator accounts.');
         }
 
         if (!in_array($status, ['active', 'pending', 'suspended'], true)) {
@@ -5574,7 +4869,7 @@ class AdminController
         }
 
         $hasIdentityDocs = !empty($nin) || !empty($bvn) || !empty($idNumber);
-        if (in_array($role, ['customer', 'agent', 'student'], true) && $tier >= 2 && !$hasIdentityDocs) {
+        if (($role === 'customer' || $role === 'agent') && $tier >= 2 && !$hasIdentityDocs) {
             Response::error('Providing Tier 2+ verified status requires an 11-digit NIN/BVN or official ID number.', 422);
         }
 
@@ -5593,42 +4888,44 @@ class AdminController
             Response::error('An account with this phone number already exists.', 409);
         }
 
-        $passwordAutoGenerated = empty($password);
-        $effectivePassword = $passwordAutoGenerated ? bin2hex(random_bytes(32)) : $password;
-        $setupOtp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-        $setupToken = bin2hex(random_bytes(24));
+        if (empty($password)) {
+            $password = 'Hambak@' . random_int(100000, 999999);
+        }
 
         $refEngine = new ReferralEngineService($this->db);
         $userId = Security::generateUuid();
         $kycId = Security::generateUuid();
-        $dbRole = $role;
-        $rawDashboard = strtolower(trim((string)$request->input('assigned_dashboard', '')));
-        $assignedDashboard = in_array($rawDashboard, Auth::DASHBOARDS, true) ? $rawDashboard : Auth::defaultDashboardForRole($dbRole);
-        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
-        $rawPerms = $request->input('permissions', $request->input('assigned_permissions', null));
-        if ($dbRole === 'superadmin') {
-            $cleanPerms = ['*'];
-        } elseif ($admin['role'] === 'superadmin' && is_array($rawPerms)) {
-            $cleanPerms = array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
-        } else {
-            $cleanPerms = Auth::defaultPermissionsForRole($dbRole);
+        $dbRole = match ($role) {
+            'superadmin' => 'superadmin',
+            'admin', 'staff' => 'admin',
+            default => 'customer',
+        };
+        $assignedPermsJson = null;
+        if ($role === 'staff') {
+            $reqPerms = $request->input('permissions', ['printing', 'support']);
+            $allowedStaffPerms = ['customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
+            $filteredPerms = is_array($reqPerms)
+                ? array_values(array_intersect($allowedStaffPerms, array_map('strval', $reqPerms)))
+                : ['printing', 'support'];
+            $assignedPermsJson = json_encode($filteredPerms);
+        } elseif ($dbRole === 'superadmin') {
+            $assignedPermsJson = json_encode(['*']);
         }
-        $assignedPermsJson = json_encode($cleanPerms);
         $dbStatus = ($status === 'suspended') ? 'suspended' : 'active';
         $emailVerified = ($status === 'active') ? 1 : 0;
         $kycStatus = ($tier >= 2) ? 'verified' : ($hasIdentityDocs ? 'pending' : 'unverified');
-        $passwordHash = Security::hashPassword($effectivePassword);
+        $passwordHash = Security::hashPassword($password);
         $referralCode = $refEngine->generateUniqueCode();
 
         $this->db->withTransaction(function (Database $db) use (
-            $userId, $kycId, $email, $passwordHash, $fullName, $phone, $phoneNorm, $dbRole, $assignedDashboard, $assignedPermsJson, $dbStatus, $tier, $kycStatus,
+            $userId, $kycId, $email, $passwordHash, $fullName, $phone, $phoneNorm, $dbRole, $assignedPermsJson, $role, $dbStatus, $tier, $kycStatus,
             $referralCode, $emailVerified, $initialBalance, $admin,
             $dateOfBirth, $residentialAddress, $state, $lga, $nin, $bvn, $idType, $idNumber
         ) {
             // 1. Create User
             $db->execute(
-                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, assigned_dashboard, assigned_permissions, kyc_status, tier, referral_code, status, email_verified, created_at)
-                 VALUES (:id, :email, :pass, :name, :phone, :pnorm, :role, :dash, :perms, :ks, :tier, :ref, :st, :ev, NOW())',
+                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, assigned_permissions, kyc_status, tier, referral_code, status, email_verified, created_at)
+                 VALUES (:id, :email, :pass, :name, :phone, :pnorm, :role, :perms, :ks, :tier, :ref, :st, :ev, NOW())',
                 [
                     'id' => $userId,
                     'email' => $email,
@@ -5637,7 +4934,6 @@ class AdminController
                     'phone' => $phone,
                     'pnorm' => $phoneNorm ?: null,
                     'role' => $dbRole,
-                    'dash' => $assignedDashboard,
                     'perms' => $assignedPermsJson,
                     'ks' => $kycStatus,
                     'tier' => $tier,
@@ -5654,8 +4950,8 @@ class AdminController
             // 2. Profile with Level 2 KYC data
             try {
                 $db->execute(
-                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, created_at, updated_at)
-                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, NOW(), NOW())',
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, bio, assigned_permissions, created_at, updated_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, :bio, :perms, NOW(), NOW())',
                     [
                         'uid' => $userId,
                         'nin' => $nin ?: null,
@@ -5664,6 +4960,8 @@ class AdminController
                         'st' => $state ?: null,
                         'lga' => $lga ?: null,
                         'dob' => $dateOfBirth ?: null,
+                        'bio' => ($role === 'agent') ? 'Agent Account' : null,
+                        'perms' => $assignedPermsJson,
                     ]
                 );
             } catch (Throwable) {
@@ -5842,54 +5140,29 @@ class AdminController
                     </table>
                 </div>
             </div>";
-            $mailService->send($adminEmail, 'Administrator', "[HAMBAKTECH] New Customer Provisioned (KYC Level {$tier}): {$fullName}", $adminAlertHtml, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'ADMIN_NEW_CUSTOMER_ALERT']);
+            $mailService->send($adminEmail, 'Administrator', "[HAMBAKTECH] New Customer Provisioned (KYC Level {$tier}): {$fullName}", $adminAlertHtml);
         } catch (Throwable $e) {
             error_log('[createCustomer Admin Email Error] ' . $e->getMessage());
-        }
-
-        // Create one-time password setup token (valid 24 hours) whenever password wasn't explicitly set, or to allow immediate self-service password setup without exposing plaintext passwords
-        $setupTokenPersisted = false;
-        try {
-            $this->db->execute('DELETE FROM password_resets WHERE email = :email', ['email' => strtolower($email)]);
-            $this->db->execute(
-                'INSERT INTO password_resets (id, email, otp_code, token, attempts, is_used, expires_at, created_at)
-                 VALUES (:id, :email, :otp, :tok, 0, 0, DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW())',
-                [
-                    'id' => Security::generateUuid(),
-                    'email' => strtolower($email),
-                    'otp' => $setupOtp,
-                    'tok' => $setupToken,
-                ]
-            );
-            $setupTokenPersisted = true;
-        } catch (Throwable $e) {
-            error_log('[createCustomer Password Setup Token Error] ' . $e->getMessage());
         }
 
         if ($notifyCustomer) {
             try {
                 $mailService = new MailService();
-                $safeCustomerName = htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8');
-                $credentialNoticeHtml = $passwordAutoGenerated
-                    ? "<p style='margin: 8px 0;'>For your security, temporary passwords are never emailed in plaintext.</p>
-                       <p style='margin: 4px 0;'><strong>One-Time Password Setup Code (valid 24h):</strong> <code style='background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-weight: bold;'>{$setupOtp}</code></p>
-                       <p style='font-size: 13px; color: #334155;'>Open the portal sign-in page, click <strong>Forgot / Set Password</strong>, enter your email and the 6-digit setup code above to choose your private password.</p>"
-                    : "<p style='margin: 8px 0;'>Your account password was configured during onboarding. Please sign in and update your password immediately if needed.</p>";
                 $body = "
                 <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;'>
                     <h2 style='color: #1d4ed8;'>Welcome to HAMBAKTECH Enterprise</h2>
-                    <p>Dear <strong>{$safeCustomerName}</strong>,</p>
+                    <p>Dear <strong>{$fullName}</strong>,</p>
                     <p>Your enterprise customer account has been created by our administration team.</p>
                     <div style='background: #f8fafc; padding: 16px; border-radius: 8px; margin: 20px 0;'>
                         <p style='margin: 4px 0;'><strong>Login Email:</strong> {$email}</p>
-                        {$credentialNoticeHtml}
+                        <p style='margin: 4px 0;'><strong>Temporary Password:</strong> <code style='background: #e2e8f0; padding: 2px 6px; border-radius: 4px;'>{$password}</code></p>
                         <p style='margin: 4px 0;'><strong>Account Tier:</strong> KYC Level {$tier} ({$kycStatus})</p>
                         <p style='margin: 4px 0;'><strong>Initial Wallet Balance:</strong> ₦" . number_format($initialBalance, 2) . "</p>
                     </div>
-                    <p><a href='https://hambaktech.com.ng/#login' style='display: inline-block; padding: 10px 20px; background: #1d4ed8; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;'>Open HambakTech Portal</a></p>
-                    <p style='font-size: 12px; color: #64748b; margin-top: 24px;'>Never share your password or setup code with anyone.</p>
+                    <p><a href='https://hambaktech.com.ng/#login' style='display: inline-block; padding: 10px 20px; background: #1d4ed8; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;'>Login to Portal</a></p>
+                    <p style='font-size: 12px; color: #64748b; margin-top: 24px;'>Please change your password immediately after your first sign in.</p>
                 </div>";
-                $mailService->send($email, $fullName, 'Welcome to HAMBAKTECH — Complete Your Account Setup', $body, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'ADMIN_CUSTOMER_WELCOME_EMAIL']);
+                $mailService->send($email, $fullName, 'Your HAMBAKTECH Portal Account Credentials', $body);
             } catch (Throwable $e) {
                 error_log('[createCustomer Mail Error] ' . $e->getMessage());
             }
@@ -5905,14 +5178,13 @@ class AdminController
             'successful',
             $initialBalance,
             null,
-            ['created_email' => $email, 'role' => $dbRole, 'tier' => $tier, 'kyc_status' => $kycStatus, 'password_setup_token_issued' => $setupTokenPersisted],
+            ['created_email' => $email, 'role' => $dbRole, 'tier' => $tier, 'kyc_status' => $kycStatus],
             $request->getIp()
         );
 
         $created = $this->hydrateCustomerRow($userId);
         if ($created) {
-            $created['password_setup_required'] = $passwordAutoGenerated;
-            $created['setup_token_issued'] = $setupTokenPersisted;
+            $created['generated_password'] = $password;
         }
 
         Response::success([

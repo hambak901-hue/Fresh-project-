@@ -16,6 +16,7 @@ use HambakTech\Core\Request;
 use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
+use HambakTech\Core\SchemaSync;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\PinSecurityService;
@@ -397,10 +398,18 @@ class VerificationController
     private function mapCategoryKey(string $categoryName): string
     {
         $c = strtolower(trim($categoryName));
-        if (str_contains($c, 'bvn') && str_contains($c, 'mod')) return 'bvn_modification';
-        if (str_contains($c, 'bvn')) return 'bvn_verification';
-        if (str_contains($c, 'mod')) return 'nin_modification';
-        if (str_contains($c, 'enrol')) return 'enrolment';
+        if ((str_contains($c, 'bvn') && str_contains($c, 'mod')) || $c === 'bvn_modification') {
+            return 'bvn_modification';
+        }
+        if (str_contains($c, 'bvn')) {
+            return 'bvn_verification';
+        }
+        if (str_contains($c, 'mod')) {
+            return 'nin_modification';
+        }
+        if (str_contains($c, 'enrol')) {
+            return 'enrolment';
+        }
         if (str_contains($c, 'add') || str_contains($c, 'ipe') || str_contains($c, 'clearance') || str_contains($c, 'personal')) {
             return 'additional_services';
         }
@@ -562,44 +571,11 @@ class VerificationController
         return [$isBvn, $isNin];
     }
 
-    private function hasSubstantiveIdentityData(array $resultData, bool $isBvn = false): bool
-    {
-        $st = strtolower(trim((string)($resultData['status'] ?? '')));
-        if (in_array($st, ['failed', 'error', 'not_found', 'no_record', 'rejected'], true)) {
-            return false;
-        }
-        $candidateKeys = $isBvn
-            ? ['firstname', 'middlename', 'surname', 'full_name', 'name_on_card', 'bvn', 'photo', 'pdf_base64', 'pdf_url']
-            : ['firstname', 'middlename', 'surname', 'full_name', 'name_on_card', 'nin', 'bvn', 'photo', 'pdf_base64', 'pdf_url'];
-        foreach ($candidateKeys as $k) {
-            if (!empty($resultData[$k]) && is_string($resultData[$k])) {
-                $v = strtolower(trim($resultData[$k]));
-                if ($v !== '' && $v !== 'null' && $v !== 'undefined' && $v !== 'n/a') {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
     private function sanitizeCustomerError(string $message): string
     {
-        $lower = strtolower($message);
-        if (str_contains($lower, 'insufficient') && (str_contains($lower, 'balance') || str_contains($lower, 'fund'))) {
-            return 'Identity gateway service is temporarily unavailable. Please try again shortly';
-        }
         $clean = preg_replace('/https?:\/\/\S+/i', '', $message) ?? $message;
-        $clean = preg_replace('/\/api\/\S+/i', '', $clean) ?? $clean;
-        $clean = preg_replace('/\b[a-z0-9_]+\.php\b/i', '', $clean) ?? $clean;
-        $clean = preg_replace('/₦\s*[0-9,]+(?:\.[0-9]+)?/u', '', $clean) ?? $clean;
-        $clean = str_ireplace(
-            ['2sureverify', '2sure', 'veripine', 'ulamadata', 'vtpass', 'twosureverify_api_key', 'veripine_api_key', 'x-api-key', 'api_key'],
-            'verification gateway',
-            $clean
-        );
-        $clean = preg_replace('/\s{2,}/', ' ', $clean) ?? $clean;
-        $clean = rtrim(trim($clean), ". \t\n\r");
-        return $clean !== '' ? $clean : 'Identity verification could not be completed at this moment';
+        $clean = str_ireplace(['2sureverify', 'veripine', 'ulamadata', 'api_key', 'twosureverify_api_key'], 'verification gateway', $clean);
+        return trim($clean) ?: 'Identity verification could not be completed at this moment.';
     }
 
     private function sanitizeResultForCustomer(array $data, string $serviceKey = '', string $type = ''): array
@@ -608,10 +584,8 @@ class VerificationController
             $data['provider'],
             $data['provider_id'],
             $data['provider_cost'],
-            $data['provider_reference'],
             $data['wholesale_cost'],
             $data['raw_error'],
-            $data['api_response'],
             $data['endpoint'],
             $data['api_url'],
             $data['api_key'],
@@ -621,13 +595,8 @@ class VerificationController
             $data['wallet_balance'],
             $data['provider_balance'],
             $data['commission'],
-            $data['charge'],
-            $data['diagnostics'],
-            $data['debug']
+            $data['charge']
         );
-        if (!empty($data['error']) && is_string($data['error'])) {
-            $data['error'] = $this->sanitizeCustomerError($data['error']);
-        }
         [$isBvn, $isNin] = $this->detectRecordDomain($serviceKey, $type);
         $data = $this->stripCrossTypeFields($data, $isBvn, $isNin);
         if (!empty($data['photo']) && is_string($data['photo'])) {
@@ -648,6 +617,8 @@ class VerificationController
     public function services(Request $request): void
     {
         self::ensureSlipSchemaAndDefaults($this->db);
+        SchemaSync::syncModificationCatalog($this->db);
+        SchemaSync::syncEnrolmentCatalog($this->db);
 
         $user = Auth::user($request);
         $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
@@ -657,7 +628,9 @@ class VerificationController
             $rows = $this->db->fetchAll(
                 'SELECT s.service_key as `key`, s.name, s.description, s.wholesale_cost, s.selling_price,
                         s.provider_id as provider, s.endpoint, s.is_active as enabled,
-                        s.required_fields, s.slip_type_supported, c.name as category_name, c.code as category_code
+                        s.required_fields, s.slip_type_supported, s.processing_type, s.manual_label,
+                        s.estimated_turnaround, s.required_documents, s.form_schema, s.supported_notes,
+                        c.name as category_name, c.code as category_code
                  FROM service_catalogue s
                  LEFT JOIN service_categories c ON c.id = s.category_id
                  WHERE s.is_active = 1
@@ -666,7 +639,10 @@ class VerificationController
         } else {
             $rows = $this->db->fetchAll(
                 'SELECT s.service_key as `key`, s.name, s.description, s.selling_price,
-                        s.is_active as enabled, s.required_fields, s.slip_type_supported, c.name as category_name, c.code as category_code
+                        s.is_active as enabled, s.required_fields, s.slip_type_supported,
+                        s.processing_type, s.manual_label, s.estimated_turnaround,
+                        s.required_documents, s.form_schema, s.supported_notes,
+                        c.name as category_name, c.code as category_code
                  FROM service_catalogue s
                  LEFT JOIN service_categories c ON c.id = s.category_id
                  WHERE s.is_active = 1
@@ -692,8 +668,10 @@ class VerificationController
                 $r['wholesale_cost'] = (float)$r['wholesale_cost'];
                 $r['margin'] = round($r['selling_price'] - $r['wholesale_cost'], 2);
             }
-            if (is_string($r['required_fields'])) {
-                $r['required_fields'] = json_decode($r['required_fields'], true) ?: [];
+            foreach (['required_fields', 'required_documents', 'form_schema'] as $jsonField) {
+                if (isset($r[$jsonField]) && is_string($r[$jsonField])) {
+                    $r[$jsonField] = json_decode($r[$jsonField], true) ?: [];
+                }
             }
             $catKey = !empty($r['category_code']) ? $this->mapCategoryKey((string)$r['category_code']) : $this->mapCategoryKey((string)($r['category_name'] ?? ''));
             $r['category'] = $catKey;
@@ -792,36 +770,21 @@ class VerificationController
 
         $serviceKey = trim((string)($request->input('serviceKey') ?? $request->input('service_key', '')));
         $searchType = strtolower(trim((string)($allInputs['search_type'] ?? $request->input('search_type', ''))));
-        $requestedVersion = strtolower(trim((string)($allInputs['version'] ?? $request->input('version', ''))));
-        $prioritizeVersion = static function (array $candidates) use ($requestedVersion): array {
-            if (in_array($requestedVersion, ['v1', 'v2', 'v3'], true)) {
-                usort($candidates, static function (string $a, string $b) use ($requestedVersion): int {
-                    $aMatch = str_ends_with($a, '_' . $requestedVersion) ? 0 : 1;
-                    $bMatch = str_ends_with($b, '_' . $requestedVersion) ? 0 : 1;
-                    return $aMatch <=> $bMatch;
-                });
-            }
-            return $candidates;
-        };
         if ($serviceKey === '' || $serviceKey === 'nin_verify') {
-            if (in_array($searchType, ['demo_v1', 'demo_v2', 'demo_v3', 'phone_v1', 'phone_v2', 'phone_v3', 'nin_v1', 'nin_v2', 'nin_v3', 'vnin_verification'], true)) {
-                $serviceKey = $searchType;
-            } elseif (in_array($searchType, ['demo', 'demographic'], true)) {
-                $serviceKey = $pickFirstActiveKey($prioritizeVersion(['demo_v1', 'demo_v2', 'demo_v3']));
-            } elseif (in_array($searchType, ['phone', 'phone_number'], true)) {
-                $serviceKey = $pickFirstActiveKey($prioritizeVersion(['phone_v1', 'phone_v2', 'phone_v3']));
-            } elseif ($searchType === 'vnin') {
+            if (in_array($searchType, ['demo', 'demographic', 'demo_v1', 'demo_v2', 'demo_v3'], true)) {
+                $serviceKey = $pickFirstActiveKey(['demo_v1', 'demo_v2', 'demo_v3']);
+            } elseif (in_array($searchType, ['phone', 'phone_number', 'phone_v1', 'phone_v2', 'phone_v3'], true)) {
+                $serviceKey = $pickFirstActiveKey(['phone_v1', 'phone_v2', 'phone_v3']);
+            } elseif (in_array($searchType, ['vnin', 'vnin_verification'], true)) {
                 $serviceKey = 'vnin_verification';
             } else {
-                $serviceKey = $pickFirstActiveKey($prioritizeVersion(['nin_v1', 'nin_v2', 'nin_v3']));
+                $serviceKey = $pickFirstActiveKey(['nin_v1', 'nin_v2', 'nin_v3']);
             }
         } elseif ($serviceKey === 'bvn_verify') {
-            if (in_array($searchType, ['bvn_v1', 'bvn_v2', 'bvn_v3', 'bvn_retrieval'], true)) {
-                $serviceKey = $searchType;
-            } elseif (in_array($searchType, ['phone', 'phone_number', 'bvn_phone'], true)) {
+            if (in_array($searchType, ['phone', 'phone_number', 'bvn_phone', 'bvn_retrieval'], true)) {
                 $serviceKey = 'bvn_retrieval';
             } else {
-                $serviceKey = $pickFirstActiveKey($prioritizeVersion(['bvn_v1', 'bvn_v2', 'bvn_v3']));
+                $serviceKey = $pickFirstActiveKey(['bvn_v1', 'bvn_v2', 'bvn_v3']);
             }
         }
 
@@ -1152,7 +1115,6 @@ class VerificationController
             $providerResult = null;
             $lastErrorMsg = 'Upstream identity verification failed.';
             $primaryErrorMsg = null;
-            $attemptErrors = [];
 
             foreach ($providerChain as $idx => $candidateProv) {
                 $usedProvider = $candidateProv;
@@ -1162,35 +1124,22 @@ class VerificationController
                     $attemptPayload['reference'] = $reference . '_FB' . $idx;
                 }
                 $attemptRes = $candidateAdapter->verify($endpoint, $attemptPayload);
-                $attemptOk = (!isset($attemptRes['success']) || (bool)$attemptRes['success'] === true)
-                    && empty($attemptRes['is_simulated'])
-                    && !in_array(strtolower((string)($attemptRes['status'] ?? '')), ['failed', 'error', 'not_found', 'no_record'], true);
-
-                if ($attemptOk) {
-                    $candidateNormalized = $this->extractNormalizedIdentity($attemptRes, $isBvnVerification, $isNinVerification);
-                    if (($isNinVerification || $isBvnVerification) && !$this->hasSubstantiveIdentityData($candidateNormalized, $isBvnVerification)) {
-                        $attemptOk = false;
-                        $attemptRes['code'] = (int)($attemptRes['code'] ?? 422);
-                        $attemptRes['message'] = 'Gateway returned an empty identity record without verified details.';
-                    }
+                $attemptOk = !isset($attemptRes['success']) ? true : (bool)$attemptRes['success'];
+                if (strtolower((string)($attemptRes['status'] ?? '')) === 'failed') {
+                    $attemptOk = false;
                 }
-
                 if ($attemptOk) {
                     $providerResult = $attemptRes;
                     break;
                 }
-                $rawCandMsg = trim((string)($attemptRes['message'] ?? 'Verification failed'));
-                $candCode = (int)($attemptRes['code'] ?? 502);
-                $attemptErrors[] = "[{$candidateProv} HTTP {$candCode}] {$rawCandMsg}";
-
-                $candidateMsg = $rawCandMsg;
+                $candidateMsg = trim((string)($attemptRes['message'] ?? ''));
                 if ($idx === 0 && $candidateMsg !== '') {
                     $primaryErrorMsg = $candidateMsg;
                 }
                 $candLower = strtolower($candidateMsg);
                 $isMerchantWalletErr = str_contains($candLower, 'insufficient') && (str_contains($candLower, 'balance') || str_contains($candLower, 'fund'));
                 if ($isMerchantWalletErr) {
-                    $candidateMsg = 'Identity gateway service is temporarily unavailable. Please try again shortly';
+                    $candidateMsg = 'Identity gateway service is temporarily unavailable. Please try again shortly.';
                 }
                 if ($idx > 0 && $primaryErrorMsg !== null && str_contains(strtolower($primaryErrorMsg), 'no record found') && ($isMerchantWalletErr || str_contains($candLower, 'unavailable'))) {
                     $lastErrorMsg = $primaryErrorMsg;
@@ -1204,9 +1153,6 @@ class VerificationController
             }
 
             $resultData = $this->extractNormalizedIdentity($providerResult, $isBvnVerification, $isNinVerification);
-            if (($isNinVerification || $isBvnVerification) && !$this->hasSubstantiveIdentityData($resultData, $isBvnVerification)) {
-                throw new Exception('Identity verification did not return valid identity details.');
-            }
             $actualProviderCost = (float)($providerResult['provider_cost'] ?? $wholesaleCost);
             $verifiedAt = date('c');
 
@@ -1298,13 +1244,12 @@ class VerificationController
                 'internal'
             );
 
-            $adminDiagMsg = !empty($attemptErrors) ? implode(' | ', $attemptErrors) : $e->getMessage();
             $this->db->execute(
                 'UPDATE verification_records
                  SET type = "FAILED", provider_cost = 0.00, status = "failed", has_slip = 0, result_data = :result
                  WHERE id = :id',
                 [
-                    'result' => json_encode(['error' => $e->getMessage(), 'diagnostics' => $attemptErrors ?? []]),
+                    'result' => json_encode(['error' => $e->getMessage()]),
                     'id' => $recordId,
                 ]
             );
@@ -1320,14 +1265,13 @@ class VerificationController
                 'provider' => $usedProvider,
                 'status' => 'failed',
                 'amount' => $cost,
-                'error_message' => $adminDiagMsg,
+                'error_message' => $e->getMessage(),
                 'metadata' => ['slip_type' => $resolvedSlipCode, 'refund_reference' => $refundRef],
             ]);
 
-            $displayError = $isAdmin ? $adminDiagMsg : $this->sanitizeCustomerError($e->getMessage());
-            $cleanDisplayError = rtrim(trim($displayError), ". \t\n\r");
+            $displayError = $isAdmin ? $e->getMessage() : $this->sanitizeCustomerError($e->getMessage());
             Response::error(
-                'Verification could not be completed: ' . $cleanDisplayError . '. Your wallet has been automatically refunded.',
+                'Verification could not be completed: ' . $displayError . '. Your wallet has been automatically refunded.',
                 502,
                 [
                     'refunded' => true,
@@ -1462,17 +1406,52 @@ class VerificationController
      */
     public function modificationBanks(Request $request): void
     {
-        \HambakTech\Database\Stage3Migration::ensureSchema($this->db);
+        SchemaSync::syncModificationCatalog($this->db);
+
         $rows = $this->db->fetchAll(
-            'SELECT enrollment_type, bank_name, customer_price as price
-             FROM bvn_modification_banks
-             WHERE is_active = 1
-             ORDER BY display_order ASC, bank_name ASC'
+            'SELECT enrollment_type, label, selling_price FROM modification_bvn_types WHERE is_active = 1 ORDER BY label ASC'
         );
-        foreach ($rows as &$r) {
-            $r['price'] = (float)$r['price'];
+
+        if (empty($rows)) {
+            $adapter = new TwoSureVerifyAdapter();
+            if ($adapter->hasCredentials()) {
+                $res = $adapter->getBvnModificationBanks();
+                $list = $res['data'] ?? $res['banks'] ?? $res['enrollment_types'] ?? [];
+                if (!empty($res['success']) && is_array($list)) {
+                    $banks = [];
+                    foreach ($list as $entry) {
+                        if (!is_array($entry)) {
+                            continue;
+                        }
+                        $typeCode = trim((string)($entry['enrollment_type'] ?? $entry['bank_code'] ?? $entry['code'] ?? $entry['name'] ?? $entry['bank_name'] ?? ''));
+                        $label = trim((string)($entry['label'] ?? $entry['name'] ?? $entry['bank_name'] ?? $typeCode));
+                        if ($typeCode === '') {
+                            continue;
+                        }
+                        $wholesale = is_numeric($entry['price'] ?? $entry['cost'] ?? null) ? (float)($entry['price'] ?? $entry['cost']) : 0.0;
+                        $selling = $wholesale > 0 ? round($wholesale + max(2500.0, $wholesale * 0.25), -2) : 12000.0;
+                        $banks[] = [
+                            'enrollment_type' => $typeCode,
+                            'bank_name' => $label,
+                            'price' => $selling,
+                        ];
+                    }
+                    if (!empty($banks)) {
+                        Response::success(['data' => $banks]);
+                    }
+                }
+            }
         }
-        Response::success(['data' => $rows]);
+
+        $banks = array_map(static function ($r) {
+            return [
+                'enrollment_type' => (string)$r['enrollment_type'],
+                'bank_name' => (string)$r['label'],
+                'price' => (float)$r['selling_price'],
+            ];
+        }, $rows);
+
+        Response::success(['data' => $banks]);
     }
 
     /**
@@ -1480,13 +1459,40 @@ class VerificationController
      */
     public function enrollmentBanks(Request $request): void
     {
-        $banks = [
-            ['bank_name' => 'First Bank BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'Access Bank BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'UBA BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'Zenith Bank BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'Wema Bank BVN Enrolment', 'price' => 3500],
-        ];
+        $banks = [];
+        $adapter = new TwoSureVerifyAdapter();
+        if ($adapter->hasCredentials()) {
+            $res = $adapter->getBvnEnrollmentBanks();
+            $list = $res['data'] ?? $res['banks'] ?? [];
+            if (!empty($res['success']) && is_array($list)) {
+                foreach ($list as $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+                    $name = trim((string)($entry['bank_name'] ?? $entry['name'] ?? $entry['bank'] ?? ''));
+                    if ($name === '') {
+                        continue;
+                    }
+                    $wholesale = is_numeric($entry['price'] ?? $entry['cost'] ?? null) ? (float)($entry['price'] ?? $entry['cost']) : 0.0;
+                    $selling = $wholesale > 0 ? round($wholesale + max(1500.0, $wholesale * 0.25), -2) : 5000.0;
+                    $banks[] = [
+                        'bank_name' => $name,
+                        'price' => $selling,
+                    ];
+                }
+            }
+        }
+
+        if (empty($banks)) {
+            $banks = [
+                ['bank_name' => 'Access Bank BVN Enrolment', 'price' => 5000],
+                ['bank_name' => 'First Bank BVN Enrolment', 'price' => 5000],
+                ['bank_name' => 'GTBank BVN Enrolment', 'price' => 5000],
+                ['bank_name' => 'UBA BVN Enrolment', 'price' => 5000],
+                ['bank_name' => 'Zenith Bank BVN Enrolment', 'price' => 5000],
+            ];
+        }
+
         Response::success(['data' => $banks]);
     }
 

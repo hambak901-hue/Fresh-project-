@@ -73,47 +73,6 @@ const OFFICIAL_DEFAULT_BRANDING: BrandSettings = {
     'HAMBAKTECH, HAMBAK TECH & SERVICES, NIN verification, BVN verification, Nigerian VTU, Digital Training Academy',
 };
 
-function normalizeBranding(incoming?: Partial<BrandSettings> | null): BrandSettings {
-  const b: BrandSettings = { ...OFFICIAL_DEFAULT_BRANDING, ...(incoming || {}) };
-  if (!b.company_name || /enterprise/i.test(b.company_name)) {
-    b.company_name = OFFICIAL_DEFAULT_BRANDING.company_name;
-  }
-  if (!b.short_brand_name || !b.short_brand_name.trim()) {
-    b.short_brand_name = OFFICIAL_DEFAULT_BRANDING.short_brand_name;
-  }
-  if (!b.logo_url || !b.logo_url.trim()) {
-    b.logo_url = OFFICIAL_DEFAULT_BRANDING.logo_url;
-  }
-  if (!b.favicon_url || b.favicon_url === '/favicon.ico') {
-    b.favicon_url = OFFICIAL_DEFAULT_BRANDING.favicon_url;
-  }
-  if (!b.office_address || /ikeja/i.test(b.office_address)) {
-    b.office_address = OFFICIAL_DEFAULT_BRANDING.office_address;
-  }
-  if (!b.support_phone || /803\s*000\s*1122/.test(b.support_phone)) {
-    b.support_phone = OFFICIAL_DEFAULT_BRANDING.support_phone;
-  }
-  if (!b.whatsapp_number || /8030001122/.test(b.whatsapp_number)) {
-    b.whatsapp_number = OFFICIAL_DEFAULT_BRANDING.whatsapp_number;
-  }
-  if (!b.business_phone) {
-    b.business_phone = OFFICIAL_DEFAULT_BRANDING.business_phone;
-  }
-  if (!b.info_email) {
-    b.info_email = OFFICIAL_DEFAULT_BRANDING.info_email;
-  }
-  if (!b.business_reg_number) {
-    b.business_reg_number = OFFICIAL_DEFAULT_BRANDING.business_reg_number;
-  }
-  if (!b.copyright_text || /enterprise/i.test(b.copyright_text)) {
-    b.copyright_text = OFFICIAL_DEFAULT_BRANDING.copyright_text;
-  }
-  if (!b.seo_title || /enterprise/i.test(b.seo_title)) {
-    b.seo_title = OFFICIAL_DEFAULT_BRANDING.seo_title;
-  }
-  return b;
-}
-
 export const CmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [branding, setBranding] = useState<BrandSettings | null>(OFFICIAL_DEFAULT_BRANDING);
   const [cmsSections, setCmsSections] = useState<CmsSections | null>(null);
@@ -130,7 +89,7 @@ export const CmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setError(null);
       const res = await api.getPublicCms();
       if (res.success) {
-        const mergedBranding = normalizeBranding(res.branding);
+        const mergedBranding = { ...OFFICIAL_DEFAULT_BRANDING, ...(res.branding || {}) };
         setBranding(mergedBranding);
         setCmsSections(res.cms_sections);
         setAnnouncements(res.announcements);
@@ -177,7 +136,7 @@ export const CmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const res = await api.updateBranding(updates);
       if (res.success) {
-        const merged = normalizeBranding(res.branding);
+        const merged = { ...OFFICIAL_DEFAULT_BRANDING, ...(res.branding || {}) };
         setBranding(merged);
         if (merged.primary_color) {
           document.documentElement.style.setProperty('--brand-primary', merged.primary_color);

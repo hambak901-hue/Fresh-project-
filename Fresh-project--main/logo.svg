@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400" fill="none">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,900&amp;family=Righteous&amp;family=Fraunces:ital,opsz,wght@0,9..144,900;1,9..144,900&amp;display=swap');
+      .brand-title {
+        font-family: 'Fraunces', 'Cooper Black', 'Playfair Display', serif;
+        font-weight: 900;
+        font-size: 118px;
+        letter-spacing: 4px;
+        fill: #0c0a09;
+      }
+      .brand-sub {
+        font-family: 'Fraunces', 'Cooper Black', 'Playfair Display', serif;
+        font-weight: 800;
+        font-style: italic;
+        font-size: 74px;
+        letter-spacing: 1px;
+        fill: #0c0a09;
+      }
+    </style>
+    <filter id="crisp" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="1" stdDeviation="0.5" flood-opacity="0.1"/>
+    </filter>
+  </defs>
+
+  <!-- Left Emblem: Hambak Tech Copper Badge -->
+  <g transform="translate(40, 20)">
+    <!-- Top-Right Arc -->
+    <path d="M 180 40 A 150 150 0 0 1 330 190 L 265 190 A 85 85 0 0 0 180 105 Z" fill="#C85A17" />
+    <!-- Bottom-Right Arc -->
+    <path d="M 330 210 A 150 150 0 0 1 180 360 L 180 295 A 85 85 0 0 0 265 210 Z" fill="#C85A17" />
+    <!-- Top-Left Arc -->
+    <path d="M 160 40 L 160 105 A 85 85 0 0 0 95 190 L 30 190 A 150 150 0 0 1 160 40 Z" fill="#C85A17" />
+    <!-- Bottom-Left Arc -->
+    <path d="M 30 210 L 95 210 A 85 85 0 0 0 160 295 L 160 360 A 150 150 0 0 1 30 210 Z" fill="#C85A17" />
+
+    <!-- Stylized H & B Mark Inside -->
+    <!-- Stylized 'B' Soft Cream Backing -->
+    <path d="M 185 105 C 235 105 260 125 260 150 C 260 170 245 185 225 195 C 255 205 270 225 270 255 C 270 285 240 300 185 300 Z" fill="#F8D7B5" opacity="0.95" />
+    <!-- Inner cutouts for B -->
+    <ellipse cx="215" cy="150" rx="22" ry="18" fill="#FFFFFF" />
+    <ellipse cx="220" cy="250" rx="25" ry="22" fill="#FFFFFF" />
+
+    <!-- Solid Copper 'H' Left Pillar and Bar -->
+    <rect x="110" y="110" width="55" height="180" rx="4" fill="#C85A17" />
+    <rect x="160" y="170" width="45" height="58" fill="#C85A17" />
+    <rect x="165" y="110" width="22" height="180" fill="#C85A17" />
+  </g>
+
+  <!-- Right Typography: HAMBAK Tech & Services -->
+  <g transform="translate(420, 200)">
+    <text x="0" y="0" class="brand-title">HAMBAK</text>
+    <text x="5" y="95" class="brand-sub">Tech &amp; Services</text>
+  </g>
+</svg>

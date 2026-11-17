@@ -18,7 +18,6 @@ use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
-use HambakTech\Services\MailService;
 use HambakTech\Adapters\Payment\PaystackAdapter;
 use HambakTech\Adapters\Payment\FlutterwaveAdapter;
 
@@ -101,7 +100,7 @@ class WalletController
             ['uid' => $user['id']]
         );
 
-        $isAdmin = in_array($user['role'] ?? '', Auth::CONSOLE_ROLES, true);
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
         foreach ($recentTxns as &$t) {
             $t['amount'] = (float)$t['amount'];
             $t['balance_before'] = (float)$t['balance_before'];
@@ -210,7 +209,7 @@ class WalletController
      */
     public function switchGateway(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requireSuperAdmin($request);
         $gatewayId = strtolower((string)$request->input('gatewayId', ''));
 
         if (!in_array($gatewayId, ['paystack', 'flutterwave', 'manual'], true)) {
@@ -261,7 +260,7 @@ class WalletController
             Response::error('Maximum single wallet funding amount is ₦' . number_format($maxAmt, 2) . '.', 422);
         }
 
-        $refPrefix = ($gateway === 'flutterwave') ? 'FLWFUND' : 'PAY_';
+        $refPrefix = ($gateway === 'flutterwave') ? 'FLW_FUND_' : 'PAY_';
         $reference = $refPrefix . strtoupper(bin2hex(random_bytes(6)));
         $paymentRecordId = Security::generateUuid();
 
@@ -318,8 +317,6 @@ class WalletController
                 'authorization_url' => $initRes['authorization_url'] ?? ($initRes['link'] ?? ''),
                 'link' => $initRes['link'] ?? ($initRes['authorization_url'] ?? ''),
                 'access_code' => $initRes['access_code'] ?? null,
-                'transfer_details' => $initRes['transfer_details'] ?? null,
-                'flw_charge_id' => $initRes['flw_charge_id'] ?? ($initRes['flw_va_id'] ?? null),
                 'gateway' => $gateway,
             ], 'Payment checkout initialized');
         } catch (Throwable $e) {
@@ -358,19 +355,16 @@ class WalletController
 
         if (empty($reference) && empty($flwTransactionId)) {
             Response::error('Payment reference is required for verification.', 422);
-            return;
         }
 
         // 1. Look up payment record in MySQL
         $record = null;
         if (!empty($reference)) {
             $record = $this->db->fetchOne(
-                'SELECT * FROM payment_records WHERE reference = :ref AND user_id = :uid LIMIT 1',
+                'SELECT * FROM payment_records WHERE reference = :ref AND user_id = :uid',
                 ['ref' => $reference, 'uid' => $user['id']]
             );
         }
-
-        $amount = $record ? (float)$record['amount'] : 0.0;
 
         // Idempotency: If already credited, do NOT credit again!
         if ($record && $record['status'] === 'successful') {
@@ -378,7 +372,6 @@ class WalletController
             Response::success([
                 'settled' => true,
                 'already_credited' => true,
-                'status' => 'successful',
                 'reference' => $record['reference'],
                 'balance' => $summary['balance'],
             ], 'Payment already credited to your wallet.');
@@ -386,20 +379,19 @@ class WalletController
         }
 
         // Check if matching transaction already settled in ledger
-        $existingTx = $this->db->fetchOne('SELECT * FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $reference]);
+        $existingTx = $this->db->fetchOne('SELECT * FROM transactions WHERE reference = :ref', ['ref' => $reference]);
         if ($existingTx && $existingTx['status'] === 'successful') {
             $summary = $this->walletService->getSummary($user['id']);
             Response::success([
                 'settled' => true,
                 'already_credited' => true,
-                'status' => 'successful',
                 'reference' => $reference,
                 'balance' => $summary['balance'],
             ], 'Payment already verified and credited.');
             return;
         }
 
-        $gateway = $record['gateway'] ?? ((str_starts_with($reference, 'FLWFUND') || str_starts_with($reference, 'FLW_')) ? 'flutterwave' : 'paystack');
+        $gateway = $record['gateway'] ?? (str_starts_with($reference, 'FLW_') ? 'flutterwave' : 'paystack');
 
         try {
             // 2. Perform live verification directly with provider cURL
@@ -409,84 +401,50 @@ class WalletController
                 $verifyRes = $this->paystack->verifyPayment($reference);
             }
 
-            $upStatus = strtolower(trim((string)($verifyRes['status'] ?? '')));
+            if ($verifyRes['status'] === 'successful') {
+                $amount = (float)$verifyRes['amount'];
+                $currency = $verifyRes['currency'] ?? 'NGN';
 
-            if ($upStatus === 'successful') {
-                $amount = (float)($verifyRes['amount'] ?? 0);
-                $currency = strtoupper(trim((string)($verifyRes['currency'] ?? 'NGN')));
-
+                // Currency and amount verification
                 if ($currency !== 'NGN') {
                     throw new RuntimeException("Invalid payment currency: {$currency}. Only NGN is supported.");
                 }
-                if ($amount <= 0) {
-                    throw new RuntimeException('Verified payment amount is invalid.');
-                }
+
                 if ($record && $amount < (float)$record['amount']) {
                     throw new RuntimeException("Underpayment detected: Expected ₦{$record['amount']}, but received ₦{$amount}.");
                 }
 
-                // 3. Synchronize against concurrent webhook/verify calls via row lock
-                $settlement = $this->db->withTransaction(function (Database $db) use ($user, $reference, $record, $amount, $gateway, $verifyRes) {
-                    if ($record) {
-                        $locked = $db->fetchOne(
-                            'SELECT id, status FROM payment_records WHERE id = :id FOR UPDATE',
-                            ['id' => $record['id']]
-                        );
-                        if ($locked && $locked['status'] === 'successful') {
-                            return ['already_settled' => true];
-                        }
-                    }
+                // 3. Atomic wallet credit with immutable ledger entry
+                $txResult = $this->walletService->credit(
+                    $user['id'],
+                    $amount,
+                    'funding',
+                    $reference,
+                    "Automated deposit via " . ucfirst($gateway),
+                    $gateway,
+                    [
+                        'provider_raw' => $verifyRes['raw'] ?? null,
+                        'channel' => $verifyRes['channel'] ?? 'card',
+                    ]
+                );
 
-                    $txResult = $this->walletService->credit(
-                        $user['id'],
-                        $amount,
-                        'funding',
-                        $reference,
-                        'Automated deposit via ' . ucfirst($gateway),
-                        $gateway,
-                        [
-                            'provider_raw' => $verifyRes['raw'] ?? null,
-                            'channel' => $verifyRes['channel'] ?? 'card',
-                        ]
-                    );
-
-                    if ($record) {
-                        $db->execute(
-                            'UPDATE payment_records SET status = "successful", paid_at = NOW() WHERE id = :id',
-                            ['id' => $record['id']]
-                        );
-                    }
-
-                    return ['already_settled' => false, 'txResult' => $txResult];
-                });
-
-                if (!empty($settlement['already_settled'])) {
-                    $summary = $this->walletService->getSummary($user['id']);
-                    Response::success([
-                        'settled' => true,
-                        'already_credited' => true,
-                        'status' => 'successful',
-                        'reference' => $reference,
-                        'balance' => $summary['balance'],
-                    ], 'Payment already verified and credited.');
-                    return;
-                }
-
-                $txResult = $settlement['txResult'];
-
-                // Customer notification (best-effort)
-                try {
+                if ($record) {
                     $this->db->execute(
-                        'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                         VALUES (:id, :uid, "Wallet Credited", :msg, "success", 0, NOW())',
-                        [
-                            'id' => Security::generateUuid(),
-                            'uid' => $user['id'],
-                            'msg' => '₦' . number_format($amount, 2) . " has been credited to your wallet via {$gateway} (Ref: {$reference}).",
-                        ]
+                        'UPDATE payment_records SET status = "successful", paid_at = NOW() WHERE id = :id',
+                        ['id' => $record['id']]
                     );
-                } catch (Throwable) {
                 }
+
+                // Customer notification
+                $this->db->execute(
+                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                     VALUES (:id, :uid, "Wallet Credited", :msg, "success", 0, NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'uid' => $user['id'],
+                        'msg' => "₦" . number_format($amount, 2) . " has been credited to your wallet via {$gateway} (Ref: {$reference}).",
+                    ]
+                );
 
                 FootprintService::record([
                     'user_id' => $user['id'],
@@ -502,55 +460,16 @@ class WalletController
                     'metadata' => ['balance_after' => $txResult['balance_after'] ?? null],
                 ]);
 
-                // Send automated wallet credit receipt email from notification@hambaktech.com.ng
-                try {
-                    $mailer = new MailService();
-                    $safeName = htmlspecialchars((string)($user['full_name'] ?? 'Valued Customer'), ENT_QUOTES, 'UTF-8');
-                    $amtFmt = '₦' . number_format($amount, 2);
-                    $balFmt = '₦' . number_format((float)($txResult['balance_after'] ?? 0), 2);
-                    $gwLabel = ucfirst($gateway);
-                    $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                        . "<h2 style='margin:0 0 12px;color:#059669;'>Wallet Credited: {$amtFmt}</h2>"
-                        . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                        . "<p style='color:#334155;'>Your wallet deposit of <strong>{$amtFmt}</strong> via <strong>{$gwLabel}</strong> has been confirmed.</p>"
-                        . "<div style='background:#f8fafc;border:1px solid #e2e8f0;padding:12px;border-radius:8px;margin:14px 0;font-size:13px;color:#334155;'>"
-                        . "<div><strong>Reference:</strong> <code>{$reference}</code></div>"
-                        . "<div><strong>New Balance:</strong> {$balFmt}</div></div>"
-                        . "<p style='color:#64748b;font-size:12px;'>This is an automated receipt from HAMBAKTECH Notifications. Reply if you need assistance.</p></div>";
-                    $mailer->send(
-                        (string)$user['email'],
-                        (string)($user['full_name'] ?? 'Customer'),
-                        "Wallet Funding Confirmation ({$amtFmt}) — HAMBAKTECH",
-                        $html,
-                        null,
-                        MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'WALLET_CREDIT_RECEIPT_EMAIL']
-                    );
-                } catch (Throwable) {
-                }
-
                 Response::success([
                     'settled' => true,
-                    'status' => 'successful',
                     'amount' => $amount,
                     'balance' => $txResult['balance_after'],
                     'transaction' => $txResult,
                 ], 'Payment verified and wallet credited successfully!');
-            } elseif (in_array($upStatus, ['pending', 'ongoing', 'processing', 'queued', 'abandoned', ''], true)) {
-                // Gateway has NOT rejected payment — user may still be completing checkout or bank transfer!
-                // Never prematurely overwrite payment_records to "failed" while pending/abandoned.
-                Response::success([
-                    'settled' => false,
-                    'pending' => true,
-                    'status' => 'pending',
-                    'gateway_status' => $upStatus !== '' ? $upStatus : 'pending',
-                    'reference' => $reference,
-                    'message' => 'Payment is still awaiting confirmation from ' . ucfirst($gateway) . '.',
-                ], 'Payment is still awaiting confirmation. Complete checkout and click Verify Payment.');
             } else {
-                // Terminal gateway failure (failed, reversed, cancelled, error)
-                if ($record && $record['status'] !== 'successful') {
+                if ($record) {
                     $this->db->execute(
-                        'UPDATE payment_records SET status = "failed" WHERE id = :id AND status != "successful"',
+                        'UPDATE payment_records SET status = "failed" WHERE id = :id',
                         ['id' => $record['id']]
                     );
                 }
@@ -566,10 +485,10 @@ class WalletController
                     'provider' => $gateway,
                     'status' => 'failed',
                     'amount' => $amount,
-                    'error_message' => $verifyRes['gateway_response'] ?? 'Transaction failed',
+                    'error_message' => $verifyRes['gateway_response'] ?? 'Transaction incomplete',
                 ]);
 
-                Response::error('Payment not verified upstream: ' . ($verifyRes['gateway_response'] ?? 'Transaction failed'), 400);
+                Response::error("Payment not verified upstream: " . ($verifyRes['gateway_response'] ?? 'Transaction incomplete'), 400);
             }
         } catch (Throwable $e) {
             FootprintService::record([
@@ -608,74 +527,42 @@ class WalletController
 
         if ($event === 'charge.success') {
             $data = $payload['data'] ?? [];
-            $reference = trim((string)($data['reference'] ?? ''));
+            $reference = $data['reference'] ?? '';
             $amountInKobo = (float)($data['amount'] ?? 0);
-            $amount = round($amountInKobo / 100, 2);
-            $currency = strtoupper(trim((string)($data['currency'] ?? 'NGN')));
-            $email = strtolower(trim((string)($data['customer']['email'] ?? '')));
+            $amount = $amountInKobo / 100;
+            $email = $data['customer']['email'] ?? '';
 
-            if (empty($reference) || $amount <= 0 || $currency !== 'NGN') {
-                Response::success(['status' => 'ignored_invalid_payload']);
+            if (empty($reference)) {
+                Response::success(['status' => 'ignored_missing_ref']);
                 return;
             }
 
-            $user = $email !== '' ? $this->db->fetchOne('SELECT id FROM users WHERE LOWER(email) = :email LIMIT 1', ['email' => $email]) : null;
+            // Check if user exists
+            $user = $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $email]);
             if (!$user) {
-                $record = $this->db->fetchOne('SELECT user_id FROM payment_records WHERE reference = :ref LIMIT 1', ['ref' => $reference]);
+                // Try from payment_records
+                $record = $this->db->fetchOne('SELECT user_id FROM payment_records WHERE reference = :ref', ['ref' => $reference]);
                 if ($record) {
                     $user = ['id' => $record['user_id']];
                 }
             }
 
             if ($user) {
-                $settledRes = $this->db->withTransaction(function (Database $db) use ($user, $reference, $amount, $event) {
-                    $record = $db->fetchOne(
-                        'SELECT id, status, amount FROM payment_records WHERE reference = :ref FOR UPDATE',
-                        ['ref' => $reference]
-                    );
-                    if ($record && $record['status'] === 'successful') {
-                        return ['already_settled' => true];
-                    }
-                    if ($record && $amount < (float)$record['amount']) {
-                        throw new RuntimeException('Paystack webhook underpayment rejected.');
-                    }
+                // Idempotent credit
+                $this->walletService->credit(
+                    $user['id'],
+                    $amount,
+                    'funding',
+                    $reference,
+                    'Paystack Webhook Automated Settlement',
+                    'paystack',
+                    ['webhook_event' => $event]
+                );
 
-                    $tx = $this->walletService->credit(
-                        $user['id'],
-                        $amount,
-                        'funding',
-                        $reference,
-                        'Paystack Webhook Automated Settlement',
-                        'paystack',
-                        ['webhook_event' => $event]
-                    );
-
-                    if ($record) {
-                        $db->execute(
-                            'UPDATE payment_records SET status = "successful", paid_at = NOW() WHERE id = :id',
-                            ['id' => $record['id']]
-                        );
-                    }
-                    return ['already_settled' => false, 'tx' => $tx];
-                });
-
-                if (empty($settledRes['already_settled'])) {
-                    try {
-                        $uRow = $this->db->fetchOne('SELECT email, full_name FROM users WHERE id = :uid LIMIT 1', ['uid' => $user['id']]);
-                        if ($uRow && !empty($uRow['email'])) {
-                            $mailer = new MailService();
-                            $amtFmt = '₦' . number_format($amount, 2);
-                            $balFmt = '₦' . number_format((float)($settledRes['tx']['balance_after'] ?? 0), 2);
-                            $safeName = htmlspecialchars((string)($uRow['full_name'] ?: 'Customer'), ENT_QUOTES, 'UTF-8');
-                            $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                                . "<h2 style='margin:0 0 12px;color:#059669;'>Wallet Credited: {$amtFmt}</h2>"
-                                . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                                . "<p style='color:#334155;'>Your Paystack wallet deposit of <strong>{$amtFmt}</strong> (Ref: <code>{$reference}</code>) has been confirmed. New Balance: <strong>{$balFmt}</strong>.</p></div>";
-                            $mailer->send((string)$uRow['email'], (string)($uRow['full_name'] ?: 'Customer'), "Wallet Funding Confirmed ({$amtFmt}) — HAMBAKTECH", $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'PAYSTACK_WEBHOOK_CREDIT_EMAIL']);
-                        }
-                    } catch (Throwable) {
-                    }
-                }
+                $this->db->execute(
+                    'UPDATE payment_records SET status = "successful", paid_at = NOW() WHERE reference = :ref',
+                    ['ref' => $reference]
+                );
             }
         }
 
@@ -703,74 +590,38 @@ class WalletController
         $data = $payload['data'] ?? [];
         $statusLower = strtolower((string)($data['status'] ?? ''));
 
-        if ($data && in_array($statusLower, ['successful', 'succeeded', 'completed', 'paid'], true)) {
-            $rawRef = (string)($data['meta']['wallet_reference'] ?? ($data['tx_ref'] ?? ($data['reference'] ?? '')));
-            $reference = trim($rawRef);
-            $alphaRef = preg_replace('/[^A-Za-z0-9]/', '', $reference) ?: $reference;
+        if ($data && in_array($statusLower, ['successful', 'succeeded', 'completed'], true)) {
+            $reference = (string)($data['tx_ref'] ?? ($data['reference'] ?? ''));
             $amount = (float)($data['amount'] ?? 0.0);
             $currency = strtoupper((string)($data['currency'] ?? 'NGN'));
-            $email = strtolower(trim((string)($data['customer']['email'] ?? '')));
+            $email = (string)($data['customer']['email'] ?? '');
 
-            if (!empty($reference) && $amount > 0 && $currency === 'NGN') {
-                $recordMatch = $this->db->fetchOne(
-                    'SELECT user_id, reference FROM payment_records WHERE reference = :ref OR REPLACE(reference, "_", "") = :aref LIMIT 1',
-                    ['ref' => $reference, 'aref' => $alphaRef]
-                );
-                if ($recordMatch) {
-                    $reference = (string)$recordMatch['reference'];
-                    $user = $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE id = :uid LIMIT 1', ['uid' => $recordMatch['user_id']]);
-                } else {
-                    $user = !empty($email)
-                        ? $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE LOWER(email) = :email LIMIT 1', ['email' => $email])
-                        : null;
+            if (!empty($reference) && $currency === 'NGN') {
+                $user = !empty($email)
+                    ? $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $email])
+                    : null;
+                if (!$user) {
+                    $record = $this->db->fetchOne('SELECT user_id FROM payment_records WHERE reference = :ref', ['ref' => $reference]);
+                    if ($record) {
+                        $user = ['id' => $record['user_id']];
+                    }
                 }
 
                 if ($user) {
-                    $settledRes = $this->db->withTransaction(function (Database $db) use ($user, $reference, $amount, $data) {
-                        $record = $db->fetchOne(
-                            'SELECT id, status, amount, reference FROM payment_records WHERE reference = :ref FOR UPDATE',
-                            ['ref' => $reference]
-                        );
-                        if ($record && $record['status'] === 'successful') {
-                            return ['already_settled' => true];
-                        }
-                        if ($record && $amount < (float)$record['amount']) {
-                            throw new RuntimeException('Flutterwave webhook underpayment rejected.');
-                        }
+                    $this->walletService->credit(
+                        $user['id'],
+                        $amount,
+                        'funding',
+                        $reference,
+                        'Flutterwave Webhook Automated Settlement',
+                        'flutterwave',
+                        ['flw_id' => $data['id'] ?? null]
+                    );
 
-                        $tx = $this->walletService->credit(
-                            $user['id'],
-                            $amount,
-                            'funding',
-                            $reference,
-                            'Flutterwave Webhook Automated Settlement',
-                            'flutterwave',
-                            ['flw_id' => $data['id'] ?? null]
-                        );
-
-                        if ($record) {
-                            $db->execute(
-                                'UPDATE payment_records SET status = "successful", paid_at = NOW() WHERE id = :id',
-                                ['id' => $record['id']]
-                            );
-                        }
-                        return ['already_settled' => false, 'tx' => $tx];
-                    });
-
-                    if (empty($settledRes['already_settled']) && !empty($user['email'])) {
-                        try {
-                            $mailer = new MailService();
-                            $amtFmt = '₦' . number_format($amount, 2);
-                            $balFmt = '₦' . number_format((float)($settledRes['tx']['balance_after'] ?? 0), 2);
-                            $safeName = htmlspecialchars((string)($user['full_name'] ?? 'Customer'), ENT_QUOTES, 'UTF-8');
-                            $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                                . "<h2 style='margin:0 0 12px;color:#059669;'>Wallet Credited: {$amtFmt}</h2>"
-                                . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                                . "<p style='color:#334155;'>Your Flutterwave transfer of <strong>{$amtFmt}</strong> (Ref: <code>{$reference}</code>) has settled into your wallet. New Balance: <strong>{$balFmt}</strong>.</p></div>";
-                            $mailer->send((string)$user['email'], (string)($user['full_name'] ?? 'Customer'), "Wallet Funding Confirmed ({$amtFmt}) — HAMBAKTECH", $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'FLW_WEBHOOK_CREDIT_EMAIL']);
-                        } catch (Throwable) {
-                        }
-                    }
+                    $this->db->execute(
+                        'UPDATE payment_records SET status = "successful", paid_at = NOW() WHERE reference = :ref',
+                        ['ref' => $reference]
+                    );
                 }
             }
         }
@@ -961,15 +812,7 @@ class WalletController
             Response::error('File record not found', 404);
         }
 
-        $role = strtolower((string)($user['role'] ?? 'customer'));
-        $perms = is_array($user['permissions'] ?? null) ? $user['permissions'] : [];
-        $canViewReceipts = in_array($role, Auth::CONSOLE_ROLES, true) && (
-            $role === 'superadmin' ||
-            in_array('*', $perms, true) ||
-            in_array('wallet', $perms, true) ||
-            in_array('customers', $perms, true)
-        );
-        if (!$canViewReceipts && $user['id'] !== $req['user_id']) {
+        if ($user['role'] !== 'admin' && $user['role'] !== 'superadmin' && $user['id'] !== $req['user_id']) {
             Response::error('Unauthorized access to receipt file', 403);
         }
 
@@ -1027,7 +870,7 @@ class WalletController
             $params['cat'] = $category;
         }
 
-        $isAdmin = in_array($user['role'] ?? '', Auth::CONSOLE_ROLES, true);
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
 
         $idRows = $this->db->fetchAll(
             'SELECT id FROM transactions ' . $whereSql . 'ORDER BY created_at DESC LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset,
@@ -1091,19 +934,15 @@ class WalletController
                 'created_at' => $va['created_at'],
             ]);
         } else {
-            $policy = $this->getWalletPolicy();
-            $walletBank = $policy['wallet'] ?? [];
-            $bankName = trim((string)($walletBank['manual_bank_name'] ?? $walletBank['bank_name'] ?? ''));
-            $accountNumber = trim((string)($walletBank['manual_account_number'] ?? $walletBank['bank_account_number'] ?? ''));
-            $accountName = trim((string)($walletBank['manual_account_name'] ?? $walletBank['bank_account_name'] ?? ''));
+            // Return structured architectural status
             Response::success([
                 'has_virtual_account' => false,
                 'status' => 'pending_activation',
                 'message' => 'Dedicated NGN virtual accounts will be activated once business regulatory approvals are completed on Flutterwave.',
                 'bankDetails' => [
-                    'bank' => $bankName,
-                    'accountNumber' => $accountNumber,
-                    'accountName' => $accountName,
+                    'bank' => 'Moniepoint MFB',
+                    'accountNumber' => '5210471634',
+                    'accountName' => 'Hambaktech_Services',
                 ],
             ]);
         }

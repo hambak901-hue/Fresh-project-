@@ -30,7 +30,6 @@ import { CustomerLoginScreen } from './components/customer/CustomerLoginScreen';
 import { SuperAdminDashboard } from './components/admin/SuperAdminDashboard';
 import { NinServicesPage } from './components/customer/NinServicesPage';
 import { MandatoryPinSetupModal } from './components/customer/MandatoryPinSetupModal';
-import { isConsoleRole } from './types';
 import { Calculator, ShieldCheck, Shield, Fingerprint, Loader2 } from 'lucide-react';
 
 function normalizePublicPageKey(raw: string): string {
@@ -101,7 +100,7 @@ function MainAppContent() {
       if (p.includes('/admin') || h.includes('admin')) return '04';
       if (p.includes('/login') || h === '#login') return '06';
       if (p.includes('/identity') || h.includes('identity')) return '05';
-      if (p.includes('/portal') || p.includes('/customer') || h.includes('portal') || h.includes('customer')) return '03';
+      if (p.includes('/portal') || p.includes('/customer') || h.includes('portal') || h.includes('customer') || h.startsWith('#printing')) return '03';
     }
     return '02';
   };
@@ -123,7 +122,7 @@ function MainAppContent() {
   useEffect(() => {
     if (!user) return;
     if (activePhase === '06') {
-      if (isConsoleRole(user.role)) {
+      if (user.role === 'admin' || user.role === 'superadmin') {
         setActivePhase('04');
       } else {
         setActivePhase('03');
@@ -132,7 +131,7 @@ function MainAppContent() {
     }
     if (manualPublicBrowseRef.current || isExplicitPublicHash()) return;
     if (activePhase === '02') {
-      if (isConsoleRole(user.role)) {
+      if (user.role === 'admin' || user.role === 'superadmin') {
         setActivePhase('04');
       } else {
         setActivePhase('03');
@@ -186,12 +185,17 @@ function MainAppContent() {
       } else if (
         h.includes('portal') ||
         h.includes('customer') ||
+        h.startsWith('#printing') ||
         p.includes('/portal') ||
         p.includes('/customer') ||
         s.includes('portal')
       ) {
         manualPublicBrowseRef.current = false;
-        setActivePhase('03');
+        if (h.startsWith('#printing') && user && (user.role === 'admin' || user.role === 'superadmin')) {
+          setActivePhase('04');
+        } else {
+          setActivePhase('03');
+        }
       } else if (h === '#home' || h === '#public') {
         manualPublicBrowseRef.current = true;
         setActivePublicPage('home');
@@ -213,11 +217,11 @@ function MainAppContent() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       if (activePhase === '04') {
-        if (!window.location.hash.includes('admin') && !window.location.pathname.includes('/admin')) {
+        if (!window.location.hash.includes('admin') && !window.location.hash.includes('printing') && !window.location.pathname.includes('/admin')) {
           window.history.replaceState(null, '', '#admin');
         }
       } else if (activePhase === '03') {
-        if (!window.location.hash.includes('portal') && !window.location.pathname.includes('/portal')) {
+        if (!window.location.hash.includes('portal') && !window.location.hash.includes('printing') && !window.location.pathname.includes('/portal')) {
           window.history.replaceState(null, '', '#portal');
         }
       } else if (activePhase === '06') {
@@ -354,7 +358,7 @@ function MainAppContent() {
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
               const role = loggedInUser?.role;
-              setActivePhase(isConsoleRole(role) ? '04' : '05');
+              setActivePhase(role === 'admin' || role === 'superadmin' ? '04' : '05');
             }}
             onOpenRegister={() => handleOpenAuth('register')}
             onSwitchToPublic={switchToPublicHome}
@@ -380,14 +384,14 @@ function MainAppContent() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {isConsoleRole(user?.role) && (
+                {(user?.role === 'admin' || user?.role === 'superadmin') && (
                   <button
                     type="button"
                     onClick={() => setActivePhase('04')}
                     className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs flex items-center gap-1.5 transition"
                   >
                     <Shield className="w-3.5 h-3.5" />
-                    <span>Staff Console</span>
+                    <span>Admin Console</span>
                   </button>
                 )}
                 <button
@@ -424,7 +428,7 @@ function MainAppContent() {
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
               const role = loggedInUser?.role || user?.role;
-              setActivePhase(isConsoleRole(role) ? '04' : '03');
+              setActivePhase(role === 'admin' || role === 'superadmin' ? '04' : '03');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onOpenRegister={() => handleOpenAuth('register')}
@@ -445,7 +449,7 @@ function MainAppContent() {
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
               const role = loggedInUser?.role;
-              setActivePhase(isConsoleRole(role) ? '04' : '03');
+              setActivePhase(role === 'admin' || role === 'superadmin' ? '04' : '03');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onOpenRegister={() => handleOpenAuth('register')}
@@ -569,7 +573,7 @@ function MainAppContent() {
         onSuccess={(loggedInUser) => {
           manualPublicBrowseRef.current = false;
           const role = loggedInUser?.role || user?.role;
-          if (isConsoleRole(role)) {
+          if (role === 'admin' || role === 'superadmin') {
             setActivePhase('04');
           } else {
             setActivePhase('03');
@@ -588,7 +592,7 @@ function MainAppContent() {
       <MandatoryPinSetupModal
         isOpen={Boolean(
           user &&
-          (user.role === 'customer' || user.role === 'student' || user.role === 'agent') &&
+          user.role === 'customer' &&
           !user.has_transaction_pin &&
           (pinPolicy?.require_pin_activation_for_all_customers || forcePinSetupOpen)
         )}

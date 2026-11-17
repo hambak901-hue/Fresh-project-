@@ -208,88 +208,6 @@ class TelecomController
             } catch (Throwable) {
             }
 
-            // Ensure cable_packages supports UlamaData provider_plan_id & pricing overrides
-            try {
-                $cabCols = $this->db->fetchAll('SHOW COLUMNS FROM cable_packages');
-                $cabMap = [];
-                foreach ($cabCols as $c) {
-                    $cabMap[strtolower((string)$c['Field'])] = strtolower((string)$c['Type']);
-                }
-                if (isset($cabMap['name']) && !str_contains($cabMap['name'], '150')) {
-                    try { $this->db->execute('ALTER TABLE cable_packages MODIFY COLUMN name VARCHAR(150) NOT NULL'); } catch (Throwable) {}
-                }
-                $cabAdds = [
-                    'provider_plan_id' => 'ALTER TABLE cable_packages ADD COLUMN provider_plan_id INT NULL AFTER id',
-                    'cable_id' => 'ALTER TABLE cable_packages ADD COLUMN cable_id INT NULL AFTER provider_plan_id',
-                    'pricing_mode' => 'ALTER TABLE cable_packages ADD COLUMN pricing_mode VARCHAR(30) NOT NULL DEFAULT "default_markup" AFTER price',
-                    'fixed_price' => 'ALTER TABLE cable_packages ADD COLUMN fixed_price DECIMAL(15,2) NULL AFTER pricing_mode',
-                    'markup_percent' => 'ALTER TABLE cable_packages ADD COLUMN markup_percent DECIMAL(8,2) NULL AFTER fixed_price',
-                    'discount_percent' => 'ALTER TABLE cable_packages ADD COLUMN discount_percent DECIMAL(8,2) NULL AFTER markup_percent',
-                    'admin_price_locked' => 'ALTER TABLE cable_packages ADD COLUMN admin_price_locked TINYINT(1) NOT NULL DEFAULT 0 AFTER discount_percent',
-                    'provider_id' => 'ALTER TABLE cable_packages ADD COLUMN provider_id VARCHAR(50) NOT NULL DEFAULT "ulamadata" AFTER admin_price_locked',
-                    'updated_at' => 'ALTER TABLE cable_packages ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER is_active',
-                ];
-                foreach ($cabAdds as $colName => $ddl) {
-                    if (!isset($cabMap[$colName])) {
-                        try { $this->db->execute($ddl); } catch (Throwable) {}
-                    }
-                }
-            } catch (Throwable) {}
-
-            // Ensure electricity_discos supports UlamaData provider_disco_id & fee settings
-            try {
-                $discCols = $this->db->fetchAll('SHOW COLUMNS FROM electricity_discos');
-                $discMap = [];
-                foreach ($discCols as $c) {
-                    $discMap[strtolower((string)$c['Field'])] = strtolower((string)$c['Type']);
-                }
-                $discAdds = [
-                    'provider_disco_id' => 'ALTER TABLE electricity_discos ADD COLUMN provider_disco_id INT NULL AFTER id',
-                    'abbreviation' => 'ALTER TABLE electricity_discos ADD COLUMN abbreviation VARCHAR(30) NULL AFTER provider_disco_id',
-                    'api_discount' => 'ALTER TABLE electricity_discos ADD COLUMN api_discount DECIMAL(8,2) NOT NULL DEFAULT 0.00 AFTER code',
-                    'max_amount' => 'ALTER TABLE electricity_discos ADD COLUMN max_amount DECIMAL(15,2) NOT NULL DEFAULT 500000.00 AFTER minimum_amount',
-                    'fee_type' => 'ALTER TABLE electricity_discos ADD COLUMN fee_type VARCHAR(30) NOT NULL DEFAULT "fixed_fee" AFTER max_amount',
-                    'convenience_fee' => 'ALTER TABLE electricity_discos ADD COLUMN convenience_fee DECIMAL(15,2) NOT NULL DEFAULT 100.00 AFTER fee_type',
-                    'discount_percent' => 'ALTER TABLE electricity_discos ADD COLUMN discount_percent DECIMAL(8,2) NOT NULL DEFAULT 0.00 AFTER convenience_fee',
-                    'admin_price_locked' => 'ALTER TABLE electricity_discos ADD COLUMN admin_price_locked TINYINT(1) NOT NULL DEFAULT 0 AFTER discount_percent',
-                    'provider_id' => 'ALTER TABLE electricity_discos ADD COLUMN provider_id VARCHAR(50) NOT NULL DEFAULT "ulamadata" AFTER admin_price_locked',
-                    'updated_at' => 'ALTER TABLE electricity_discos ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER is_active',
-                ];
-                foreach ($discAdds as $colName => $ddl) {
-                    if (!isset($discMap[$colName])) {
-                        try { $this->db->execute($ddl); } catch (Throwable) {}
-                    }
-                }
-            } catch (Throwable) {}
-
-            // Ensure exam_packages supports UlamaData provider_plan_id & pricing overrides
-            try {
-                $exmCols = $this->db->fetchAll('SHOW COLUMNS FROM exam_packages');
-                $exmMap = [];
-                foreach ($exmCols as $c) {
-                    $exmMap[strtolower((string)$c['Field'])] = strtolower((string)$c['Type']);
-                }
-                if (isset($exmMap['exam_name']) && str_starts_with($exmMap['exam_name'], 'enum')) {
-                    try { $this->db->execute('ALTER TABLE exam_packages MODIFY COLUMN exam_name VARCHAR(50) NOT NULL'); } catch (Throwable) {}
-                }
-                $exmAdds = [
-                    'provider_plan_id' => 'ALTER TABLE exam_packages ADD COLUMN provider_plan_id INT NULL AFTER id',
-                    'pricing_mode' => 'ALTER TABLE exam_packages ADD COLUMN pricing_mode VARCHAR(30) NOT NULL DEFAULT "default_markup" AFTER price',
-                    'fixed_price' => 'ALTER TABLE exam_packages ADD COLUMN fixed_price DECIMAL(15,2) NULL AFTER pricing_mode',
-                    'markup_percent' => 'ALTER TABLE exam_packages ADD COLUMN markup_percent DECIMAL(8,2) NULL AFTER fixed_price',
-                    'discount_percent' => 'ALTER TABLE exam_packages ADD COLUMN discount_percent DECIMAL(8,2) NULL AFTER markup_percent',
-                    'admin_price_locked' => 'ALTER TABLE exam_packages ADD COLUMN admin_price_locked TINYINT(1) NOT NULL DEFAULT 0 AFTER discount_percent',
-                    'max_quantity' => 'ALTER TABLE exam_packages ADD COLUMN max_quantity INT NOT NULL DEFAULT 10 AFTER admin_price_locked',
-                    'provider_id' => 'ALTER TABLE exam_packages ADD COLUMN provider_id VARCHAR(50) NOT NULL DEFAULT "ulamadata" AFTER max_quantity',
-                    'updated_at' => 'ALTER TABLE exam_packages ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER is_active',
-                ];
-                foreach ($exmAdds as $colName => $ddl) {
-                    if (!isset($exmMap[$colName])) {
-                        try { $this->db->execute($ddl); } catch (Throwable) {}
-                    }
-                }
-            } catch (Throwable) {}
-
             // Stage 5 Phase 2: Ensure telecom_vouchers table exists for protected PIN/Serial storage
             try {
                 $this->db->execute(
@@ -336,227 +254,9 @@ class TelecomController
         return 2.5;
     }
 
-    public static function readBulkSmsSettings(Database $db): array
-    {
-        $defaults = [
-            'enabled' => true,
-            'unit_price' => 3.50,
-            'wholesale_unit_price' => 2.50,
-            'max_recipients' => 500,
-            'default_sender' => 'HAMBAK',
-        ];
-        try {
-            $rows = $db->fetchAll(
-                'SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("bulksms_enabled", "bulksms_unit_price", "bulksms_wholesale_unit_price", "bulksms_max_recipients", "bulksms_default_sender")'
-            );
-            foreach ($rows as $row) {
-                $k = (string)($row['setting_key'] ?? '');
-                $v = $row['setting_value'] ?? null;
-                if ($v === null || $v === '') {
-                    continue;
-                }
-                if ($k === 'bulksms_enabled') {
-                    $defaults['enabled'] = !in_array(strtolower(trim((string)$v)), ['0', 'false', 'off', 'no', 'disabled'], true);
-                } elseif ($k === 'bulksms_unit_price' && is_numeric($v) && (float)$v > 0) {
-                    $defaults['unit_price'] = round((float)$v, 2);
-                } elseif ($k === 'bulksms_wholesale_unit_price' && is_numeric($v) && (float)$v >= 0) {
-                    $defaults['wholesale_unit_price'] = round((float)$v, 2);
-                } elseif ($k === 'bulksms_max_recipients' && is_numeric($v) && (int)$v > 0) {
-                    $defaults['max_recipients'] = min(5000, max(1, (int)$v));
-                } elseif ($k === 'bulksms_default_sender') {
-                    $clean = preg_replace('/[^A-Za-z0-9._ -]/', '', trim((string)$v)) ?? '';
-                    if ($clean !== '') {
-                        $defaults['default_sender'] = substr($clean, 0, 11);
-                    }
-                }
-            }
-        } catch (Throwable) {
-        }
-        return $defaults;
-    }
-
-    public static function readAirtimeSwapEnabled(Database $db): bool
-    {
-        try {
-            $row = $db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "airtime_swap_enabled" LIMIT 1');
-            if ($row && $row['setting_value'] !== null && $row['setting_value'] !== '') {
-                return !in_array(strtolower(trim((string)$row['setting_value'])), ['0', 'false', 'off', 'no', 'disabled'], true);
-            }
-        } catch (Throwable) {
-        }
-        return true;
-    }
-
-    private function readSettingFloat(string $key, float $default, float $min = 0.0, float $max = 100.0): float
-    {
-        try {
-            $row = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = :k LIMIT 1', ['k' => $key]);
-            if ($row && $row['setting_value'] !== null && $row['setting_value'] !== '' && is_numeric($row['setting_value'])) {
-                $val = (float)$row['setting_value'];
-                if ($val >= $min && $val <= $max) {
-                    return round($val, 2);
-                }
-            }
-        } catch (Throwable) {
-        }
-        return $default;
-    }
-
     private function getAirtimeDiscountPercent(): float
     {
         return self::readAirtimeDiscountPercent($this->db);
-    }
-
-    private function extractIdempotencyKey(Request $request): string
-    {
-        $raw = trim((string)($request->header('x-idempotency-key') ?? $request->input('idempotency_key') ?? $request->input('idempotencyKey') ?? ''));
-        return $raw !== '' ? mb_substr($raw, 0, 95) : '';
-    }
-
-    private function findIdempotentOrder(string $userId, string $serviceType, string $idempotencyKey): ?array
-    {
-        if ($idempotencyKey === '') {
-            return null;
-        }
-        try {
-            return $this->db->fetchOne(
-                'SELECT id, service_type, network, phone, plan, amount, status, provider_ref, metadata, created_at
-                 FROM telecom_orders
-                 WHERE user_id = :uid AND service_type = :st AND idempotency_key = :ikey AND status IN ("successful", "pending")
-                 ORDER BY created_at DESC LIMIT 1',
-                ['uid' => $userId, 'st' => $serviceType, 'ikey' => $idempotencyKey]
-            );
-        } catch (Throwable) {
-            return null;
-        }
-    }
-
-    private function respondExistingOrder(string $userId, array $existingOrder, string $message): void
-    {
-        $walletRow = $this->db->fetchOne('SELECT wallet_balance FROM users WHERE id = :uid LIMIT 1', ['uid' => $userId]);
-        $bal = (float)($walletRow['wallet_balance'] ?? 0);
-        $safeRef = 'HT-' . strtoupper(substr(str_replace('-', '', (string)$existingOrder['id']), 0, 10));
-        Response::success([
-            'order_id' => $existingOrder['id'],
-            'reference' => $safeRef,
-            'network' => $existingOrder['network'] ?? null,
-            'phone' => $existingOrder['phone'],
-            'amount' => (float)$existingOrder['amount'],
-            'status' => $existingOrder['status'],
-            'balance_after' => $bal,
-            'newBalance' => $bal,
-            'deduplicated' => true,
-            'order' => [
-                'id' => $existingOrder['id'],
-                'reference' => $safeRef,
-                'provider_ref' => $safeRef,
-                'service' => $existingOrder['service_type'],
-                'service_type' => $existingOrder['service_type'],
-                'network' => $existingOrder['network'] ?? null,
-                'recipient' => $existingOrder['phone'],
-                'phone' => $existingOrder['phone'],
-                'plan' => $existingOrder['plan'],
-                'amount' => (float)$existingOrder['amount'],
-                'status' => $existingOrder['status'],
-                'created_at' => $existingOrder['created_at'],
-            ],
-        ], $message);
-    }
-
-    private function acquireOrderLock(string $userId, string $serviceType, string $target): string
-    {
-        $lockName = 'ht_tel_' . hash('sha256', $userId . '|' . $serviceType . '|' . strtolower(trim($target)));
-        try {
-            $row = $this->db->fetchOne('SELECT GET_LOCK(:k, 3) AS acquired', ['k' => $lockName]);
-            if ((int)($row['acquired'] ?? 0) !== 1) {
-                Response::error('An identical order request is currently processing. Please wait a few seconds before retrying.', 409);
-            }
-        } catch (Throwable) {
-            return '';
-        }
-        register_shutdown_function(function () use ($lockName): void {
-            $this->releaseOrderLock($lockName);
-        });
-        return $lockName;
-    }
-
-    private function releaseOrderLock(string $lockName): void
-    {
-        if ($lockName === '') {
-            return;
-        }
-        try {
-            $this->db->execute('DO RELEASE_LOCK(:k)', ['k' => $lockName]);
-        } catch (Throwable) {
-        }
-    }
-
-    private function hasRecentDuplicateOrder(string $userId, string $serviceType, string $phone, float $amount, ?string $plan = null, int $windowSeconds = 15): bool
-    {
-        try {
-            $sql = 'SELECT id FROM telecom_orders
-                    WHERE user_id = :uid AND service_type = :st AND phone = :ph
-                      AND ABS(amount - :amt) < 0.01
-                      AND status IN ("successful", "pending")
-                      AND created_at >= DATE_SUB(NOW(), INTERVAL :win SECOND)';
-            $params = [
-                'uid' => $userId,
-                'st' => $serviceType,
-                'ph' => $phone,
-                'amt' => round($amount, 2),
-                'win' => max(1, $windowSeconds),
-            ];
-            if ($plan !== null && $plan !== '') {
-                $sql .= ' AND plan = :pl';
-                $params['pl'] = $plan;
-            }
-            $sql .= ' LIMIT 1';
-            return (bool)$this->db->fetchOne($sql, $params);
-        } catch (Throwable) {
-            return false;
-        }
-    }
-
-    private function verifyWebhookSecretHeader(Request $request, string $raw, string $providerCode, string $envKey): array
-    {
-        $secret = trim((string)(getenv($envKey) ?: ($_ENV[$envKey] ?? '')));
-        if ($secret === '') {
-            try {
-                $row = $this->db->fetchOne('SELECT webhook_secret FROM providers WHERE id = :id OR code = :code LIMIT 1', [
-                    'id' => $providerCode,
-                    'code' => $providerCode,
-                ]);
-                if ($row && !empty($row['webhook_secret'])) {
-                    $secret = trim((string)$row['webhook_secret']);
-                }
-            } catch (Throwable) {
-            }
-        }
-
-        if ($secret === '') {
-            return ['configured' => false, 'authenticated' => false];
-        }
-
-        $sigHeader = trim((string)(
-            $request->header('x-ulamadata-signature')
-            ?? $request->header('x-vtpass-signature')
-            ?? $request->header('x-webhook-signature')
-            ?? $request->header('x-signature')
-            ?? $request->header('x-webhook-secret')
-            ?? ''
-        ));
-        $authHeader = trim((string)($request->header('authorization') ?? ''));
-        $bearer = str_starts_with(strtolower($authHeader), 'bearer ') ? trim(substr($authHeader, 7)) : '';
-        $expectedHmac = hash_hmac('sha256', $raw, $secret);
-
-        $sigMatched = $sigHeader !== '' && (
-            hash_equals($secret, $sigHeader)
-            || hash_equals($expectedHmac, strtolower($sigHeader))
-            || hash_equals('sha256=' . $expectedHmac, strtolower($sigHeader))
-        );
-        $bearerMatched = $bearer !== '' && hash_equals($secret, $bearer);
-
-        return ['configured' => true, 'authenticated' => ($sigMatched || $bearerMatched)];
     }
 
     private function getNetworkPrefixMap(): array
@@ -615,7 +315,7 @@ class TelecomController
         return $digits;
     }
 
-    private function validatePhoneForNetwork(string $rawPhone, string $selectedNetwork, bool $ported = false): array
+    private function validatePhoneForNetwork(string $rawPhone, string $selectedNetwork): array
     {
         $phone = $this->normalizeNigerianPhone($rawPhone);
         $selected = strtoupper(trim($selectedNetwork));
@@ -627,8 +327,6 @@ class TelecomController
             return [
                 'valid' => false,
                 'matches_network' => false,
-                'ported' => $ported,
-                'ported_allowed' => false,
                 'formatted_phone' => $phone,
                 'detected_network' => null,
                 'selected_network' => $selected,
@@ -648,61 +346,31 @@ class TelecomController
         }
 
         if ($detected === null) {
-            if ($ported) {
-                return [
-                    'valid' => true,
-                    'matches_network' => true,
-                    'ported' => true,
-                    'ported_allowed' => true,
-                    'formatted_phone' => $phone,
-                    'detected_network' => null,
-                    'selected_network' => $selected,
-                    'message' => "{$phone} accepted in ported-number mode for {$selected}.",
-                ];
-            }
             return [
                 'valid' => false,
                 'matches_network' => false,
-                'ported' => false,
-                'ported_allowed' => false,
                 'formatted_phone' => $phone,
                 'detected_network' => null,
                 'selected_network' => $selected,
-                'message' => "Number prefix {$prefix4} could not be matched to a supported Nigerian mobile carrier. Enable Ported / MNP mode if transferred.",
+                'message' => "Number prefix {$prefix4} could not be matched to a supported Nigerian mobile carrier.",
             ];
         }
 
         $matches = ($selected === '' || $detected === $selected);
         if (!$matches) {
-            if ($ported) {
-                return [
-                    'valid' => true,
-                    'matches_network' => false,
-                    'ported' => true,
-                    'ported_allowed' => true,
-                    'formatted_phone' => $phone,
-                    'detected_network' => $detected,
-                    'selected_network' => $selected,
-                    'message' => "{$phone} has {$detected} prefix, confirmed as ported to {$selected} (MNP).",
-                ];
-            }
             return [
                 'valid' => true,
                 'matches_network' => false,
-                'ported' => false,
-                'ported_allowed' => false,
                 'formatted_phone' => $phone,
                 'detected_network' => $detected,
                 'selected_network' => $selected,
-                'message' => "{$phone} belongs to {$detected}, which does not match your selected network ({$selected}). Select {$detected} or mark the line as ported (MNP).",
+                'message' => "{$phone} belongs to {$detected}, which does not match your selected network ({$selected}). Select {$detected} or enter a valid {$selected} number.",
             ];
         }
 
         return [
             'valid' => true,
             'matches_network' => true,
-            'ported' => $ported,
-            'ported_allowed' => true,
             'formatted_phone' => $phone,
             'detected_network' => $detected,
             'selected_network' => $selected,
@@ -718,12 +386,13 @@ class TelecomController
         Auth::requireAuth($request);
         $phone = (string)$request->input('phone', '');
         $network = strtoupper(trim((string)$request->input('network', '')));
-        $ported = filter_var($request->input('ported') ?? $request->input('allow_ported') ?? false, FILTER_VALIDATE_BOOLEAN);
+
         if (trim($phone) === '' || $network === '') {
             Response::error('Recipient phone number and network are required for validation.', 422);
             return;
         }
-        $result = $this->validatePhoneForNetwork($phone, $network, $ported);
+
+        $result = $this->validatePhoneForNetwork($phone, $network);
         Response::success($result, $result['message']);
     }
 
@@ -820,7 +489,6 @@ class TelecomController
         }
 
         $airtimeDiscount = $this->getAirtimeDiscountPercent();
-        $bulkSms = self::readBulkSmsSettings($this->db);
 
         Response::success([
             'activeProvider' => $isAdmin ? $this->activeProviderId : 'sovereign',
@@ -832,8 +500,6 @@ class TelecomController
             'exam_packages' => $examPackages,
             'airtime_swap' => $airtimeSwap,
             'airtime_discount_percent' => $airtimeDiscount,
-            'bulksms_unit_price' => $bulkSms['unit_price'],
-            'bulksms_sender_id' => $bulkSms['default_sender'],
         ]);
     }
 
@@ -868,18 +534,50 @@ class TelecomController
         $planId = trim((string)($request->input('planId') ?? $request->input('plan_id', '')));
         $rawPhone = trim((string)$request->input('phone', ''));
         $selectedNetwork = strtoupper(trim((string)$request->input('network', '')));
-        $ported = filter_var($request->input('ported') ?? $request->input('allow_ported') ?? false, FILTER_VALIDATE_BOOLEAN);
-        $idempotencyKey = $this->extractIdempotencyKey($request);
+        $idempotencyKey = trim((string)($request->header('x-idempotency-key') ?? $request->input('idempotency_key') ?? $request->input('idempotencyKey') ?? ''));
 
         if ($planId === '' || $rawPhone === '') {
             Response::error('Data plan selection and recipient phone number are required.', 422);
             return;
         }
 
+        // Idempotency check if client supplied key
         if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'data', $idempotencyKey);
+            $existingOrder = $this->db->fetchOne(
+                'SELECT id, service_type, network, phone, plan, amount, status, created_at
+                 FROM telecom_orders
+                 WHERE user_id = :uid AND idempotency_key = :ikey AND status IN ("successful", "pending")
+                 ORDER BY created_at DESC LIMIT 1',
+                ['uid' => $user['id'], 'ikey' => mb_substr($idempotencyKey, 0, 95)]
+            );
             if ($existingOrder) {
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing data bundle order.');
+                $walletRow = $this->db->fetchOne('SELECT wallet_balance FROM users WHERE id = :uid', ['uid' => $user['id']]);
+                $bal = (float)($walletRow['wallet_balance'] ?? 0);
+                Response::success([
+                    'order_id' => $existingOrder['id'],
+                    'reference' => $existingOrder['id'],
+                    'network' => $existingOrder['network'],
+                    'phone' => $existingOrder['phone'],
+                    'amount' => (float)$existingOrder['amount'],
+                    'status' => $existingOrder['status'],
+                    'balance_after' => $bal,
+                    'newBalance' => $bal,
+                    'deduplicated' => true,
+                    'order' => [
+                        'id' => $existingOrder['id'],
+                        'reference' => $existingOrder['id'],
+                        'service' => 'data',
+                        'service_type' => 'data',
+                        'network' => $existingOrder['network'],
+                        'recipient' => $existingOrder['phone'],
+                        'phone' => $existingOrder['phone'],
+                        'plan' => $existingOrder['plan'],
+                        'amount' => (float)$existingOrder['amount'],
+                        'provider_ref' => 'HT-' . strtoupper(substr(str_replace('-', '', $existingOrder['id']), 0, 10)),
+                        'status' => $existingOrder['status'],
+                        'created_at' => $existingOrder['created_at'],
+                    ],
+                ], 'Duplicate request prevented; returning existing data bundle order.');
                 return;
             }
         }
@@ -898,13 +596,15 @@ class TelecomController
             return;
         }
 
-        $phoneCheck = $this->validatePhoneForNetwork($rawPhone, (string)$plan['network'], $ported);
-        if (!$phoneCheck['valid'] || (!$phoneCheck['matches_network'] && !$ported)) {
+        // Strict Nigerian Phone Format + Carrier Network Match Validation
+        $phoneCheck = $this->validatePhoneForNetwork($rawPhone, (string)$plan['network']);
+        if (!$phoneCheck['valid'] || !$phoneCheck['matches_network']) {
             Response::error($phoneCheck['message'], 422);
             return;
         }
         $phone = $phoneCheck['formatted_phone'];
 
+        // Server-side Price Validation (never trust frontend price)
         $price = (float)$plan['price'];
         $wholesaleCost = (float)$plan['wholesale_cost'];
         if ($price <= 0) {
@@ -914,27 +614,24 @@ class TelecomController
         $profit = round($price - $wholesaleCost, 2);
         $planLabel = "{$plan['network']} {$plan['size']} ({$plan['plan_type']})";
 
-        // Enforce compulsory Transaction PIN before acquiring order lock or debiting wallet
-        $this->verifyTransactionPinOrFail($user, $request, 'telecom_data', 'data');
-
-        $lockKey = $this->acquireOrderLock((string)$user['id'], 'data', $idempotencyKey !== '' ? $idempotencyKey : ($phone . '|' . $plan['id']));
-
-        // Re-check inside exclusive lock to eliminate concurrent double-spend/double-order race
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'data', $idempotencyKey);
-            if ($existingOrder) {
-                $this->releaseOrderLock($lockKey);
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing data bundle order.');
-                return;
-            }
-        }
-        if ($this->hasRecentDuplicateOrder((string)$user['id'], 'data', $phone, $price, $planLabel, 15)) {
-            $this->releaseOrderLock($lockKey);
+        // Guard against rapid accidental double-submit (same user + phone + plan within 12s)
+        $recentDup = $this->db->fetchOne(
+            'SELECT id FROM telecom_orders
+             WHERE user_id = :uid AND service_type = "data" AND phone = :ph AND plan = :pl
+               AND status IN ("successful", "pending")
+               AND created_at >= (NOW() - INTERVAL 12 SECOND)
+             LIMIT 1',
+            ['uid' => $user['id'], 'ph' => $phone, 'pl' => $planLabel]
+        );
+        if ($recentDup) {
             Response::error('An identical data bundle purchase for this number was just submitted. Please check your Order History before retrying.', 409);
             return;
         }
 
         $reference = 'HT_DAT_' . strtoupper(bin2hex(random_bytes(6)));
+
+        // Enforce compulsory Transaction PIN before wallet debit
+        $this->verifyTransactionPinOrFail($user, $request, 'telecom_data', 'data');
 
         // 1. Atomic Wallet Debit
         try {
@@ -948,7 +645,6 @@ class TelecomController
                 ['plan_id' => $plan['id'], 'phone' => $phone]
             );
         } catch (Throwable $e) {
-            $this->releaseOrderLock($lockKey);
             Response::error($e->getMessage(), 400);
             return;
         }
@@ -957,9 +653,9 @@ class TelecomController
         $orderId = Security::generateUuid();
         try {
             if ($this->adapter instanceof UlamaDataAdapter) {
-                $dispatchRes = $this->adapter->purchaseData($plan['network'], $phone, $plan['provider_plan_id'], $ported, $reference);
+                $dispatchRes = $this->adapter->purchaseData($plan['network'], $phone, $plan['provider_plan_id'], false, $reference);
             } else {
-                $dispatchRes = $this->adapter->purchaseData($plan['network'], $phone, $plan['provider_plan_id'], $ported);
+                $dispatchRes = $this->adapter->purchaseData($plan['network'], $phone, $plan['provider_plan_id'], false);
             }
 
             $orderStatus = ($dispatchRes['status'] ?? 'successful') === 'pending' ? 'pending' : 'successful';
@@ -981,7 +677,7 @@ class TelecomController
                     'profit' => $profit,
                     'prov' => $this->activeProviderId,
                     'pref' => $providerRef,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
+                    'ikey' => $idempotencyKey !== '' ? mb_substr($idempotencyKey, 0, 95) : null,
                     'st' => $orderStatus,
                     'meta' => json_encode([
                         'internal_reference' => $reference,
@@ -1023,7 +719,6 @@ class TelecomController
                 ? "{$plan['size']} Data order for {$phone} is processing and will complete shortly."
                 : "{$plan['size']} Data successfully delivered to {$phone}!";
 
-            $this->releaseOrderLock($lockKey);
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $customerSafeRef,
@@ -1036,6 +731,7 @@ class TelecomController
                 'order' => $order,
             ], $msg);
         } catch (Throwable $e) {
+            // Immediate automated wallet refund on provider failure
             $this->walletService->credit($user['id'], $price, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed data order {$reference}");
 
             $this->db->execute(
@@ -1053,7 +749,7 @@ class TelecomController
                     'cost' => $wholesaleCost,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
+                    'ikey' => $idempotencyKey !== '' ? mb_substr($idempotencyKey, 0, 95) : null,
                     'meta' => json_encode(['internal_reference' => $reference, 'error' => $e->getMessage()]),
                 ]
             );
@@ -1063,7 +759,6 @@ class TelecomController
                 'phone' => $phone,
             ]);
 
-            $this->releaseOrderLock($lockKey);
             Response::error('Failed to dispatch data: ' . $e->getMessage() . '. Your wallet balance has been refunded.', 502);
         }
     }
@@ -1073,59 +768,23 @@ class TelecomController
      */
     public function topupAirtime(Request $request): void
     {
-        $this->ensureDataSchema();
         $user = Auth::requireAuth($request);
-        $network = strtoupper(trim((string)$request->input('network', '')));
-        if ($network === 'ETISALAT') {
-            $network = '9MOBILE';
-        }
-        $rawPhone = trim((string)$request->input('phone', ''));
+        $network = strtoupper((string)$request->input('network', ''));
+        $phone = trim((string)$request->input('phone', ''));
         $amount = (float)$request->input('amount', 0);
-        $idempotencyKey = $this->extractIdempotencyKey($request);
 
-        if ($network === '' || $rawPhone === '' || $amount < 50) {
+        if (empty($network) || empty($phone) || $amount < 50) {
             Response::error('Network, valid phone number, and minimum ₦50 airtime amount are required.', 422);
-            return;
         }
 
-        $phone = $this->normalizeNigerianPhone($rawPhone);
-        if (!preg_match('/^0[789][01]\d{8}$/', $phone)) {
-            Response::error('Enter a valid 11-digit Nigerian mobile number.', 422);
-            return;
-        }
-
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'airtime', $idempotencyKey);
-            if ($existingOrder) {
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing airtime order.');
-                return;
-            }
-        }
-
-        // Enforce compulsory Transaction PIN before locking or debiting wallet
+        // Enforce compulsory Transaction PIN before wallet debit
         $this->verifyTransactionPinOrFail($user, $request, 'telecom_airtime', 'airtime');
 
+        // Apply Admin-configured platform discount dynamically
         $discountPercent = $this->getAirtimeDiscountPercent();
         $discountedPrice = round($amount * (1 - ($discountPercent / 100)), 2);
         $discountSaved = round($amount - $discountedPrice, 2);
-        $wholesaleDiscountPct = $this->readSettingFloat('airtime_wholesale_discount_percent', 3.0, 0.0, 50.0);
-        $wholesaleCost = round($amount * (1 - ($wholesaleDiscountPct / 100)), 2);
-
-        $lockKey = $this->acquireOrderLock((string)$user['id'], 'airtime', $idempotencyKey !== '' ? $idempotencyKey : ($phone . '|' . round($discountedPrice, 2)));
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'airtime', $idempotencyKey);
-            if ($existingOrder) {
-                $this->releaseOrderLock($lockKey);
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing airtime order.');
-                return;
-            }
-        }
-        if ($this->hasRecentDuplicateOrder((string)$user['id'], 'airtime', $phone, $discountedPrice, null, 15)) {
-            $this->releaseOrderLock($lockKey);
-            Response::error('An identical airtime recharge for this number was just submitted. Please check your Order History before retrying.', 409);
-            return;
-        }
-
+        $wholesaleCost = round($amount * 0.97, 2);
         $reference = 'UD_AIR_' . strtoupper(bin2hex(random_bytes(6)));
 
         try {
@@ -1139,7 +798,6 @@ class TelecomController
                 ['network' => $network, 'phone' => $phone, 'face_value' => $amount, 'discount_percent' => $discountPercent]
             );
         } catch (Throwable $e) {
-            $this->releaseOrderLock($lockKey);
             Response::error($e->getMessage(), 400);
             return;
         }
@@ -1147,17 +805,12 @@ class TelecomController
         $orderId = Security::generateUuid();
         try {
             $dispatchRes = $this->adapter->topupAirtime($network, $phone, $amount);
-            $orderStatus = ($dispatchRes['status'] ?? 'successful') === 'pending' ? 'pending' : 'successful';
-            if (isset($dispatchRes['cost_price']) && is_numeric($dispatchRes['cost_price']) && (float)$dispatchRes['cost_price'] > 0) {
-                $wholesaleCost = round((float)$dispatchRes['cost_price'], 2);
-            }
-            $profit = round($discountedPrice - $wholesaleCost, 2);
 
             $this->db->execute(
-                'INSERT INTO telecom_orders
-                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES
-                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, :ikey, :st, :meta, NOW())',
+                'INSERT INTO telecom_orders 
+                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES 
+                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -1166,11 +819,9 @@ class TelecomController
                     'plan' => "₦{$amount} VTU Airtime",
                     'amt' => $discountedPrice,
                     'cost' => $wholesaleCost,
-                    'profit' => $profit,
+                    'profit' => $discountedPrice - $wholesaleCost,
                     'prov' => $this->activeProviderId,
                     'pref' => $dispatchRes['provider_reference'] ?? $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
-                    'st' => $orderStatus,
                     'meta' => json_encode($dispatchRes),
                 ]
             );
@@ -1185,41 +836,37 @@ class TelecomController
                 'phone' => $phone,
                 'plan' => "₦{$amount} VTU Airtime",
                 'amount' => $discountedPrice,
-                'status' => $orderStatus,
+                'status' => 'successful',
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
-            $this->logFootprint($user, 'airtime', $orderStatus === 'pending' ? 'AIRTIME_ORDER_PENDING' : 'AIRTIME_TOPUP', $reference, $discountedPrice, $orderStatus, $this->activeProviderId, null, [
+            $this->logFootprint($user, 'airtime', 'AIRTIME_TOPUP', $reference, $discountedPrice, 'successful', $this->activeProviderId, null, [
                 'network' => $network,
                 'phone' => $phone,
                 'amount' => $amount,
                 'discount_percent' => $discountPercent,
             ]);
 
-            if ($orderStatus === 'successful') {
-                $this->triggerReferralReward((string)$user['id'], 'airtime', 'airtime', 'TEL_' . $orderId, $discountedPrice, $wholesaleCost);
-            }
+            $this->triggerReferralReward((string)$user['id'], 'airtime', 'airtime', 'TEL_' . $orderId, $discountedPrice, $wholesaleCost);
 
-            $this->releaseOrderLock($lockKey);
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
                 'amount_charged' => $discountedPrice,
-                'status' => $orderStatus,
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
                 'discountSaved' => $discountSaved,
                 'airtime_discount_percent' => $discountPercent,
                 'order' => $order,
-            ], $orderStatus === 'pending' ? "₦{$amount} Airtime order for {$phone} is processing." : "₦{$amount} Airtime successfully credited to {$phone}!");
+            ], "₦{$amount} Airtime successfully credited to {$phone}!");
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $discountedPrice, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed airtime {$reference}");
 
             $this->db->execute(
-                'INSERT INTO telecom_orders
-                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES
-                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, "failed", :meta, NOW())',
+                'INSERT INTO telecom_orders 
+                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES 
+                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -1230,7 +877,6 @@ class TelecomController
                     'cost' => $wholesaleCost,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
                     'meta' => json_encode(['error' => $e->getMessage()]),
                 ]
             );
@@ -1240,7 +886,6 @@ class TelecomController
                 'phone' => $phone,
             ]);
 
-            $this->releaseOrderLock($lockKey);
             Response::error('Failed to recharge airtime: ' . $e->getMessage() . '. Your wallet balance has been refunded.', 502);
         }
     }
@@ -2149,125 +1794,45 @@ class TelecomController
      */
     public function processAirtimeSwap(Request $request): void
     {
-        $this->ensureDataSchema();
         $user = Auth::requireAuth($request);
-        if (!self::readAirtimeSwapEnabled($this->db)) {
-            Response::error('Airtime to Cash service is currently disabled by administrator.', 403);
-            return;
-        }
-
-        $network = strtoupper(trim((string)$request->input('network', '')));
-        if ($network === 'ETISALAT') {
-            $network = '9MOBILE';
-        }
+        $network = strtoupper((string)$request->input('network', ''));
         $phone = trim((string)$request->input('phone', ''));
         $amount = (float)$request->input('amount', 0);
-        $idempotencyKey = $this->extractIdempotencyKey($request);
 
-        if ($network === '' || $phone === '' || $amount < 500) {
+        if (empty($network) || empty($phone) || $amount < 500) {
             Response::error('Network, phone number and minimum ₦500 amount required.', 422);
-            return;
         }
 
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'airtime_swap', $idempotencyKey);
-            if ($existingOrder) {
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing airtime swap request.');
-                return;
-            }
-        }
-
+        // Enforce compulsory Transaction PIN before initiating swap
         $this->verifyTransactionPinOrFail($user, $request, 'telecom_swap', 'airtime_swap');
 
-        $swapConfig = null;
         try {
-            $swapConfig = $this->db->fetchOne('SELECT * FROM airtime_swap_configs WHERE network = :net LIMIT 1', ['net' => $network]);
-        } catch (Throwable) {
-        }
-        if ($swapConfig && empty($swapConfig['is_active'])) {
-            Response::error("Airtime swap for {$network} is currently inactive.", 403);
-            return;
-        }
-
-        $conversionRate = $swapConfig && is_numeric($swapConfig['conversion_rate_percent'] ?? null)
-            ? (float)$swapConfig['conversion_rate_percent']
-            : 80.0;
-        $wholesaleRate = $this->readSettingFloat('airtime_swap_wholesale_rate_percent', min(100.0, $conversionRate + 5.0), 0.0, 100.0);
-        $customerPayout = round($amount * ($conversionRate / 100), 2);
-        $wholesaleValue = round($amount * ($wholesaleRate / 100), 2);
-        $expectedProfit = round(max(0.0, $wholesaleValue - $customerPayout), 2);
-
-        $lockKey = $this->acquireOrderLock((string)$user['id'], 'airtime_swap', $idempotencyKey !== '' ? $idempotencyKey : ($phone . '|' . round($amount, 2)));
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'airtime_swap', $idempotencyKey);
-            if ($existingOrder) {
-                $this->releaseOrderLock($lockKey);
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing airtime swap request.');
-                return;
-            }
-        }
-        if ($this->hasRecentDuplicateOrder((string)$user['id'], 'airtime_swap', $phone, $amount, null, 15)) {
-            $this->releaseOrderLock($lockKey);
-            Response::error('An identical airtime swap request was just submitted. Please check your Order History.', 409);
-            return;
-        }
-
-        try {
-            $merchantPhone = trim((string)($swapConfig['merchant_phone'] ?? ''));
-            $ussdTemplate = trim((string)($swapConfig['ussd_code'] ?? ''));
-            $bankName = trim((string)($request->input('bankName') ?? $request->input('bank_name', 'Wallet Direct Credit')));
-            $accountNumber = trim((string)($request->input('accountNumber') ?? $request->input('account_number', '')));
-            $accountName = trim((string)($request->input('accountName') ?? $request->input('account_name', '')));
-            if ($merchantPhone === '' && $this->activeProviderId === 'vtpass') {
-                $dispatch = $this->adapter->processAirtimeSwap($network, $phone, $amount);
-            } else {
-                $ussdFormatted = $ussdTemplate !== ''
-                    ? str_replace(['AMOUNT', '{AMOUNT}'], (string)((int)round($amount)), $ussdTemplate)
-                    : "Transfer ₦{$amount} airtime to {$merchantPhone}";
-                $dispatch = [
-                    'status' => 'pending',
-                    'provider_reference' => 'SWP_' . strtoupper(bin2hex(random_bytes(5))),
-                    'transfer_number' => $merchantPhone,
-                    'ussd_code' => $ussdFormatted,
-                    'instructions' => "Dial {$ussdFormatted} from {$phone} to transfer ₦" . number_format($amount, 0) . " {$network} airtime to merchant line {$merchantPhone}. Payout of ₦" . number_format($customerPayout, 2) . " ({$conversionRate}%) will be settled to " . ($accountNumber !== '' ? "{$bankName} ({$accountNumber} - {$accountName})" : 'your Wallet') . " once verified.",
-                    'payout_destination' => $accountNumber !== '' ? 'bank' : 'wallet',
-                    'bank_name' => $bankName,
-                    'account_number' => $accountNumber,
-                    'account_name' => $accountName,
-                    'estimated_payout' => $customerPayout,
-                    'conversion_rate_percent' => $conversionRate,
-                ];
-            }
+            $dispatch = $this->adapter->processAirtimeSwap($network, $phone, $amount);
             $orderId = Security::generateUuid();
 
             $this->db->execute(
-                'INSERT INTO telecom_orders
-                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES
-                 (:id, :uid, "airtime_swap", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, :ikey, "pending", :meta, NOW())',
+                'INSERT INTO telecom_orders 
+                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES 
+                 (:id, :uid, "airtime_swap", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, "pending", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
                     'net' => $network,
                     'phone' => $phone,
-                    'plan' => "₦{$amount} Airtime Swap ({$conversionRate}%)",
+                    'plan' => "₦{$amount} Airtime Swap",
                     'amt' => $amount,
-                    'cost' => $customerPayout,
-                    'profit' => $expectedProfit,
+                    'cost' => round($amount * 0.80, 2),
+                    'profit' => round($amount * 0.05, 2),
                     'prov' => $this->activeProviderId,
-                    'pref' => $dispatch['provider_reference'] ?? ('SWP_' . strtoupper(bin2hex(random_bytes(5)))),
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
-                    'meta' => json_encode(array_merge($dispatch, [
-                        'conversion_rate_percent' => $conversionRate,
-                        'customer_payout' => $customerPayout,
-                        'wholesale_value' => $wholesaleValue,
-                    ])),
+                    'pref' => $dispatch['provider_reference'],
+                    'meta' => json_encode($dispatch),
                 ]
             );
 
             $order = [
                 'id' => $orderId,
-                'reference' => $dispatch['provider_reference'] ?? $orderId,
+                'reference' => $dispatch['provider_reference'],
                 'service' => 'airtime_swap',
                 'service_type' => 'airtime_swap',
                 'network' => $network,
@@ -2275,21 +1840,18 @@ class TelecomController
                 'phone' => $phone,
                 'plan' => "₦{$amount} Airtime Swap",
                 'amount' => $amount,
-                'payout_amount' => $customerPayout,
                 'status' => 'pending',
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
-            $this->releaseOrderLock($lockKey);
             Response::success([
                 'order_id' => $orderId,
                 'order' => $order,
-                'transfer_number' => $dispatch['transfer_number'] ?? ($swapConfig['merchant_phone'] ?? ''),
-                'instructions' => $dispatch['instructions'] ?? ($swapConfig['ussd_code'] ?? ''),
+                'transfer_number' => $dispatch['transfer_number'],
+                'instructions' => $dispatch['instructions'],
                 'swapDetails' => $dispatch,
             ], 'Airtime swap initiated! Please transfer airtime to complete.');
         } catch (Throwable $e) {
-            $this->releaseOrderLock($lockKey);
             Response::error('Failed to initiate airtime swap: ' . $e->getMessage(), 502);
         }
     }
@@ -2329,61 +1891,25 @@ class TelecomController
      */
     public function renewCable(Request $request): void
     {
-        $this->ensureDataSchema();
         $user = Auth::requireAuth($request);
-        $provider = strtolower(trim((string)$request->input('provider', 'gotv')));
+        $provider = (string)($request->input('provider', 'gotv'));
         $smartcard = trim((string)($request->input('smartcardNumber') ?? $request->input('smartcard', '')));
-        $packageCode = trim((string)($request->input('packageId') ?? $request->input('package_code', '')));
-        $idempotencyKey = $this->extractIdempotencyKey($request);
+        $packageCode = (string)($request->input('packageId') ?? $request->input('package_code', ''));
+        $phone = (string)$request->input('phone', '');
 
-        if ($smartcard === '' || $packageCode === '') {
-            Response::error('Smartcard/IUC number and cable package selection are required.', 422);
-            return;
+        // Fetch package details for amount
+        $pkg = $this->db->fetchOne('SELECT * FROM cable_packages WHERE (id = :id OR code = :code) AND is_active = 1', [
+            'id' => $packageCode,
+            'code' => $packageCode,
+        ]);
+        $amount = $pkg ? (float)$pkg['price'] : (float)$request->input('amount', 0);
+
+        if (empty($smartcard) || $amount <= 0) {
+            Response::error('Smartcard/IUC number and package selection are required.', 422);
         }
 
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'cable', $idempotencyKey);
-            if ($existingOrder) {
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing cable subscription order.');
-                return;
-            }
-        }
-
-        $pkg = $this->db->fetchOne(
-            'SELECT * FROM cable_packages WHERE (id = :id OR code = :code) AND is_active = 1 LIMIT 1',
-            ['id' => $packageCode, 'code' => $packageCode]
-        );
-        if (!$pkg) {
-            Response::error('Selected cable TV package is unavailable or inactive.', 404);
-            return;
-        }
-
-        $amount = (float)$pkg['price'];
-        if ($amount <= 0) {
-            Response::error('Cable TV package price is not configured.', 422);
-            return;
-        }
-        $wholesaleCost = (float)($pkg['wholesale_cost'] ?? 0) > 0 ? (float)$pkg['wholesale_cost'] : $amount;
-        $profit = round($amount - $wholesaleCost, 2);
-        $planLabel = ($pkg['name'] ?? strtoupper($provider)) . ' Subscription';
-
-        // Enforce compulsory Transaction PIN before lock & debit
+        // Enforce compulsory Transaction PIN before wallet debit
         $this->verifyTransactionPinOrFail($user, $request, 'telecom_bills', 'cable');
-
-        $lockKey = $this->acquireOrderLock((string)$user['id'], 'cable', $idempotencyKey !== '' ? $idempotencyKey : ($smartcard . '|' . $pkg['id']));
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'cable', $idempotencyKey);
-            if ($existingOrder) {
-                $this->releaseOrderLock($lockKey);
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing cable subscription order.');
-                return;
-            }
-        }
-        if ($this->hasRecentDuplicateOrder((string)$user['id'], 'cable', $smartcard, $amount, $planLabel, 15)) {
-            $this->releaseOrderLock($lockKey);
-            Response::error('An identical cable subscription for this smartcard was just submitted. Please check your Order History.', 409);
-            return;
-        }
 
         $reference = 'UD_CAB_' . strtoupper(bin2hex(random_bytes(6)));
         try {
@@ -2393,42 +1919,31 @@ class TelecomController
                 'cable_tv',
                 $reference,
                 "Cable TV renewal for {$provider} (IUC: {$smartcard})",
-                'internal',
-                ['package_id' => $pkg['id'], 'smartcard' => $smartcard]
+                'internal'
             );
         } catch (Throwable $e) {
-            $this->releaseOrderLock($lockKey);
             Response::error($e->getMessage(), 400);
             return;
         }
 
         $orderId = Security::generateUuid();
         try {
-            $dispatch = $this->adapter->renewCable((string)($pkg['provider'] ?: $provider), $smartcard, (string)($pkg['code'] ?: $packageCode));
-            $orderStatus = ($dispatch['status'] ?? 'successful') === 'pending' ? 'pending' : 'successful';
-            if (isset($dispatch['cost_price']) && is_numeric($dispatch['cost_price']) && (float)$dispatch['cost_price'] > 0) {
-                $wholesaleCost = round((float)$dispatch['cost_price'], 2);
-                $profit = round($amount - $wholesaleCost, 2);
-            }
+            $dispatch = $this->adapter->renewCable($provider, $smartcard, $pkg['code'] ?? $packageCode);
 
             $this->db->execute(
-                'INSERT INTO telecom_orders
-                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES
-                 (:id, :uid, "cable", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, :ikey, :st, :meta, NOW())',
+                'INSERT INTO telecom_orders 
+                 (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES 
+                 (:id, :uid, "cable", :phone, :plan, :amt, :cost, 100.00, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
-                    'net' => strtoupper((string)($pkg['provider'] ?: $provider)),
                     'phone' => $smartcard,
-                    'plan' => $planLabel,
+                    'plan' => ($pkg['name'] ?? strtoupper($provider)) . " Subscription",
                     'amt' => $amount,
-                    'cost' => $wholesaleCost,
-                    'profit' => $profit,
+                    'cost' => $amount - 100.00,
                     'prov' => $this->activeProviderId,
-                    'pref' => $dispatch['provider_reference'] ?? $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
-                    'st' => $orderStatus,
+                    'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
             );
@@ -2440,47 +1955,40 @@ class TelecomController
                 'service_type' => 'cable',
                 'recipient' => $smartcard,
                 'phone' => $smartcard,
-                'plan' => $planLabel,
+                'plan' => ($pkg['name'] ?? strtoupper($provider)) . " Subscription",
                 'amount' => $amount,
-                'status' => $orderStatus,
+                'status' => 'successful',
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
-            $this->logFootprint($user, 'cable', $orderStatus === 'pending' ? 'CABLE_PENDING' : 'CABLE_RENEWED', $reference, $amount, $orderStatus, $this->activeProviderId);
-            if ($orderStatus === 'successful') {
-                $this->triggerReferralReward((string)$user['id'], 'cable', 'cable', 'TEL_' . $orderId, $amount, $wholesaleCost);
-            }
+            $this->logFootprint($user, 'cable', 'CABLE_RENEWED', $reference, $amount, 'successful', $this->activeProviderId);
+            $this->triggerReferralReward((string)$user['id'], 'cable', 'cable', 'TEL_' . $orderId, $amount, max(0.0, $amount - 100.0));
 
-            $this->releaseOrderLock($lockKey);
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
-                'status' => $orderStatus,
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
                 'order' => $order,
-            ], $orderStatus === 'pending' ? 'Cable TV subscription order is processing.' : 'Cable TV subscription renewed successfully!');
+            ], 'Cable TV subscription renewed successfully!');
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $amount, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed cable subscription {$reference}");
             $this->db->execute(
-                'INSERT INTO telecom_orders (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES (:id, :uid, "cable", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, "failed", :meta, NOW())',
+                'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES (:id, :uid, "cable", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
-                    'net' => strtoupper((string)($pkg['provider'] ?: $provider)),
                     'phone' => $smartcard,
-                    'plan' => $planLabel,
+                    'plan' => ($pkg['name'] ?? strtoupper($provider)) . " Subscription",
                     'amt' => $amount,
-                    'cost' => $wholesaleCost,
+                    'cost' => $amount,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
                     'meta' => json_encode(['error' => $e->getMessage()]),
                 ]
             );
             $this->logFootprint($user, 'cable', 'CABLE_FAILED', $reference, $amount, 'failed', $this->activeProviderId, $e->getMessage());
-            $this->releaseOrderLock($lockKey);
             Response::error('Failed to renew cable: ' . $e->getMessage() . '. Wallet refunded.', 502);
         }
     }
@@ -2522,61 +2030,31 @@ class TelecomController
      */
     public function vendElectricity(Request $request): void
     {
-        $this->ensureDataSchema();
         $user = Auth::requireAuth($request);
-        $discoCode = trim((string)($request->input('discoId') ?? $request->input('disco', 'ikeja-electric')));
+        $discoCode = (string)($request->input('discoId') ?? $request->input('disco', 'ikeja-electric'));
         $meterNumber = trim((string)($request->input('meterNumber') ?? $request->input('meter_number', '')));
-        $meterType = trim((string)($request->input('meterType') ?? $request->input('meter_type', 'prepaid')));
+        $meterType = (string)($request->input('meterType') ?? $request->input('meter_type', 'prepaid'));
         $amount = (float)$request->input('amount', 0);
-        $idempotencyKey = $this->extractIdempotencyKey($request);
+        $phone = (string)$request->input('phone', '');
 
-        if ($meterNumber === '' || $amount < 500) {
+        if (empty($meterNumber) || $amount < 500) {
             Response::error('Meter number and minimum ₦500 amount are required.', 422);
-            return;
         }
 
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'electricity', $idempotencyKey);
-            if ($existingOrder) {
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing electricity token order.');
-                return;
-            }
-        }
-
+        // Enforce compulsory Transaction PIN before wallet debit
         $this->verifyTransactionPinOrFail($user, $request, 'telecom_bills', 'electricity');
-
-        $commissionPct = $this->readSettingFloat('electricity_commission_percent', 1.5, 0.0, 20.0);
-        $wholesaleCost = round($amount * (1 - ($commissionPct / 100)), 2);
-        $planLabel = strtoupper($discoCode) . ' Token';
-
-        $lockKey = $this->acquireOrderLock((string)$user['id'], 'electricity', $idempotencyKey !== '' ? $idempotencyKey : ($meterNumber . '|' . round($amount, 2)));
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'electricity', $idempotencyKey);
-            if ($existingOrder) {
-                $this->releaseOrderLock($lockKey);
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing electricity token order.');
-                return;
-            }
-        }
-        if ($this->hasRecentDuplicateOrder((string)$user['id'], 'electricity', $meterNumber, $amount, $planLabel, 15)) {
-            $this->releaseOrderLock($lockKey);
-            Response::error('An identical electricity payment for this meter was just submitted. Please check your Order History.', 409);
-            return;
-        }
 
         $reference = 'UD_ELE_' . strtoupper(bin2hex(random_bytes(6)));
         try {
             $debitResult = $this->walletService->debit(
                 $user['id'],
                 $amount,
-                'electricity',
+                'cable_tv',
                 $reference,
                 "Electricity payment for {$discoCode} (Meter: {$meterNumber})",
-                'internal',
-                ['disco' => $discoCode, 'meter_number' => $meterNumber, 'meter_type' => $meterType]
+                'internal'
             );
         } catch (Throwable $e) {
-            $this->releaseOrderLock($lockKey);
             Response::error($e->getMessage(), 400);
             return;
         }
@@ -2584,30 +2062,21 @@ class TelecomController
         $orderId = Security::generateUuid();
         try {
             $dispatch = $this->adapter->vendElectricity($discoCode, $meterNumber, $amount, $meterType);
-            $orderStatus = ($dispatch['status'] ?? 'successful') === 'pending' ? 'pending' : 'successful';
-            if (isset($dispatch['cost_price']) && is_numeric($dispatch['cost_price']) && (float)$dispatch['cost_price'] > 0) {
-                $wholesaleCost = round((float)$dispatch['cost_price'], 2);
-            }
-            $profit = round($amount - $wholesaleCost, 2);
 
             $this->db->execute(
-                'INSERT INTO telecom_orders
-                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES
-                 (:id, :uid, "electricity", :net, :phone, :plan, :amt, :cost, :profit, :prov, :pref, :ikey, :st, :meta, NOW())',
+                'INSERT INTO telecom_orders 
+                 (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES 
+                 (:id, :uid, "electricity", :phone, :plan, :amt, :cost, 50.00, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
-                    'net' => strtoupper($discoCode),
                     'phone' => $meterNumber,
-                    'plan' => $planLabel,
+                    'plan' => strtoupper($discoCode) . " Token",
                     'amt' => $amount,
-                    'cost' => $wholesaleCost,
-                    'profit' => $profit,
+                    'cost' => $amount - 50.00,
                     'prov' => $this->activeProviderId,
-                    'pref' => $dispatch['provider_reference'] ?? $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
-                    'st' => $orderStatus,
+                    'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
             );
@@ -2622,51 +2091,44 @@ class TelecomController
                 'service_type' => 'electricity',
                 'recipient' => $meterNumber,
                 'phone' => $meterNumber,
-                'plan' => strtoupper($discoCode) . ' Electricity',
+                'plan' => strtoupper($discoCode) . " Electricity",
                 'amount' => $amount,
-                'status' => $orderStatus,
+                'status' => 'successful',
                 'created_at' => date('Y-m-d H:i:s'),
                 'token' => $token,
                 'units' => $units,
             ];
 
-            $this->logFootprint($user, 'electricity', $orderStatus === 'pending' ? 'ELECTRICITY_PENDING' : 'ELECTRICITY_VENDED', $reference, $amount, $orderStatus, $this->activeProviderId);
-            if ($orderStatus === 'successful') {
-                $this->triggerReferralReward((string)$user['id'], 'electricity', 'electricity', 'TEL_' . $orderId, $amount, $wholesaleCost);
-            }
+            $this->logFootprint($user, 'electricity', 'ELECTRICITY_VENDED', $reference, $amount, 'successful', $this->activeProviderId);
+            $this->triggerReferralReward((string)$user['id'], 'electricity', 'electricity', 'TEL_' . $orderId, $amount, max(0.0, $amount - 50.0));
 
-            $this->releaseOrderLock($lockKey);
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
                 'token' => $token,
                 'units' => $units,
-                'status' => $orderStatus,
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
                 'order' => $order,
-            ], $orderStatus === 'pending' ? 'Electricity token order is processing.' : 'Prepaid token generated successfully!');
+            ], 'Prepaid token generated successfully!');
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $amount, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed electricity token {$reference}");
             $this->db->execute(
-                'INSERT INTO telecom_orders (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES (:id, :uid, "electricity", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, "failed", :meta, NOW())',
+                'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES (:id, :uid, "electricity", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
-                    'net' => strtoupper($discoCode),
                     'phone' => $meterNumber,
-                    'plan' => $planLabel,
+                    'plan' => strtoupper($discoCode) . " Token",
                     'amt' => $amount,
-                    'cost' => $wholesaleCost,
+                    'cost' => $amount,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
                     'meta' => json_encode(['error' => $e->getMessage()]),
                 ]
             );
             $this->logFootprint($user, 'electricity', 'ELECTRICITY_FAILED', $reference, $amount, 'failed', $this->activeProviderId, $e->getMessage());
-            $this->releaseOrderLock($lockKey);
             Response::error('Failed to vend electricity token: ' . $e->getMessage() . '. Wallet refunded.', 502);
         }
     }
@@ -2676,95 +2138,57 @@ class TelecomController
      */
     public function vendExamPin(Request $request): void
     {
-        $this->ensureDataSchema();
         $user = Auth::requireAuth($request);
-        $examName = strtoupper(trim((string)($request->input('examId') ?? $request->input('exam_name', 'WAEC'))));
+        $examName = strtoupper((string)($request->input('examId') ?? $request->input('exam_name', 'WAEC')));
         $quantity = max(1, min(10, (int)$request->input('quantity', 1)));
-        $idempotencyKey = $this->extractIdempotencyKey($request);
+        $phone = (string)$request->input('phone', '');
 
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'exam', $idempotencyKey);
-            if ($existingOrder) {
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing exam PIN order.');
-                return;
-            }
-        }
-
-        $exam = $this->db->fetchOne('SELECT * FROM exam_packages WHERE (UPPER(exam_name) = :name OR id = :id) AND is_active = 1 LIMIT 1', [
+        $exam = $this->db->fetchOne('SELECT * FROM exam_packages WHERE (UPPER(exam_name) = :name OR id = :id) AND is_active = 1', [
             'name' => $examName,
             'id' => strtolower($examName),
         ]);
         if (!$exam) {
             Response::error('Selected examination package is unavailable.', 404);
-            return;
         }
 
+        // Enforce compulsory Transaction PIN before wallet debit
         $this->verifyTransactionPinOrFail($user, $request, 'telecom_bills', 'exam_pin');
 
-        $totalPrice = round((float)$exam['price'] * $quantity, 2);
-        $wholesaleCost = round((float)$exam['wholesale_cost'] * $quantity, 2);
-        $profit = round($totalPrice - $wholesaleCost, 2);
-        $planLabel = "{$quantity}x {$exam['exam_name']} PINs";
-
-        $lockKey = $this->acquireOrderLock((string)$user['id'], 'exam', $idempotencyKey !== '' ? $idempotencyKey : ($exam['exam_name'] . '|' . $quantity));
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'exam', $idempotencyKey);
-            if ($existingOrder) {
-                $this->releaseOrderLock($lockKey);
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing exam PIN order.');
-                return;
-            }
-        }
-        if ($this->hasRecentDuplicateOrder((string)$user['id'], 'exam', 'CARD_PRINT', $totalPrice, $planLabel, 15)) {
-            $this->releaseOrderLock($lockKey);
-            Response::error('An identical examination PIN purchase was just submitted. Please check your Order History.', 409);
-            return;
-        }
-
+        $totalPrice = (float)$exam['price'] * $quantity;
         $reference = 'UD_EXM_' . strtoupper(bin2hex(random_bytes(6)));
+
         try {
             $debitResult = $this->walletService->debit(
                 $user['id'],
                 $totalPrice,
-                'exam_pin',
+                'data_purchase',
                 $reference,
                 "{$quantity}x {$exam['exam_name']} Result Checker Tokens",
-                'internal',
-                ['exam_id' => $exam['id'], 'quantity' => $quantity]
+                'internal'
             );
         } catch (Throwable $e) {
-            $this->releaseOrderLock($lockKey);
             Response::error($e->getMessage(), 400);
             return;
         }
 
         $orderId = Security::generateUuid();
         try {
-            $examPlanId = !empty($exam['provider_plan_id']) ? (int)$exam['provider_plan_id'] : null;
-            if ($this->adapter instanceof UlamaDataAdapter) {
-                $dispatch = $this->adapter->vendExamPin($exam['exam_name'], $quantity, $examPlanId, $reference);
-            } else {
-                $dispatch = $this->adapter->vendExamPin($exam['exam_name'], $quantity);
-            }
-            $orderStatus = ($dispatch['status'] ?? 'successful') === 'pending' ? 'pending' : 'successful';
+            $dispatch = $this->adapter->vendExamPin($exam['exam_name'], $quantity);
 
             $this->db->execute(
-                'INSERT INTO telecom_orders
-                 (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES
-                 (:id, :uid, "exam", :net, "CARD_PRINT", :plan, :amt, :cost, :profit, :prov, :pref, :ikey, :st, :meta, NOW())',
+                'INSERT INTO telecom_orders 
+                 (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES 
+                 (:id, :uid, "exam", "CARD_PRINT", :plan, :amt, :cost, :profit, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
-                    'net' => strtoupper((string)$exam['exam_name']),
-                    'plan' => $planLabel,
+                    'plan' => "{$quantity}x {$exam['exam_name']} PINs",
                     'amt' => $totalPrice,
-                    'cost' => $wholesaleCost,
-                    'profit' => $profit,
+                    'cost' => (float)$exam['wholesale_cost'] * $quantity,
+                    'profit' => $totalPrice - ((float)$exam['wholesale_cost'] * $quantity),
                     'prov' => $this->activeProviderId,
-                    'pref' => $dispatch['provider_reference'] ?? $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
-                    'st' => $orderStatus,
+                    'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
             );
@@ -2775,24 +2199,20 @@ class TelecomController
                 'service' => 'exam',
                 'service_type' => 'exam',
                 'recipient' => 'CARD_PRINT',
-                'plan' => $planLabel,
+                'plan' => "{$quantity}x {$exam['exam_name']} PINs",
                 'amount' => $totalPrice,
-                'status' => $orderStatus,
+                'status' => 'successful',
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
-            $this->logFootprint($user, 'exam', $orderStatus === 'pending' ? 'EXAM_PIN_PENDING' : 'EXAM_PIN_VENDED', $reference, $totalPrice, $orderStatus, $this->activeProviderId);
-            if ($orderStatus === 'successful') {
-                $this->triggerReferralReward((string)$user['id'], 'exam_pin', 'exam_pin', 'TEL_' . $orderId, $totalPrice, $wholesaleCost);
-            }
+            $this->logFootprint($user, 'exam', 'EXAM_PIN_VENDED', $reference, $totalPrice, 'successful', $this->activeProviderId);
+            $this->triggerReferralReward((string)$user['id'], 'exam_pin', 'exam_pin', 'TEL_' . $orderId, $totalPrice, (float)$exam['wholesale_cost'] * $quantity);
 
-            $this->releaseOrderLock($lockKey);
             Response::success([
                 'order_id' => $orderId,
                 'reference' => $reference,
-                'pins' => $dispatch['cards'] ?? [],
+                'pins' => $dispatch['cards'],
                 'quantity' => $quantity,
-                'status' => $orderStatus,
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
                 'order' => $order,
@@ -2800,23 +2220,20 @@ class TelecomController
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $totalPrice, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed exam PIN {$reference}");
             $this->db->execute(
-                'INSERT INTO telecom_orders (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES (:id, :uid, "exam", :net, "CARD_PRINT", :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, "failed", :meta, NOW())',
+                'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES (:id, :uid, "exam", "CARD_PRINT", :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
-                    'net' => strtoupper((string)$exam['exam_name']),
-                    'plan' => $planLabel,
+                    'plan' => "{$quantity}x {$exam['exam_name']} PINs",
                     'amt' => $totalPrice,
-                    'cost' => $wholesaleCost,
+                    'cost' => (float)$exam['wholesale_cost'] * $quantity,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
                     'meta' => json_encode(['error' => $e->getMessage()]),
                 ]
             );
             $this->logFootprint($user, 'exam', 'EXAM_PIN_FAILED', $reference, $totalPrice, 'failed', $this->activeProviderId, $e->getMessage());
-            $this->releaseOrderLock($lockKey);
             Response::error('Failed to purchase exam PINs: ' . $e->getMessage() . '. Wallet refunded.', 502);
         }
     }
@@ -2826,77 +2243,34 @@ class TelecomController
      */
     public function sendBulkSms(Request $request): void
     {
-        $this->ensureDataSchema();
         $user = Auth::requireAuth($request);
-        $smsCfg = self::readBulkSmsSettings($this->db);
-        if (!$smsCfg['enabled']) {
-            Response::error('Bulk SMS service is currently disabled by administrator.', 403);
-            return;
-        }
-
-        $senderIdRaw = trim((string)($request->input('senderId') ?? $request->input('sender_id', $smsCfg['default_sender'])));
-        $senderId = substr(preg_replace('/[^A-Za-z0-9._ -]/', '', $senderIdRaw) ?: $smsCfg['default_sender'], 0, 11);
+        $senderId = trim((string)($request->input('senderId') ?? $request->input('sender_id', 'HAMBAK')));
         $recipientsInput = $request->input('recipients', []);
-        $rawList = is_string($recipientsInput) ? preg_split('/[\s,;]+/', $recipientsInput) : (array)$recipientsInput;
-        $recipients = array_values(array_unique(array_filter(array_map('trim', $rawList ?: []), static fn ($r) => $r !== '')));
+        $rawList = is_string($recipientsInput) ? explode(',', $recipientsInput) : (array)$recipientsInput;
+        $recipients = array_values(array_filter(array_map('trim', $rawList), static fn($r) => $r !== ''));
         $message = trim((string)$request->input('message', ''));
-        $idempotencyKey = $this->extractIdempotencyKey($request);
 
-        if (empty($recipients) || $message === '') {
+        if (empty($recipients) || empty($message)) {
             Response::error('Valid recipients and message content are required.', 422);
-            return;
-        }
-        if (count($recipients) > (int)$smsCfg['max_recipients']) {
-            Response::error('Maximum allowed recipients per dispatch is ' . (int)$smsCfg['max_recipients'] . '.', 422);
-            return;
         }
 
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'bulksms', $idempotencyKey);
-            if ($existingOrder) {
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing Bulk SMS dispatch.');
-                return;
-            }
-        }
-
+        // Enforce compulsory Transaction PIN before wallet debit
         $this->verifyTransactionPinOrFail($user, $request, 'telecom_bulksms', 'bulksms');
 
-        $pages = max(1, (int)ceil(mb_strlen($message, 'UTF-8') / 160));
-        $units = count($recipients) * $pages;
-        $totalCost = round($units * (float)$smsCfg['unit_price'], 2);
-        $wholesaleTotal = round($units * (float)$smsCfg['wholesale_unit_price'], 2);
-        $profit = round($totalCost - $wholesaleTotal, 2);
-        $recipientPreview = substr(implode(',', $recipients), 0, 100);
-        $planLabel = "Bulk SMS ({$units} units)";
-
-        $lockKey = $this->acquireOrderLock((string)$user['id'], 'bulksms', $idempotencyKey !== '' ? $idempotencyKey : hash('sha256', $recipientPreview . '|' . $message));
-        if ($idempotencyKey !== '') {
-            $existingOrder = $this->findIdempotentOrder((string)$user['id'], 'bulksms', $idempotencyKey);
-            if ($existingOrder) {
-                $this->releaseOrderLock($lockKey);
-                $this->respondExistingOrder((string)$user['id'], $existingOrder, 'Duplicate request prevented; returning existing Bulk SMS dispatch.');
-                return;
-            }
-        }
-        if ($this->hasRecentDuplicateOrder((string)$user['id'], 'bulksms', $recipientPreview, $totalCost, $planLabel, 15)) {
-            $this->releaseOrderLock($lockKey);
-            Response::error('An identical Bulk SMS dispatch was just submitted. Please check your Order History.', 409);
-            return;
-        }
-
+        $units = count($recipients) * (int)ceil(strlen($message) / 160);
+        $totalCost = $units * 3.50; // ₦3.50 per SMS unit
         $reference = 'UD_SMS_' . strtoupper(bin2hex(random_bytes(6)));
+
         try {
             $debitResult = $this->walletService->debit(
                 $user['id'],
                 $totalCost,
-                'bulksms',
+                'data_purchase',
                 $reference,
-                'Bulk SMS to ' . count($recipients) . " recipients ({$units} units)",
-                'internal',
-                ['sender_id' => $senderId, 'recipients_count' => count($recipients), 'units' => $units]
+                "Bulk SMS to " . count($recipients) . " recipients ({$units} units)",
+                'internal'
             );
         } catch (Throwable $e) {
-            $this->releaseOrderLock($lockKey);
             Response::error($e->getMessage(), 400);
             return;
         }
@@ -2904,25 +2278,22 @@ class TelecomController
         $orderId = Security::generateUuid();
         try {
             $dispatch = $this->adapter->sendBulkSms($senderId, $recipients, $message);
-            $orderStatus = ($dispatch['status'] ?? 'successful') === 'pending' ? 'pending' : 'successful';
 
             $this->db->execute(
-                'INSERT INTO telecom_orders
-                 (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES
-                 (:id, :uid, "bulksms", :phone, :plan, :amt, :cost, :profit, :prov, :pref, :ikey, :st, :meta, NOW())',
+                'INSERT INTO telecom_orders 
+                 (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES 
+                 (:id, :uid, "bulksms", :phone, :plan, :amt, :cost, :profit, :prov, :pref, "successful", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
-                    'phone' => $recipientPreview,
-                    'plan' => $planLabel,
+                    'phone' => substr(implode(',', $recipients), 0, 100),
+                    'plan' => "Bulk SMS ({$units} units)",
                     'amt' => $totalCost,
-                    'cost' => $wholesaleTotal,
-                    'profit' => $profit,
+                    'cost' => $units * 2.50,
+                    'profit' => $totalCost - ($units * 2.50),
                     'prov' => $this->activeProviderId,
-                    'pref' => $dispatch['provider_reference'] ?? $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
-                    'st' => $orderStatus,
+                    'pref' => $dispatch['provider_reference'],
                     'meta' => json_encode($dispatch),
                 ]
             );
@@ -2932,27 +2303,23 @@ class TelecomController
                 'reference' => $reference,
                 'service' => 'bulksms',
                 'service_type' => 'bulksms',
-                'recipient' => $recipientPreview,
-                'plan' => $planLabel,
+                'recipient' => substr(implode(',', $recipients), 0, 100),
+                'plan' => "Bulk SMS ({$units} units)",
                 'amount' => $totalCost,
-                'status' => $orderStatus,
+                'status' => 'successful',
                 'created_at' => date('Y-m-d H:i:s'),
             ];
 
-            $this->logFootprint($user, 'bulksms', $orderStatus === 'pending' ? 'BULKSMS_PENDING' : 'BULKSMS_SENT', $reference, $totalCost, $orderStatus, $this->activeProviderId);
-            if ($orderStatus === 'successful') {
-                $this->triggerReferralReward((string)$user['id'], 'bulksms', 'bulksms', 'TEL_' . $orderId, $totalCost, $wholesaleTotal);
-            }
+            $this->logFootprint($user, 'bulksms', 'BULKSMS_SENT', $reference, $totalCost, 'successful', $this->activeProviderId);
+            $this->triggerReferralReward((string)$user['id'], 'bulksms', 'bulksms', 'TEL_' . $orderId, $totalCost, $units * 2.50);
 
-            $this->releaseOrderLock($lockKey);
             Response::success([
                 'order_id' => $orderId,
                 'messageId' => $orderId,
-                'pages' => $pages,
+                'pages' => (int)ceil(strlen($message) / 160),
                 'recipientCount' => count($recipients),
                 'recipients_count' => count($recipients),
                 'units_charged' => $units,
-                'status' => $orderStatus,
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
                 'order' => $order,
@@ -2960,41 +2327,34 @@ class TelecomController
         } catch (Throwable $e) {
             $this->walletService->credit($user['id'], $totalCost, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed Bulk SMS {$reference}");
             $this->db->execute(
-                'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                 VALUES (:id, :uid, "bulksms", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, "failed", :meta, NOW())',
+                'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
+                 VALUES (:id, :uid, "bulksms", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
-                    'phone' => $recipientPreview,
-                    'plan' => $planLabel,
+                    'phone' => substr(implode(',', $recipients), 0, 100),
+                    'plan' => "Bulk SMS ({$units} units)",
                     'amt' => $totalCost,
-                    'cost' => $wholesaleTotal,
+                    'cost' => $units * 2.50,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'ikey' => $idempotencyKey !== '' ? $idempotencyKey : null,
                     'meta' => json_encode(['error' => $e->getMessage()]),
                 ]
             );
             $this->logFootprint($user, 'bulksms', 'BULKSMS_FAILED', $reference, $totalCost, 'failed', $this->activeProviderId, $e->getMessage());
-            $this->releaseOrderLock($lockKey);
             Response::error('Failed to send Bulk SMS: ' . $e->getMessage() . '. Wallet refunded.', 502);
         }
     }
 
     /**
      * 14. POST /api/telecom/webhook (Ulamadata Webhook Handler)
-     * Authenticated (HMAC/Bearer secret OR mandatory fail-closed upstream transaction requery) + atomic FOR UPDATE refund guard
+     * Idempotent & cryptographic verification
      */
     public function webhook(Request $request): void
     {
-        $raw = file_get_contents('php://input') ?: '';
-        $auth = $this->verifyWebhookSecretHeader($request, $raw, 'ulamadata', 'ULAMADATA_WEBHOOK_SECRET');
-        if ($auth['configured'] && !$auth['authenticated']) {
-            Response::unauthorized('Invalid Ulamadata webhook signature.');
-            return;
-        }
-
+        $raw = file_get_contents('php://input');
         $payload = json_decode($raw ?: '{}', true) ?: [];
+
         $ref = $payload['request-id'] ?? ($payload['ident'] ?? ($payload['reference'] ?? ($payload['id'] ?? null)));
         if (!$ref) {
             Response::error('Missing transaction reference', 400);
@@ -3007,149 +2367,97 @@ class TelecomController
         ]);
 
         if (!$order) {
-            if (!$auth['authenticated']) {
-                Response::unauthorized('Webhook authentication failed.');
-                return;
-            }
             Response::success(['status' => 'ignored', 'message' => 'Reference not found in local orders']);
             return;
         }
 
-        $upstreamPayload = $payload;
-        if (!$auth['authenticated']) {
-            // Fail closed unless upstream provider confirms the exact status for this reference
-            $queryRef = (string)($order['provider_ref'] ?: $ref);
-            try {
-                $ulama = $this->adapter instanceof UlamaDataAdapter ? $this->adapter : new UlamaDataAdapter();
-                $verified = $ulama->queryTransaction($queryRef);
-                $verifiedStatus = strtolower((string)($verified['status'] ?? ($verified['Status'] ?? '')));
-                if ($verifiedStatus === '') {
-                    Response::unauthorized('Webhook authentication failed: upstream transaction verification returned empty status.');
-                    return;
-                }
-                $upstreamPayload = array_merge($payload, is_array($verified) ? $verified : [], ['status' => $verifiedStatus, 'upstream_reverified' => true]);
-            } catch (Throwable) {
-                Response::unauthorized('Webhook authentication failed: unable to verify transaction with provider.');
-                return;
-            }
-        }
-
-        $upstreamStatus = strtolower((string)($upstreamPayload['status'] ?? ($upstreamPayload['Status'] ?? '')));
+        $upstreamStatus = strtolower((string)($payload['status'] ?? ($payload['Status'] ?? '')));
         $isSuccess = in_array($upstreamStatus, ['success', 'successful', 'delivered', 'completed'], true);
         $isFailed = in_array($upstreamStatus, ['failed', 'fail', 'error', 'reversed'], true);
 
-        if (!$isSuccess && !$isFailed) {
-            Response::success(['status' => 'ignored', 'reference' => $ref]);
+        if ($order['status'] === 'successful' && $isSuccess) {
+            Response::success(['status' => 'already_processed']);
             return;
         }
 
-        $outcome = $this->db->withTransaction(function (Database $db) use ($order, $upstreamPayload, $isSuccess, $isFailed, $ref) {
-            $locked = $db->fetchOne('SELECT * FROM telecom_orders WHERE id = :id FOR UPDATE', ['id' => $order['id']]);
-            if (!$locked) {
-                return 'not_found';
-            }
-            if ($locked['status'] === 'successful' && $isSuccess) {
-                return 'already_processed';
-            }
-            if (in_array($locked['status'], ['failed', 'refunded'], true)) {
-                return 'already_terminal';
-            }
+        $existingMeta = !empty($order['metadata']) ? (json_decode((string)$order['metadata'], true) ?: []) : [];
+        $existingMeta['webhook_payload'] = $payload;
+        $existingMeta['webhook_at'] = date('c');
 
-            $existingMeta = !empty($locked['metadata']) ? (json_decode((string)$locked['metadata'], true) ?: []) : [];
-            $existingMeta['webhook_payload'] = $upstreamPayload;
-            $existingMeta['webhook_at'] = date('c');
-
-            if ($isSuccess) {
-                if (in_array((string)$locked['service_type'], ['airtime_pin', 'data_pin'], true)) {
-                    $expectedQty = max(1, (int)($existingMeta['quantity'] ?? 1));
-                    $faceVal = (float)($existingMeta['face_value'] ?? 0);
-                    $ulama = $this->adapter instanceof UlamaDataAdapter ? $this->adapter : new UlamaDataAdapter();
-                    $parsed = $ulama->parseAndVerifyVouchers($upstreamPayload, $expectedQty, (string)($locked['network'] ?? 'MTN'), $faceVal);
-                    if ($parsed['valid']) {
-                        try {
-                            $denomLabel = (string)$locked['service_type'] === 'airtime_pin'
-                                ? ('₦' . number_format($faceVal) . ' Airtime PIN')
-                                : (((string)($existingMeta['size'] ?? 'Data')) . ' Data PIN');
-                            $this->saveVerifiedVouchers(
-                                (string)$locked['id'],
-                                (string)$locked['user_id'],
-                                (string)$locked['service_type'],
-                                (string)($locked['network'] ?? 'MTN'),
-                                $denomLabel,
-                                $faceVal > 0 ? $faceVal : null,
-                                $parsed['vouchers'],
-                                (string)($locked['provider_ref'] ?? $ref)
-                            );
-                            $profit = round((float)$locked['amount'] - (float)$locked['cost_price'], 2);
-                            $db->execute(
-                                'UPDATE telecom_orders SET status = "successful", profit = :profit, metadata = :meta, updated_at = NOW() WHERE id = :id',
-                                ['id' => $locked['id'], 'profit' => $profit, 'meta' => json_encode($existingMeta)]
-                            );
-                            return 'successful';
-                        } catch (Throwable $vx) {
-                            $existingMeta['incomplete_vouchers'] = true;
-                            $existingMeta['integrity_error'] = $vx->getMessage();
-                            $db->execute(
-                                'UPDATE telecom_orders SET metadata = :meta, updated_at = NOW() WHERE id = :id',
-                                ['id' => $locked['id'], 'meta' => json_encode($existingMeta)]
-                            );
-                            return 'incomplete_vouchers';
-                        }
+        if ($isSuccess) {
+            if (in_array((string)$order['service_type'], ['airtime_pin', 'data_pin'], true)) {
+                $expectedQty = max(1, (int)($existingMeta['quantity'] ?? 1));
+                $faceVal = (float)($existingMeta['face_value'] ?? 0);
+                $ulama = $this->adapter instanceof UlamaDataAdapter ? $this->adapter : new UlamaDataAdapter();
+                $parsed = $ulama->parseAndVerifyVouchers($payload, $expectedQty, (string)($order['network'] ?? 'MTN'), $faceVal);
+                if ($parsed['valid']) {
+                    try {
+                        $denomLabel = (string)$order['service_type'] === 'airtime_pin'
+                            ? ('₦' . number_format($faceVal) . ' Airtime PIN')
+                            : (((string)($existingMeta['size'] ?? 'Data')) . ' Data PIN');
+                        $this->saveVerifiedVouchers(
+                            (string)$order['id'],
+                            (string)$order['user_id'],
+                            (string)$order['service_type'],
+                            (string)($order['network'] ?? 'MTN'),
+                            $denomLabel,
+                            $faceVal > 0 ? $faceVal : null,
+                            $parsed['vouchers'],
+                            (string)($order['provider_ref'] ?? $ref)
+                        );
+                        $profit = round((float)$order['amount'] - (float)$order['cost_price'], 2);
+                        $this->db->execute(
+                            'UPDATE telecom_orders SET status = "successful", profit = :profit, metadata = :meta, updated_at = NOW() WHERE id = :id',
+                            ['id' => $order['id'], 'profit' => $profit, 'meta' => json_encode($existingMeta)]
+                        );
+                        $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
+                    } catch (Throwable $vx) {
+                        $existingMeta['incomplete_vouchers'] = true;
+                        $existingMeta['integrity_error'] = $vx->getMessage();
+                        $this->db->execute(
+                            'UPDATE telecom_orders SET metadata = :meta, updated_at = NOW() WHERE id = :id',
+                            ['id' => $order['id'], 'meta' => json_encode($existingMeta)]
+                        );
                     }
+                } else {
                     $existingMeta['incomplete_vouchers'] = true;
                     $existingMeta['integrity_error'] = $parsed['error'];
-                    $db->execute(
+                    $this->db->execute(
                         'UPDATE telecom_orders SET metadata = :meta, updated_at = NOW() WHERE id = :id',
-                        ['id' => $locked['id'], 'meta' => json_encode($existingMeta)]
-                    );
-                    return 'incomplete_vouchers';
-                }
-
-                $profit = round((float)$locked['amount'] - (float)$locked['cost_price'], 2);
-                $db->execute(
-                    'UPDATE telecom_orders SET status = "successful", profit = :profit, metadata = :meta, updated_at = NOW() WHERE id = :id',
-                    ['id' => $locked['id'], 'profit' => $profit, 'meta' => json_encode($existingMeta)]
-                );
-                return 'successful';
-            }
-
-            if ($isFailed) {
-                $db->execute(
-                    'UPDATE telecom_orders SET status = "failed", profit = 0.00, metadata = :meta, updated_at = NOW() WHERE id = :id',
-                    ['id' => $locked['id'], 'meta' => json_encode($existingMeta)]
-                );
-                $refundRef = 'REFUND_WH_' . ($locked['provider_ref'] ?: $locked['id']);
-                $alreadyRefunded = $db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
-                if (!$alreadyRefunded) {
-                    $this->walletService->credit(
-                        $locked['user_id'],
-                        (float)$locked['amount'],
-                        'manual_adjustment',
-                        $refundRef,
-                        "Automated refund for failed telecom order {$locked['id']}"
+                        ['id' => $order['id'], 'meta' => json_encode($existingMeta)]
                     );
                 }
-                return 'failed_refunded';
+            } else {
+                $this->db->execute(
+                    'UPDATE telecom_orders SET status = "successful", metadata = :meta, updated_at = NOW() WHERE id = :id',
+                    ['id' => $order['id'], 'meta' => json_encode($existingMeta)]
+                );
+                $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
             }
+        } elseif ($isFailed && !in_array($order['status'], ['failed', 'refunded'], true)) {
+            $this->db->execute(
+                'UPDATE telecom_orders SET status = "failed", profit = 0.00, metadata = :meta, updated_at = NOW() WHERE id = :id',
+                ['id' => $order['id'], 'meta' => json_encode($existingMeta)]
+            );
 
-            return 'noop';
-        });
-
-        if ($outcome === 'successful') {
-            $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
-        } elseif ($outcome === 'failed_refunded') {
+            $refundRef = 'REFUND_WH_' . $order['provider_ref'];
+            $alreadyRefunded = $this->db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
+            if (!$alreadyRefunded) {
+                $this->walletService->credit(
+                    $order['user_id'],
+                    (float)$order['amount'],
+                    'manual_adjustment',
+                    $refundRef,
+                    "Automated refund for failed telecom order {$order['id']}"
+                );
+            }
             try {
                 (new ReferralEngineService($this->db))->reverseRewardsForSource('TEL_' . $order['id'], 'Telecom webhook failure refund');
             } catch (Throwable) {
             }
         }
 
-        if ($outcome === 'already_processed') {
-            Response::success(['status' => 'already_processed']);
-            return;
-        }
-
-        Response::success(['status' => 'reconciled', 'outcome' => $outcome, 'reference' => $ref]);
+        Response::success(['status' => 'reconciled', 'reference' => $ref]);
     }
 
     /**
@@ -3480,16 +2788,11 @@ class TelecomController
     {
         $rows = $this->db->fetchAll('SELECT * FROM airtime_swap_configs WHERE is_active = 1');
         foreach ($rows as &$r) {
-            $ratePct = (float)$r['conversion_rate_percent'];
-            $r['conversion_rate_percent'] = $ratePct;
-            $r['conversion_rate'] = $ratePct;
-            $r['rate'] = $ratePct;
-            $r['min_amount'] = isset($r['min_amount']) ? (float)$r['min_amount'] : 500.0;
-            $r['max_amount'] = isset($r['max_amount']) ? (float)$r['max_amount'] : 50000.0;
-            $r['ussd_template'] = (string)($r['ussd_code'] ?? '');
-            $r['enabled'] = (bool)($r['is_active'] ?? 1);
+            $r['conversion_rate_percent'] = (float)$r['conversion_rate_percent'];
+            $r['rate'] = (float)$r['conversion_rate_percent'];
         }
-        Response::success(['configs' => $rows, 'enabled' => self::readAirtimeSwapEnabled($this->db)]);
+
+        Response::success(['configs' => $rows]);
     }
 
     /**
@@ -3505,29 +2808,10 @@ class TelecomController
             return;
         }
 
-        $order = $this->db->fetchOne(
-            'SELECT * FROM telecom_orders WHERE provider_ref = :ref OR id = :id OR idempotency_key = :ikey LIMIT 1',
-            [
-                'ref' => $ref,
-                'id' => $ref,
-                'ikey' => $ref,
-            ]
-        );
-        if (!$order && str_starts_with(strtoupper($ref), 'HT-')) {
-            $hexPrefix = strtoupper(substr($ref, 3));
-            if ($hexPrefix !== '' && ctype_xdigit($hexPrefix)) {
-                $order = $this->db->fetchOne(
-                    "SELECT * FROM telecom_orders WHERE REPLACE(UPPER(id), '-', '') LIKE :pfx ORDER BY created_at DESC LIMIT 1",
-                    ['pfx' => $hexPrefix . '%']
-                );
-            }
-        }
-        if (!$order) {
-            $order = $this->db->fetchOne(
-                'SELECT * FROM telecom_orders WHERE metadata LIKE :iref ORDER BY created_at DESC LIMIT 1',
-                ['iref' => '%"internal_reference":"' . $ref . '"%']
-            );
-        }
+        $order = $this->db->fetchOne('SELECT * FROM telecom_orders WHERE provider_ref = :ref OR id = :id LIMIT 1', [
+            'ref' => $ref,
+            'id' => $ref,
+        ]);
 
         if ($order && !$isAdmin && $order['user_id'] !== $user['id']) {
             Response::error('Order not found', 404);
@@ -3577,33 +2861,20 @@ class TelecomController
                             );
                         }
                     } else {
-                        $profit = round((float)$order['amount'] - (float)$order['cost_price'], 2);
-                        $this->db->execute(
-                            'UPDATE telecom_orders SET status = "successful", profit = :profit, updated_at = NOW() WHERE id = :id',
-                            ['id' => $order['id'], 'profit' => $profit]
-                        );
+                        $this->db->execute('UPDATE telecom_orders SET status = "successful", updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
                         $order['status'] = 'successful';
                         $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
                     }
                 } elseif (in_array($upStatus, ['failed', 'fail', 'error', 'reversed'], true)) {
-                    $refunded = $this->db->withTransaction(function (Database $db) use ($order) {
-                        $locked = $db->fetchOne('SELECT * FROM telecom_orders WHERE id = :id FOR UPDATE', ['id' => $order['id']]);
-                        if (!$locked || in_array($locked['status'], ['failed', 'refunded'], true)) {
-                            return false;
-                        }
-                        $db->execute('UPDATE telecom_orders SET status = "failed", profit = 0.00, updated_at = NOW() WHERE id = :id', ['id' => $locked['id']]);
-                        $refundRef = 'REFUND_VQ_' . ($locked['provider_ref'] ?: $locked['id']);
-                        $alreadyRefunded = $db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
-                        if (!$alreadyRefunded) {
-                            $this->walletService->credit($locked['user_id'], (float)$locked['amount'], 'manual_adjustment', $refundRef, "Refund for failed telecom order {$locked['id']}");
-                        }
-                        return true;
-                    });
-                    if ($refunded) {
-                        try {
-                            (new ReferralEngineService($this->db))->reverseRewardsForSource('TEL_' . $order['id'], 'Telecom transaction verify refund');
-                        } catch (Throwable) {
-                        }
+                    $this->db->execute('UPDATE telecom_orders SET status = "failed", profit = 0.00, updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
+                    $refundRef = 'REFUND_VQ_' . $order['provider_ref'];
+                    $alreadyRefunded = $this->db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
+                    if (!$alreadyRefunded) {
+                        $this->walletService->credit($order['user_id'], (float)$order['amount'], 'manual_adjustment', $refundRef, "Refund for failed telecom order {$order['id']}");
+                    }
+                    try {
+                        (new ReferralEngineService($this->db))->reverseRewardsForSource('TEL_' . $order['id'], 'Telecom transaction verify refund');
+                    } catch (Throwable) {
                     }
                     $order['status'] = 'failed';
                 }
@@ -4047,7 +3318,7 @@ class TelecomController
             $sql .= 'AND o.service_type = :srv ';
             $params['srv'] = $service;
         } else {
-            $sql .= 'AND o.service_type IN ("data", "airtime", "airtime_pin", "data_pin", "airtime_swap", "cable", "electricity", "exam", "bulksms") ';
+            $sql .= 'AND o.service_type IN ("data", "airtime", "airtime_pin", "data_pin") ';
         }
         if ($status !== '' && $status !== 'all') {
             $sql .= 'AND o.status = :st ';
@@ -4562,7 +3833,7 @@ class TelecomController
      */
     public function switchProvider(Request $request): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'services');
         $providerId = strtolower(trim((string)($request->input('providerId') ?? $request->input('provider_id', ''))));
 
         if (!in_array($providerId, ['ulamadata', 'vtpass'], true)) {
@@ -4593,413 +3864,34 @@ class TelecomController
      */
     public function vtpassWebhook(Request $request): void
     {
-        $raw = file_get_contents('php://input') ?: '';
-        $auth = $this->verifyWebhookSecretHeader($request, $raw, 'vtpass', 'VTPASS_WEBHOOK_SECRET');
-        if ($auth['configured'] && !$auth['authenticated']) {
-            Response::unauthorized('Invalid VTpass webhook signature.');
-            return;
-        }
-
+        $raw = file_get_contents('php://input');
         $payload = json_decode($raw ?: '{}', true) ?: [];
         $data = $payload['data'] ?? $payload;
         $tx = $data['content']['transactions'] ?? [];
-        $ref = trim((string)($data['requestId'] ?? $tx['transactionId'] ?? $payload['request_id'] ?? ''));
-        if ($ref === '') {
+        $ref = (string)($data['requestId'] ?? $tx['transactionId'] ?? $payload['request_id'] ?? '');
+        if (empty($ref)) {
             Response::error('Missing transaction reference', 400);
-            return;
         }
 
-        $order = $this->db->fetchOne('SELECT * FROM telecom_orders WHERE provider_ref = :ref OR id = :id LIMIT 1', ['ref' => $ref, 'id' => $ref]);
+        $order = $this->db->fetchOne('SELECT * FROM telecom_orders WHERE provider_ref = :ref OR id = :id', ['ref' => $ref, 'id' => $ref]);
         if (!$order) {
-            if (!$auth['authenticated']) {
-                Response::unauthorized('Webhook authentication failed.');
-                return;
-            }
-            Response::success(['response' => 'success', 'status' => 'ignored', 'message' => 'Reference not found in local orders']);
+            Response::success(['status' => 'ignored', 'message' => 'Reference not found in local orders']);
             return;
         }
 
-        // Unconditionally re-query VTpass /requery API for authoritative transaction state (prevents forged webhook refunds)
-        $queryRef = (string)($order['provider_ref'] ?: $ref);
-        try {
-            $vtpass = new VtpassAdapter();
-            $verified = $vtpass->queryTransaction($queryRef);
-            $verifiedTx = $verified['content']['transactions'] ?? [];
-            $st = strtolower((string)($verifiedTx['status'] ?? $verified['status'] ?? ''));
-            if ($st === '') {
-                Response::unauthorized('VTpass webhook verification failed: empty upstream status.');
-                return;
-            }
-        } catch (Throwable) {
-            Response::unauthorized('VTpass webhook verification failed: unable to verify transaction with VTpass.');
-            return;
-        }
-
-        $isSuccess = in_array($st, ['delivered', 'successful', 'success'], true);
-        $isFailed = in_array($st, ['failed', 'reversed'], true);
-
-        if (!$isSuccess && !$isFailed) {
-            Response::success(['response' => 'success', 'status' => 'ignored', 'reference' => $ref]);
-            return;
-        }
-
-        $outcome = $this->db->withTransaction(function (Database $db) use ($order, $isSuccess, $isFailed) {
-            $locked = $db->fetchOne('SELECT * FROM telecom_orders WHERE id = :id FOR UPDATE', ['id' => $order['id']]);
-            if (!$locked) {
-                return 'not_found';
-            }
-            if ($locked['status'] === 'successful' && $isSuccess) {
-                return 'already_processed';
-            }
-            if (in_array($locked['status'], ['failed', 'refunded'], true)) {
-                return 'already_terminal';
-            }
-
-            if ($isSuccess) {
-                $profit = round((float)$locked['amount'] - (float)$locked['cost_price'], 2);
-                $db->execute(
-                    'UPDATE telecom_orders SET status = "successful", profit = :profit, updated_at = NOW() WHERE id = :id',
-                    ['id' => $locked['id'], 'profit' => $profit]
-                );
-                return 'successful';
-            }
-
-            if ($isFailed) {
-                $db->execute(
-                    'UPDATE telecom_orders SET status = "failed", profit = 0.00, updated_at = NOW() WHERE id = :id',
-                    ['id' => $locked['id']]
-                );
-                $refundRef = 'REFUND_VT_' . ($locked['provider_ref'] ?: $locked['id']);
-                $alreadyRefunded = $db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
-                if (!$alreadyRefunded) {
-                    $this->walletService->credit(
-                        $locked['user_id'],
-                        (float)$locked['amount'],
-                        'manual_adjustment',
-                        $refundRef,
-                        "Automated VTpass refund for {$locked['provider_ref']}"
-                    );
-                }
-                return 'failed_refunded';
-            }
-
-            return 'noop';
-        });
-
-        if ($outcome === 'successful') {
+        $st = strtolower((string)($tx['status'] ?? $data['status'] ?? ''));
+        if (in_array($st, ['delivered', 'successful', 'success'], true)) {
+            $this->db->execute('UPDATE telecom_orders SET status = "successful", updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
             $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
-        } elseif ($outcome === 'failed_refunded') {
+        } elseif (in_array($st, ['failed', 'reversed'], true) && $order['status'] !== 'failed') {
+            $this->db->execute('UPDATE telecom_orders SET status = "failed", updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
+            $this->walletService->credit($order['user_id'], (float)$order['amount'], 'manual_adjustment', 'REFUND_VT_' . $order['provider_ref'], "Automated VTpass refund for {$order['provider_ref']}");
             try {
                 (new ReferralEngineService($this->db))->reverseRewardsForSource('TEL_' . $order['id'], 'VTpass webhook failure refund');
             } catch (Throwable) {
             }
         }
 
-        Response::success(['response' => 'success', 'status' => 'reconciled', 'outcome' => $outcome, 'reference' => $ref]);
+        Response::success(['status' => 'reconciled', 'reference' => $ref]);
     }
-
-    // =========================================================================
-    // TELECOM CONFIG, BILL CATALOG SYNC & ADMIN TELECOM MANAGEMENT ENDPOINTS
-    // =========================================================================
-
-    public function telecomConfig(Request $request): void
-    {
-        $this->ensureDataSchema();
-        $bulkSms = self::readBulkSmsSettings($this->db);
-        Response::success([
-            'airtime_discount_percent' => $this->getAirtimeDiscountPercent(),
-            'airtime_swap_enabled' => self::readAirtimeSwapEnabled($this->db),
-            'bulksms' => [
-                'enabled' => (bool)$bulkSms['enabled'],
-                'unit_price' => (float)$bulkSms['unit_price'],
-                'max_recipients' => (int)$bulkSms['max_recipients'],
-                'default_sender' => (string)$bulkSms['default_sender'],
-            ],
-            'bulksms_unit_price' => (float)$bulkSms['unit_price'],
-            'bulksms_sender_id' => (string)$bulkSms['default_sender'],
-        ]);
-    }
-
-    public function smsReport(Request $request): void
-    {
-        Auth::requireAuth($request);
-        $smsId = trim((string)($request->query('sms_id') ?? $request->query('reference', '')));
-        if ($smsId === '') {
-            Response::error('sms_id query parameter is required.', 422);
-            return;
-        }
-        if ($this->adapter instanceof UlamaDataAdapter) {
-            Response::success($this->adapter->getSmsReport($smsId));
-            return;
-        }
-        Response::success(['available' => false, 'sms_id' => $smsId, 'status' => 'unavailable']);
-    }
-
-    public function adminCablePackages(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        $rows = $this->db->fetchAll('SELECT * FROM cable_packages ORDER BY provider ASC, price ASC');
-        foreach ($rows as &$r) {
-            $r['price'] = (float)$r['price'];
-            $r['wholesale_cost'] = (float)$r['wholesale_cost'];
-            $r['is_active'] = (bool)$r['is_active'];
-            $r['admin_price_locked'] = (bool)($r['admin_price_locked'] ?? false);
-        }
-        Response::success(['count' => count($rows), 'packages' => $rows]);
-    }
-
-    public function adminSyncCablePackages(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        $recalc = filter_var($request->input('recalculate_unlocked', false), FILTER_VALIDATE_BOOLEAN);
-        if (!($this->adapter instanceof UlamaDataAdapter)) {
-            Response::error('Active provider does not support live cable package sync.', 422);
-            return;
-        }
-        $res = $this->adapter->syncCablePackages($recalc);
-        Response::success($res, 'Cable TV packages synced from provider.');
-    }
-
-    public function adminUpdateCablePackage(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        $id = (string)$request->param('id', '');
-        $row = $this->db->fetchOne('SELECT * FROM cable_packages WHERE id = :id LIMIT 1', ['id' => $id]);
-        if (!$row) {
-            Response::error('Cable package not found.', 404);
-            return;
-        }
-        $price = $request->input('price');
-        $isActive = $request->input('is_active');
-        if ($price !== null && is_numeric($price) && (float)$price > 0) {
-            $this->db->execute(
-                'UPDATE cable_packages SET price = :p, pricing_mode = "fixed", fixed_price = :fp, admin_price_locked = 1, updated_at = NOW() WHERE id = :id',
-                ['p' => round((float)$price, 2), 'fp' => round((float)$price, 2), 'id' => $id]
-            );
-        }
-        if ($isActive !== null) {
-            $this->db->execute('UPDATE cable_packages SET is_active = :act, updated_at = NOW() WHERE id = :id', ['act' => $isActive ? 1 : 0, 'id' => $id]);
-        }
-        $updated = $this->db->fetchOne('SELECT * FROM cable_packages WHERE id = :id', ['id' => $id]);
-        Response::success(['package' => $updated], 'Cable package updated.');
-    }
-
-    public function adminBulkCablePricing(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        $markup = (float)$request->input('markup_percent', 2.0);
-        $rows = $this->db->fetchAll('SELECT id, wholesale_cost, admin_price_locked FROM cable_packages');
-        $count = 0;
-        foreach ($rows as $r) {
-            if (!empty($r['admin_price_locked'])) {
-                continue;
-            }
-            $newPrice = round((float)$r['wholesale_cost'] * (1 + ($markup / 100)), 2);
-            $this->db->execute('UPDATE cable_packages SET price = :p, pricing_mode = "markup_percent", markup_percent = :mp, updated_at = NOW() WHERE id = :id', [
-                'p' => $newPrice, 'mp' => $markup, 'id' => $r['id']
-            ]);
-            $count++;
-        }
-        Response::success(['updated_count' => $count], "Updated pricing for {$count} cable packages.");
-    }
-
-    public function adminElectricityDiscos(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        $rows = $this->db->fetchAll('SELECT * FROM electricity_discos ORDER BY name ASC');
-        foreach ($rows as &$r) {
-            $r['minimum_amount'] = (float)$r['minimum_amount'];
-            $r['is_active'] = (bool)$r['is_active'];
-        }
-        Response::success(['count' => count($rows), 'discos' => $rows]);
-    }
-
-    public function adminSyncElectricityDiscos(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        if (!($this->adapter instanceof UlamaDataAdapter)) {
-            Response::error('Active provider does not support live electricity DISCO sync.', 422);
-            return;
-        }
-        $res = $this->adapter->syncElectricityDiscos();
-        Response::success($res, 'Electricity DISCOs synced from provider.');
-    }
-
-    public function adminUpdateElectricityDisco(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        $id = (string)$request->param('id', '');
-        $row = $this->db->fetchOne('SELECT * FROM electricity_discos WHERE id = :id LIMIT 1', ['id' => $id]);
-        if (!$row) {
-            Response::error('Electricity DISCO not found.', 404);
-            return;
-        }
-        $minAmt = $request->input('minimum_amount');
-        $isActive = $request->input('is_active');
-        if ($minAmt !== null && is_numeric($minAmt) && (float)$minAmt >= 100) {
-            $this->db->execute('UPDATE electricity_discos SET minimum_amount = :m, updated_at = NOW() WHERE id = :id', ['m' => round((float)$minAmt, 2), 'id' => $id]);
-        }
-        if ($isActive !== null) {
-            $this->db->execute('UPDATE electricity_discos SET is_active = :act, updated_at = NOW() WHERE id = :id', ['act' => $isActive ? 1 : 0, 'id' => $id]);
-        }
-        $updated = $this->db->fetchOne('SELECT * FROM electricity_discos WHERE id = :id', ['id' => $id]);
-        Response::success(['disco' => $updated], 'Electricity DISCO updated.');
-    }
-
-    public function adminExamPackages(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        $rows = $this->db->fetchAll('SELECT * FROM exam_packages ORDER BY price ASC');
-        foreach ($rows as &$r) {
-            $r['price'] = (float)$r['price'];
-            $r['wholesale_cost'] = (float)$r['wholesale_cost'];
-            $r['is_active'] = (bool)$r['is_active'];
-        }
-        Response::success(['count' => count($rows), 'packages' => $rows]);
-    }
-
-    public function adminSyncExamPackages(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        $recalc = filter_var($request->input('recalculate_unlocked', false), FILTER_VALIDATE_BOOLEAN);
-        if (!($this->adapter instanceof UlamaDataAdapter)) {
-            Response::error('Active provider does not support live exam package sync.', 422);
-            return;
-        }
-        $res = $this->adapter->syncExamPackages($recalc);
-        Response::success($res, 'Exam packages synced from provider.');
-    }
-
-    public function adminUpdateExamPackage(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        $id = (string)$request->param('id', '');
-        $row = $this->db->fetchOne('SELECT * FROM exam_packages WHERE id = :id LIMIT 1', ['id' => $id]);
-        if (!$row) {
-            Response::error('Exam package not found.', 404);
-            return;
-        }
-        $price = $request->input('price');
-        $isActive = $request->input('is_active');
-        if ($price !== null && is_numeric($price) && (float)$price > 0) {
-            $this->db->execute(
-                'UPDATE exam_packages SET price = :p, pricing_mode = "fixed", fixed_price = :fp, admin_price_locked = 1, updated_at = NOW() WHERE id = :id',
-                ['p' => round((float)$price, 2), 'fp' => round((float)$price, 2), 'id' => $id]
-            );
-        }
-        if ($isActive !== null) {
-            $this->db->execute('UPDATE exam_packages SET is_active = :act, updated_at = NOW() WHERE id = :id', ['act' => $isActive ? 1 : 0, 'id' => $id]);
-        }
-        $updated = $this->db->fetchOne('SELECT * FROM exam_packages WHERE id = :id', ['id' => $id]);
-        Response::success(['package' => $updated], 'Exam package updated.');
-    }
-
-    public function adminBulkSmsConfig(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        Response::success(['config' => self::readBulkSmsSettings($this->db)]);
-    }
-
-    public function adminUpdateBulkSmsConfig(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $map = [
-            'enabled' => ['key' => 'bulksms_enabled', 'desc' => 'Bulk SMS enabled flag'],
-            'unit_price' => ['key' => 'bulksms_unit_price', 'desc' => 'Bulk SMS customer selling price per unit'],
-            'wholesale_unit_price' => ['key' => 'bulksms_wholesale_unit_price', 'desc' => 'Bulk SMS wholesale cost per unit'],
-            'max_recipients' => ['key' => 'bulksms_max_recipients', 'desc' => 'Bulk SMS maximum recipients'],
-            'default_sender' => ['key' => 'bulksms_default_sender', 'desc' => 'Bulk SMS default sender ID'],
-        ];
-        foreach ($map as $inputField => $meta) {
-            $val = $request->input($inputField);
-            if ($val === null) {
-                continue;
-            }
-            $strVal = is_bool($val) ? ($val ? '1' : '0') : (string)$val;
-            $this->db->execute(
-                'INSERT INTO system_settings (id, setting_key, setting_value, category, description, updated_at)
-                 VALUES (:id, :sk, :sv, "telecom", :desc, NOW())
-                 ON DUPLICATE KEY UPDATE setting_value = :sv2, updated_at = NOW()',
-                ['id' => 'set_' . $meta['key'], 'sk' => $meta['key'], 'sv' => $strVal, 'desc' => $meta['desc'], 'sv2' => $strVal]
-            );
-        }
-        Response::success(['config' => self::readBulkSmsSettings($this->db)], 'Bulk SMS configuration updated.');
-    }
-
-    public function adminTelecomSettings(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        Response::success([
-            'settings' => [
-                'active_provider' => $this->activeProviderId,
-                'airtime_discount_percent' => $this->getAirtimeDiscountPercent(),
-                'airtime_swap_enabled' => self::readAirtimeSwapEnabled($this->db),
-                'bulksms' => self::readBulkSmsSettings($this->db),
-            ],
-        ]);
-    }
-
-    public function adminUpdateTelecomSettings(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $updates = [
-            'airtime_discount_percent' => $request->input('airtime_discount_percent'),
-            'airtime_swap_enabled' => $request->input('airtime_swap_enabled'),
-            'data_default_markup_percent' => $request->input('data_default_markup_percent'),
-        ];
-        foreach ($updates as $key => $val) {
-            if ($val === null) {
-                continue;
-            }
-            $strVal = is_bool($val) ? ($val ? '1' : '0') : (string)$val;
-            $this->db->execute(
-                'INSERT INTO system_settings (id, setting_key, setting_value, category, description, updated_at)
-                 VALUES (:id, :sk, :sv, "telecom", :desc, NOW())
-                 ON DUPLICATE KEY UPDATE setting_value = :sv2, updated_at = NOW()',
-                ['id' => 'set_' . $key, 'sk' => $key, 'sv' => $strVal, 'desc' => $key, 'sv2' => $strVal]
-            );
-        }
-        Response::success([
-            'airtime_discount_percent' => $this->getAirtimeDiscountPercent(),
-            'airtime_swap_enabled' => self::readAirtimeSwapEnabled($this->db),
-        ], 'Telecom settings saved.');
-    }
-
-    public function adminCreateDataPin(Request $request): void
-    {
-        Auth::requirePermission($request, 'services');
-        $this->ensureDataSchema();
-        $network = strtoupper(trim((string)$request->input('network', 'MTN')));
-        $name = trim((string)$request->input('name', ''));
-        $size = trim((string)$request->input('size', ''));
-        $price = (float)$request->input('price', 0);
-        $wholesale = (float)$request->input('wholesale_cost', $price);
-        $providerPlanId = (int)$request->input('provider_plan_id', 0);
-        if ($name === '' || $size === '' || $price <= 0 || $providerPlanId <= 0) {
-            Response::error('name, size, price (> 0), and verified provider_plan_id (> 0) are required.', 422);
-            return;
-        }
-        $id = 'dpin_' . $providerPlanId . '_' . strtolower($network);
-        $this->db->execute(
-            'INSERT INTO data_pin_denominations (id, provider_plan_id, network, name, size, wholesale_cost, price, is_active, updated_at)
-             VALUES (:id, :ppid, :net, :name, :size, :wc, :pr, 1, NOW())
-             ON DUPLICATE KEY UPDATE name = :name2, size = :size2, wholesale_cost = :wc2, price = :pr2, is_active = 1, updated_at = NOW()',
-            [
-                'id' => $id, 'ppid' => $providerPlanId, 'net' => $network, 'name' => $name, 'size' => $size,
-                'wc' => $wholesale, 'pr' => $price, 'name2' => $name, 'size2' => $size, 'wc2' => $wholesale, 'pr2' => $price,
-            ]
-        );
-        Response::success(['id' => $id], 'Data PIN package saved.');
-    }
-
 }

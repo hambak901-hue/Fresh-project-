@@ -16,16 +16,19 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { User, AdminRoleDefinition, AdminDashboardDefinition, UserRole } from '../../types';
+import { User } from '../../types';
 
 const PERMISSION_OPTIONS = [
   { id: 'customers', label: 'Customer Management (Edit, Suspend, Notify)' },
   { id: 'wallet', label: 'Wallet Adjustments & Funding Approvals' },
   { id: 'kyc', label: 'KYC Compliance Reviews (Verify Documents & Tiers)' },
   { id: 'services', label: 'Service Pricing & Catalogs (NIN, BVN, Telecom, Store, Academy)' },
+  { id: 'printing', label: 'Printing & Document Services Operations (Orders, Quotes, Statuses, Delivery)' },
+  { id: 'printing_pricing', label: 'Printing Pricing, Service Categories & Delivery Zone Configuration' },
   { id: 'referrals', label: 'Referral Moderation & Reward Settlement' },
   { id: 'withdrawals', label: 'Referral Bank Cash Withdrawal Desk' },
   { id: 'security', label: 'Customer PIN Support & Security Overview' },
+  { id: 'pin_security', label: 'Customer PIN Reset & Unlock Authorization' },
   { id: 'reports', label: 'Enterprise Financial & Growth Reports (12 Reports)' },
   { id: 'support', label: 'Support Centre & Help Desk Tickets' },
   { id: 'notifications', label: 'Broadcasts & System Announcements' },
@@ -46,30 +49,25 @@ export function StaffPermissionsManagement() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
 
-  // Role catalog from backend
-  const [roleCatalog, setRoleCatalog] = useState<AdminRoleDefinition[]>([]);
-  const [dashboardCatalog, setDashboardCatalog] = useState<AdminDashboardDefinition[]>([]);
-
   // New staff form
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('staff');
-  const [assignedDashboard, setAssignedDashboard] = useState<string>('staff');
+  const [role, setRole] = useState<'admin' | 'superadmin'>('admin');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([
     'customers',
+    'wallet',
     'kyc',
     'services',
-    'support',
+    'cms',
     'audit',
   ]);
 
   // Edit staff modal
   const [editingStaff, setEditingStaff] = useState<User | null>(null);
   const [editPermissions, setEditPermissions] = useState<string[]>([]);
-  const [editRole, setEditRole] = useState<UserRole>('staff');
-  const [editDashboard, setEditDashboard] = useState<string>('staff');
+  const [editRole, setEditRole] = useState<string>('admin');
   const [editSaving, setEditSaving] = useState(false);
 
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -77,44 +75,12 @@ export function StaffPermissionsManagement() {
   const fetchStaff = async () => {
     setLoading(true);
     try {
-      const [res, catRes] = await Promise.allSettled([
-        api.getAdminStaff(),
-        api.getAdminRolesCatalog(),
-      ]);
-      if (res.status === 'fulfilled') {
-        setStaff(res.value.staff || []);
-      }
-      if (catRes.status === 'fulfilled' && catRes.value.success) {
-        setRoleCatalog(catRes.value.roles || []);
-        setDashboardCatalog(catRes.value.dashboards || []);
-      }
+      const res = await api.getAdminStaff();
+      setStaff(res.staff || []);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const applyRolePreset = (nextRole: UserRole, mode: 'create' | 'edit') => {
-    const def = roleCatalog.find(r => r.slug === nextRole);
-    const defaultDash = def?.default_dashboard || (nextRole === 'superadmin' ? 'admin' : nextRole);
-    const defaultPerms = def?.default_permissions || [];
-    if (mode === 'create') {
-      setRole(nextRole);
-      setAssignedDashboard(defaultDash);
-      if (nextRole === 'superadmin') {
-        setSelectedPermissions(PERMISSION_OPTIONS.map(p => p.id));
-      } else if (defaultPerms.length > 0) {
-        setSelectedPermissions(defaultPerms.filter(p => p !== '*'));
-      }
-    } else {
-      setEditRole(nextRole);
-      setEditDashboard(defaultDash);
-      if (nextRole === 'superadmin') {
-        setEditPermissions(PERMISSION_OPTIONS.map(p => p.id));
-      } else if (defaultPerms.length > 0) {
-        setEditPermissions(defaultPerms.filter(p => p !== '*'));
-      }
     }
   };
 
@@ -133,8 +99,7 @@ export function StaffPermissionsManagement() {
         phone_number: phone.trim() || '+2348000000000',
         password,
         role,
-        assigned_dashboard: assignedDashboard,
-        permissions: role === 'superadmin' ? ['*'] : selectedPermissions,
+        permissions: selectedPermissions,
       });
       setMessage({ type: 'success', text: res.message });
       setCreateModalOpen(false);
@@ -156,9 +121,8 @@ export function StaffPermissionsManagement() {
     setEditSaving(true);
     try {
       const res = await api.updateStaffAccount(editingStaff.id, {
-        role: editRole,
-        assigned_dashboard: editDashboard,
-        permissions: editRole === 'superadmin' ? ['*'] : editPermissions,
+        role: editRole as any,
+        permissions: editPermissions,
       });
       setMessage({ type: 'success', text: res.message });
       setEditingStaff(null);
@@ -286,22 +250,11 @@ export function StaffPermissionsManagement() {
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
-                      <div className="flex flex-col gap-1 items-start">
-                        <span className={`px-2.5 py-1 rounded font-mono text-[10px] font-semibold uppercase ${
-                          isSuperAdmin
-                            ? 'bg-amber-500/10 text-amber-400'
-                            : s.role === 'manager'
-                            ? 'bg-purple-500/10 text-purple-300'
-                            : s.role === 'support'
-                            ? 'bg-cyan-500/10 text-cyan-300'
-                            : 'bg-indigo-500/10 text-indigo-400'
-                        }`}>
-                          {s.role}
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-mono">
-                          Workspace: {s.assigned_dashboard || s.role}
-                        </span>
-                      </div>
+                      <span className={`px-2.5 py-1 rounded font-mono text-[10px] font-semibold uppercase ${
+                        isSuperAdmin ? 'bg-amber-500/10 text-amber-400' : 'bg-indigo-500/10 text-indigo-400'
+                      }`}>
+                        {s.role}
+                      </span>
                     </td>
                     <td className="py-3.5 px-4">
                       <div className="flex flex-wrap gap-1 max-w-sm">
@@ -316,7 +269,7 @@ export function StaffPermissionsManagement() {
                             </span>
                           ))
                         ) : (
-                          <span className="text-slate-500 italic text-[10px]">Standard Role Read</span>
+                          <span className="text-slate-500 italic text-[10px]">Standard Admin Read</span>
                         )}
                       </div>
                     </td>
@@ -335,8 +288,7 @@ export function StaffPermissionsManagement() {
                             onClick={() => {
                               setEditingStaff(s);
                               setEditRole(s.role);
-                              setEditDashboard(s.assigned_dashboard || s.role);
-                              setEditPermissions(s.permissions || []);
+                              setEditPermissions(s.permissions || ['customers', 'wallet']);
                             }}
                             className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-semibold"
                           >
@@ -406,7 +358,7 @@ export function StaffPermissionsManagement() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
                 <label className="text-slate-400">Staff Phone Number</label>
                 <input
@@ -429,48 +381,14 @@ export function StaffPermissionsManagement() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-slate-400">Console Role</label>
+                <label className="text-slate-400">Administrative Role</label>
                 <select
                   value={role}
-                  onChange={e => applyRolePreset(e.target.value as UserRole, 'create')}
+                  onChange={e => setRole(e.target.value as any)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
                 >
-                  {(roleCatalog.length > 0
-                    ? roleCatalog.filter(r => r.category === 'console')
-                    : [
-                        { slug: 'support' as UserRole, name: 'Support Agent' },
-                        { slug: 'staff' as UserRole, name: 'Operations Staff' },
-                        { slug: 'manager' as UserRole, name: 'Operations Manager' },
-                        { slug: 'admin' as UserRole, name: 'Administrator' },
-                        { slug: 'superadmin' as UserRole, name: 'Super Administrator' },
-                      ]
-                  ).map(r => (
-                    <option key={r.slug} value={r.slug}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-slate-400">Assigned Dashboard</label>
-                <select
-                  value={assignedDashboard}
-                  onChange={e => setAssignedDashboard(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
-                >
-                  {(dashboardCatalog.length > 0
-                    ? dashboardCatalog
-                    : [
-                        { id: 'support', label: 'Support Helpdesk Desk' },
-                        { id: 'staff', label: 'Staff Operations Workspace' },
-                        { id: 'manager', label: 'Manager Operations Console' },
-                        { id: 'admin', label: 'Admin Control Centre' },
-                      ]
-                  ).map(d => (
-                    <option key={d.id} value={d.id}>
-                      {d.label}
-                    </option>
-                  ))}
+                  <option value="admin">Admin Operator</option>
+                  <option value="superadmin">Super Admin (Full Root)</option>
                 </select>
               </div>
             </div>
@@ -528,52 +446,16 @@ export function StaffPermissionsManagement() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-slate-400">Assigned Role</label>
-                <select
-                  value={editRole}
-                  onChange={e => applyRolePreset(e.target.value as UserRole, 'edit')}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
-                >
-                  {(roleCatalog.length > 0
-                    ? roleCatalog.filter(r => r.category === 'console')
-                    : [
-                        { slug: 'support' as UserRole, name: 'Support Agent' },
-                        { slug: 'staff' as UserRole, name: 'Operations Staff' },
-                        { slug: 'manager' as UserRole, name: 'Operations Manager' },
-                        { slug: 'admin' as UserRole, name: 'Administrator' },
-                        { slug: 'superadmin' as UserRole, name: 'Super Administrator' },
-                      ]
-                  ).map(r => (
-                    <option key={r.slug} value={r.slug}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-slate-400">Assigned Dashboard</label>
-                <select
-                  value={editDashboard}
-                  onChange={e => setEditDashboard(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
-                >
-                  {(dashboardCatalog.length > 0
-                    ? dashboardCatalog
-                    : [
-                        { id: 'support', label: 'Support Helpdesk Desk' },
-                        { id: 'staff', label: 'Staff Operations Workspace' },
-                        { id: 'manager', label: 'Manager Operations Console' },
-                        { id: 'admin', label: 'Admin Control Centre' },
-                      ]
-                  ).map(d => (
-                    <option key={d.id} value={d.id}>
-                      {d.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="space-y-1">
+              <label className="text-slate-400">Assigned Role</label>
+              <select
+                value={editRole}
+                onChange={e => setEditRole(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+              >
+                <option value="admin">Admin Operator</option>
+                <option value="superadmin">Super Admin</option>
+              </select>
             </div>
 
             <div className="space-y-2 pt-2 border-t border-slate-800">

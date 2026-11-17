@@ -91,12 +91,10 @@ class Request
 
     public function getIp(): string
     {
-        return Security::resolveClientIp();
-    }
-
-    public function getClientIp(): string
-    {
-        return $this->getIp();
+        return $_SERVER['HTTP_CF_CONNECTING_IP'] 
+            ?? $_SERVER['HTTP_X_FORWARDED_FOR'] 
+            ?? $_SERVER['REMOTE_ADDR'] 
+            ?? '127.0.0.1';
     }
 
     private function parseBody(): array

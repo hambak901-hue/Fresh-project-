@@ -19,6 +19,7 @@ import { cmsRouter } from './server/routes/cms.js';
 import { customerRouter } from './server/routes/customer.js';
 import { adminRouter } from './server/routes/admin.js';
 import { kycRouter } from './server/routes/kyc.js';
+import { printingRouter, adminPrintingRouter } from './server/routes/printing.js';
 import { CREDENTIALS } from './server/config/credentials.js';
 
 import { rateLimiter, sanitizeBody, csrfProtection } from './server/services/security.js';
@@ -77,6 +78,7 @@ async function startServer() {
   app.use('/api/verification/verify', rateLimiter('financial', 50, 60000));
   app.use('/api/wallet/manual-funding', rateLimiter('financial', 30, 60000));
   app.use('/api/customer/upload', rateLimiter('upload', 20, 60000));
+  app.use('/api/printing/upload', rateLimiter('upload', 30, 60000));
 
   // Mount API modules
   app.use('/api/auth', authRouter);
@@ -89,6 +91,8 @@ async function startServer() {
   app.use('/api/customer', customerRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/kyc', kycRouter);
+  app.use('/api/printing', printingRouter);
+  app.use('/api/admin/printing', adminPrintingRouter);
 
   const httpServer = http.createServer(app);
 

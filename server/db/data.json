@@ -85,21 +85,6 @@
           "review_notes": "Pending admin compliance review"
         }
       ]
-    },
-    {
-      "email": "verify_vtu_1794863293844@hambaktech.com.ng",
-      "password_hash": "$2b$10$YOvuSh2d.fRcoJHO7ge1JOJSkhU1rIgyEzltyblf6o2rReVnudk0q",
-      "full_name": "VTU Verify User",
-      "phone_number": "08031234567",
-      "role": "customer",
-      "wallet_balance": 0,
-      "kyc_status": "unverified",
-      "tier": 1,
-      "referral_code": "HT-2D0184",
-      "status": "active",
-      "id": "usr_1794863293990_nwn0w",
-      "created_at": "2026-11-16T21:08:13.990Z",
-      "updated_at": "2026-11-16T21:08:13.990Z"
     }
   ],
   "transactions": [
@@ -411,15 +396,6 @@
   ],
   "notifications": [
     {
-      "id": "notif_1794863293991_afw1f",
-      "user_id": "usr_1794863293990_nwn0w",
-      "title": "Welcome to HambakTech Enterprise!",
-      "message": "Hello VTU Verify User, your account has been successfully created. Fund your wallet or complete KYC to get started.",
-      "type": "success",
-      "read": false,
-      "created_at": "2026-11-16T21:08:13.991Z"
-    },
-    {
       "id": "notif_1794497538374_37idd",
       "user_id": "usr_1794497537344_ajyey",
       "title": "KYC Submission Received",
@@ -540,26 +516,14 @@
     "active_verification_provider": "2sureverify",
     "active_telecom_provider": "ulamadata",
     "active_payment_gateway": "flutterwave",
-    "bank_transfer_account_name": "HAMBAK TECH & SERVICES",
+    "bank_transfer_account_name": "Hambak Technologies Enterprise",
     "bank_transfer_bank": "Moniepoint MFB",
-    "bank_transfer_account_number": "5210471634",
-    "company_name": "HAMBAK TECH & SERVICES",
-    "support_phone": "09127469686",
+    "bank_transfer_account_number": "8210492817",
+    "company_name": "HambakTech Technologies",
+    "support_phone": "+234 803 000 1122",
     "support_email": "support@hambaktech.com.ng"
   },
   "audit_logs": [
-    {
-      "id": "audit_1794863293993",
-      "user_id": "usr_1794863293990_nwn0w",
-      "user_email": "verify_vtu_1794863293844@hambaktech.com.ng",
-      "action": "USER_REGISTERED",
-      "details": {
-        "email": "verify_vtu_1794863293844@hambaktech.com.ng",
-        "phone": "08031234567"
-      },
-      "ip": "127.0.0.1",
-      "created_at": "2026-11-16T21:08:13.993Z"
-    },
     {
       "id": "audit_1794580791003",
       "user_email": "admin@hambaktech.co.ng",
@@ -859,36 +823,28 @@
     }
   ],
   "branding": {
-    "company_name": "HAMBAK TECH & SERVICES",
-    "short_brand_name": "HAMBAKTECH",
-    "tagline": "Where Technology Meets Services",
-    "logo_url": "/logo.png",
-    "favicon_url": "/logo.png",
-    "primary_color": "#1d4ed8",
-    "secondary_color": "#0f172a",
+    "company_name": "HambakTech Enterprise",
+    "tagline": "Nigeria's Foremost Identity Verification, Telecom & Digital Services Engine",
+    "logo_url": "",
+    "favicon_url": "/favicon.ico",
+    "primary_color": "#10b981",
+    "secondary_color": "#0284c7",
     "font_family": "Plus Jakarta Sans",
-    "whatsapp_number": "09155104724",
-    "business_phone": "08147837664",
-    "support_phone": "09127469686",
+    "support_phone": "+234 803 000 1122",
     "support_email": "support@hambaktech.com.ng",
-    "info_email": "info@hambaktech.com.ng",
-    "office_address": "Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria",
-    "business_reg_number": "BN 9284726",
-    "founded_year": "2024",
+    "office_address": "Plot 14, Commercial Avenue, Ikeja, Lagos, Nigeria",
+    "whatsapp_number": "+2348030001122",
     "social_links": {
-      "tiktok": "",
-      "facebook": "",
-      "telegram": "",
-      "x": "",
-      "linkedin": "",
-      "youtube": "",
-      "whatsapp_channel": ""
+      "twitter": "https://x.com/hambaktech",
+      "facebook": "https://facebook.com/hambaktech",
+      "linkedin": "https://linkedin.com/company/hambaktech",
+      "whatsapp": "https://wa.me/2348030001122"
     },
-    "footer_text": "HAMBAK TECH & SERVICES provides digital identity verification, telecommunication VTU services, automated bill payments, and practical ICT & software skills training across Nigeria.",
-    "copyright_text": "© 2026 HAMBAK TECH & SERVICES (BN 9284726). All Rights Reserved.",
-    "seo_title": "HAMBAKTECH | Digital Services, Telecom VTU & Digital Training Academy",
-    "seo_description": "HAMBAK TECH & SERVICES — Digital identity verification, telecom data & airtime VTU, bill payments, and HAMBAKTECH Digital Training Academy in Lekki, Lagos State, Nigeria.",
-    "seo_keywords": "HAMBAKTECH, HAMBAK TECH & SERVICES, NIN verification, BVN verification, Nigerian VTU, Digital Training Academy"
+    "footer_text": "Nigeria's premier digital infrastructure platform for official identity verification, wholesale telecom vending, and automated digital payments.",
+    "copyright_text": "© 2026 Hambak Technologies Enterprise. All Rights Reserved.",
+    "seo_title": "HambakTech Enterprise | Official Identity & Telecom Services",
+    "seo_description": "All-in-one Nigerian VTU, identity verification (NIN/BVN), telecom, payments, academy, and digital services platform for HambakTech.",
+    "seo_keywords": "NIN verification, BVN validation, MTN SME data, Nigerian VTU, identity verification, airtime recharge, digital payments, HambakTech"
   },
   "cms_sections": {
     "hero": {
@@ -1192,6 +1148,15 @@
       "name": "Support / Help Centre",
       "description": "24/7 technical help desk & hotline",
       "icon": "HelpCircle",
+      "status": "active",
+      "visible": true,
+      "order": 10
+    },
+    {
+      "id": "printing",
+      "name": "Printing & Document Services",
+      "description": "Document printing, photocopying, large-format banners, plastic ID cards, photo printing & Lagos delivery.",
+      "icon": "Printer",
       "status": "active",
       "visible": true,
       "order": 10
@@ -2868,13 +2833,6 @@
     "last_test_message": "Production SMTP handshake confirmed on port 587 (STARTTLS)",
     "logs": [
       {
-        "id": "smtplog_1794863293994_y6nn",
-        "timestamp": "2026-11-16T21:08:13.994Z",
-        "recipient": "verify_vtu_1794863293844@hambaktech.com.ng",
-        "subject": "Welcome to HambakTech Enterprise Portal",
-        "status": "simulated"
-      },
-      {
         "id": "smtplog_1794497537347_m6xn",
         "timestamp": "2026-11-12T15:32:17.347Z",
         "recipient": "qa_reg_1794497537207@hambaktech.com.ng",
@@ -3542,5 +3500,651 @@
       "watermark_text": "DEMO SPECIMEN - SAMPLE PREVIEW ONLY",
       "created_at": "2026-11-12T11:56:50.111Z"
     }
-  ]
+  ],
+  "printing_categories": [
+    {
+      "id": "pcat_doc",
+      "category_key": "doc_printing",
+      "name": "Document & Paper Printing",
+      "description": "Examination papers, school documents, report sheets, business documents, company forms, office materials, political materials & commercial printing.",
+      "icon": "FileText",
+      "pricing_mode": "per_page",
+      "measurement_method": "per_page",
+      "unit_label": "page",
+      "base_rate": 50,
+      "bw_rate": 50,
+      "color_rate": 150,
+      "min_quantity": 1,
+      "urgent_fee_type": "percent",
+      "urgent_fee_value": 25,
+      "paper_sizes": [
+        "A4 (Standard)",
+        "A3 (Large)",
+        "A5 (Half Page)",
+        "Letter",
+        "Legal / Foolscap",
+        "Custom Paper Stock"
+      ],
+      "size_rates": {
+        "A4 (Standard)": 1,
+        "A3 (Large)": 2.2,
+        "A5 (Half Page)": 0.85,
+        "Letter": 1,
+        "Legal / Foolscap": 1.25,
+        "Custom Paper Stock": 1.5
+      },
+      "finishing_options": [
+        {
+          "code": "stapling",
+          "label": "Corner / Booklet Stapling",
+          "fee": 200
+        },
+        {
+          "code": "spiral_binding",
+          "label": "Spiral Binding",
+          "fee": 600
+        },
+        {
+          "code": "thermal_binding",
+          "label": "Thermal / Perfect Binding",
+          "fee": 1200
+        },
+        {
+          "code": "lamination",
+          "label": "Lamination (Protective Gloss/Matte)",
+          "fee": 300
+        },
+        {
+          "code": "double_sided",
+          "label": "Double-Sided (Duplex) Layout",
+          "fee": 0
+        },
+        {
+          "code": "numbering_perforation",
+          "label": "Serial Numbering / Perforation",
+          "fee": 1500
+        }
+      ],
+      "bulk_discounts": [
+        {
+          "min_qty": 100,
+          "discount_percent": 10,
+          "label": "100+ pages: 10% off"
+        },
+        {
+          "min_qty": 500,
+          "discount_percent": 18,
+          "label": "500+ pages: 18% off"
+        },
+        {
+          "min_qty": 2000,
+          "discount_percent": 25,
+          "label": "2,000+ pages: 25% off"
+        }
+      ],
+      "field_schema": [
+        {
+          "key": "document_purpose",
+          "label": "Document Type / Purpose",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Examination Papers",
+            "School Documents / Report Sheets",
+            "Business Documents & Proposals",
+            "Company Forms / Invoices",
+            "Office Materials",
+            "Political / Campaign Materials",
+            "General Commercial Printing"
+          ]
+        },
+        {
+          "key": "page_count",
+          "label": "Pages per Copy",
+          "type": "number",
+          "required": true,
+          "default": 1
+        },
+        {
+          "key": "paper_weight",
+          "label": "Paper Stock / Weight",
+          "type": "select",
+          "required": false,
+          "options": [
+            "80gsm Bond (Standard)",
+            "100gsm Conquerer / Office",
+            "135gsm Art Paper",
+            "250gsm Glossy Card",
+            "300gsm Matte Card"
+          ]
+        }
+      ],
+      "requires_manual_quote": true,
+      "internal_cost_estimate": 25,
+      "is_active": true,
+      "display_order": 1
+    },
+    {
+      "id": "pcat_copy",
+      "category_key": "photocopying",
+      "name": "Photocopying",
+      "description": "Fast, crisp photocopying for personal, educational, office & commercial multi-page documents.",
+      "icon": "Copy",
+      "pricing_mode": "photocopy",
+      "measurement_method": "per_copy",
+      "unit_label": "copy",
+      "base_rate": 30,
+      "bw_rate": 30,
+      "color_rate": 120,
+      "min_quantity": 5,
+      "urgent_fee_type": "percent",
+      "urgent_fee_value": 20,
+      "paper_sizes": [
+        "A4 (Standard)",
+        "A3 (Enlarged)",
+        "Foolscap / Legal"
+      ],
+      "size_rates": {
+        "A4 (Standard)": 1,
+        "A3 (Enlarged)": 2,
+        "Foolscap / Legal": 1.2
+      },
+      "finishing_options": [
+        {
+          "code": "collating",
+          "label": "Set Collating & Sorting",
+          "fee": 300
+        },
+        {
+          "code": "stapling",
+          "label": "Document Stapling",
+          "fee": 200
+        },
+        {
+          "code": "spiral_binding",
+          "label": "Spiral Binding",
+          "fee": 600
+        }
+      ],
+      "bulk_discounts": [
+        {
+          "min_qty": 200,
+          "discount_percent": 12,
+          "label": "200+ copies: 12% off"
+        },
+        {
+          "min_qty": 1000,
+          "discount_percent": 22,
+          "label": "1,000+ copies: 22% off"
+        }
+      ],
+      "field_schema": [
+        {
+          "key": "document_purpose",
+          "label": "Photocopy Category",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Personal Document",
+            "Educational / Handouts",
+            "Office / Administrative Pack",
+            "Commercial Bulk Pack"
+          ]
+        },
+        {
+          "key": "page_count",
+          "label": "Original Pages to Copy",
+          "type": "number",
+          "required": true,
+          "default": 1
+        }
+      ],
+      "requires_manual_quote": true,
+      "internal_cost_estimate": 15,
+      "is_active": true,
+      "display_order": 2
+    },
+    {
+      "id": "pcat_banner",
+      "category_key": "banner_large_format",
+      "name": "Banner & Large-Format Printing",
+      "description": "High-resolution flex, SAV vinyl, roll-up stands, advertising, event, school & organisational banners priced per configurable foot basis.",
+      "icon": "Maximize2",
+      "pricing_mode": "banner_area",
+      "measurement_method": "per_sq_ft",
+      "unit_label": "sq.ft",
+      "base_rate": 650,
+      "bw_rate": 500,
+      "color_rate": 650,
+      "min_quantity": 1,
+      "urgent_fee_type": "percent",
+      "urgent_fee_value": 30,
+      "paper_sizes": [
+        "Flex Banner (Standard 440gsm)",
+        "SAV Self-Adhesive Sticker",
+        "Backlit / Billboard Vinyl",
+        "Reflective Banner",
+        "Roll-Up Stand Print"
+      ],
+      "size_rates": {
+        "Flex Banner (Standard 440gsm)": 1,
+        "SAV Self-Adhesive Sticker": 1.35,
+        "Backlit / Billboard Vinyl": 1.6,
+        "Reflective Banner": 1.85,
+        "Roll-Up Stand Print": 1.5
+      },
+      "finishing_options": [
+        {
+          "code": "eyelets",
+          "label": "Metal Eyelets (Grommets)",
+          "fee": 800
+        },
+        {
+          "code": "wood_pocket",
+          "label": "Top & Bottom Pipe/Wood Pockets",
+          "fee": 1000
+        },
+        {
+          "code": "hemming",
+          "label": "Reinforced Edge Hemming",
+          "fee": 700
+        },
+        {
+          "code": "wooden_frame",
+          "label": "Wooden Mounting Frame",
+          "fee": 4500
+        },
+        {
+          "code": "rollup_hardware",
+          "label": "Broad-Base Aluminum Roll-Up Stand",
+          "fee": 28000
+        }
+      ],
+      "bulk_discounts": [
+        {
+          "min_qty": 5,
+          "discount_percent": 8,
+          "label": "5+ banners: 8% off"
+        },
+        {
+          "min_qty": 15,
+          "discount_percent": 15,
+          "label": "15+ banners: 15% off"
+        }
+      ],
+      "field_schema": [
+        {
+          "key": "banner_purpose",
+          "label": "Banner Category",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Business Advertising",
+            "Promotional Campaign",
+            "Event / Wedding / Celebration",
+            "School / Church / Organisation",
+            "Political / Outdoor Signage"
+          ]
+        },
+        {
+          "key": "width_ft",
+          "label": "Width (Feet)",
+          "type": "number",
+          "required": true,
+          "default": 4
+        },
+        {
+          "key": "height_ft",
+          "label": "Height (Feet)",
+          "type": "number",
+          "required": true,
+          "default": 3
+        }
+      ],
+      "requires_manual_quote": true,
+      "internal_cost_estimate": 350,
+      "is_active": true,
+      "display_order": 3
+    },
+    {
+      "id": "pcat_idcard",
+      "category_key": "plastic_id_cards",
+      "name": "Plastic ID Cards",
+      "description": "Durable thermal-printed PVC plastic ID cards for staff, students, schools, companies & membership organisations.",
+      "icon": "CreditCard",
+      "pricing_mode": "per_card",
+      "measurement_method": "per_card",
+      "unit_label": "card",
+      "base_rate": 1500,
+      "bw_rate": 1200,
+      "color_rate": 1500,
+      "min_quantity": 1,
+      "urgent_fee_type": "flat",
+      "urgent_fee_value": 2500,
+      "paper_sizes": [
+        "CR80 Standard PVC (Double-Sided)",
+        "CR80 Standard PVC (Single-Sided)",
+        "Smart RFID / Proximity Card"
+      ],
+      "size_rates": {
+        "CR80 Standard PVC (Double-Sided)": 1,
+        "CR80 Standard PVC (Single-Sided)": 0.85,
+        "Smart RFID / Proximity Card": 1.6
+      },
+      "finishing_options": [
+        {
+          "code": "lanyard_plain",
+          "label": "Plain Neck Lanyard + Casing",
+          "fee": 500
+        },
+        {
+          "code": "lanyard_branded",
+          "label": "Branded Printed Lanyard + Holder",
+          "fee": 1200
+        },
+        {
+          "code": "qr_barcode",
+          "label": "Variable QR / Barcode Data Encoding",
+          "fee": 1000
+        }
+      ],
+      "bulk_discounts": [
+        {
+          "min_qty": 20,
+          "discount_percent": 10,
+          "label": "20+ cards: 10% off"
+        },
+        {
+          "min_qty": 50,
+          "discount_percent": 20,
+          "label": "50+ cards: 20% off"
+        },
+        {
+          "min_qty": 200,
+          "discount_percent": 30,
+          "label": "200+ cards: 30% off"
+        }
+      ],
+      "field_schema": [
+        {
+          "key": "card_audience",
+          "label": "ID Card Type",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Staff / Corporate ID Card",
+            "Student / School ID Card",
+            "Organisation / Membership Card",
+            "Visitor / Event Pass"
+          ]
+        },
+        {
+          "key": "double_sided",
+          "label": "Print Sides",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Double-Sided (Front & Back)",
+            "Single-Sided (Front Only)"
+          ]
+        }
+      ],
+      "requires_manual_quote": true,
+      "internal_cost_estimate": 650,
+      "is_active": true,
+      "display_order": 4
+    },
+    {
+      "id": "pcat_photo",
+      "category_key": "photo_image_printing",
+      "name": "Photo & Image Printing",
+      "description": "Studio-grade passport photographs, general glossy/matte photos & high-clarity image prints.",
+      "icon": "Image",
+      "pricing_mode": "photo_unit",
+      "measurement_method": "per_photo",
+      "unit_label": "print",
+      "base_rate": 500,
+      "bw_rate": 400,
+      "color_rate": 500,
+      "min_quantity": 1,
+      "urgent_fee_type": "flat",
+      "urgent_fee_value": 1000,
+      "paper_sizes": [
+        "Passport Pack (4 Copies / Sheet)",
+        "4x6 inches (Standard Photo)",
+        "5x7 inches (Portrait)",
+        "8x10 inches (Frame Size)",
+        "A4 Photo Paper Sheet"
+      ],
+      "size_rates": {
+        "Passport Pack (4 Copies / Sheet)": 1.2,
+        "4x6 inches (Standard Photo)": 1,
+        "5x7 inches (Portrait)": 1.6,
+        "8x10 inches (Frame Size)": 2.8,
+        "A4 Photo Paper Sheet": 3
+      },
+      "finishing_options": [
+        {
+          "code": "photo_lamination",
+          "label": "Crystal Photo Lamination",
+          "fee": 400
+        },
+        {
+          "code": "frame_mounting",
+          "label": "Classic Wall Frame Mounting",
+          "fee": 3500
+        },
+        {
+          "code": "background_cleanup",
+          "label": "Passport White/Blue Background Retouch",
+          "fee": 500
+        }
+      ],
+      "bulk_discounts": [
+        {
+          "min_qty": 25,
+          "discount_percent": 10,
+          "label": "25+ prints: 10% off"
+        },
+        {
+          "min_qty": 100,
+          "discount_percent": 20,
+          "label": "100+ prints: 20% off"
+        }
+      ],
+      "field_schema": [
+        {
+          "key": "photo_type",
+          "label": "Photo Service Type",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Passport Photographs",
+            "General Photographs",
+            "Event / Studio Images",
+            "Graphic Artwork / Flyer Photo Print"
+          ]
+        },
+        {
+          "key": "paper_finish",
+          "label": "Paper Finish",
+          "type": "select",
+          "required": false,
+          "options": [
+            "High Gloss Photo Paper",
+            "Silky Matte Photo Paper",
+            "Luster Pro Paper"
+          ]
+        }
+      ],
+      "requires_manual_quote": true,
+      "internal_cost_estimate": 200,
+      "is_active": true,
+      "display_order": 5
+    },
+    {
+      "id": "pcat_custom",
+      "category_key": "custom_print_quote",
+      "name": "Custom & Special Printing Request",
+      "description": "Manual quotation requests for flyers, receipt books, branded souvenirs, packaging, calendars, letterheads or special jobs.",
+      "icon": "Sparkles",
+      "pricing_mode": "custom_quote",
+      "measurement_method": "manual",
+      "unit_label": "job",
+      "base_rate": 0,
+      "bw_rate": 0,
+      "color_rate": 0,
+      "min_quantity": 1,
+      "urgent_fee_type": "percent",
+      "urgent_fee_value": 25,
+      "paper_sizes": [
+        "Custom Specification (Reviewed Manually)"
+      ],
+      "size_rates": {
+        "Custom Specification (Reviewed Manually)": 1
+      },
+      "finishing_options": [
+        {
+          "code": "design_assistance",
+          "label": "Pre-Press Layout / Artwork Formatting",
+          "fee": 2500
+        },
+        {
+          "code": "special_packaging",
+          "label": "Protective Carton Packaging",
+          "fee": 1500
+        }
+      ],
+      "bulk_discounts": [],
+      "field_schema": [
+        {
+          "key": "custom_item_type",
+          "label": "Requested Printing Product",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "requires_manual_quote": true,
+      "internal_cost_estimate": 0,
+      "is_active": true,
+      "display_order": 6
+    }
+  ],
+  "printing_delivery_zones": [
+    {
+      "id": "pzone_office_nearby",
+      "zone_key": "lagos_ibejulekki",
+      "destination_group": "Ibeju-Lekki & Sangotedo Axis",
+      "lga_lcda": "Ibeju-Lekki LGA / Lekki LCDA",
+      "towns_covered": "Sangotedo, Abijo, Awoyaya, Lakowe, Bogije, Elemoro, Ibeju",
+      "pricing_mode": "fixed",
+      "fixed_fee": 2000,
+      "free_delivery_enabled": true,
+      "free_delivery_min_order": 50000,
+      "estimated_eta": "Same Day (2–5 hrs)",
+      "is_active": true,
+      "display_order": 1
+    },
+    {
+      "id": "pzone_etiosa",
+      "zone_key": "lagos_etiosa",
+      "destination_group": "Lekki, Ajah & Eti-Osa Axis",
+      "lga_lcda": "Eti-Osa LGA / Eti-Osa East LCDA",
+      "towns_covered": "Ajah, Badore, Chevron, Lekki Phase 1, Ikate, Victoria Island, Ikoyi",
+      "pricing_mode": "fixed",
+      "fixed_fee": 3500,
+      "free_delivery_enabled": true,
+      "free_delivery_min_order": 75000,
+      "estimated_eta": "Same Day / Next Business Day",
+      "is_active": true,
+      "display_order": 2
+    },
+    {
+      "id": "pzone_island",
+      "zone_key": "lagos_island",
+      "destination_group": "Lagos Island Commercial Axis",
+      "lga_lcda": "Lagos Island LGA / East LCDA",
+      "towns_covered": "Marina, CMS, Broad Street, Obalende, Idumota",
+      "pricing_mode": "fixed",
+      "fixed_fee": 4000,
+      "free_delivery_enabled": false,
+      "free_delivery_min_order": 0,
+      "estimated_eta": "Next Business Day",
+      "is_active": true,
+      "display_order": 3
+    },
+    {
+      "id": "pzone_mainland",
+      "zone_key": "lagos_mainland",
+      "destination_group": "Central Mainland (Yaba, Surulere, Ikeja)",
+      "lga_lcda": "Lagos Mainland / Surulere / Ikeja LGA",
+      "towns_covered": "Yaba, Ebute Metta, Surulere, Ikeja, Maryland, Anthony, Gbagada",
+      "pricing_mode": "fixed",
+      "fixed_fee": 4500,
+      "free_delivery_enabled": false,
+      "free_delivery_min_order": 0,
+      "estimated_eta": "Next Business Day",
+      "is_active": true,
+      "display_order": 4
+    },
+    {
+      "id": "pzone_west",
+      "zone_key": "lagos_west",
+      "destination_group": "Alimosho, Agege, Oshodi & Amuwo Axis",
+      "lga_lcda": "Alimosho / Agege / Oshodi-Isolo / Amuwo-Odofin LGA",
+      "towns_covered": "Egbeda, Idimu, Ikotun, Ipaja, Agege, Oshodi, Festac, Mile 2",
+      "pricing_mode": "fixed",
+      "fixed_fee": 5500,
+      "free_delivery_enabled": false,
+      "free_delivery_min_order": 0,
+      "estimated_eta": "1–2 Business Days",
+      "is_active": true,
+      "display_order": 5
+    },
+    {
+      "id": "pzone_outskirts",
+      "zone_key": "lagos_outskirts",
+      "destination_group": "Ikorodu, Epe, Badagry & Custom Freight",
+      "lga_lcda": "Ikorodu / Epe / Badagry / Other Lagos LGAs",
+      "towns_covered": "Ikorodu, Epe Town, Badagry, Palletised School Deliveries",
+      "pricing_mode": "manual_quote",
+      "fixed_fee": 0,
+      "free_delivery_enabled": false,
+      "free_delivery_min_order": 0,
+      "estimated_eta": "Confirmed on Quotation",
+      "is_active": true,
+      "display_order": 6
+    }
+  ],
+  "printing_orders": [],
+  "printing_order_history": [],
+  "printing_order_messages": [],
+  "printing_payments": [],
+  "printing_settings": {
+    "office_collection_title": "HambakTech Main Office Collection Centre",
+    "office_collection_address": "HambakTech Services Hub, Sangotedo / Ajah Corridor, Lagos State, Nigeria",
+    "office_collection_hours": "Monday – Saturday, 8:30 AM – 6:00 PM",
+    "printing_support_phone": "09127469686",
+    "printing_support_whatsapp": "09155104724",
+    "printing_support_email": "support@hambaktech.com.ng",
+    "allow_deposit_default": false,
+    "default_deposit_percent": 50,
+    "max_upload_mb": 15,
+    "allowed_file_types": [
+      "PDF",
+      "DOC",
+      "DOCX",
+      "JPG",
+      "JPEG",
+      "PNG",
+      "WEBP",
+      "TIFF",
+      "CDR",
+      "AI",
+      "PSD",
+      "ZIP"
+    ],
+    "collection_notice": "Office collection is free (₦0 delivery fee). Wait for your \"Ready for Collection\" alert before coming.",
+    "delivery_notice": "Paid delivery is available across Lagos LGAs & LCDAs. Delivery charges are billed separately from printing charges."
+  }
 }

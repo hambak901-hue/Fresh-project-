@@ -28,7 +28,7 @@ class AccountingController
 
     private function authorizeAny(Request $request, array $acceptedPerms): array
     {
-        $user = Auth::requireRole($request, Auth::CONSOLE_ROLES);
+        $user = Auth::requireRole($request, ['admin', 'superadmin']);
         if (($user['role'] ?? '') === 'superadmin') {
             return $user;
         }

@@ -10,13 +10,11 @@ declare(strict_types=1);
 namespace HambakTech\Controllers;
 
 use Exception;
-use Throwable;
 use HambakTech\Core\Database;
 use HambakTech\Core\Request;
 use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
-use HambakTech\Services\MailService;
 
 class SupportController
 {
@@ -25,19 +23,6 @@ class SupportController
     public function __construct()
     {
         $this->db = Database::getInstance();
-    }
-
-    private function hasStaffSupportAccess(array $user): bool
-    {
-        $role = strtolower((string)($user['role'] ?? 'customer'));
-        if (!in_array($role, Auth::CONSOLE_ROLES, true)) {
-            return false;
-        }
-        if ($role === 'superadmin') {
-            return true;
-        }
-        $perms = is_array($user['permissions'] ?? null) ? $user['permissions'] : [];
-        return in_array('*', $perms, true) || in_array('support', $perms, true);
     }
 
     private function normalizeTicketRow(array $ticket): array
@@ -93,16 +78,7 @@ class SupportController
         $department = trim((string)$request->input('department', $category ?: 'General Support'));
         $priority = strtolower(trim((string)$request->input('priority', 'medium')));
         $message = trim((string)$request->input('message', $request->input('description', '')));
-        $attachmentUrl = trim((string)$request->input('attachment_url', ''));
-        $rawAttachments = $request->input('attachments', []);
-        if ($attachmentUrl === '' && is_array($rawAttachments) && !empty($rawAttachments)) {
-            $firstAtt = $rawAttachments[0] ?? null;
-            if (is_string($firstAtt)) {
-                $attachmentUrl = trim($firstAtt);
-            } elseif (is_array($firstAtt)) {
-                $attachmentUrl = trim((string)($firstAtt['file_url'] ?? $firstAtt['url'] ?? ''));
-            }
-        }
+        $attachmentUrl = (string)$request->input('attachment_url', '');
 
         if (empty($subject) || empty($message)) {
             Response::error('Subject and message are required to open a support ticket.', 422);
@@ -169,50 +145,6 @@ class SupportController
             ]
         );
 
-        // Email confirmation to customer + notification to support@hambaktech.com.ng
-        try {
-            $mailer = new MailService();
-            $safeName = htmlspecialchars((string)($user['full_name'] ?? 'Valued Customer'), ENT_QUOTES, 'UTF-8');
-            $safeSubject = htmlspecialchars($subject, ENT_QUOTES, 'UTF-8');
-            $safeDept = htmlspecialchars($department, ENT_QUOTES, 'UTF-8');
-            $safeMsg = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
-
-            $custHtml = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                . "<h2 style='margin:0 0 12px;color:#0f172a;'>Support Ticket Opened: {$ticketId}</h2>"
-                . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                . "<p style='color:#334155;'>Thank you for reaching out to HAMBAKTECH Support. Your ticket has been logged and assigned to our <strong>{$safeDept}</strong> desk.</p>"
-                . "<div style='background:#f8fafc;border:1px solid #e2e8f0;padding:14px;border-radius:8px;margin:16px 0;'>"
-                . "<div style='font-weight:700;color:#0f172a;margin-bottom:6px;'>{$safeSubject}</div>"
-                . "<div style='color:#475569;font-size:13px;'>{$safeMsg}</div></div>"
-                . "<p style='color:#64748b;font-size:12px;'>You can reply directly to this email or continue the conversation inside the Support Centre on your dashboard.</p></div>";
-
-            $mailer->send(
-                (string)$user['email'],
-                (string)($user['full_name'] ?? 'Customer'),
-                "[{$ticketId}] We received your support request: {$subject}",
-                $custHtml,
-                null,
-                MailService::SUPPORT_OPTIONS + ['audit_action' => 'SUPPORT_TICKET_CONFIRMATION_EMAIL']
-            );
-
-            $adminHtml = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                . "<h3 style='margin:0 0 8px;color:#0f172a;'>New Support Ticket: {$ticketId} (" . strtoupper($priority) . ")</h3>"
-                . "<p style='color:#334155;font-size:13px;'><strong>Customer:</strong> {$safeName} (" . htmlspecialchars((string)$user['email'], ENT_QUOTES, 'UTF-8') . ")</p>"
-                . "<p style='color:#334155;font-size:13px;'><strong>Department:</strong> {$safeDept}</p>"
-                . "<p style='color:#334155;font-size:13px;'><strong>Subject:</strong> {$safeSubject}</p>"
-                . "<div style='background:#f8fafc;border:1px solid #e2e8f0;padding:12px;border-radius:8px;font-size:13px;color:#334155;'>{$safeMsg}</div></div>";
-
-            $mailer->send(
-                'support@hambaktech.com.ng',
-                'HAMBAKTECH Support Team',
-                "[New Ticket {$ticketId}] {$subject}",
-                $adminHtml,
-                null,
-                MailService::SUPPORT_OPTIONS + ['audit_action' => 'SUPPORT_TICKET_TEAM_ALERT']
-            );
-        } catch (Throwable) {
-        }
-
         $ticket = $this->db->fetchOne('SELECT * FROM support_tickets WHERE id = :id', ['id' => $ticketId]);
         if ($ticket) {
             $ticket = $this->normalizeTicketRow($ticket);
@@ -226,86 +158,13 @@ class SupportController
     }
 
     /**
-     * POST /api/support/upload (Upload support attachment securely)
-     */
-    public function uploadAttachment(Request $request): void
-    {
-        $user = Auth::requireAuth($request);
-
-        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-            Response::error('Valid attachment file is required.', 422);
-        }
-
-        $file = $_FILES['file'];
-        if ((int)$file['size'] > 5 * 1024 * 1024) {
-            Response::error('Attachment file must not exceed 5MB.', 422);
-        }
-
-        $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
-        $allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
-        if (!in_array($ext, $allowedExts, true)) {
-            Response::error('Invalid file format. Allowed: JPG, PNG, WEBP, PDF.', 422);
-        }
-
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime = finfo_file($finfo, $file['tmp_name']);
-        finfo_close($finfo);
-
-        $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-        if (!in_array($mime, $allowedMimes, true)) {
-            Response::error('File content validation failed.', 422);
-        }
-
-        $storageDir = dirname(__DIR__) . '/storage/uploads';
-        if (!is_dir($storageDir)) {
-            @mkdir($storageDir, 0755, true);
-            @file_put_contents($storageDir . '/.htaccess', "Deny from all\n");
-        }
-
-        $docId = Security::generateUuid();
-        $storedName = 'support_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
-        $destPath = $storageDir . '/' . $storedName;
-
-        if (!move_uploaded_file($file['tmp_name'], $destPath)) {
-            Response::error('Failed to securely store support attachment.', 500);
-        }
-
-        $fileUrl = '/api/customer/document/' . $docId;
-
-        try {
-            $this->db->execute(
-                'INSERT INTO uploaded_documents (id, user_id, document_type, original_name, stored_name, mime_type, file_size, file_path, file_url, created_at)
-                 VALUES (:id, :uid, "support_attachment", :oname, :sname, :mime, :sz, :fpath, :furl, NOW())',
-                [
-                    'id' => $docId,
-                    'uid' => $user['id'],
-                    'oname' => (string)$file['name'],
-                    'sname' => $storedName,
-                    'mime' => $mime,
-                    'sz' => (int)$file['size'],
-                    'fpath' => $destPath,
-                    'furl' => $fileUrl,
-                ]
-            );
-        } catch (Throwable) {
-        }
-
-        Response::success([
-            'id' => $docId,
-            'file_url' => $fileUrl,
-            'file_name' => (string)$file['name'],
-            'mime_type' => $mime,
-        ], 'Support attachment uploaded securely.');
-    }
-
-    /**
      * 3. GET /api/support/tickets/:id (Ticket conversation)
      */
     public function getTicketDetails(Request $request, array $params): void
     {
         $user = Auth::requireAuth($request);
         $ticketId = $params['id'] ?? '';
-        $isAdmin = $this->hasStaffSupportAccess($user);
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true) && Auth::hasPermission($user, 'support');
 
         $ticket = $this->db->fetchOne(
             'SELECT t.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
@@ -349,9 +208,6 @@ class SupportController
         foreach ($replies as &$r) {
             $r['is_staff'] = (bool)$r['is_staff'];
             $r['is_internal_note'] = (bool)($r['is_internal_note'] ?? false);
-            if (!empty($r['attachment_url']) && empty($r['attachments'])) {
-                $r['attachments'] = [['file_url' => $r['attachment_url']]];
-            }
         }
 
         $ticket = $this->normalizeTicketRow($ticket);
@@ -370,17 +226,8 @@ class SupportController
         $user = Auth::requireAuth($request);
         $ticketId = $params['id'] ?? '';
         $message = trim((string)$request->input('message', ''));
-        $attachmentUrl = trim((string)$request->input('attachment_url', ''));
-        $rawAttachments = $request->input('attachments', []);
-        if ($attachmentUrl === '' && is_array($rawAttachments) && !empty($rawAttachments)) {
-            $firstAtt = $rawAttachments[0] ?? null;
-            if (is_string($firstAtt)) {
-                $attachmentUrl = trim($firstAtt);
-            } elseif (is_array($firstAtt)) {
-                $attachmentUrl = trim((string)($firstAtt['file_url'] ?? $firstAtt['url'] ?? ''));
-            }
-        }
-        $isAdmin = $this->hasStaffSupportAccess($user);
+        $attachmentUrl = (string)$request->input('attachment_url', '');
+        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true) && Auth::hasPermission($user, 'support');
         $isInternalNote = $isAdmin && (bool)$request->input('is_internal_note', false);
         $requestedStatus = strtolower(trim((string)$request->input('status', '')));
 
@@ -452,7 +299,7 @@ class SupportController
             );
         }
 
-        // If staff posted a customer-visible reply, notify customer via dashboard + email from support@hambaktech.com.ng
+        // If staff posted a customer-visible reply, notify customer
         if ($isAdmin && !$isInternalNote && $ticket['user_id'] !== $user['id']) {
             $this->db->execute(
                 'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
@@ -464,51 +311,6 @@ class SupportController
                     'msg' => "A support agent replied to your ticket '{$ticket['subject']}': " . substr($message, 0, 100) . '...',
                 ]
             );
-
-            try {
-                $cust = $this->db->fetchOne('SELECT email, full_name FROM users WHERE id = :uid', ['uid' => $ticket['user_id']]);
-                if ($cust && !empty($cust['email'])) {
-                    $mailer = new MailService();
-                    $safeName = htmlspecialchars((string)($cust['full_name'] ?: 'Valued Customer'), ENT_QUOTES, 'UTF-8');
-                    $safeSubj = htmlspecialchars((string)$ticket['subject'], ENT_QUOTES, 'UTF-8');
-                    $safeReply = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
-                    $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                        . "<h2 style='margin:0 0 12px;color:#0f172a;'>Update on Ticket {$ticketId}</h2>"
-                        . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                        . "<p style='color:#334155;'>Our support team has replied to your ticket <strong>{$safeSubj}</strong>:</p>"
-                        . "<div style='background:#f8fafc;border-left:4px solid #059669;padding:14px;margin:14px 0;color:#1e293b;font-size:13px;'>{$safeReply}</div>"
-                        . "<p style='color:#64748b;font-size:12px;'>Current status: <strong>" . strtoupper(str_replace('_', ' ', $newStatus)) . "</strong>. Log into your HAMBAKTECH dashboard or reply to this email to respond.</p></div>";
-                    $mailer->send(
-                        (string)$cust['email'],
-                        (string)($cust['full_name'] ?: 'Customer'),
-                        "Re: [{$ticketId}] {$ticket['subject']}",
-                        $html,
-                        null,
-                        MailService::SUPPORT_OPTIONS + ['audit_action' => 'SUPPORT_STAFF_REPLY_EMAIL']
-                    );
-                }
-            } catch (Throwable) {
-            }
-        } elseif (!$isAdmin) {
-            // Customer replied — notify support@hambaktech.com.ng
-            try {
-                $mailer = new MailService();
-                $safeName = htmlspecialchars((string)($user['full_name'] ?? 'Customer'), ENT_QUOTES, 'UTF-8');
-                $safeReply = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
-                $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                    . "<h3 style='margin:0 0 8px;color:#0f172a;'>Customer Reply on {$ticketId}</h3>"
-                    . "<p style='color:#334155;font-size:13px;'><strong>From:</strong> {$safeName} (" . htmlspecialchars((string)$user['email'], ENT_QUOTES, 'UTF-8') . ")</p>"
-                    . "<div style='background:#f8fafc;border:1px solid #e2e8f0;padding:12px;border-radius:8px;font-size:13px;color:#334155;'>{$safeReply}</div></div>";
-                $mailer->send(
-                    'support@hambaktech.com.ng',
-                    'HAMBAKTECH Support Team',
-                    "Re: [{$ticketId}] Customer reply: {$ticket['subject']}",
-                    $html,
-                    null,
-                    MailService::SUPPORT_OPTIONS + ['audit_action' => 'SUPPORT_CUSTOMER_REPLY_ALERT']
-                );
-            } catch (Throwable) {
-            }
         }
 
         $replyRow = $this->db->fetchOne(
@@ -676,7 +478,7 @@ class SupportController
      */
     public function deleteTicket(Request $request, array $params): void
     {
-        Auth::requireRole($request, ['admin', 'superadmin']);
+        Auth::requirePermission($request, 'support');
         $ticketId = trim((string)($params['id'] ?? ''));
 
         $ticket = $this->db->fetchOne('SELECT id, subject FROM support_tickets WHERE id = :tid', ['tid' => $ticketId]);

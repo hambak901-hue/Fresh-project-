@@ -8,11 +8,32 @@
 import { Router } from 'express';
 import { db, hashPassword, User, AuditLog, DashboardModuleConfig, StoreItem, AcademyCourse, ProviderConfigItem } from '../db/database.js';
 import { CREDENTIALS } from '../config/credentials.js';
-import { parseToken } from './auth.js';
+import { parseToken, hasUserPermission, hasAnyUserPermission, sanitizeUser } from './auth.js';
 import { sendEmail, testSmtpConnection, reloadTransporter } from '../services/mailer.js';
 import { verificationManager } from '../adapters/verification/VerificationAdapter.js';
 
 export const adminRouter = Router();
+
+const ALLOWED_STAFF_PERMISSIONS = new Set([
+  '*',
+  'customers',
+  'wallet',
+  'kyc',
+  'services',
+  'cms',
+  'audit',
+  'staff',
+  'support',
+  'notifications',
+  'reports',
+  'referrals',
+  'withdrawals',
+  'academy',
+  'accounting',
+  'pin_security',
+  'printing',
+  'printing_pricing',
+]);
 
 // Middleware: Require Admin or SuperAdmin
 function requireAdmin(req: any, res: any, next: any) {
@@ -46,10 +67,22 @@ function requireSuperAdmin(req: any, res: any, next: any) {
   next();
 }
 
-function sanitizeUser(u: any) {
-  if (!u) return u;
-  const { password_hash, transaction_pin_hash, reset_password_token, reset_password_expires, ...safe } = u;
-  return safe;
+function requirePermission(permission: string) {
+  return (req: any, res: any, next: any) => {
+    if (!hasUserPermission(req.user, permission)) {
+      return res.status(403).json({ error: `Access denied. Missing required '${permission}' permission.` });
+    }
+    next();
+  };
+}
+
+function requireAnyPermission(permissions: string[]) {
+  return (req: any, res: any, next: any) => {
+    if (!hasAnyUserPermission(req.user, permissions)) {
+      return res.status(403).json({ error: 'Access denied. Insufficient administrative permissions for this module.' });
+    }
+    next();
+  };
 }
 
 // -------------------------------------------------------------
@@ -192,7 +225,7 @@ adminRouter.get('/overview', requireAdmin, (req, res) => {
 // -------------------------------------------------------------
 // 2. CUSTOMER MANAGEMENT
 // -------------------------------------------------------------
-adminRouter.get('/customers', requireAdmin, (req, res) => {
+adminRouter.get('/customers', requireAdmin, requirePermission('customers'), (req, res) => {
   const { search, status, tier, role } = req.query;
   let list = db.data.users.filter(u => u.role === 'customer');
 
@@ -221,7 +254,7 @@ adminRouter.get('/customers', requireAdmin, (req, res) => {
   });
 });
 
-adminRouter.get('/customers/:id', requireAdmin, (req, res) => {
+adminRouter.get('/customers/:id', requireAdmin, requirePermission('customers'), (req, res) => {
   const user = db.findUserById(req.params.id);
   if (!user) {
     return res.status(404).json({ error: 'Customer not found' });
@@ -243,7 +276,7 @@ adminRouter.get('/customers/:id', requireAdmin, (req, res) => {
 });
 
 // Update customer details
-adminRouter.put('/customers/:id', requireAdmin, (req: any, res) => {
+adminRouter.put('/customers/:id', requireAdmin, requirePermission('customers'), (req: any, res) => {
   const user = db.findUserById(req.params.id);
   if (!user) {
     return res.status(404).json({ error: 'Customer not found' });
@@ -271,7 +304,7 @@ adminRouter.put('/customers/:id', requireAdmin, (req: any, res) => {
 });
 
 // Suspend or activate customer
-adminRouter.post('/customers/:id/status', requireAdmin, (req: any, res) => {
+adminRouter.post('/customers/:id/status', requireAdmin, requirePermission('customers'), (req: any, res) => {
   const user = db.findUserById(req.params.id);
   if (!user) {
     return res.status(404).json({ error: 'Customer not found' });
@@ -307,12 +340,12 @@ adminRouter.post('/customers/:id/status', requireAdmin, (req: any, res) => {
   res.json({
     success: true,
     message: `Customer account is now ${status.toUpperCase()}`,
-    customer: updated,
+    customer: sanitizeUser(updated),
   });
 });
 
 // Manual Wallet Adjustment (Credit or Debit)
-adminRouter.post('/customers/:id/wallet-adjust', requireAdmin, (req: any, res) => {
+adminRouter.post('/customers/:id/wallet-adjust', requireAdmin, requirePermission('wallet'), (req: any, res) => {
   const user = db.findUserById(req.params.id);
   if (!user) {
     return res.status(404).json({ error: 'Customer not found' });
@@ -372,7 +405,7 @@ adminRouter.post('/customers/:id/wallet-adjust', requireAdmin, (req: any, res) =
 });
 
 // Review and Approve / Reject KYC
-adminRouter.post('/customers/:id/kyc', requireAdmin, (req: any, res) => {
+adminRouter.post('/customers/:id/kyc', requireAdmin, requirePermission('kyc'), (req: any, res) => {
   const user = db.findUserById(req.params.id);
   if (!user) {
     return res.status(404).json({ error: 'Customer not found' });
@@ -422,12 +455,12 @@ adminRouter.post('/customers/:id/kyc', requireAdmin, (req: any, res) => {
   res.json({
     success: true,
     message: `Customer KYC status updated to ${status.toUpperCase()}`,
-    customer: updated,
+    customer: sanitizeUser(updated),
   });
 });
 
 // Send custom customer notification
-adminRouter.post('/customers/:id/notify', requireAdmin, (req: any, res) => {
+adminRouter.post('/customers/:id/notify', requireAdmin, requirePermission('notifications'), (req: any, res) => {
   const user = db.findUserById(req.params.id);
   if (!user) {
     return res.status(404).json({ error: 'Customer not found' });
@@ -500,7 +533,7 @@ adminRouter.put('/dashboard-modules/:id', requireAdmin, (req: any, res) => {
 // -------------------------------------------------------------
 // 4. STAFF & PERMISSIONS RBAC (Phase 4 requirement 5)
 // -------------------------------------------------------------
-adminRouter.get('/staff', requireAdmin, (req, res) => {
+adminRouter.get('/staff', requireAdmin, requireAnyPermission(['staff', 'printing']), (req, res) => {
   const staff = db.data.users.filter(u => u.role === 'admin' || u.role === 'superadmin');
   res.json({
     success: true,
@@ -510,16 +543,26 @@ adminRouter.get('/staff', requireAdmin, (req, res) => {
 
 adminRouter.post('/staff', requireAdmin, requireSuperAdmin, async (req: any, res) => {
   try {
-    const { full_name, email, phone_number, password, role = 'admin', permissions = [] } = req.body;
+    const { full_name, email, phone_number, password, role = 'admin', permissions } = req.body;
 
     if (!full_name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
+    }
+
+    if (!['admin', 'superadmin', 'customer'].includes(role)) {
+      return res.status(400).json({ error: 'Role must be admin, superadmin, or customer' });
     }
 
     const existing = db.findUserByEmail(email);
     if (existing) {
       return res.status(409).json({ error: 'User with this email already exists' });
     }
+
+    const sanitizedPerms = role === 'superadmin'
+      ? ['*']
+      : Array.isArray(permissions)
+        ? permissions.filter((p: any) => ALLOWED_STAFF_PERMISSIONS.has(String(p)))
+        : ['customers', 'wallet', 'kyc', 'services', 'support'];
 
     const newStaff = db.createUser({
       email: email.trim().toLowerCase(),
@@ -532,23 +575,20 @@ adminRouter.post('/staff', requireAdmin, requireSuperAdmin, async (req: any, res
       tier: 3,
       referral_code: 'STAFF-' + Math.random().toString(36).substring(2, 6).toUpperCase(),
       status: 'active',
+      permissions: sanitizedPerms,
     });
-
-    // Attach permissions
-    newStaff.permissions = permissions.length > 0 ? permissions : ['customers', 'wallet', 'kyc', 'services', 'cms', 'audit'];
-    db.saveDatabase();
 
     db.logAudit('STAFF_CREATED', {
       staffId: newStaff.id,
       email: newStaff.email,
       role: newStaff.role,
-      permissions: newStaff.permissions,
+      permissions: sanitizedPerms,
     }, req.user.id, req.user.email);
 
     res.json({
       success: true,
       message: `Staff member ${newStaff.full_name} (${newStaff.role}) created successfully`,
-      staff: newStaff,
+      staff: sanitizeUser(newStaff),
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to create staff' });
@@ -568,7 +608,11 @@ adminRouter.put('/staff/:id', requireAdmin, requireSuperAdmin, (req: any, res) =
   if (status && ['active', 'suspended'].includes(status)) updates.status = status as any;
   if (full_name) updates.full_name = full_name;
   if (phone_number) updates.phone_number = phone_number;
-  if (permissions) updates.permissions = permissions;
+  if (Array.isArray(permissions)) {
+    updates.permissions = (updates.role || staffUser.role) === 'superadmin'
+      ? ['*']
+      : permissions.filter((p: any) => ALLOWED_STAFF_PERMISSIONS.has(String(p)));
+  }
 
   const updated = db.updateUser(staffUser.id, updates);
 
@@ -580,7 +624,7 @@ adminRouter.put('/staff/:id', requireAdmin, requireSuperAdmin, (req: any, res) =
   res.json({
     success: true,
     message: 'Staff account updated',
-    staff: updated,
+    staff: sanitizeUser(updated),
   });
 });
 
@@ -1097,7 +1141,7 @@ adminRouter.delete('/services/academy/:id', requireAdmin, (req: any, res) => {
 // -------------------------------------------------------------
 // 6. MANUAL FUNDING APPROVALS
 // -------------------------------------------------------------
-adminRouter.get('/funding/pending', requireAdmin, (req, res) => {
+adminRouter.get('/funding/pending', requireAdmin, requirePermission('wallet'), (req, res) => {
   const pending = db.data.transactions.filter(t => t.gateway === 'manual_transfer' && t.status === 'pending');
   res.json({
     success: true,
@@ -1105,7 +1149,7 @@ adminRouter.get('/funding/pending', requireAdmin, (req, res) => {
   });
 });
 
-adminRouter.post('/funding/:id/approve', requireAdmin, (req: any, res) => {
+adminRouter.post('/funding/:id/approve', requireAdmin, requirePermission('wallet'), (req: any, res) => {
   const txn = db.data.transactions.find(t => t.id === req.params.id);
   if (!txn) {
     return res.status(404).json({ error: 'Funding transaction not found' });
@@ -1154,7 +1198,7 @@ adminRouter.post('/funding/:id/approve', requireAdmin, (req: any, res) => {
   });
 });
 
-adminRouter.post('/funding/:id/reject', requireAdmin, (req: any, res) => {
+adminRouter.post('/funding/:id/reject', requireAdmin, requirePermission('wallet'), (req: any, res) => {
   const txn = db.data.transactions.find(t => t.id === req.params.id);
   if (!txn) {
     return res.status(404).json({ error: 'Transaction not found' });
@@ -1194,7 +1238,7 @@ adminRouter.post('/funding/:id/reject', requireAdmin, (req: any, res) => {
 // -------------------------------------------------------------
 // 7. AUDIT LOGS
 // -------------------------------------------------------------
-adminRouter.get('/audit-logs', requireAdmin, (req, res) => {
+adminRouter.get('/audit-logs', requireAdmin, requirePermission('audit'), (req, res) => {
   const { action, search } = req.query;
   let logs = db.data.audit_logs || [];
 
@@ -1649,7 +1693,7 @@ adminRouter.put('/reports/settings', requireAdmin, (req: any, res) => {
 // -------------------------------------------------------------
 
 // POST /api/admin/notifications/broadcast
-adminRouter.post('/notifications/broadcast', requireAdmin, (req: any, res) => {
+adminRouter.post('/notifications/broadcast', requireAdmin, requirePermission('notifications'), (req: any, res) => {
   const { title, message, type, target_role } = req.body;
   if (!title || !message) {
     return res.status(400).json({ error: 'Title and message are required' });
@@ -1690,7 +1734,7 @@ adminRouter.post('/notifications/broadcast', requireAdmin, (req: any, res) => {
 });
 
 // GET /api/admin/kyc/pending
-adminRouter.get('/kyc/pending', requireAdmin, (req, res) => {
+adminRouter.get('/kyc/pending', requireAdmin, requirePermission('kyc'), (req, res) => {
   const pendingUsers = db.data.users.filter(u => u.kyc_status === 'pending');
   const submissions = pendingUsers.map(u => ({
     id: `kyc_${u.id}`,
@@ -1711,7 +1755,7 @@ adminRouter.get('/kyc/pending', requireAdmin, (req, res) => {
 });
 
 // POST /api/admin/kyc/:id/action
-adminRouter.post('/kyc/:id/action', requireAdmin, (req: any, res) => {
+adminRouter.post('/kyc/:id/action', requireAdmin, requirePermission('kyc'), (req: any, res) => {
   const { id } = req.params;
   const { action, tier = 2, rejection_reason = '' } = req.body;
   const userId = id.startsWith('kyc_') ? id.replace('kyc_', '') : id;
@@ -1753,104 +1797,6 @@ adminRouter.get('/reports/analytics', requireAdmin, (req, res) => {
   });
 });
 
-function ensureGlobalSettings(): Record<string, Record<string, any>> {
-  const root = db.data as any;
-  if (!root.global_settings) {
-    root.global_settings = {
-      general: {
-        site_name: db.data.branding?.short_brand_name || 'HAMBAKTECH',
-        site_tagline: db.data.branding?.tagline || 'Where Technology Meets Services',
-        maintenance_mode: Boolean(db.data.settings?.maintenance_mode ?? false),
-        default_currency: 'NGN',
-        currency_symbol: '₦',
-        timezone: 'Africa/Lagos (GMT+1)',
-      },
-      company: {
-        company_name: db.data.branding?.company_name || 'HAMBAK TECH & SERVICES',
-        registration_number: (db.data.branding as any)?.business_reg_number || 'BN 9284726',
-        founded_year: (db.data.branding as any)?.founded_year || '2024',
-        official_email: (db.data.branding as any)?.info_email || 'info@hambaktech.com.ng',
-        support_email: db.data.branding?.support_email || 'support@hambaktech.com.ng',
-        whatsapp_phone: db.data.branding?.whatsapp_number || '09155104724',
-        business_phone: (db.data.branding as any)?.business_phone || '08147837664',
-        official_phone: db.data.branding?.support_phone || '09127469686',
-        headquarters_address: db.data.branding?.office_address || 'Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria',
-      },
-      branding: {
-        logo_url: db.data.branding?.logo_url || '/logo.png',
-        favicon_url: db.data.branding?.favicon_url || '/logo.png',
-        primary_color: db.data.branding?.primary_color || '#1d4ed8',
-        secondary_color: db.data.branding?.secondary_color || '#0f172a',
-        accent_color: '#d97706',
-        typography: db.data.branding?.font_family || 'Plus Jakarta Sans, sans-serif',
-      },
-      customer_dashboard: {
-        enable_nin_services: true,
-        enable_telecom_vtu: true,
-        enable_wallet_transfers: true,
-        enable_virtual_accounts: true,
-        enable_store_module: false,
-        enable_academy_module: false,
-      },
-      sms: {
-        sms_sender_id: (db.data as any).sms_config?.sender_id || 'HAMBAKTECH',
-        enable_transaction_sms: false,
-        enable_otp_sms: false,
-        sms_rate_per_unit: 3.5,
-      },
-      service_pricing: {
-        nin_standard_slip_price: db.data.settings?.nin_fee ?? 250,
-        bvn_verification_price: db.data.settings?.bvn_fee ?? 350,
-        mtn_sme_1gb_price: db.data.settings?.mtn_sme_1gb ?? 270,
-        airtel_1gb_price: db.data.settings?.airtel_1gb ?? 290,
-        glo_1gb_price: db.data.settings?.glo_1gb ?? 260,
-        nine_mobile_1gb_price: db.data.settings?.nine_mobile_1gb ?? 250,
-      },
-    };
-    db.saveDatabase();
-  }
-  return root.global_settings;
-}
-
-// GET /api/admin/settings/all
-adminRouter.get('/settings/all', requireAdmin, (req, res) => {
-  const gs = ensureGlobalSettings();
-  res.json({
-    success: true,
-    settings: gs,
-    categories: Object.keys(gs),
-  });
-});
-
-// POST /api/admin/settings/update
-adminRouter.post('/settings/update', requireAdmin, (req: any, res) => {
-  const category = String(req.body?.category || 'general').trim();
-  const values = req.body?.values || req.body?.data || req.body?.settings || {};
-  if (!values || typeof values !== 'object') {
-    return res.status(400).json({ error: 'Invalid settings payload' });
-  }
-  const gs = ensureGlobalSettings();
-  gs[category] = { ...(gs[category] || {}), ...values };
-
-  if (category === 'sms') {
-    if ((db.data as any).sms_config && values.sms_sender_id) {
-      (db.data as any).sms_config.sender_id = String(values.sms_sender_id);
-    }
-  }
-  if (category === 'general' && values.maintenance_mode !== undefined) {
-    db.data.settings.maintenance_mode = Boolean(values.maintenance_mode);
-  }
-  db.logAudit('SETTINGS_UPDATED', { category }, req.user?.id, req.user?.email);
-  db.saveDatabase();
-
-  res.json({
-    success: true,
-    category,
-    updated: Object.keys(values).length,
-    message: `Settings for ${category} updated successfully.`,
-  });
-});
-
 // GET /api/admin/settings
 adminRouter.get('/settings', requireAdmin, (req, res) => {
   const categories = [
@@ -1871,16 +1817,8 @@ adminRouter.get('/settings', requireAdmin, (req, res) => {
   });
 });
 
-// POST /api/admin/settings & PUT /api/admin/settings
-const handleSaveFlatSettings = (req: any, res: any) => {
-  const updates = req.body?.settings || req.body || {};
-  if (updates && typeof updates === 'object') {
-    Object.assign(db.data.settings, updates);
-    db.saveDatabase();
-  }
-  res.json({ success: true, message: 'Settings saved successfully', settings: db.data.settings });
-};
-
-adminRouter.post('/settings', requireAdmin, handleSaveFlatSettings);
-adminRouter.put('/settings', requireAdmin, handleSaveFlatSettings);
+// POST /api/admin/settings
+adminRouter.post('/settings', requireAdmin, (req, res) => {
+  res.json({ success: true, message: 'Settings saved successfully' });
+});
 

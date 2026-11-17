@@ -3,55 +3,12 @@
  * HambakTech Enterprise TypeScript interfaces.
  */
 
-export type UserRole =
-  | 'customer'
-  | 'student'
-  | 'agent'
-  | 'support'
-  | 'staff'
-  | 'manager'
-  | 'admin'
-  | 'superadmin';
-
-export const ALL_USER_ROLES: UserRole[] = [
-  'customer',
-  'student',
-  'agent',
-  'support',
-  'staff',
-  'manager',
-  'admin',
-  'superadmin',
-];
-
-export const CONSOLE_ROLES: UserRole[] = ['support', 'staff', 'manager', 'admin', 'superadmin'];
-
-export function isConsoleRole(role?: string | null): boolean {
-  if (!role) return false;
-  return CONSOLE_ROLES.includes(role.toLowerCase() as UserRole);
-}
-
-export interface AdminRoleDefinition {
-  slug: UserRole;
-  name: string;
-  description: string;
-  default_dashboard: string;
-  default_permissions: string[];
-  category: 'portal' | 'console';
-}
-
-export interface AdminDashboardDefinition {
-  id: string;
-  label: string;
-}
-
 export interface User {
   id: string;
   email: string;
   full_name: string;
   phone_number: string;
-  role: UserRole;
-  assigned_dashboard?: string;
+  role: 'customer' | 'admin' | 'superadmin';
   wallet_balance: number;
   kyc_status: 'unverified' | 'pending' | 'verified' | 'rejected';
   bvn?: string;
@@ -199,7 +156,7 @@ export interface Transaction {
   amount: number;
   balance_before: number;
   balance_after: number;
-  category: 'funding' | 'nin_verification' | 'bvn_verification' | 'data_purchase' | 'airtime' | 'cable_tv' | 'store_purchase' | 'manual_adjustment';
+  category: 'funding' | 'nin_verification' | 'bvn_verification' | 'data_purchase' | 'airtime' | 'cable_tv' | 'store_purchase' | 'manual_adjustment' | 'printing' | 'printing_refund';
   reference: string;
   gateway: 'flutterwave' | 'paystack' | 'manual_transfer' | 'internal';
   status: 'successful' | 'pending' | 'failed';
@@ -326,10 +283,6 @@ export interface TelecomOrder {
   provider_ref: string;
   status: 'successful' | 'pending' | 'failed';
   metadata?: any;
-  token?: string;
-  units?: string;
-  face_value?: number;
-  discount_saved?: number;
   voucher_count?: number;
   vouchers?: TelecomVoucherItem[];
   customer_name?: string;
@@ -837,7 +790,6 @@ export interface AdminOverviewData {
     totalStaff: number;
     totalWalletBalances: number;
     totalWalletFunding: number;
-    totalRefunds?: number;
     totalServiceSales: number;
     providerExpenditure: number;
     grossProfit: number;
@@ -1135,9 +1087,7 @@ export interface AdminCreateCustomerPayload {
   full_name: string;
   email: string;
   phone_number: string;
-  role: UserRole;
-  assigned_dashboard?: string;
-  permissions?: string[];
+  role: 'customer' | 'agent' | 'staff' | 'admin';
   status: 'active' | 'pending' | 'suspended';
   tier: number;
   password?: string;
@@ -2111,6 +2061,302 @@ export interface AccountingReportLog {
   triggered_by: string;
   sent_at: string;
 }
+
+// ============================================================================
+// PRINTING & DOCUMENT SERVICES MODULE TYPES
+// ============================================================================
+
+export type PrintingOrderStatus =
+  | 'Pending Review'
+  | 'Under Review'
+  | 'Awaiting Quotation'
+  | 'Quotation Sent'
+  | 'Awaiting Payment'
+  | 'Payment Confirmed'
+  | 'Processing'
+  | 'On Hold'
+  | 'Ready for Collection'
+  | 'Ready for Dispatch'
+  | 'Out for Delivery'
+  | 'Completed'
+  | 'Rejected'
+  | 'Cancelled'
+  | 'Refunded';
+
+export interface PrintingFinishingOption {
+  code: string;
+  label: string;
+  fee: number;
+}
+
+export interface PrintingBulkDiscount {
+  min_qty: number;
+  discount_percent: number;
+  label?: string;
+}
+
+export interface PrintingFieldSchema {
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'select';
+  required?: boolean;
+  default?: string | number;
+  options?: string[];
+}
+
+export interface PrintingCategory {
+  id: string;
+  category_key: string;
+  name: string;
+  description: string;
+  icon: string;
+  pricing_mode: string;
+  measurement_method: 'per_page' | 'per_copy' | 'per_sq_ft' | 'per_linear_ft' | 'per_card' | 'per_photo' | 'manual' | string;
+  unit_label: string;
+  base_rate: number;
+  bw_rate: number;
+  color_rate: number;
+  min_quantity: number;
+  urgent_fee_type: 'flat' | 'percent';
+  urgent_fee_value: number;
+  paper_sizes: string[];
+  size_rates: Record<string, number>;
+  finishing_options: PrintingFinishingOption[];
+  bulk_discounts: PrintingBulkDiscount[];
+  field_schema: PrintingFieldSchema[];
+  requires_manual_quote: boolean;
+  internal_cost_estimate?: number;
+  is_active: boolean;
+  display_order: number;
+  updated_at?: string;
+}
+
+export interface PrintingDeliveryZone {
+  id: string;
+  zone_key: string;
+  destination_group: string;
+  lga_lcda: string;
+  towns_covered: string;
+  pricing_mode: 'fixed' | 'manual_quote' | 'free';
+  fixed_fee: number;
+  free_delivery_enabled: boolean;
+  free_delivery_min_order: number;
+  estimated_eta: string;
+  is_active: boolean;
+  display_order: number;
+  updated_at?: string;
+}
+
+export interface PrintingSettings {
+  office_collection_title: string;
+  office_collection_address: string;
+  office_collection_hours: string;
+  printing_support_phone: string;
+  printing_support_whatsapp: string;
+  printing_support_email: string;
+  allow_deposit_default: boolean;
+  default_deposit_percent: number;
+  max_upload_mb: number;
+  allowed_file_types: string[];
+  collection_notice: string;
+  delivery_notice: string;
+}
+
+export interface PrintingEstimate {
+  category_key: string;
+  category_name: string;
+  measurement_method: string;
+  unit_label: string;
+  quantity: number;
+  page_count: number;
+  width_ft: number;
+  height_ft: number;
+  sq_ft: number;
+  linear_ft: number;
+  effective_units: number;
+  unit_rate: number;
+  size_multiplier: number;
+  gross_printing_charge: number;
+  discount_percent: number;
+  discount_label: string | null;
+  discount_amount: number;
+  printing_charge: number;
+  finishing_items: Array<{ code: string; label: string; fee: number }>;
+  finishing_charge: number;
+  is_urgent: boolean;
+  urgent_charge: number;
+  printing_subtotal: number;
+  collection_method: 'office_collection' | 'paid_delivery';
+  delivery_charge: number;
+  delivery_manual_quote: boolean;
+  free_delivery_qualified: boolean;
+  total_estimate: number;
+  manual_quote_required: boolean;
+}
+
+export interface PrintingUploadedFile {
+  id: string;
+  file_name: string;
+  file_url: string;
+  mime_type: string;
+  file_size: number;
+}
+
+export interface PrintingOrder {
+  id: string;
+  order_reference: string;
+  user_id: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  category_key: string;
+  category_name: string;
+  service_title: string;
+  status: PrintingOrderStatus;
+  specs: Record<string, any>;
+  uploaded_files: PrintingUploadedFile[];
+  quantity: number;
+  color_mode: 'bw' | 'color' | 'mixed' | 'full_color';
+  paper_size: string | null;
+  width_ft: number | null;
+  height_ft: number | null;
+  sq_ft: number | null;
+  finishing_requirements: string[];
+  is_urgent: boolean;
+  special_instructions: string | null;
+  estimated_printing_charge: number;
+  printing_charge: number;
+  finishing_charge: number;
+  urgent_charge: number;
+  discount_amount: number;
+  delivery_charge: number;
+  total_amount: number;
+  deposit_enabled: boolean;
+  deposit_percent: number;
+  deposit_amount: number;
+  required_initial_payment: number;
+  amount_paid: number;
+  balance_due: number;
+  payment_status: 'unpaid' | 'deposit_paid' | 'partially_paid' | 'paid' | 'refunded';
+  delivery_payment_status: 'not_applicable' | 'pending' | 'paid' | 'free_authorized';
+  collection_method: 'office_collection' | 'paid_delivery';
+  delivery_zone_id: string | null;
+  delivery_recipient_name: string | null;
+  delivery_recipient_phone: string | null;
+  delivery_destination: string | null;
+  delivery_lga_lcda: string | null;
+  delivery_town: string | null;
+  delivery_address: string | null;
+  delivery_landmark: string | null;
+  free_delivery_authorized: boolean;
+  dispatch_confirmed: boolean;
+  dispatch_confirmed_by?: string | null;
+  dispatch_confirmed_by_name?: string | null;
+  dispatch_confirmed_at?: string | null;
+  quote_notes: string | null;
+  quote_decision: 'pending' | 'approved' | 'declined' | null;
+  quote_sent_at?: string | null;
+  quote_responded_at?: string | null;
+  quote_decline_reason?: string | null;
+  assigned_staff_id: string | null;
+  assigned_staff_name: string | null;
+  tracking_note: string | null;
+  due_date?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  // Admin-only fields (stripped from customer endpoints)
+  internal_production_cost?: number;
+  internal_notes?: string;
+  estimated_margin?: number;
+}
+
+export interface PrintingOrderHistoryItem {
+  id: string;
+  order_id: string;
+  from_status: string | null;
+  to_status: string;
+  actor_id: string | null;
+  actor_name: string;
+  actor_role: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface PrintingOrderMessage {
+  id: string;
+  order_id: string;
+  sender_id: string;
+  sender_name: string;
+  sender_role: string;
+  message: string;
+  attachment_url?: string | null;
+  is_internal: boolean;
+  created_at: string;
+}
+
+export interface PrintingPaymentRecord {
+  id: string;
+  order_id: string;
+  user_id: string;
+  reference: string;
+  payment_scope: 'full' | 'deposit' | 'balance' | 'delivery';
+  gateway: 'wallet' | 'paystack' | 'flutterwave' | 'manual_transfer' | 'cash' | 'pos';
+  amount: number;
+  status: 'pending' | 'confirmed' | 'rejected' | 'refunded';
+  proof_url?: string | null;
+  payer_name: string;
+  bank_reference?: string | null;
+  remarks?: string | null;
+  confirmed_by?: string | null;
+  confirmed_by_name?: string | null;
+  confirmed_at?: string | null;
+  created_at: string;
+  order_reference?: string;
+  customer_name?: string;
+  customer_email?: string;
+  service_title?: string;
+}
+
+export interface PrintingAdminMetrics {
+  success: boolean;
+  total_orders: number;
+  pending_requests: number;
+  quotations_pending_customer: number;
+  awaiting_payment: number;
+  active_production: number;
+  ready_for_collection: number;
+  ready_for_dispatch: number;
+  completed_orders: number;
+  pending_payment_verifications: number;
+  pending_payment_volume: number;
+  total_quoted_revenue: number;
+  total_collected: number;
+  total_delivery_revenue: number;
+  total_internal_cost: number;
+  estimated_gross_profit: number;
+  status_counts: Record<string, number>;
+}
+
+export interface PrintingReportsData {
+  success: boolean;
+  by_category: Array<{
+    category_key: string;
+    category_name: string;
+    order_count: number;
+    quoted_total: number;
+    collected_total: number;
+    delivery_total: number;
+    internal_cost_total: number;
+    margin: number;
+  }>;
+  by_staff: Array<{
+    staff_name: string;
+    total_jobs: number;
+    completed_jobs: number;
+  }>;
+}
+
 
 
 

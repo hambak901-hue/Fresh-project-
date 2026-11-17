@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="100%" height="100%">
+  <defs>
+    <linearGradient id="valGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f0fdf4"/>
+      <stop offset="50%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#ecfdf5"/>
+    </linearGradient>
+    <pattern id="valGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#dcfce7" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+
+  <!-- Background Card -->
+  <rect x="10" y="10" width="780" height="480" rx="16" fill="url(#valGrad)" stroke="#15803d" stroke-width="3" filter="drop-shadow(0 10px 15px rgba(0,0,0,0.1))"/>
+  <rect x="15" y="15" width="770" height="470" rx="12" fill="url(#valGrid)" opacity="0.6"/>
+
+  <!-- Guilloche / Border Frame -->
+  <rect x="25" y="25" width="750" height="450" rx="8" fill="none" stroke="#86efac" stroke-width="1.5" stroke-dasharray="8 4"/>
+
+  <!-- Watermark Seal -->
+  <g transform="translate(400, 260)" opacity="0.08">
+    <circle r="120" fill="#15803d"/>
+    <circle r="90" fill="none" stroke="#15803d" stroke-width="6"/>
+  </g>
+
+  <!-- Header Banner -->
+  <rect x="25" y="25" width="750" height="85" rx="8" fill="#166534"/>
+  <rect x="25" y="100" width="750" height="10" fill="#22c55e"/>
+
+  <!-- Flag Accent -->
+  <g transform="translate(45, 42)">
+    <rect width="12" height="28" fill="#15803d"/>
+    <rect x="12" width="12" height="28" fill="#ffffff"/>
+    <rect x="24" width="12" height="28" fill="#15803d"/>
+  </g>
+
+  <!-- Header Text -->
+  <text x="95" y="52" font-family="Arial, sans-serif" font-weight="900" font-size="16" fill="#ffffff" letter-spacing="1.5">FEDERAL REPUBLIC OF NIGERIA</text>
+  <text x="95" y="72" font-family="Arial, sans-serif" font-weight="700" font-size="13" fill="#bbf7d0" letter-spacing="1">NATIONAL IDENTITY MANAGEMENT COMMISSION</text>
+  <text x="95" y="92" font-family="Arial, sans-serif" font-weight="800" font-size="12" fill="#ffffff" letter-spacing="2">NATIONAL IDENTIFICATION NUMBER (NIN) VERIFICATION SLIP</text>
+
+  <!-- Status Badge -->
+  <rect x="620" y="42" width="135" height="34" rx="17" fill="#22c55e" stroke="#ffffff" stroke-width="2"/>
+  <text x="687" y="64" font-family="Arial, sans-serif" font-weight="900" font-size="12" fill="#ffffff" text-anchor="middle" letter-spacing="1">✓ VERIFIED</text>
+
+  <!-- Photo Box -->
+  <rect x="50" y="130" width="130" height="160" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+  <!-- Photo Silhouette -->
+  <circle cx="115" cy="180" r="32" fill="#cbd5e1"/>
+  <path d="M 75 260 C 75 220, 155 220, 155 260 Z" fill="#cbd5e1"/>
+  <rect x="50" y="295" width="130" height="24" rx="4" fill="#0f172a"/>
+  <text x="115" y="311" font-family="Arial, sans-serif" font-weight="700" font-size="10" fill="#ffffff" text-anchor="middle">VALIDATED RECORD</text>
+
+  <!-- Verified Stamp Seal -->
+  <g transform="translate(115, 395)">
+    <circle r="46" fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5" stroke-dasharray="4 2"/>
+    <circle r="40" fill="none" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="0" y="-12" font-family="Arial, sans-serif" font-weight="800" font-size="9" fill="#15803d" text-anchor="middle" letter-spacing="1">NIMC DATABASE</text>
+    <text x="0" y="4" font-family="Arial, sans-serif" font-weight="900" font-size="13" fill="#15803d" text-anchor="middle">OFFICIAL</text>
+    <text x="0" y="18" font-family="Arial, sans-serif" font-weight="700" font-size="8" fill="#15803d" text-anchor="middle">VALIDATION PASS</text>
+  </g>
+
+  <!-- Demographics Grid -->
+  <g transform="translate(205, 130)">
+    <!-- Tracking ID -->
+    <text x="0" y="15" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#64748b">TRACKING ID / TRANSACTION REF:</text>
+    <text x="0" y="33" font-family="monospace" font-size="13" font-weight="800" fill="#0f172a">TRK-2026-NIMC-884920194</text>
+
+    <!-- NIN Field Big Callout -->
+    <rect x="0" y="45" width="370" height="42" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="12" y="62" font-family="Arial, sans-serif" font-size="9" font-weight="800" fill="#166534" letter-spacing="1">NATIONAL IDENTIFICATION NUMBER (NIN):</text>
+    <text x="12" y="81" font-family="monospace" font-size="18" font-weight="900" fill="#0f172a" letter-spacing="4">2 2 3 4 5 6 7 8 9 0 1</text>
+
+    <!-- Name Fields -->
+    <text x="0" y="112" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#64748b">SURNAME:</text>
+    <text x="0" y="128" font-family="Arial, sans-serif" font-size="14" font-weight="800" fill="#0f172a">SULAIMAN</text>
+
+    <text x="185" y="112" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#64748b">FIRST NAME &amp; MIDDLE NAME:</text>
+    <text x="185" y="128" font-family="Arial, sans-serif" font-size="14" font-weight="800" fill="#0f172a">ADAMU GARBA</text>
+
+    <!-- Line 2 -->
+    <text x="0" y="156" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#64748b">DATE OF BIRTH:</text>
+    <text x="0" y="172" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#0f172a">12-APR-1988</text>
+
+    <text x="120" y="156" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#64748b">GENDER:</text>
+    <text x="120" y="172" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#0f172a">MALE (M)</text>
+
+    <text x="220" y="156" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#64748b">TELEPHONE NO:</text>
+    <text x="220" y="172" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#0f172a">0803••••567</text>
+
+    <!-- Line 3 -->
+    <text x="0" y="200" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#64748b">STATE OF ORIGIN / LGA:</text>
+    <text x="0" y="216" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#0f172a">KANO STATE / FAGGE LGA</text>
+
+    <text x="220" y="200" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#64748b">VALIDATION TIMESTAMP:</text>
+    <text x="220" y="216" font-family="Arial, sans-serif" font-size="12" font-weight="700" fill="#15803d">2026-10-16 12:45:00 UTC</text>
+  </g>
+
+  <!-- QR Code & Digital Signature Box -->
+  <g transform="translate(600, 130)">
+    <rect width="155" height="190" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="77" y="20" font-family="Arial, sans-serif" font-size="9" font-weight="800" fill="#166534" text-anchor="middle" letter-spacing="0.5">2D VERIFICATION QR</text>
+
+    <!-- Simulated QR Matrix -->
+    <g transform="translate(20, 30)">
+      <rect width="115" height="115" fill="#f8fafc" stroke="#e2e8f0"/>
+      <!-- QR corner locators -->
+      <rect x="5" y="5" width="30" height="30" fill="#0f172a"/>
+      <rect x="10" y="10" width="20" height="20" fill="#ffffff"/>
+      <rect x="14" y="14" width="12" height="12" fill="#0f172a"/>
+
+      <rect x="80" y="5" width="30" height="30" fill="#0f172a"/>
+      <rect x="85" y="10" width="20" height="20" fill="#ffffff"/>
+      <rect x="89" y="14" width="12" height="12" fill="#0f172a"/>
+
+      <rect x="5" y="80" width="30" height="30" fill="#0f172a"/>
+      <rect x="10" y="85" width="20" height="20" fill="#ffffff"/>
+      <rect x="14" y="89" width="12" height="12" fill="#0f172a"/>
+
+      <!-- QR center dots -->
+      <rect x="42" y="12" width="6" height="6" fill="#0f172a"/>
+      <rect x="55" y="18" width="8" height="6" fill="#0f172a"/>
+      <rect x="44" y="44" width="28" height="28" fill="#166534" rx="2"/>
+      <rect x="50" y="50" width="16" height="16" fill="#ffffff" rx="1"/>
+      <rect x="54" y="54" width="8" height="8" fill="#166534"/>
+      <rect x="80" y="44" width="10" height="10" fill="#0f172a"/>
+      <rect x="25" y="44" width="10" height="10" fill="#0f172a"/>
+      <rect x="82" y="65" width="20" height="6" fill="#0f172a"/>
+      <rect x="44" y="85" width="14" height="10" fill="#0f172a"/>
+      <rect x="65" y="85" width="20" height="14" fill="#0f172a"/>
+    </g>
+
+    <text x="77" y="165" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="#64748b" text-anchor="middle">SCAN TO VERIFY WITH NIMC</text>
+    <text x="77" y="178" font-family="monospace" font-size="8" font-weight="700" fill="#0f172a" text-anchor="middle">HASH: 9a8f-2234-5678</text>
+  </g>
+
+  <!-- Footer Disclaimer Bar -->
+  <rect x="25" y="440" width="750" height="35" rx="6" fill="#f1f5f9" stroke="#e2e8f0"/>
+  <text x="400" y="456" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#475569" text-anchor="middle">
+    CONFIDENTIAL CITIZEN VERIFICATION SLIP — ISSUED PURSUANT TO THE NIMC ACT NO. 23 OF 2007
+  </text>
+  <text x="400" y="468" font-family="Arial, sans-serif" font-size="8" font-weight="500" fill="#64748b" text-anchor="middle">
+    Facilitated securely by HambakTech &amp; Services • Verified directly against the central National Identity Database
+  </text>
+</svg>

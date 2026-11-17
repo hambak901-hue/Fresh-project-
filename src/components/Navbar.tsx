@@ -88,15 +88,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenWalletModal, serverOnline 
               >
                 <div
                   className={`w-2 h-2 rounded-full ${
-                    user?.role === 'superadmin'
-                      ? 'bg-purple-400'
-                      : user?.role === 'admin' || user?.role === 'manager'
-                      ? 'bg-amber-400'
-                      : user?.role === 'support' || user?.role === 'staff'
-                      ? 'bg-cyan-400'
-                      : user?.role === 'agent'
-                      ? 'bg-emerald-400'
-                      : 'bg-blue-400'
+                    user?.role === 'superadmin' ? 'bg-purple-400' : user?.role === 'admin' ? 'bg-amber-400' : 'bg-blue-400'
                   }`}
                 />
                 <span className="capitalize font-semibold">{user?.role || 'Guest'}</span>

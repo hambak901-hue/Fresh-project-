@@ -169,13 +169,52 @@ export function parseToken(tokenHeader?: string): { userId: string; role: string
   }
 }
 
+export const LEGACY_ADMIN_DEFAULT_PERMISSIONS = [
+  'customers',
+  'wallet',
+  'kyc',
+  'services',
+  'support',
+  'reports',
+  'referrals',
+  'withdrawals',
+];
+
+export function resolveUserPermissions(user: any): string[] {
+  if (!user) return [];
+  if (user.role === 'superadmin') return ['*'];
+  if (user.role !== 'admin') return [];
+  if (Array.isArray(user.permissions)) {
+    return user.permissions;
+  }
+  return LEGACY_ADMIN_DEFAULT_PERMISSIONS;
+}
+
+export function hasUserPermission(user: any, permission: string): boolean {
+  if (!user || user.status === 'suspended') return false;
+  if (user.role === 'superadmin') return true;
+  if (user.role !== 'admin') return false;
+  const perms = resolveUserPermissions(user);
+  return perms.includes('*') || perms.includes(permission);
+}
+
+export function hasAnyUserPermission(user: any, permissions: string[]): boolean {
+  if (!user || user.status === 'suspended') return false;
+  if (user.role === 'superadmin') return true;
+  return permissions.some((p) => hasUserPermission(user, p));
+}
+
 export function sanitizeUser(user: any): Partial<User> {
   if (!user) return user;
   const safe = { ...user };
+  const hasPin = Boolean(safe.transaction_pin_hash);
   delete safe.password_hash;
   delete safe.transaction_pin_hash;
   delete safe.reset_password_token;
   delete safe.reset_password_expires;
+  safe.has_transaction_pin = hasPin;
+  (safe as any).has_pin_set = hasPin;
+  safe.permissions = resolveUserPermissions(user);
   return safe;
 }
 

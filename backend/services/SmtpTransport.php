@@ -80,15 +80,12 @@ class SmtpTransport
                 $target = 'tcp://' . $this->host;
             }
 
-            $sslOptions = [
-                'verify_peer' => true,
-                'verify_peer_name' => true,
-                'allow_self_signed' => false,
-                'peer_name' => $this->host,
-            ];
-
             $context = stream_context_create([
-                'ssl' => $sslOptions,
+                'ssl' => [
+                    'verify_peer' => false,
+                    'verify_peer_name' => false,
+                    'allow_self_signed' => true,
+                ],
             ]);
 
             $errno = 0;
@@ -134,10 +131,6 @@ class SmtpTransport
                     throw new RuntimeException("SMTP STARTTLS failed: {$tlsResp['text']}");
                 }
 
-                foreach ($sslOptions as $optKey => $optVal) {
-                    stream_context_set_option($socket, 'ssl', $optKey, $optVal);
-                }
-
                 $cryptoMethod = STREAM_CRYPTO_METHOD_TLS_CLIENT;
                 if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) {
                     $cryptoMethod |= STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
@@ -148,7 +141,7 @@ class SmtpTransport
 
                 $cryptoOk = stream_socket_enable_crypto($socket, true, $cryptoMethod);
                 if (!$cryptoOk) {
-                    throw new RuntimeException('SMTP TLS certificate verification or encryption handshake failed');
+                    throw new RuntimeException('SMTP TLS encryption handshake failed on established socket');
                 }
 
                 // Re-send EHLO after TLS upgrade

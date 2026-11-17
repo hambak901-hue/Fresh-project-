@@ -508,20 +508,9 @@ export const api = {
   async initializeFlutterwave(amount: number, callbackUrl?: string): Promise<{
     success: boolean;
     message: string;
-    authorization_url?: string;
-    link?: string;
-    flw_charge_id?: string;
+    authorization_url: string;
     reference: string;
     amount: number;
-    transfer_details?: {
-      account_number: string;
-      bank_name: string;
-      account_name?: string;
-      amount: number;
-      reference?: string;
-      expires_at?: string;
-      note?: string;
-    };
   }> {
     return request('/api/wallet/flutterwave/initialize', {
       method: 'POST',
@@ -545,21 +534,10 @@ export const api = {
   async initializePayment(gateway: string, amount: number, callbackUrl?: string): Promise<{
     success: boolean;
     message: string;
-    authorization_url?: string;
-    link?: string;
-    flw_charge_id?: string;
+    authorization_url: string;
     reference: string;
     amount: number;
     gateway: string;
-    transfer_details?: {
-      account_number: string;
-      bank_name: string;
-      account_name?: string;
-      amount: number;
-      reference?: string;
-      expires_at?: string;
-      note?: string;
-    };
   }> {
     return request('/api/wallet/fund/initiate', {
       method: 'POST',
@@ -817,19 +795,15 @@ export const api = {
     plans: import('../types').TelecomPlanItem[];
     categories_by_network?: Record<string, string[]>;
     airtime_discount_percent?: number;
-    bulksms_unit_price?: number;
-    bulksms_sender_id?: string;
   }> {
     const qs = network ? `?network=${encodeURIComponent(network)}` : '';
     return request(`/api/telecom/plans${qs}`);
   },
 
-  async validateTelecomPhone(network: string, phone: string, ported: boolean = false): Promise<{
+  async validateTelecomPhone(network: string, phone: string): Promise<{
     success: boolean;
     valid: boolean;
     matches_network: boolean;
-    ported?: boolean;
-    ported_allowed?: boolean;
     formatted_phone: string;
     detected_network: string | null;
     selected_network: string;
@@ -837,7 +811,7 @@ export const api = {
   }> {
     return request('/api/telecom/validate-phone', {
       method: 'POST',
-      body: JSON.stringify({ network, phone, ported }),
+      body: JSON.stringify({ network, phone }),
     });
   },
 
@@ -846,8 +820,7 @@ export const api = {
     phone: string,
     network?: string,
     idempotencyKey?: string,
-    transactionPin?: string,
-    ported: boolean = false
+    transactionPin?: string
   ): Promise<{
     success: boolean;
     message: string;
@@ -870,7 +843,6 @@ export const api = {
         planId,
         phone,
         network,
-        ported,
         transaction_pin: transactionPin,
         idempotency_key: idempotencyKey,
       }),
@@ -982,38 +954,11 @@ export const api = {
     network: string,
     phone: string,
     amount: number,
-    transactionPin?: string,
-    idempotencyKey?: string,
-    ported: boolean = false
-  ): Promise<{
-    success: boolean;
-    message: string;
-    order: TelecomOrder;
-    status?: string;
-    reference?: string;
-    face_value?: number;
-    amount_charged?: number;
-    discountSaved: number;
-    newBalance: number;
-    balance_after?: number;
-    deduplicated?: boolean;
-  }> {
-    const headers: Record<string, string> = {};
-    if (idempotencyKey) {
-      headers['X-Idempotency-Key'] = idempotencyKey;
-    }
+    transactionPin?: string
+  ): Promise<{ success: boolean; message: string; order: TelecomOrder; discountSaved: number; newBalance: number }> {
     return request('/api/telecom/purchase-airtime', {
       method: 'POST',
-      headers,
-      timeoutMs: 45000,
-      body: JSON.stringify({
-        network,
-        phone,
-        amount,
-        ported,
-        transaction_pin: transactionPin,
-        idempotency_key: idempotencyKey,
-      }),
+      body: JSON.stringify({ network, phone, amount, transaction_pin: transactionPin }),
     });
   },
 
@@ -1483,9 +1428,6 @@ export const api = {
       failed_transactions: number;
       total_funded: number;
       total_spent: number;
-      total_refunded?: number;
-      points_balance?: number;
-      referral_available_balance?: number;
       total_orders: number;
       total_verifications: number;
       unread_notifications_count: number;
@@ -1503,15 +1445,6 @@ export const api = {
     recent_verifications: VerificationRecord[];
     notifications: import('../types').NotificationItem[];
     announcements: import('../types').AnnouncementItem[];
-    dashboard_modules?: Array<{
-      id: string;
-      module_key?: string;
-      name: string;
-      description?: string;
-      status: string;
-      visible: boolean;
-      coming_soon_message?: string;
-    }>;
     bank_details: { accountName: string; bank: string; accountNumber: string };
   }> {
     return request('/api/customer/summary');
@@ -1737,46 +1670,11 @@ export const api = {
     });
   },
 
-  async getAdminRolesCatalog(): Promise<{
-    success: boolean;
-    roles: import('../types').AdminRoleDefinition[];
-    dashboards: import('../types').AdminDashboardDefinition[];
-    permission_modules: string[];
-  }> {
-    return request('/api/admin/roles');
-  },
-
-  async assignCustomerRole(
-    id: string,
-    payload: {
-      role: import('../types').UserRole;
-      assigned_dashboard?: string;
-      permissions?: string[];
-    }
-  ): Promise<{
-    success: boolean;
-    message: string;
-    user: User;
-  }> {
-    return request(`/api/admin/customers/${id}/role`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  },
-
   async getAdminStaff(): Promise<{ success: boolean; staff: User[] }> {
     return request('/api/admin/staff');
   },
 
-  async createStaffAccount(data: {
-    full_name: string;
-    email: string;
-    phone_number?: string;
-    password: string;
-    role?: string;
-    assigned_dashboard?: string;
-    permissions?: string[];
-  }): Promise<{
+  async createStaffAccount(data: { full_name: string; email: string; phone_number?: string; password: string; role?: string; permissions?: string[] }): Promise<{
     success: boolean;
     message: string;
     staff: User;
@@ -1787,10 +1685,7 @@ export const api = {
     });
   },
 
-  async updateStaffAccount(
-    id: string,
-    updates: Partial<User> & { assigned_dashboard?: string }
-  ): Promise<{ success: boolean; message: string; staff: User }> {
+  async updateStaffAccount(id: string, updates: Partial<User>): Promise<{ success: boolean; message: string; staff: User }> {
     return request(`/api/admin/staff/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
@@ -2505,49 +2400,17 @@ export const api = {
     return request(`/api/support/tickets${queryString}`);
   },
 
-  async uploadSupportAttachment(file: File): Promise<{
-    success: boolean;
-    id: string;
-    file_url: string;
-    file_name: string;
-    mime_type: string;
-    message: string;
-  }> {
-    const formData = new FormData();
-    formData.append('file', file);
-    return request('/api/support/upload', {
-      method: 'POST',
-      body: formData,
-    });
-  },
-
-  async fetchAuthenticatedBlob(fileUrl: string): Promise<{ blob: Blob; contentType: string }> {
-    const token = getStoredToken();
-    const res = await fetch(fileUrl, {
-      headers: {
-        ...(token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {}),
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-    });
-    if (!res.ok) {
-      throw new ApiError(`Unable to load attachment (HTTP ${res.status})`, { statusCode: res.status });
-    }
-    const blob = await res.blob();
-    return { blob, contentType: res.headers.get('content-type') || blob.type || 'application/octet-stream' };
-  },
-
   async createSupportTicket(data: {
     subject: string;
     category: string;
     priority?: string;
     message: string;
-    attachment_url?: string;
     attachments?: any[];
   }): Promise<{
     success: boolean;
     message: string;
     ticket?: any;
-    ticket_id?: number | string;
+    ticket_id?: number;
     ticket_reference?: string;
   }> {
     return request('/api/support/tickets', {
@@ -2564,23 +2427,14 @@ export const api = {
     return request(`/api/support/tickets/${id}`);
   },
 
-  async replySupportTicket(
-    id: string | number,
-    message: string,
-    isInternalNote?: boolean,
-    attachmentUrl?: string
-  ): Promise<{
+  async replySupportTicket(id: string | number, message: string, isInternalNote?: boolean): Promise<{
     success: boolean;
     message: string;
     reply: any;
   }> {
     return request(`/api/support/tickets/${id}/reply`, {
       method: 'POST',
-      body: JSON.stringify({
-        message,
-        is_internal_note: !!isInternalNote,
-        ...(attachmentUrl ? { attachment_url: attachmentUrl, attachments: [{ file_url: attachmentUrl }] } : {}),
-      }),
+      body: JSON.stringify({ message, is_internal_note: !!isInternalNote }),
     });
   },
 
@@ -2758,8 +2612,8 @@ export const api = {
     });
   },
 
-  // ─── Stage 8 Detailed 12 Reports ──────────────────────────────────────────
-  async getDetailedReportsAdmin(params?: { start_date?: string; end_date?: string }): Promise<{
+  // ─── Stage 8 Detailed 11 Reports ──────────────────────────────────────────
+  async getDetailedReportsAdmin(): Promise<{
     success: boolean;
     reports: {
       generated_at: string;
@@ -2774,47 +2628,9 @@ export const api = {
       manual_funding_report: any;
       kyc_report: any;
       staff_activity_report: any;
-      referral_growth_report?: any;
     };
   }> {
-    const q = new URLSearchParams();
-    if (params?.start_date) q.append('start_date', params.start_date);
-    if (params?.end_date) q.append('end_date', params.end_date);
-    const qs = q.toString() ? `?${q.toString()}` : '';
-    return request(`/api/admin/reports/detailed${qs}`);
-  },
-
-  async exportDetailedReportsCsv(params?: {
-    start_date?: string;
-    end_date?: string;
-    report?: string;
-  }): Promise<{ blob: Blob; filename: string }> {
-    const token = getStoredToken();
-    const q = new URLSearchParams();
-    q.append('format', 'csv');
-    if (params?.start_date) q.append('start_date', params.start_date);
-    if (params?.end_date) q.append('end_date', params.end_date);
-    if (params?.report) q.append('report', params.report);
-    const res = await fetch(`/api/admin/reports/detailed?${q.toString()}`, {
-      headers: {
-        ...(token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {}),
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-    });
-    if (!res.ok) {
-      let msg = `CSV export failed (HTTP ${res.status})`;
-      try {
-        const j = await res.json();
-        msg = j?.error || j?.message || msg;
-      } catch {
-      }
-      throw new ApiError(msg, { statusCode: res.status });
-    }
-    const disp = res.headers.get('content-disposition') || '';
-    const match = disp.match(/filename="?([^";]+)"?/i);
-    const filename = match?.[1] || `hambaktech_reports_${new Date().toISOString().slice(0, 10)}.csv`;
-    const blob = await res.blob();
-    return { blob, filename };
+    return request('/api/admin/reports/detailed');
   },
 
   // ─── Production Cleanup & Footprints Monitoring ───────────────────────────
@@ -2879,7 +2695,6 @@ export const api = {
     success: boolean;
     message: string;
     user: any;
-    customer?: User;
     wallet: any;
   }> {
     return request('/api/admin/customers/create', {
@@ -4156,5 +3971,386 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+
+  // ============================================================================
+  // PRINTING & DOCUMENT SERVICES MODULE
+  // ============================================================================
+
+  async getPrintingCatalog(): Promise<{
+    success: boolean;
+    categories: import('../types').PrintingCategory[];
+    delivery_zones: import('../types').PrintingDeliveryZone[];
+    settings: import('../types').PrintingSettings;
+    statuses: import('../types').PrintingOrderStatus[];
+    bank_details?: { bank: string; accountNumber: string; accountName: string };
+  }> {
+    return request('/api/printing/catalog');
+  },
+
+  async estimatePrintingOrder(payload: {
+    category_key: string;
+    quantity: number;
+    page_count?: number;
+    color_mode?: string;
+    paper_size?: string;
+    width_ft?: number;
+    height_ft?: number;
+    finishing_requirements?: string[];
+    is_urgent?: boolean;
+    collection_method?: 'office_collection' | 'paid_delivery';
+    delivery_zone_id?: string;
+  }): Promise<{ success: boolean } & import('../types').PrintingEstimate> {
+    return request('/api/printing/estimate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async uploadPrintingFile(file: File): Promise<{
+    success: boolean;
+    message: string;
+    id: string;
+    file_name: string;
+    file_url: string;
+    mime_type: string;
+    file_size: number;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request('/api/printing/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  async fetchPrintingFileBlobUrl(fileUrl: string): Promise<{ blobUrl: string; mimeType: string }> {
+    const token = getStoredToken();
+    const res = await fetch(fileUrl, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      throw new Error('Unable to load uploaded file preview.');
+    }
+    const blob = await res.blob();
+    return {
+      blobUrl: URL.createObjectURL(blob),
+      mimeType: blob.type || 'application/octet-stream',
+    };
+  },
+
+  async getPrintingOrders(status?: string): Promise<{
+    success: boolean;
+    orders: import('../types').PrintingOrder[];
+  }> {
+    const qs = status && status !== 'all' ? `?status=${encodeURIComponent(status)}` : '';
+    return request(`/api/printing/orders${qs}`);
+  },
+
+  async getPrintingOrderDetail(id: string): Promise<{
+    success: boolean;
+    order: import('../types').PrintingOrder;
+    history: import('../types').PrintingOrderHistoryItem[];
+    messages: import('../types').PrintingOrderMessage[];
+    payments: import('../types').PrintingPaymentRecord[];
+  }> {
+    return request(`/api/printing/orders/${encodeURIComponent(id)}`);
+  },
+
+  async createPrintingOrder(payload: Record<string, any>): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').PrintingOrder;
+    estimate: import('../types').PrintingEstimate;
+  }> {
+    return request('/api/printing/orders', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async respondPrintingQuote(
+    id: string,
+    decision: 'approve' | 'decline',
+    reason?: string
+  ): Promise<{ success: boolean; message: string; order: import('../types').PrintingOrder }> {
+    return request(`/api/printing/orders/${encodeURIComponent(id)}/quote-response`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, reason }),
+    });
+  },
+
+  async payPrintingOrder(
+    id: string,
+    payload: {
+      gateway: 'wallet' | 'paystack' | 'flutterwave' | 'manual_transfer';
+      payment_scope?: 'full' | 'deposit' | 'balance' | 'delivery';
+      transaction_pin?: string;
+      payer_name?: string;
+      bank_reference?: string;
+      proof_url?: string;
+      remarks?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    payment_id?: string;
+    reference?: string;
+    status?: string;
+    amount?: number;
+    wallet_balance?: number;
+    authorization_url?: string;
+    link?: string;
+    order?: import('../types').PrintingOrder;
+  }> {
+    return request(`/api/printing/orders/${encodeURIComponent(id)}/pay`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async verifyPrintingPayment(
+    id: string,
+    reference: string,
+    transactionId?: string
+  ): Promise<{
+    success: boolean;
+    already_confirmed?: boolean;
+    message: string;
+    order: import('../types').PrintingOrder;
+  }> {
+    return request(`/api/printing/orders/${encodeURIComponent(id)}/pay/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ reference, transaction_id: transactionId }),
+    });
+  },
+
+  async cancelPrintingOrder(
+    id: string,
+    reason?: string
+  ): Promise<{ success: boolean; message: string; order: import('../types').PrintingOrder }> {
+    return request(`/api/printing/orders/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async sendPrintingMessage(
+    id: string,
+    message: string,
+    attachmentUrl?: string
+  ): Promise<{ success: boolean; message: string }> {
+    return request(`/api/printing/orders/${encodeURIComponent(id)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ message, attachment_url: attachmentUrl }),
+    });
+  },
+
+  // --- ADMIN PRINTING MANAGEMENT ---
+
+  async getAdminPrintingMetrics(): Promise<import('../types').PrintingAdminMetrics> {
+    return request('/api/admin/printing/metrics');
+  },
+
+  async getAdminPrintingOrders(params?: {
+    status?: string;
+    category_key?: string;
+    assigned_staff_id?: string;
+    search?: string;
+  }): Promise<{ success: boolean; orders: import('../types').PrintingOrder[] }> {
+    const qs = new URLSearchParams();
+    if (params?.status && params.status !== 'all') qs.set('status', params.status);
+    if (params?.category_key && params.category_key !== 'all') qs.set('category_key', params.category_key);
+    if (params?.assigned_staff_id && params.assigned_staff_id !== 'all') qs.set('assigned_staff_id', params.assigned_staff_id);
+    if (params?.search) qs.set('search', params.search);
+    const str = qs.toString();
+    return request(`/api/admin/printing/orders${str ? `?${str}` : ''}`);
+  },
+
+  async getAdminPrintingOrderDetail(id: string): Promise<{
+    success: boolean;
+    order: import('../types').PrintingOrder;
+    history: import('../types').PrintingOrderHistoryItem[];
+    messages: import('../types').PrintingOrderMessage[];
+    payments: import('../types').PrintingPaymentRecord[];
+  }> {
+    return request(`/api/admin/printing/orders/${encodeURIComponent(id)}`);
+  },
+
+  async sendAdminPrintingQuote(
+    id: string,
+    payload: {
+      printing_charge: number;
+      finishing_charge: number;
+      urgent_charge: number;
+      discount_amount: number;
+      delivery_charge: number;
+      free_delivery_authorized: boolean;
+      deposit_enabled: boolean;
+      deposit_percent?: number;
+      deposit_amount?: number;
+      internal_production_cost?: number;
+      due_date?: string | null;
+      quote_notes?: string;
+    }
+  ): Promise<{ success: boolean; message: string; order: import('../types').PrintingOrder }> {
+    return request(`/api/admin/printing/orders/${encodeURIComponent(id)}/quote`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateAdminPrintingStatus(
+    id: string,
+    payload: {
+      status: import('../types').PrintingOrderStatus;
+      note?: string;
+      tracking_note?: string;
+      refund_to_wallet?: boolean;
+    }
+  ): Promise<{ success: boolean; message: string; order: import('../types').PrintingOrder }> {
+    return request(`/api/admin/printing/orders/${encodeURIComponent(id)}/status`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async assignAdminPrintingStaff(
+    id: string,
+    staffId: string
+  ): Promise<{ success: boolean; message: string; order: import('../types').PrintingOrder }> {
+    return request(`/api/admin/printing/orders/${encodeURIComponent(id)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ staff_id: staffId }),
+    });
+  },
+
+  async confirmAdminPrintingDispatch(
+    id: string,
+    payload: { tracking_note?: string; mark_out_for_delivery?: boolean }
+  ): Promise<{ success: boolean; message: string; order: import('../types').PrintingOrder }> {
+    return request(`/api/admin/printing/orders/${encodeURIComponent(id)}/confirm-dispatch`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async recordAdminPrintingPayment(
+    id: string,
+    payload: {
+      amount: number;
+      payment_scope: 'full' | 'deposit' | 'balance' | 'delivery';
+      gateway: 'cash' | 'pos' | 'manual_transfer' | 'paystack' | 'flutterwave';
+      reference?: string;
+      remarks?: string;
+    }
+  ): Promise<{ success: boolean; message: string; order: import('../types').PrintingOrder }> {
+    return request(`/api/admin/printing/orders/${encodeURIComponent(id)}/payments`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminPrintingPayments(): Promise<{
+    success: boolean;
+    payments: import('../types').PrintingPaymentRecord[];
+  }> {
+    return request('/api/admin/printing/payments');
+  },
+
+  async reviewAdminPrintingPayment(
+    pid: string,
+    action: 'confirm' | 'reject',
+    remarks?: string
+  ): Promise<{ success: boolean; message: string; order?: import('../types').PrintingOrder }> {
+    return request(`/api/admin/printing/payments/${encodeURIComponent(pid)}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ action, remarks }),
+    });
+  },
+
+  async sendAdminPrintingMessage(
+    id: string,
+    message: string,
+    isInternal: boolean = false
+  ): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/printing/orders/${encodeURIComponent(id)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ message, is_internal: isInternal }),
+    });
+  },
+
+  async getAdminPrintingReports(): Promise<import('../types').PrintingReportsData> {
+    return request('/api/admin/printing/reports');
+  },
+
+  async getAdminPrintingStaffList(): Promise<{
+    success: boolean;
+    staff: Array<{ id: string; full_name: string; email: string; role: string }>;
+  }> {
+    return request('/api/admin/printing/staff-list');
+  },
+
+  async getAdminPrintingCategories(): Promise<{
+    success: boolean;
+    categories: import('../types').PrintingCategory[];
+  }> {
+    return request('/api/admin/printing/categories');
+  },
+
+  async saveAdminPrintingCategory(
+    payload: Partial<import('../types').PrintingCategory>,
+    id?: string
+  ): Promise<{ success: boolean; message: string; category: import('../types').PrintingCategory }> {
+    if (id) {
+      return request(`/api/admin/printing/categories/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    }
+    return request('/api/admin/printing/categories', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminPrintingDeliveryZones(): Promise<{
+    success: boolean;
+    zones: import('../types').PrintingDeliveryZone[];
+  }> {
+    return request('/api/admin/printing/delivery-zones');
+  },
+
+  async saveAdminPrintingZone(
+    payload: Partial<import('../types').PrintingDeliveryZone>,
+    id?: string
+  ): Promise<{ success: boolean; message: string; zone: import('../types').PrintingDeliveryZone }> {
+    if (id) {
+      return request(`/api/admin/printing/delivery-zones/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    }
+    return request('/api/admin/printing/delivery-zones', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminPrintingSettings(): Promise<{
+    success: boolean;
+    settings: import('../types').PrintingSettings;
+  }> {
+    return request('/api/admin/printing/settings');
+  },
+
+  async updateAdminPrintingSettings(
+    payload: Partial<import('../types').PrintingSettings>
+  ): Promise<{ success: boolean; message: string; settings: import('../types').PrintingSettings }> {
+    return request('/api/admin/printing/settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
 };
+
 

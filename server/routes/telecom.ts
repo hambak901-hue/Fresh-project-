@@ -94,148 +94,15 @@ telecomRouter.post('/providers/switch', requireAdmin, (req: any, res) => {
 // 1. DATA PLANS & VENDING
 // -------------------------------------------------------------
 
-// Nigerian Mobile Prefix Map (matching TelecomController.php)
-const NIGERIAN_PREFIX_MAP: Record<string, string[]> = {
-  MTN: ['0702', '0703', '0704', '0706', '0707', '0803', '0806', '0810', '0813', '0814', '0816', '0903', '0906', '0913', '0916'],
-  AIRTEL: ['0701', '0708', '0802', '0808', '0812', '0901', '0902', '0904', '0907', '0911', '0912'],
-  GLO: ['0705', '0805', '0807', '0811', '0815', '0905', '0915'],
-  '9MOBILE': ['0809', '0817', '0818', '0908', '0909'],
-};
-
-function normalizeNigerianPhone(raw: string): string {
-  let digits = String(raw || '').replace(/\D+/g, '');
-  if (digits.startsWith('234') && digits.length === 13) {
-    digits = '0' + digits.slice(3);
-  } else if (digits.length === 10 && /^[789][01]\d{8}$/.test(digits)) {
-    digits = '0' + digits;
-  }
-  return digits;
-}
-
-function getBulkSmsRuntimeConfig(): { unitPrice: number; senderId: string } {
-  const gsSms = (db.data as any).global_settings?.sms;
-  const legacySms = (db.data as any).sms_config;
-  const rawPrice = Number(gsSms?.sms_rate_per_unit ?? legacySms?.rate_per_unit ?? 3.5);
-  const unitPrice = Number.isFinite(rawPrice) && rawPrice > 0 ? Math.round(rawPrice * 100) / 100 : 3.5;
-  const senderId = String(gsSms?.sms_sender_id || legacySms?.sender_id || 'HAMBAKTECH').trim() || 'HAMBAKTECH';
-  return { unitPrice, senderId };
-}
-
-// POST /api/telecom/validate-phone - Nigerian carrier validation with MNP support
-telecomRouter.post('/validate-phone', requireAuth, (req: any, res) => {
-  const phone = normalizeNigerianPhone(req.body?.phone || '');
-  let selected = String(req.body?.network || '').trim().toUpperCase();
-  if (selected === 'ETISALAT') selected = '9MOBILE';
-  const ported = Boolean(req.body?.ported ?? req.body?.allow_ported ?? false);
-
-  if (!phone || !selected) {
-    return res.status(422).json({ error: 'Recipient phone number and network are required for validation.' });
-  }
-
-  if (!/^0[789][01]\d{8}$/.test(phone)) {
-    return res.json({
-      success: true,
-      valid: false,
-      matches_network: false,
-      ported,
-      ported_allowed: false,
-      formatted_phone: phone,
-      detected_network: null,
-      selected_network: selected,
-      message: 'Enter a valid 11-digit Nigerian mobile number (e.g. 0803..., 0814..., 0901...).',
-    });
-  }
-
-  const pfx4 = phone.slice(0, 4);
-  let detected: string | null = null;
-  for (const [net, prefixes] of Object.entries(NIGERIAN_PREFIX_MAP)) {
-    if (prefixes.includes(pfx4)) {
-      detected = net;
-      break;
-    }
-  }
-
-  if (!detected) {
-    return res.json({
-      success: true,
-      valid: false,
-      matches_network: false,
-      ported,
-      ported_allowed: false,
-      formatted_phone: phone,
-      detected_network: null,
-      selected_network: selected,
-      message: `Number prefix ${pfx4} could not be matched to a supported Nigerian mobile carrier.`,
-    });
-  }
-
-  const matches = detected === selected;
-  if (!matches) {
-    return res.json({
-      success: true,
-      valid: true,
-      matches_network: false,
-      ported,
-      ported_allowed: true,
-      formatted_phone: phone,
-      detected_network: detected,
-      selected_network: selected,
-      message: ported
-        ? `${phone} (${detected} prefix) confirmed as a ported number to ${selected} (MNP).`
-        : `${phone} uses a ${detected} prefix, while ${selected} is selected. Switch to ${detected}, or tick 'Ported Number (MNP)' if this line was ported to ${selected}.`,
-    });
-  }
-
-  return res.json({
-    success: true,
-    valid: true,
-    matches_network: true,
-    ported,
-    ported_allowed: true,
-    formatted_phone: phone,
-    detected_network: detected,
-    selected_network: selected,
-    message: `${phone} verified for ${detected} Nigeria.`,
-  });
-});
-
-// GET /api/telecom/plans - dynamic data plans & admin-configured rates from DB
+// GET /api/telecom/plans - dynamic data plans from DB
 telecomRouter.get('/plans', (req, res) => {
-  const networkFilter = String(req.query.network || '').trim().toUpperCase();
-  let plans = (db.data.telecom_plans || []).filter(p => p.enabled !== false);
-  if (networkFilter) {
-    plans = plans.filter(p => String(p.network || '').toUpperCase() === networkFilter);
-  }
+  const plans = (db.data.telecom_plans || []).filter(p => p.enabled !== false);
   const safePlans = plans.map(p => {
     const { wholesale_cost, ...safe } = p;
     return safe;
   });
-
-  const categories_by_network: Record<string, string[]> = {};
-  for (const p of safePlans) {
-    const net = String(p.network || '').toUpperCase();
-    const cat = String(p.type || '');
-    if (!categories_by_network[net]) categories_by_network[net] = [];
-    if (cat && !categories_by_network[net].includes(cat)) {
-      categories_by_network[net].push(cat);
-    }
-  }
-
-  const airtime_discount_percent = Number(db.data.settings?.airtime_discount_percent ?? 2.5);
-  const { unitPrice: bulksms_unit_price, senderId: bulksms_sender_id } = getBulkSmsRuntimeConfig();
-
   res.json({
-    success: true,
-    activeProvider: db.data.settings?.active_telecom_provider || telecomManager.getPrimaryId(),
     plans: safePlans,
-    categories_by_network,
-    airtime_discount_percent,
-    bulksms_unit_price,
-    bulksms_sender_id,
-    cable_packages: (db.data.cable_packages || []).filter(p => p.enabled !== false),
-    electricity_discos: (db.data.electricity_discos || []).filter(d => d.enabled !== false),
-    exam_packages: (db.data.exam_packages || []).filter((e: any) => e.enabled !== false),
-    airtime_swap: (db.data.airtime_swap_configs || []).filter((c: any) => c.enabled !== false),
   });
 });
 
@@ -510,7 +377,7 @@ telecomRouter.post('/purchase-airtime-pin', requireAuth, async (req: any, res) =
       network,
       value: denomVal,
       quantity: qtyVal,
-      business_name: businessName || req.user.full_name || 'HAMBAKTECH',
+      business_name: businessName || req.user.full_name || 'HambakTech Enterprise',
     });
 
     if (!result.success) {
@@ -842,7 +709,7 @@ telecomRouter.post('/purchase-data-pin', requireAuth, async (req: any, res) => {
       plan_name: (pinConfig as any).name || (pinConfig as any).plan_name || `${pinConfig.network} ${pinConfig.size}`,
       size: pinConfig.size,
       quantity: qtyVal,
-      business_name: businessName || req.user.full_name || 'HAMBAKTECH',
+      business_name: businessName || req.user.full_name || 'HambakTech Enterprise',
     });
 
     if (!result.success) {
@@ -922,8 +789,8 @@ telecomRouter.post('/send-bulksms', requireAuth, async (req: any, res) => {
     }
 
     const pages = Math.ceil(Math.max(1, message.length) / 160);
-    const { unitPrice } = getBulkSmsRuntimeConfig();
-    const totalCost = Math.round(pages * cleanRecipients.length * unitPrice * 100) / 100;
+    const unitPrice = 3.50; // ₦3.50 per SMS page
+    const totalCost = Math.round(pages * cleanRecipients.length * unitPrice);
 
     let debitResult;
     try {

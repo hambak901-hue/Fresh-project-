@@ -62,7 +62,7 @@ class RandaAdapter extends BaseProviderAdapter implements ServiceProviderAdapter
             } elseif (!empty($this->apiKey) && str_starts_with($this->apiKey, 'rv_test_')) {
                 $this->environment = 'TEST';
             } else {
-                $appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: (getenv('NODE_ENV') ?: 'production'))));
+                $appEnv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?? 'test';
                 $this->environment = ($appEnv === 'production' && !empty($this->apiKey)) ? 'LIVE' : 'TEST';
             }
         }

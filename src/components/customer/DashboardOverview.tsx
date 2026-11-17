@@ -31,17 +31,16 @@ import {
   Plus,
   ArrowRight,
   Layers,
+  Printer,
 } from 'lucide-react';
 
 interface DashboardOverviewProps {
   onNavigateToPage: (page: string) => void;
-  onNavigateToTelecom?: (service: string) => void;
   onOpenFundModal: () => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onNavigateToPage,
-  onNavigateToTelecom,
   onOpenFundModal,
 }) => {
   const { user, refreshUser } = useAuth();
@@ -229,7 +228,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </button>
 
           <button
-            onClick={() => (onNavigateToTelecom ? onNavigateToTelecom('data') : onNavigateToPage('telecom'))}
+            onClick={() => onNavigateToPage('telecom')}
             className="p-4 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-sky-500/40 text-left space-y-2 transition-all group"
           >
             <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -242,7 +241,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </button>
 
           <button
-            onClick={() => (onNavigateToTelecom ? onNavigateToTelecom('airtime') : onNavigateToPage('telecom'))}
+            onClick={() => onNavigateToPage('telecom')}
             className="p-4 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-amber-500/40 text-left space-y-2 transition-all group"
           >
             <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -264,6 +263,26 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <div>
               <div className="text-xs font-bold text-white">Fund Wallet</div>
               <div className="text-[10px] text-slate-400 mt-0.5">Card &amp; virtual accounts</div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => onNavigateToPage('printing')}
+            className="p-4 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-indigo-500/40 text-left space-y-2 transition-all group col-span-2 sm:col-span-4 lg:col-span-4"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Printer className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-white">Printing &amp; Document Services</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">
+                    Documents, photocopying, flex banners, plastic ID cards, photos &amp; custom quotes
+                  </div>
+                </div>
+              </div>
+              <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-indigo-400 transition-colors" />
             </div>
           </button>
         </div>

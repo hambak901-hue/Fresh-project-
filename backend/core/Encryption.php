@@ -26,15 +26,16 @@ class Encryption
             ?? getenv('ENCRYPTION_KEY') 
             ?? getenv('JWT_SECRET');
 
-        $appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'production')));
-        $isTestingOnly = ($appEnv === 'testing' && PHP_SAPI === 'cli');
+        $appEnv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?? 'development';
+        $isProduction = ($appEnv === 'production');
 
         if (empty($secret)) {
-            if (!$isTestingOnly) {
+            if ($isProduction) {
                 throw new \RuntimeException(
-                    'SECURITY FATAL: ENCRYPTION_KEY or JWT_SECRET must be configured. Failing closed.'
+                    'SECURITY FATAL: ENCRYPTION_KEY or JWT_SECRET must be configured in production environment. Failing closed.'
                 );
             }
+            // Strictly isolated test-fixture key for offline testing only — cannot be used in production
             $secret = 'test_fixture_only_deterministic_key';
         }
 

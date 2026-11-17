@@ -722,7 +722,7 @@ class CmsController
      */
     public function saveAnnouncement(Request $request): void
     {
-        $user = Auth::requirePermission($request, 'cms');
+        $user = Auth::requireAnyPermission($request, ['cms', 'notifications']);
         $emailSvc = new AnnouncementEmailService($this->db);
         $emailSvc->ensureSchema();
 
@@ -812,7 +812,7 @@ class CmsController
      */
     public function updateAnnouncement(Request $request, array $params): void
     {
-        Auth::requirePermission($request, 'cms');
+        Auth::requireAnyPermission($request, ['cms', 'notifications']);
         $emailSvc = new AnnouncementEmailService($this->db);
         $emailSvc->ensureSchema();
 
@@ -886,7 +886,7 @@ class CmsController
      */
     public function deleteAnnouncement(Request $request, array $params): void
     {
-        Auth::requirePermission($request, 'cms');
+        Auth::requireAnyPermission($request, ['cms', 'notifications']);
         $id = $params['id'] ?? '';
         $this->db->execute('DELETE FROM announcements WHERE id = :id', ['id' => $id]);
         try {

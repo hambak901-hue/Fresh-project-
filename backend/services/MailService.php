@@ -16,18 +16,6 @@ use HambakTech\Core\Security;
 
 class MailService
 {
-    public const NOTIFICATION_OPTIONS = [
-        'from_email' => 'notification@hambaktech.com.ng',
-        'from_name' => 'HAMBAKTECH Notifications',
-        'reply_to' => 'support@hambaktech.com.ng',
-    ];
-
-    public const SUPPORT_OPTIONS = [
-        'from_email' => 'support@hambaktech.com.ng',
-        'from_name' => 'HAMBAKTECH Support',
-        'reply_to' => 'support@hambaktech.com.ng',
-    ];
-
     private Database $db;
     private array $config;
 
@@ -83,14 +71,7 @@ class MailService
     {
         $subject = 'Your HambakTech Verification Code: ' . $otpCode;
         $html = $this->buildOtpHtml($recipientName, $otpCode, $resetToken);
-        return $this->send(
-            $recipientEmail,
-            $recipientName,
-            $subject,
-            $html,
-            $otpCode,
-            self::NOTIFICATION_OPTIONS + ['audit_action' => 'OTP_DISPATCHED']
-        );
+        return $this->send($recipientEmail, $recipientName, $subject, $html, $otpCode);
     }
 
     /**

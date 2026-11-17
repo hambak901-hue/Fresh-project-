@@ -5,11 +5,11 @@
  * global website CMS, customer dashboard modules, staff RBAC, service pricing & catalogs, and audit logs.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useAuth, MfaChallengeRequiredError } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
 import { api } from '../../lib/api';
-import { MfaChallengeResponse, isConsoleRole } from '../../types';
+import { MfaChallengeResponse } from '../../types';
 import { ThemeToggle } from '../ThemeToggle';
 import {
   LayoutDashboard,
@@ -64,6 +64,7 @@ import {
   BookOpen,
   BarChart2,
   Settings,
+  Printer,
 } from 'lucide-react';
 
 // Admin child views
@@ -98,6 +99,7 @@ import {
   BusinessManagementAccounting,
   AccountingModuleKey,
 } from './accounting/BusinessManagementAccounting';
+import { AdminPrintingManagement } from './AdminPrintingManagement';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
@@ -116,6 +118,7 @@ export type AdminTabKey =
   | 'website'
   | 'modules'
   | 'services'
+  | 'printing'
   | 'modifications_admin'
   | 'enrolments_admin'
   | 'digital_services'
@@ -212,25 +215,23 @@ export function SuperAdminDashboard({
   const { branding } = useCms();
   const brandName = branding?.short_brand_name || 'HAMBAKTECH';
   const logoSrc = branding?.logo_url || '/logo.png';
-  const [activeTab, setActiveTab] = useState<AdminTabKey>('overview');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  useEffect(() => {
-    if (!user || !isConsoleRole(user.role)) return;
-    const dash = (user.assigned_dashboard || user.role || 'admin').toLowerCase();
-    const perms = Array.isArray(user.permissions) ? user.permissions : [];
-    const hasPerm = (p: string) => user.role === 'superadmin' || perms.includes('*') || perms.includes(p);
-    if (dash === 'support' && hasPerm('support')) {
-      setActiveTab('support_admin');
-    } else if (dash === 'staff') {
-      if (hasPerm('kyc')) setActiveTab('kyc_admin');
-      else if (hasPerm('services')) setActiveTab('services');
-      else if (hasPerm('support')) setActiveTab('support_admin');
-    } else {
-      setActiveTab('overview');
+  const [activeTab, setActiveTab] = useState<AdminTabKey>(() => {
+    if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('printing')) {
+      return 'printing';
     }
-  }, [user?.id, user?.role, user?.assigned_dashboard]);
-
+    return 'overview';
+  });
+  const [initialPrintOrderRef] = useState<string | undefined>(() => {
+    if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('printing')) {
+      const qIdx = window.location.hash.indexOf('?');
+      if (qIdx !== -1) {
+        const params = new URLSearchParams(window.location.hash.slice(qIdx + 1));
+        return params.get('order') || undefined;
+      }
+    }
+    return undefined;
+  });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -266,8 +267,8 @@ export function SuperAdminDashboard({
     setRecoveryMsg(null);
     try {
       const logged = await login(adminEmail.trim().toLowerCase(), adminPassword);
-      if (logged && !isConsoleRole(logged.role)) {
-        setAuthError('This account does not have Administrative or Staff Console privileges.');
+      if (logged && logged.role !== 'admin' && logged.role !== 'superadmin') {
+        setAuthError('This account does not have Administrator privileges.');
       }
     } catch (err: any) {
       if (err instanceof MfaChallengeRequiredError) {
@@ -290,8 +291,8 @@ export function SuperAdminDashboard({
     setAuthError(null);
     try {
       const logged = await completeMfaLogin(mfaChallenge.challenge_token, mfaCode.trim());
-      if (logged && !isConsoleRole(logged.role)) {
-        setAuthError('This account does not have Administrative or Staff Console privileges.');
+      if (logged && logged.role !== 'admin' && logged.role !== 'superadmin') {
+        setAuthError('This account does not have Administrator privileges.');
         await logout();
       } else {
         setMfaChallenge(null);
@@ -381,13 +382,13 @@ export function SuperAdminDashboard({
     );
   }
 
-  if (!user || !isConsoleRole(user.role)) {
+  if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-700 selection:text-white transition-colors">
         <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl space-y-6">
           <div className="flex items-center justify-between">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-[10px] font-mono font-bold tracking-wider uppercase">
-              Restricted &bull; Staff Authorization
+              Restricted &bull; Root Authorization
             </span>
             <ThemeToggle compact />
           </div>
@@ -404,10 +405,10 @@ export function SuperAdminDashboard({
               />
             </div>
             <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-              {brandName} Operations Console
+              {brandName} Super Admin Console
             </h2>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Sign in with authorized staff, support, manager, or administrator credentials to access your assigned operational workspace.
+              Sign in with authorized administrative credentials to manage platform services, academy admissions, CMS content, and system settings.
             </p>
           </div>
 
@@ -415,7 +416,7 @@ export function SuperAdminDashboard({
             <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-center justify-between">
               <div>
                 <p className="font-semibold text-slate-900 dark:text-white truncate max-w-[220px]">{user.email}</p>
-                <p className="text-[10px] text-amber-700 dark:text-amber-400/90 capitalize font-mono">Role: {user.role} (Portal Account)</p>
+                <p className="text-[10px] text-amber-700 dark:text-amber-400/90 capitalize font-mono">Role: {user.role} (Non-Admin)</p>
               </div>
               <button
                 type="button"
@@ -721,6 +722,7 @@ export function SuperAdminDashboard({
       title: 'Commercial & Services',
       items: [
         { id: 'services', label: 'Core Services & Pricing', icon: Cpu, permission: 'services' },
+        { id: 'printing', label: 'Printing & Document Services', icon: Printer, badge: 'Print', permissionsAny: ['printing', 'printing_pricing'] },
         { id: 'modifications_admin', label: 'NIN & BVN Modifications', icon: ShieldCheck, badge: 'Stage 3', permission: 'services' },
         { id: 'enrolments_admin', label: 'Enrolment Centre', icon: UserPlus, badge: 'Stage 4', permission: 'services' },
         { id: 'digital_services', label: 'Digital Utilities (Cable & Disco)', icon: Tv, badge: 'Phase 8', permission: 'services' },
@@ -817,13 +819,11 @@ export function SuperAdminDashboard({
               <div>
                 <span className="font-extrabold text-sm text-slate-900 dark:text-white tracking-tight flex items-center gap-1.5">
                   <span>{brandName}</span>
-                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30 uppercase">
-                    {isSuperAdmin ? 'ROOT' : user.role}
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30">
+                    ROOT
                   </span>
                 </span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 capitalize">
-                  {user.assigned_dashboard || user.role} Workspace
-                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Super Admin Console</p>
               </div>
             </div>
             <button
@@ -937,8 +937,8 @@ export function SuperAdminDashboard({
               <Menu className="w-5 h-5" />
             </button>
             <div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block capitalize">
-                HAMBAK TECH &amp; SERVICES &bull; {isSuperAdmin ? 'Root Administration' : `${user.role} Workspace`}
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">
+                HAMBAK TECH &amp; SERVICES &bull; {isSuperAdmin ? 'Root Administration' : 'Staff Administration'}
               </p>
               <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{currentTitle}</h1>
             </div>
@@ -983,6 +983,10 @@ export function SuperAdminDashboard({
             {safeActiveTab === 'modules' && <DashboardModuleManagement />}
 
             {safeActiveTab === 'services' && <ServiceManagement />}
+
+            {safeActiveTab === 'printing' && (
+              <AdminPrintingManagement initialOrderRef={initialPrintOrderRef} />
+            )}
 
             {safeActiveTab === 'modifications_admin' && <ModificationManagement />}
 

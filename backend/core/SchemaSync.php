@@ -49,8 +49,7 @@ class SchemaSync
                 password_hash VARCHAR(255) NOT NULL,
                 full_name VARCHAR(191) NOT NULL,
                 phone_number VARCHAR(30) NOT NULL,
-                role VARCHAR(32) NOT NULL DEFAULT "customer",
-                assigned_dashboard VARCHAR(32) NULL,
+                role ENUM("customer", "admin", "superadmin") NOT NULL DEFAULT "customer",
                 wallet_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 kyc_status ENUM("unverified", "pending", "verified", "rejected") NOT NULL DEFAULT "unverified",
                 tier INT NOT NULL DEFAULT 1,
@@ -1029,7 +1028,6 @@ class SchemaSync
         // Column checks via INFORMATION_SCHEMA
         $columnAlterations = [
             'users' => [
-                'assigned_dashboard' => 'ADD COLUMN assigned_dashboard VARCHAR(32) NULL AFTER role',
                 'kyc_level' => 'ADD COLUMN kyc_level INT NOT NULL DEFAULT 1',
                 'phone_normalized' => 'ADD COLUMN phone_normalized VARCHAR(32) NULL',
                 'token_version' => 'ADD COLUMN token_version INT NOT NULL DEFAULT 1',
@@ -1181,7 +1179,6 @@ class SchemaSync
 
         // Enum updates
         $enumUpdates = [
-            'users.role' => 'ALTER TABLE users MODIFY COLUMN role VARCHAR(32) NOT NULL DEFAULT "customer"',
             'kyc_submissions.status' => 'ALTER TABLE kyc_submissions MODIFY COLUMN status ENUM("pending", "verified", "approved", "rejected", "info_requested") NOT NULL DEFAULT "pending"',
             'support_tickets.status' => 'ALTER TABLE support_tickets MODIFY COLUMN status ENUM("open", "pending", "in_progress", "waiting_customer", "resolved", "closed") NOT NULL DEFAULT "open"',
             'providers.last_ping_status' => 'ALTER TABLE providers MODIFY COLUMN last_ping_status ENUM("operational", "error", "untested", "unconfigured") NOT NULL DEFAULT "untested"',
@@ -1232,12 +1229,7 @@ class SchemaSync
                 'INSERT IGNORE INTO roles (id, name, slug, description) VALUES
                  ("rol_superadmin", "Super Administrator", "superadmin", "Global system authority with unrestricted access"),
                  ("rol_admin", "Administrator", "admin", "Management authority over services, customers, and transactions"),
-                 ("rol_manager", "Operations Manager", "manager", "Senior console operations across customers, wallets, KYC, and reports"),
-                 ("rol_staff", "Internal Staff", "staff", "Operational staff console access with scoped permissions"),
-                 ("rol_support", "Support Specialist", "support", "Customer Support Centre and KYC desk specialist"),
-                 ("rol_agent", "Commercial Agent / Reseller", "agent", "High-volume VTU, identity, and reseller portal workspace"),
-                 ("rol_student", "Academy Student", "student", "HAMBAKTECH Digital Training Academy student portal workspace"),
-                 ("rol_customer", "Customer", "customer", "Standard portal customer with digital wallet and identity access")'
+                 ("rol_customer", "Customer / Agent", "customer", "Standard portal customer with digital wallet and API access")'
             );
             $db->execute(
                 'INSERT IGNORE INTO service_categories (id, code, name, icon, display_order, is_active) VALUES
@@ -1365,6 +1357,15 @@ class SchemaSync
             $errors = array_merge($errors, $secRefSync['errors'] ?? []);
         } catch (Throwable $e) {
             $errors[] = 'syncSecurityAndReferralSchema => ' . $e->getMessage();
+        }
+
+        // Ensure Phase 2 Printing & Document Services tables and default catalog exist
+        try {
+            $printSync = self::syncPrintingModuleSchema($db, true);
+            $applied = array_merge($applied, $printSync['applied'] ?? []);
+            $errors = array_merge($errors, $printSync['errors'] ?? []);
+        } catch (Throwable $e) {
+            $errors[] = 'syncPrintingModuleSchema => ' . $e->getMessage();
         }
 
         return [
@@ -2317,7 +2318,6 @@ class SchemaSync
         $errors = [];
 
         $userCols = [
-            'assigned_dashboard' => 'ADD COLUMN assigned_dashboard VARCHAR(32) NULL AFTER role',
             'kyc_level' => 'ADD COLUMN kyc_level INT NOT NULL DEFAULT 1',
             'phone_normalized' => 'ADD COLUMN phone_normalized VARCHAR(32) NULL',
             'token_version' => 'ADD COLUMN token_version INT NOT NULL DEFAULT 1',
@@ -3092,6 +3092,506 @@ class SchemaSync
             );
         } catch (Throwable $e) {
             $errors[] = 'setting:accounting_settings => ' . $e->getMessage();
+        }
+
+        return ['applied' => $applied, 'errors' => $errors];
+    }
+
+    /**
+     * Phase 2: Printing & Document Services Module Schema & Catalog Seeder (Idempotent)
+     */
+    public static function syncPrintingModuleSchema(Database $db, bool $force = false): array
+    {
+        static $synced = false;
+        if ($synced && !$force) {
+            return ['applied' => [], 'errors' => []];
+        }
+        $synced = true;
+
+        $applied = [];
+        $errors = [];
+
+        $tables = [
+            'printing_service_categories' => 'CREATE TABLE IF NOT EXISTS printing_service_categories (
+                id VARCHAR(36) PRIMARY KEY,
+                category_key VARCHAR(64) NOT NULL UNIQUE,
+                name VARCHAR(150) NOT NULL,
+                description TEXT NULL,
+                icon VARCHAR(50) NOT NULL DEFAULT "Printer",
+                pricing_mode ENUM("per_page", "photocopy", "banner_area", "per_card", "photo_unit", "custom_quote") NOT NULL DEFAULT "per_page",
+                measurement_method ENUM("per_page", "per_copy", "per_sq_ft", "per_linear_ft", "per_card", "per_photo", "manual") NOT NULL DEFAULT "per_page",
+                unit_label VARCHAR(50) NOT NULL DEFAULT "page",
+                base_rate DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                bw_rate DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                color_rate DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                min_quantity INT NOT NULL DEFAULT 1,
+                urgent_fee_type ENUM("flat", "percent") NOT NULL DEFAULT "percent",
+                urgent_fee_value DECIMAL(15, 2) NOT NULL DEFAULT 25.00,
+                paper_sizes JSON NULL,
+                size_rates JSON NULL,
+                finishing_options JSON NULL,
+                bulk_discounts JSON NULL,
+                field_schema JSON NULL,
+                requires_manual_quote TINYINT(1) NOT NULL DEFAULT 1,
+                internal_cost_estimate DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                display_order INT NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_psc_active (is_active, display_order)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'printing_delivery_zones' => 'CREATE TABLE IF NOT EXISTS printing_delivery_zones (
+                id VARCHAR(36) PRIMARY KEY,
+                zone_key VARCHAR(64) NOT NULL UNIQUE,
+                destination_group VARCHAR(120) NOT NULL,
+                lga_lcda VARCHAR(150) NOT NULL,
+                towns_covered TEXT NULL,
+                pricing_mode ENUM("fixed", "manual_quote", "free") NOT NULL DEFAULT "fixed",
+                fixed_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                free_delivery_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                free_delivery_min_order DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                estimated_eta VARCHAR(100) NULL DEFAULT "Same Day / Next Business Day",
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                display_order INT NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_pdz_active (is_active, display_order)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'printing_orders' => 'CREATE TABLE IF NOT EXISTS printing_orders (
+                id VARCHAR(36) PRIMARY KEY,
+                order_reference VARCHAR(64) NOT NULL UNIQUE,
+                user_id VARCHAR(36) NOT NULL,
+                customer_name VARCHAR(191) NOT NULL,
+                customer_email VARCHAR(191) NOT NULL,
+                customer_phone VARCHAR(40) NOT NULL,
+                category_key VARCHAR(64) NOT NULL,
+                category_name VARCHAR(150) NOT NULL,
+                service_title VARCHAR(191) NOT NULL,
+                status ENUM(
+                    "Pending Review",
+                    "Under Review",
+                    "Awaiting Quotation",
+                    "Quotation Sent",
+                    "Awaiting Payment",
+                    "Payment Confirmed",
+                    "Processing",
+                    "On Hold",
+                    "Ready for Collection",
+                    "Ready for Dispatch",
+                    "Out for Delivery",
+                    "Completed",
+                    "Rejected",
+                    "Cancelled",
+                    "Refunded"
+                ) NOT NULL DEFAULT "Pending Review",
+                specs JSON NULL,
+                uploaded_files JSON NULL,
+                quantity INT NOT NULL DEFAULT 1,
+                color_mode ENUM("bw", "color", "mixed", "full_color") NOT NULL DEFAULT "bw",
+                paper_size VARCHAR(80) NULL,
+                width_ft DECIMAL(10, 2) NULL,
+                height_ft DECIMAL(10, 2) NULL,
+                sq_ft DECIMAL(12, 2) NULL,
+                finishing_requirements JSON NULL,
+                is_urgent TINYINT(1) NOT NULL DEFAULT 0,
+                special_instructions TEXT NULL,
+                estimated_printing_charge DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                printing_charge DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                finishing_charge DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                urgent_charge DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                discount_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                delivery_charge DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                total_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                deposit_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                deposit_percent DECIMAL(6, 2) NOT NULL DEFAULT 50.00,
+                deposit_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                required_initial_payment DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                amount_paid DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                balance_due DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                payment_status ENUM("unpaid", "deposit_paid", "partially_paid", "paid", "refunded") NOT NULL DEFAULT "unpaid",
+                delivery_payment_status ENUM("not_applicable", "pending", "paid", "free_authorized") NOT NULL DEFAULT "not_applicable",
+                quote_notes TEXT NULL,
+                quote_sent_at DATETIME NULL,
+                quote_responded_at DATETIME NULL,
+                quote_decision ENUM("pending", "approved", "declined") NOT NULL DEFAULT "pending",
+                quote_decline_reason TEXT NULL,
+                collection_method ENUM("office_collection", "paid_delivery") NOT NULL DEFAULT "office_collection",
+                delivery_zone_id VARCHAR(36) NULL,
+                delivery_recipient_name VARCHAR(191) NULL,
+                delivery_recipient_phone VARCHAR(40) NULL,
+                delivery_destination VARCHAR(120) NULL,
+                delivery_lga_lcda VARCHAR(150) NULL,
+                delivery_town VARCHAR(150) NULL,
+                delivery_address TEXT NULL,
+                delivery_landmark VARCHAR(255) NULL,
+                free_delivery_authorized TINYINT(1) NOT NULL DEFAULT 0,
+                dispatch_confirmed TINYINT(1) NOT NULL DEFAULT 0,
+                dispatch_confirmed_by VARCHAR(36) NULL,
+                dispatch_confirmed_by_name VARCHAR(191) NULL,
+                dispatch_confirmed_at DATETIME NULL,
+                tracking_note TEXT NULL,
+                assigned_staff_id VARCHAR(36) NULL,
+                assigned_staff_name VARCHAR(191) NULL,
+                internal_production_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                internal_notes TEXT NULL,
+                due_date DATE NULL,
+                completed_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_po_user (user_id, created_at),
+                INDEX idx_po_status (status, created_at),
+                INDEX idx_po_cat (category_key),
+                INDEX idx_po_staff (assigned_staff_id),
+                INDEX idx_po_pay (payment_status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'printing_order_status_history' => 'CREATE TABLE IF NOT EXISTS printing_order_status_history (
+                id VARCHAR(36) PRIMARY KEY,
+                order_id VARCHAR(36) NOT NULL,
+                from_status VARCHAR(64) NULL,
+                to_status VARCHAR(64) NOT NULL,
+                actor_id VARCHAR(36) NULL,
+                actor_name VARCHAR(191) NOT NULL,
+                actor_role VARCHAR(50) NOT NULL DEFAULT "system",
+                note TEXT NULL,
+                metadata JSON NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_posh_order (order_id, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'printing_order_messages' => 'CREATE TABLE IF NOT EXISTS printing_order_messages (
+                id VARCHAR(36) PRIMARY KEY,
+                order_id VARCHAR(36) NOT NULL,
+                sender_id VARCHAR(36) NOT NULL,
+                sender_name VARCHAR(191) NOT NULL,
+                sender_role VARCHAR(50) NOT NULL DEFAULT "customer",
+                message TEXT NOT NULL,
+                attachment_url VARCHAR(500) NULL,
+                is_internal TINYINT(1) NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_pom_order (order_id, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'printing_payments' => 'CREATE TABLE IF NOT EXISTS printing_payments (
+                id VARCHAR(36) PRIMARY KEY,
+                order_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                reference VARCHAR(100) NOT NULL UNIQUE,
+                payment_scope ENUM("full", "deposit", "balance", "delivery") NOT NULL DEFAULT "full",
+                gateway ENUM("wallet", "paystack", "flutterwave", "manual_transfer", "cash", "pos") NOT NULL DEFAULT "wallet",
+                amount DECIMAL(15, 2) NOT NULL,
+                status ENUM("pending", "confirmed", "rejected", "refunded") NOT NULL DEFAULT "pending",
+                proof_url VARCHAR(500) NULL,
+                payer_name VARCHAR(191) NULL,
+                bank_reference VARCHAR(120) NULL,
+                remarks TEXT NULL,
+                confirmed_by VARCHAR(36) NULL,
+                confirmed_by_name VARCHAR(191) NULL,
+                confirmed_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_pp_order (order_id, status),
+                INDEX idx_pp_user (user_id, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+        ];
+
+        foreach ($tables as $name => $ddl) {
+            try {
+                $db->execute($ddl);
+                $applied[] = "table:{$name}";
+            } catch (Throwable $e) {
+                $errors[] = "table:{$name} => " . $e->getMessage();
+            }
+        }
+
+        // Register module in dashboard_modules idempotently
+        try {
+            $db->execute(
+                'INSERT IGNORE INTO dashboard_modules
+                 (id, module_key, name, description, icon, status, is_visible, coming_soon_message, display_order)
+                 VALUES ("mod_printing", "printing", "Printing & Document Services", "Document printing, photocopying, large-format banners, plastic ID cards, photo printing & Lagos delivery.", "Printer", "active", 1, NULL, 7)'
+            );
+            $applied[] = 'module:printing';
+        } catch (Throwable $e) {
+            $errors[] = 'module:printing => ' . $e->getMessage();
+        }
+
+        // Seed 6 default configurable printing service categories (idempotent)
+        $categories = [
+            [
+                'id' => 'pcat_doc',
+                'category_key' => 'doc_printing',
+                'name' => 'Document & Paper Printing',
+                'description' => 'Examination papers, school documents, report sheets, business documents, company forms, office materials, political materials & commercial printing.',
+                'icon' => 'FileText',
+                'pricing_mode' => 'per_page',
+                'measurement_method' => 'per_page',
+                'unit_label' => 'page',
+                'base_rate' => 50.00,
+                'bw_rate' => 50.00,
+                'color_rate' => 150.00,
+                'min_quantity' => 1,
+                'urgent_fee_type' => 'percent',
+                'urgent_fee_value' => 25.00,
+                'paper_sizes' => json_encode(['A4 (Standard)', 'A3 (Large)', 'A5 (Half Page)', 'Letter', 'Legal / Foolscap', 'Custom Paper Stock']),
+                'size_rates' => json_encode(['A4 (Standard)' => 1.0, 'A3 (Large)' => 2.2, 'A5 (Half Page)' => 0.85, 'Letter' => 1.0, 'Legal / Foolscap' => 1.25, 'Custom Paper Stock' => 1.5]),
+                'finishing_options' => json_encode([
+                    ['code' => 'stapling', 'label' => 'Corner / Booklet Stapling', 'fee' => 200],
+                    ['code' => 'spiral_binding', 'label' => 'Spiral Binding', 'fee' => 600],
+                    ['code' => 'thermal_binding', 'label' => 'Thermal / Perfect Binding', 'fee' => 1200],
+                    ['code' => 'lamination', 'label' => 'Lamination (Protective Gloss/Matte)', 'fee' => 300],
+                    ['code' => 'double_sided', 'label' => 'Double-Sided (Duplex) Layout', 'fee' => 0],
+                    ['code' => 'numbering_perforation', 'label' => 'Serial Numbering / Perforation', 'fee' => 1500],
+                ]),
+                'bulk_discounts' => json_encode([
+                    ['min_qty' => 100, 'discount_percent' => 10, 'label' => '100+ pages: 10% off'],
+                    ['min_qty' => 500, 'discount_percent' => 18, 'label' => '500+ pages: 18% off'],
+                    ['min_qty' => 2000, 'discount_percent' => 25, 'label' => '2,000+ pages: 25% off'],
+                ]),
+                'field_schema' => json_encode([
+                    ['key' => 'document_purpose', 'label' => 'Document Type / Purpose', 'type' => 'select', 'required' => true, 'options' => ['Examination Papers', 'School Documents / Report Sheets', 'Business Documents & Proposals', 'Company Forms / Invoices', 'Office Materials', 'Political / Campaign Materials', 'General Commercial Printing']],
+                    ['key' => 'page_count', 'label' => 'Pages per Copy', 'type' => 'number', 'required' => true, 'default' => 1],
+                    ['key' => 'paper_weight', 'label' => 'Paper Stock / Weight', 'type' => 'select', 'required' => false, 'options' => ['80gsm Bond (Standard)', '100gsm Conquerer / Office', '135gsm Art Paper', '250gsm Glossy Card', '300gsm Matte Card']],
+                ]),
+                'requires_manual_quote' => 1,
+                'internal_cost_estimate' => 25.00,
+                'display_order' => 1,
+            ],
+            [
+                'id' => 'pcat_copy',
+                'category_key' => 'photocopying',
+                'name' => 'Photocopying',
+                'description' => 'Fast, crisp photocopying for personal, educational, office & commercial multi-page documents.',
+                'icon' => 'Copy',
+                'pricing_mode' => 'photocopy',
+                'measurement_method' => 'per_copy',
+                'unit_label' => 'copy',
+                'base_rate' => 30.00,
+                'bw_rate' => 30.00,
+                'color_rate' => 120.00,
+                'min_quantity' => 5,
+                'urgent_fee_type' => 'percent',
+                'urgent_fee_value' => 20.00,
+                'paper_sizes' => json_encode(['A4 (Standard)', 'A3 (Enlarged)', 'Foolscap / Legal']),
+                'size_rates' => json_encode(['A4 (Standard)' => 1.0, 'A3 (Enlarged)' => 2.0, 'Foolscap / Legal' => 1.2]),
+                'finishing_options' => json_encode([
+                    ['code' => 'collating', 'label' => 'Set Collating & Sorting', 'fee' => 300],
+                    ['code' => 'stapling', 'label' => 'Document Stapling', 'fee' => 200],
+                    ['code' => 'spiral_binding', 'label' => 'Spiral Binding', 'fee' => 600],
+                ]),
+                'bulk_discounts' => json_encode([
+                    ['min_qty' => 200, 'discount_percent' => 12, 'label' => '200+ copies: 12% off'],
+                    ['min_qty' => 1000, 'discount_percent' => 22, 'label' => '1,000+ copies: 22% off'],
+                ]),
+                'field_schema' => json_encode([
+                    ['key' => 'document_purpose', 'label' => 'Photocopy Category', 'type' => 'select', 'required' => true, 'options' => ['Personal Document', 'Educational / Handouts', 'Office / Administrative Pack', 'Commercial Bulk Pack']],
+                    ['key' => 'page_count', 'label' => 'Original Pages to Copy', 'type' => 'number', 'required' => true, 'default' => 1],
+                ]),
+                'requires_manual_quote' => 1,
+                'internal_cost_estimate' => 15.00,
+                'display_order' => 2,
+            ],
+            [
+                'id' => 'pcat_banner',
+                'category_key' => 'banner_large_format',
+                'name' => 'Banner & Large-Format Printing',
+                'description' => 'High-resolution flex, SAV vinyl, roll-up stands, advertising, event, school & organisational banners priced per configurable foot basis.',
+                'icon' => 'Maximize2',
+                'pricing_mode' => 'banner_area',
+                'measurement_method' => 'per_sq_ft',
+                'unit_label' => 'sq.ft',
+                'base_rate' => 650.00,
+                'bw_rate' => 500.00,
+                'color_rate' => 650.00,
+                'min_quantity' => 1,
+                'urgent_fee_type' => 'percent',
+                'urgent_fee_value' => 30.00,
+                'paper_sizes' => json_encode(['Flex Banner (Standard 440gsm)', 'SAV Self-Adhesive Sticker', 'Backlit / Billboard Vinyl', 'Reflective Banner', 'Roll-Up Stand Print']),
+                'size_rates' => json_encode(['Flex Banner (Standard 440gsm)' => 1.0, 'SAV Self-Adhesive Sticker' => 1.35, 'Backlit / Billboard Vinyl' => 1.6, 'Reflective Banner' => 1.85, 'Roll-Up Stand Print' => 1.5]),
+                'finishing_options' => json_encode([
+                    ['code' => 'eyelets', 'label' => 'Metal Eyelets (Grommets)', 'fee' => 800],
+                    ['code' => 'wood_pocket', 'label' => 'Top & Bottom Pipe/Wood Pockets', 'fee' => 1000],
+                    ['code' => 'hemming', 'label' => 'Reinforced Edge Hemming', 'fee' => 700],
+                    ['code' => 'wooden_frame', 'label' => 'Wooden Mounting Frame', 'fee' => 4500],
+                    ['code' => 'rollup_hardware', 'label' => 'Broad-Base Aluminum Roll-Up Stand', 'fee' => 28000],
+                ]),
+                'bulk_discounts' => json_encode([
+                    ['min_qty' => 5, 'discount_percent' => 8, 'label' => '5+ banners: 8% off'],
+                    ['min_qty' => 15, 'discount_percent' => 15, 'label' => '15+ banners: 15% off'],
+                ]),
+                'field_schema' => json_encode([
+                    ['key' => 'banner_purpose', 'label' => 'Banner Category', 'type' => 'select', 'required' => true, 'options' => ['Business Advertising', 'Promotional Campaign', 'Event / Wedding / Celebration', 'School / Church / Organisation', 'Political / Outdoor Signage']],
+                    ['key' => 'width_ft', 'label' => 'Width (Feet)', 'type' => 'number', 'required' => true, 'default' => 4],
+                    ['key' => 'height_ft', 'label' => 'Height (Feet)', 'type' => 'number', 'required' => true, 'default' => 3],
+                ]),
+                'requires_manual_quote' => 1,
+                'internal_cost_estimate' => 350.00,
+                'display_order' => 3,
+            ],
+            [
+                'id' => 'pcat_idcard',
+                'category_key' => 'plastic_id_cards',
+                'name' => 'Plastic ID Cards',
+                'description' => 'Durable thermal-printed PVC plastic ID cards for staff, students, schools, companies & membership organisations.',
+                'icon' => 'CreditCard',
+                'pricing_mode' => 'per_card',
+                'measurement_method' => 'per_card',
+                'unit_label' => 'card',
+                'base_rate' => 1500.00,
+                'bw_rate' => 1200.00,
+                'color_rate' => 1500.00,
+                'min_quantity' => 1,
+                'urgent_fee_type' => 'flat',
+                'urgent_fee_value' => 2500.00,
+                'paper_sizes' => json_encode(['CR80 Standard PVC (Double-Sided)', 'CR80 Standard PVC (Single-Sided)', 'Smart RFID / Proximity Card']),
+                'size_rates' => json_encode(['CR80 Standard PVC (Double-Sided)' => 1.0, 'CR80 Standard PVC (Single-Sided)' => 0.85, 'Smart RFID / Proximity Card' => 1.6]),
+                'finishing_options' => json_encode([
+                    ['code' => 'lanyard_plain', 'label' => 'Plain Neck Lanyard + Casing', 'fee' => 500],
+                    ['code' => 'lanyard_branded', 'label' => 'Branded Printed Lanyard + Holder', 'fee' => 1200],
+                    ['code' => 'qr_barcode', 'label' => 'Variable QR / Barcode Data Encoding', 'fee' => 1000],
+                ]),
+                'bulk_discounts' => json_encode([
+                    ['min_qty' => 20, 'discount_percent' => 10, 'label' => '20+ cards: 10% off'],
+                    ['min_qty' => 50, 'discount_percent' => 20, 'label' => '50+ cards: 20% off'],
+                    ['min_qty' => 200, 'discount_percent' => 30, 'label' => '200+ cards: 30% off'],
+                ]),
+                'field_schema' => json_encode([
+                    ['key' => 'card_audience', 'label' => 'ID Card Type', 'type' => 'select', 'required' => true, 'options' => ['Staff / Corporate ID Card', 'Student / School ID Card', 'Organisation / Membership Card', 'Visitor / Event Pass']],
+                    ['key' => 'double_sided', 'label' => 'Print Sides', 'type' => 'select', 'required' => true, 'options' => ['Double-Sided (Front & Back)', 'Single-Sided (Front Only)']],
+                ]),
+                'requires_manual_quote' => 1,
+                'internal_cost_estimate' => 650.00,
+                'display_order' => 4,
+            ],
+            [
+                'id' => 'pcat_photo',
+                'category_key' => 'photo_image_printing',
+                'name' => 'Photo & Image Printing',
+                'description' => 'Studio-grade passport photographs, general glossy/matte photos & high-clarity image prints.',
+                'icon' => 'Image',
+                'pricing_mode' => 'photo_unit',
+                'measurement_method' => 'per_photo',
+                'unit_label' => 'print',
+                'base_rate' => 500.00,
+                'bw_rate' => 400.00,
+                'color_rate' => 500.00,
+                'min_quantity' => 1,
+                'urgent_fee_type' => 'flat',
+                'urgent_fee_value' => 1000.00,
+                'paper_sizes' => json_encode(['Passport Pack (4 Copies / Sheet)', '4x6 inches (Standard Photo)', '5x7 inches (Portrait)', '8x10 inches (Frame Size)', 'A4 Photo Paper Sheet']),
+                'size_rates' => json_encode(['Passport Pack (4 Copies / Sheet)' => 1.2, '4x6 inches (Standard Photo)' => 1.0, '5x7 inches (Portrait)' => 1.6, '8x10 inches (Frame Size)' => 2.8, 'A4 Photo Paper Sheet' => 3.0]),
+                'finishing_options' => json_encode([
+                    ['code' => 'photo_lamination', 'label' => 'Crystal Photo Lamination', 'fee' => 400],
+                    ['code' => 'frame_mounting', 'label' => 'Classic Wall Frame Mounting', 'fee' => 3500],
+                    ['code' => 'background_cleanup', 'label' => 'Passport White/Blue Background Retouch', 'fee' => 500],
+                ]),
+                'bulk_discounts' => json_encode([
+                    ['min_qty' => 25, 'discount_percent' => 10, 'label' => '25+ prints: 10% off'],
+                    ['min_qty' => 100, 'discount_percent' => 20, 'label' => '100+ prints: 20% off'],
+                ]),
+                'field_schema' => json_encode([
+                    ['key' => 'photo_type', 'label' => 'Photo Service Type', 'type' => 'select', 'required' => true, 'options' => ['Passport Photographs', 'General Photographs', 'Event / Studio Images', 'Graphic Artwork / Flyer Photo Print']],
+                    ['key' => 'paper_finish', 'label' => 'Paper Finish', 'type' => 'select', 'required' => false, 'options' => ['High Gloss Photo Paper', 'Silky Matte Photo Paper', 'Luster Pro Paper']],
+                ]),
+                'requires_manual_quote' => 1,
+                'internal_cost_estimate' => 200.00,
+                'display_order' => 5,
+            ],
+            [
+                'id' => 'pcat_custom',
+                'category_key' => 'custom_print_quote',
+                'name' => 'Custom & Special Printing Request',
+                'description' => 'Manual quotation requests for flyers, receipt books, branded souvenirs, packaging, calendars, letterheads or special jobs.',
+                'icon' => 'Sparkles',
+                'pricing_mode' => 'custom_quote',
+                'measurement_method' => 'manual',
+                'unit_label' => 'job',
+                'base_rate' => 0.00,
+                'bw_rate' => 0.00,
+                'color_rate' => 0.00,
+                'min_quantity' => 1,
+                'urgent_fee_type' => 'percent',
+                'urgent_fee_value' => 25.00,
+                'paper_sizes' => json_encode(['Custom Specification (Reviewed Manually)']),
+                'size_rates' => json_encode(['Custom Specification (Reviewed Manually)' => 1.0]),
+                'finishing_options' => json_encode([
+                    ['code' => 'design_assistance', 'label' => 'Pre-Press Layout / Artwork Formatting', 'fee' => 2500],
+                    ['code' => 'special_packaging', 'label' => 'Protective Carton Packaging', 'fee' => 1500],
+                ]),
+                'bulk_discounts' => json_encode([]),
+                'field_schema' => json_encode([
+                    ['key' => 'custom_item_type', 'label' => 'Requested Printing Product', 'type' => 'text', 'required' => true],
+                ]),
+                'requires_manual_quote' => 1,
+                'internal_cost_estimate' => 0.00,
+                'display_order' => 6,
+            ],
+        ];
+
+        foreach ($categories as $c) {
+            try {
+                $db->execute(
+                    'INSERT IGNORE INTO printing_service_categories
+                     (id, category_key, name, description, icon, pricing_mode, measurement_method, unit_label, base_rate, bw_rate, color_rate, min_quantity, urgent_fee_type, urgent_fee_value, paper_sizes, size_rates, finishing_options, bulk_discounts, field_schema, requires_manual_quote, internal_cost_estimate, is_active, display_order)
+                     VALUES (:id, :category_key, :name, :description, :icon, :pricing_mode, :measurement_method, :unit_label, :base_rate, :bw_rate, :color_rate, :min_quantity, :urgent_fee_type, :urgent_fee_value, :paper_sizes, :size_rates, :finishing_options, :bulk_discounts, :field_schema, :requires_manual_quote, :internal_cost_estimate, 1, :display_order)',
+                    $c
+                );
+                $applied[] = 'print_cat:' . $c['category_key'];
+            } catch (Throwable $e) {
+                $errors[] = 'print_cat:' . $c['category_key'] . ' => ' . $e->getMessage();
+            }
+        }
+
+        // Seed configurable Lagos delivery zones (idempotent)
+        $zones = [
+            ['pzone_office_nearby', 'lagos_ibejulekki', 'Ibeju-Lekki & Sangotedo Axis', 'Ibeju-Lekki LGA / Lekki LCDA', 'Sangotedo, Abijo, Awoyaya, Lakowe, Bogije, Elemoro, Ibeju', 'fixed', 2000.00, 1, 50000.00, 'Same Day (2–5 hrs)', 1],
+            ['pzone_etiosa', 'lagos_etiosa', 'Lekki, Ajah & Eti-Osa Axis', 'Eti-Osa LGA / Eti-Osa East LCDA', 'Ajah, Badore, Chevron, Lekki Phase 1, Ikate, Victoria Island, Ikoyi', 'fixed', 3500.00, 1, 75000.00, 'Same Day / Next Business Day', 2],
+            ['pzone_island', 'lagos_island', 'Lagos Island Commercial Axis', 'Lagos Island LGA / East LCDA', 'Marina, CMS, Broad Street, Obalende, Idumota', 'fixed', 4000.00, 0, 0.00, 'Next Business Day', 3],
+            ['pzone_mainland', 'lagos_mainland', 'Central Mainland (Yaba, Surulere, Ikeja)', 'Lagos Mainland / Surulere / Ikeja LGA', 'Yaba, Ebute Metta, Surulere, Ikeja, Maryland, Anthony, Gbagada', 'fixed', 4500.00, 0, 0.00, 'Next Business Day', 4],
+            ['pzone_west', 'lagos_west', 'Alimosho, Agege, Oshodi & Amuwo Axis', 'Alimosho / Agege / Oshodi-Isolo / Amuwo-Odofin LGA', 'Egbeda, Idimu, Ikotun, Ipaja, Agege, Oshodi, Festac, Mile 2', 'fixed', 5500.00, 0, 0.00, '1–2 Business Days', 5],
+            ['pzone_outskirts', 'lagos_outskirts', 'Ikorodu, Epe, Badagry & Custom Freight', 'Ikorodu / Epe / Badagry / Other Lagos LGAs', 'Ikorodu, Epe Town, Badagry, Bulk Bulk/Palletised School Deliveries', 'manual_quote', 0.00, 0, 0.00, 'Confirmed on Quotation', 6],
+        ];
+        foreach ($zones as $z) {
+            try {
+                $db->execute(
+                    'INSERT IGNORE INTO printing_delivery_zones
+                     (id, zone_key, destination_group, lga_lcda, towns_covered, pricing_mode, fixed_fee, free_delivery_enabled, free_delivery_min_order, estimated_eta, is_active, display_order)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
+                    $z
+                );
+                $applied[] = 'print_zone:' . $z[1];
+            } catch (Throwable $e) {
+                $errors[] = 'print_zone:' . $z[1] . ' => ' . $e->getMessage();
+            }
+        }
+
+        // Seed default printing module settings cleanly
+        try {
+            $defaultPrintSettings = [
+                'office_collection_title' => 'HambakTech Main Office Collection Centre',
+                'office_collection_address' => 'HambakTech Services Hub, Sangotedo / Ajah Corridor, Lagos State, Nigeria',
+                'office_collection_hours' => 'Monday – Saturday, 8:30 AM – 6:00 PM',
+                'printing_support_phone' => '09127469686',
+                'printing_support_whatsapp' => '09155104724',
+                'printing_support_email' => 'support@hambaktech.com.ng',
+                'allow_deposit_default' => false,
+                'default_deposit_percent' => 50,
+                'max_upload_mb' => 15,
+                'allowed_file_types' => ['PDF', 'DOC', 'DOCX', 'JPG', 'JPEG', 'PNG', 'WEBP', 'TIFF', 'CDR', 'AI', 'PSD', 'ZIP'],
+                'collection_notice' => 'Office collection is completely free (₦0 delivery fee). Wait for your "Ready for Collection" notification before coming to pick up.',
+                'delivery_notice' => 'Paid delivery operates across Lagos LGAs & LCDAs. Delivery fees are billed separately from printing charges and confirmed before dispatch.',
+            ];
+            $db->execute(
+                'INSERT IGNORE INTO system_settings (id, setting_key, setting_value, category, description, updated_at)
+                 VALUES (:id, "printing_settings", :val, "printing", "Printing & Document Services Office Collection, Deposit & Delivery Settings", NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'val' => json_encode($defaultPrintSettings, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                ]
+            );
+        } catch (Throwable $e) {
+            $errors[] = 'setting:printing_settings => ' . $e->getMessage();
         }
 
         return ['applied' => $applied, 'errors' => $errors];

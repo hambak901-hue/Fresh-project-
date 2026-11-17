@@ -41,6 +41,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
   const [manualModalOpen, setManualModalOpen] = useState<boolean>(false);
   const [manualAmount, setManualAmount] = useState<string>('');
   const [senderName, setSenderName] = useState<string>(user?.full_name || '');
+  const [bankName, setBankName] = useState<string>('Moniepoint MFB');
   const [transferRef, setTransferRef] = useState<string>('');
   const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [paymentMethod, setPaymentMethod] = useState<string>('Mobile App Transfer');
@@ -83,8 +84,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
   };
 
   const handleCopyAccount = () => {
-    const acc = String(walletSummary?.bankDetails?.accountNumber || '').trim();
-    if (!acc) return;
+    const acc = walletSummary?.bankDetails?.accountNumber || '5210471634';
     navigator.clipboard.writeText(acc);
     setCopiedBank(true);
     setTimeout(() => setCopiedBank(false), 2000);
@@ -105,21 +105,14 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
       return;
     }
 
-    const receivingBank = String(walletSummary?.bankDetails?.bank || '').trim();
-    const receivingAcc = String(walletSummary?.bankDetails?.accountNumber || '').trim();
-    if (!receivingBank || !receivingAcc) {
-      setManualError('Receiving bank configuration is still loading. Please try again in a moment.');
-      return;
-    }
-
     try {
       setManualSubmitting(true);
       const formData = new FormData();
       formData.append('amount', String(amt));
       formData.append('depositor_name', senderName.trim());
       formData.append('sender_name', senderName.trim());
-      formData.append('bank_name', receivingBank);
-      formData.append('account_number', receivingAcc);
+      formData.append('bank_name', 'Moniepoint MFB');
+      formData.append('account_number', '5210471634');
       formData.append('reference', transferRef.trim());
       formData.append('payment_reference', transferRef.trim());
       formData.append('payment_date', paymentDate);
@@ -264,45 +257,35 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
           </p>
 
           <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-            {walletSummary?.bankDetails?.accountNumber ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-[10px] text-slate-500">ACCOUNT NUMBER</div>
-                    <div className="text-2xl font-extrabold text-emerald-400 font-mono tabular-nums tracking-widest mt-0.5">
-                      {walletSummary.bankDetails.accountNumber}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleCopyAccount}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition-colors"
-                  >
-                    {copiedBank ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedBank ? 'Copied!' : 'Copy'}</span>
-                  </button>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[10px] text-slate-500">ACCOUNT NUMBER</div>
+                <div className="text-2xl font-extrabold text-emerald-400 font-mono tracking-widest mt-0.5">
+                  {walletSummary?.bankDetails?.accountNumber || '8210492817'}
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800/80">
-                  <div>
-                    <span className="text-slate-500 text-[10px] block">BANK NAME</span>
-                    <span className="text-slate-200 font-semibold">{walletSummary.bankDetails.bank || 'Receiving Bank'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 text-[10px] block">BENEFICIARY</span>
-                    <span className="text-slate-200 font-semibold truncate block">
-                      {walletSummary.bankDetails.accountName || 'Verified Merchant Account'}
-                    </span>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="py-3 text-xs text-slate-400">
-                {loading
-                  ? 'Loading configured bank transfer details...'
-                  : 'Use "Fund Wallet" above to generate a dynamic bank transfer account or pay online.'}
               </div>
-            )}
+
+              <button
+                onClick={handleCopyAccount}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition-colors"
+              >
+                {copiedBank ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedBank ? 'Copied!' : 'Copy'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800/80">
+              <div>
+                <span className="text-slate-500 text-[10px] block">BANK NAME</span>
+                <span className="text-slate-200 font-semibold">{walletSummary?.bankDetails?.bank || 'Moniepoint MFB'}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 text-[10px] block">BENEFICIARY</span>
+                <span className="text-slate-200 font-semibold truncate block">
+                  {walletSummary?.bankDetails?.accountName || 'HambakTech Enterprise'}
+                </span>
+              </div>
+            </div>
           </div>
 
           <button
@@ -451,7 +434,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
                   Submit Proof of Bank Transfer
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  Transferred directly to our official receiving bank account? Enter details below and attach your receipt for manual reconciliation.
+                  Transferred directly to our Moniepoint account? Enter details below and attach your receipt for immediate manual reconciliation.
                 </p>
               </div>
               <button
@@ -463,21 +446,19 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
               </button>
             </div>
 
-            {/* Official receiving bank info box */}
+            {/* Moniepoint MFB official bank info box */}
             <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Beneficiary Bank:</span>
-                <span className="font-bold text-emerald-300">{walletSummary?.bankDetails?.bank || '—'}</span>
+                <span className="font-bold text-emerald-300">Moniepoint MFB</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Account Number:</span>
-                <span className="font-mono tabular-nums font-bold text-white tracking-wider">
-                  {walletSummary?.bankDetails?.accountNumber || '—'}
-                </span>
+                <span className="font-mono font-bold text-white tracking-wider">5210471634</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Account Name:</span>
-                <span className="font-semibold text-slate-200">{walletSummary?.bankDetails?.accountName || '—'}</span>
+                <span className="font-semibold text-slate-200">Hambaktech_Services</span>
               </div>
             </div>
 
@@ -566,7 +547,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
                   type="text"
                   value={remarks}
                   onChange={e => setRemarks(e.target.value)}
-                  placeholder="e.g. Wallet funding transfer"
+                  placeholder="e.g. Wallet funding via Moniepoint"
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
                 />
               </div>

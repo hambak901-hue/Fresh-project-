@@ -26,45 +26,6 @@ class NotificationController
         $this->db = Database::getInstance();
     }
 
-    private function ensureMessagingTables(): void
-    {
-        try {
-            $this->db->execute(
-                'CREATE TABLE IF NOT EXISTS broadcasts (
-                    id VARCHAR(36) PRIMARY KEY,
-                    title VARCHAR(191) NOT NULL,
-                    message TEXT NOT NULL,
-                    channel VARCHAR(32) NOT NULL DEFAULT "in_app",
-                    type VARCHAR(32) NOT NULL DEFAULT "info",
-                    target_role VARCHAR(32) NOT NULL DEFAULT "all",
-                    user_id VARCHAR(36) NULL,
-                    recipient_count INT NOT NULL DEFAULT 0,
-                    sent_by VARCHAR(36) NULL,
-                    sent_by_name VARCHAR(191) NULL,
-                    status VARCHAR(32) NOT NULL DEFAULT "sent",
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
-            );
-            $this->db->execute(
-                'CREATE TABLE IF NOT EXISTS customer_messages (
-                    id VARCHAR(36) PRIMARY KEY,
-                    user_id VARCHAR(36) NOT NULL,
-                    title VARCHAR(191) NOT NULL,
-                    category ENUM("service", "system", "security", "billing") NOT NULL DEFAULT "system",
-                    body TEXT NOT NULL,
-                    is_read TINYINT(1) NOT NULL DEFAULT 0,
-                    reference VARCHAR(100) NULL,
-                    action_label VARCHAR(50) NULL,
-                    action_link VARCHAR(255) NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_cm_user (user_id)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
-            );
-        } catch (Throwable $e) {
-            error_log('[NotificationController::ensureMessagingTables] ' . $e->getMessage());
-        }
-    }
-
     /**
      * 1. GET /api/admin/notifications/overview
      */
@@ -165,41 +126,19 @@ class NotificationController
     public function sendBroadcast(Request $request): void
     {
         $admin = Auth::requirePermission($request, 'notifications');
-        $this->ensureMessagingTables();
-
-        $title = mb_substr(trim((string)$request->input('title', '')), 0, 191);
+        $title = trim((string)$request->input('title', ''));
         $message = trim((string)$request->input('message', ''));
         $channel = strtolower(trim((string)$request->input('channel', 'in_app')));
-        $rawType = strtolower(trim((string)$request->input('type', 'info')));
-        $notifType = match ($rawType) {
-            'success' => 'success',
-            'warning' => 'warning',
-            'alert', 'security', 'critical', 'error' => 'alert',
-            default => 'info',
-        };
-        $msgCategory = match ($rawType) {
-            'security' => 'security',
-            'billing' => 'billing',
-            'service' => 'service',
-            default => 'system',
-        };
-        $targetRole = mb_substr(trim((string)($request->input('target_role') ?? $request->input('target_audience') ?? $request->input('target_tier', 'all'))), 0, 32);
-        $rawUserId = $request->input('user_id');
-        $specificUserId = ($rawUserId !== null && trim((string)$rawUserId) !== '' && strtolower(trim((string)$rawUserId)) !== 'null')
-            ? mb_substr(trim((string)$rawUserId), 0, 36)
-            : null;
+        $type = trim((string)$request->input('type', 'info'));
+        $targetRole = trim((string)($request->input('target_role') ?? $request->input('target_audience') ?? $request->input('target_tier', 'all')));
+        $specificUserId = $request->input('user_id');
 
-        if ($title === '' || $message === '') {
+        if (empty($title) || empty($message)) {
             Response::error('Title and message are required for broadcast.', 422);
-            return;
         }
 
-        if ($specificUserId !== null) {
-            $recipients = $this->db->fetchAll('SELECT id, email, full_name FROM users WHERE id = :id AND status = "active"', ['id' => $specificUserId]);
-            if (empty($recipients)) {
-                Response::error('Targeted active user account not found for the supplied user_id.', 404);
-                return;
-            }
+        if (!empty($specificUserId)) {
+            $recipients = $this->db->fetchAll('SELECT id, email, full_name FROM users WHERE id = :id AND status = "active"', ['id' => (string)$specificUserId]);
         } else {
             $sql = 'SELECT id, email, full_name FROM users WHERE status = "active"';
             $params = [];
@@ -214,6 +153,7 @@ class NotificationController
             } elseif ($targetRole === 'verified_kyc') {
                 $sql .= ' AND role IN ("customer", "agent") AND kyc_status = "verified"';
             } elseif ($targetRole === 'all' || $targetRole === 'all_users') {
+                // Keep existing 'all' targeting customers by default unless all_users requested
                 if ($targetRole === 'all') {
                     $sql .= ' AND role IN ("customer", "agent")';
                 }
@@ -224,7 +164,6 @@ class NotificationController
         }
 
         $count = 0;
-        $inboxFailed = 0;
         $broadcastId = Security::generateUuid();
 
         foreach ($recipients as $u) {
@@ -237,26 +176,23 @@ class NotificationController
                     'uid' => $u['id'],
                     'title' => $title,
                     'msg' => $message,
-                    'type' => $notifType,
+                    'type' => $type,
                 ]
             );
 
             try {
                 $this->db->execute(
-                    'INSERT INTO customer_messages (id, user_id, title, category, body, is_read, reference, created_at)
-                     VALUES (:id, :uid, :title, :cat, :body, 0, :ref, NOW())',
+                    'INSERT INTO customer_messages (id, user_id, title, message, type, is_read, created_at)
+                     VALUES (:id, :uid, :title, :msg, :type, 0, NOW())',
                     [
                         'id' => Security::generateUuid(),
                         'uid' => $u['id'],
                         'title' => $title,
-                        'cat' => $msgCategory,
-                        'body' => $message,
-                        'ref' => $broadcastId,
+                        'msg' => $message,
+                        'type' => $type,
                     ]
                 );
-            } catch (Throwable $e) {
-                $inboxFailed++;
-                error_log('[NotificationController::sendBroadcast] customer_messages insert failed for ' . $u['id'] . ': ' . $e->getMessage());
+            } catch (Throwable) {
             }
 
             $count++;
@@ -270,10 +206,10 @@ class NotificationController
                     'id' => 'broadcast:' . $broadcastId,
                     'title' => $title,
                     'content' => $message,
-                    'category' => $rawType,
+                    'category' => $type,
                     'status' => 'published',
-                    'target_audience' => $specificUserId !== null ? 'specific_user' : $targetRole,
-                    'target_user_id' => $specificUserId,
+                    'target_audience' => $specificUserId ? 'specific_user' : $targetRole,
+                    'target_user_id' => $specificUserId ? (string)$specificUserId : null,
                     'created_at' => date('Y-m-d H:i:s'),
                 ], [
                     'recipients' => $recipients,
@@ -290,22 +226,25 @@ class NotificationController
             }
         }
 
-        $this->db->execute(
-            'INSERT INTO broadcasts (id, title, message, channel, type, target_role, user_id, recipient_count, sent_by, sent_by_name, status, created_at)
-             VALUES (:id, :title, :msg, :ch, :tp, :role, :uid, :cnt, :by, :byname, "sent", NOW())',
-            [
-                'id' => $broadcastId,
-                'title' => $title,
-                'msg' => $message,
-                'ch' => mb_substr($channel ?: 'in_app', 0, 32),
-                'tp' => mb_substr($notifType, 0, 32),
-                'role' => $targetRole !== '' ? $targetRole : 'all',
-                'uid' => $specificUserId,
-                'cnt' => $count,
-                'by' => $admin['id'],
-                'byname' => mb_substr((string)($admin['full_name'] ?? 'Super Admin'), 0, 191),
-            ]
-        );
+        try {
+            $this->db->execute(
+                'INSERT INTO broadcasts (id, title, message, channel, type, target_role, user_id, recipient_count, sent_by, sent_by_name, status, created_at)
+                 VALUES (:id, :title, :msg, :ch, :tp, :role, :uid, :cnt, :by, :byname, "sent", NOW())',
+                [
+                    'id' => $broadcastId,
+                    'title' => $title,
+                    'msg' => $message,
+                    'ch' => $channel ?: 'in_app',
+                    'tp' => $type,
+                    'role' => $targetRole,
+                    'uid' => $specificUserId ? (string)$specificUserId : null,
+                    'cnt' => $count,
+                    'by' => $admin['id'],
+                    'byname' => $admin['full_name'] ?? 'Super Admin',
+                ]
+            );
+        } catch (Throwable) {
+        }
 
         // Audit log
         $this->db->execute(
@@ -316,13 +255,10 @@ class NotificationController
                 'uid' => $admin['id'],
                 'email' => $admin['email'],
                 'details' => json_encode([
-                    'broadcast_id' => $broadcastId,
                     'title' => $title,
                     'channel' => $channel,
                     'recipient_count' => $count,
-                    'inbox_failed' => $inboxFailed,
                     'target_role' => $targetRole,
-                    'user_id' => $specificUserId,
                     'email_delivery' => $emailDelivery,
                 ]),
                 'ip' => $request->getIp(),
@@ -333,7 +269,6 @@ class NotificationController
             'id' => $broadcastId,
             'recipient_count' => $count,
             'dispatched_count' => $count,
-            'inbox_failed' => $inboxFailed,
             'email_delivery' => $emailDelivery,
             'announcement' => [
                 'id' => $broadcastId,

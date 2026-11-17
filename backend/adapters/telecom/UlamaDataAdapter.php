@@ -23,7 +23,7 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     private int $timeout;
     private Database $db;
 
-    public function __construct(?string $baseUrl = null, ?string $apiKey = null, int $timeout = 55)
+    public function __construct(?string $baseUrl = null, ?string $apiKey = null, int $timeout = 30)
     {
         $this->db = Database::getInstance();
         $config = file_exists(__DIR__ . '/../../config/config.php') ? require __DIR__ . '/../../config/config.php' : [];
@@ -45,7 +45,7 @@ class UlamaDataAdapter implements TelecomAdapterInterface
         $this->baseUrl = rtrim($resolved, '/');
 
         $this->apiKey = $apiKey ?: (getenv('ULAMADATA_API_KEY') ?: (!empty($dbProvider['api_key']) ? (string)$dbProvider['api_key'] : (string)($providerConfig['api_key'] ?? '')));
-        $this->timeout = max(55, (int)($timeout ?: ($dbProvider['timeout_seconds'] ?? ($providerConfig['timeout'] ?? 55))));
+        $this->timeout = $timeout ?: ((int)($dbProvider['timeout_seconds'] ?? ($providerConfig['timeout'] ?? 30)));
     }
 
     public function getName(): string
@@ -107,14 +107,14 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     public function getDiscoId(string $disco): int
     {
         $norm = strtoupper(trim($disco));
-        if (str_contains($norm, 'IKEDC') || str_contains($norm, 'IKEJA') || $norm === 'DISC_IKJ') return 1;
-        if (str_contains($norm, 'EKEDC') || str_contains($norm, 'EKO') || $norm === 'DISC_EKD') return 2;
-        if (str_contains($norm, 'KEDCO') || str_contains($norm, 'KANO') || $norm === 'DISC_KAN') return 3;
-        if (str_contains($norm, 'PHED') || str_contains($norm, 'PORT') || $norm === 'DISC_POR') return 4;
+        if (str_contains($norm, 'IKEDC') || str_contains($norm, 'IKEJA')) return 1;
+        if (str_contains($norm, 'EKEDC') || str_contains($norm, 'EKO')) return 2;
+        if (str_contains($norm, 'KEDCO') || str_contains($norm, 'KANO')) return 3;
+        if (str_contains($norm, 'PHED') || str_contains($norm, 'PORT')) return 4;
         if (str_contains($norm, 'JED') || str_contains($norm, 'JOS')) return 5;
-        if (str_contains($norm, 'IBEDC') || str_contains($norm, 'IBADAN') || $norm === 'DISC_IBA') return 6;
+        if (str_contains($norm, 'IBEDC') || str_contains($norm, 'IBADAN')) return 6;
         if (str_contains($norm, 'KAEDCO') || str_contains($norm, 'KEDC') || str_contains($norm, 'KADUNA')) return 7;
-        if (str_contains($norm, 'AEDC') || str_contains($norm, 'ABUJA') || $norm === 'DISC_ABJ') return 8;
+        if (str_contains($norm, 'AEDC') || str_contains($norm, 'ABUJA')) return 8;
         if (str_contains($norm, 'EEDC') || str_contains($norm, 'ENUGU')) return 9;
         if (str_contains($norm, 'BEDC') || str_contains($norm, 'BENIN')) return 10;
         if (str_contains($norm, 'YEDC') || str_contains($norm, 'YOLA')) return 11;
@@ -123,35 +123,25 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     }
 
     /**
-     * Map exam body to Ulamadata exam ID (verified live via GET /api/get-exam: 2 = NECO, 5 = WAEC)
+     * Map exam body to Ulamadata exam ID (verified via GET /api/get-exam)
+     * 2 = NECO, 5 = WAEC
      */
     public function getExamId(string $examName): int
     {
         $norm = strtoupper(trim($examName));
-        if (is_numeric($norm) && (int)$norm > 0) {
-            return (int)$norm;
-        }
-
-        try {
-            $row = $this->db->fetchOne(
-                'SELECT provider_plan_id FROM exam_packages WHERE (UPPER(exam_name) = :en OR id = :id) AND provider_plan_id IS NOT NULL AND provider_plan_id > 0 LIMIT 1',
-                ['en' => $norm, 'id' => strtolower($examName)]
-            );
-            if ($row && (int)$row['provider_plan_id'] > 0) {
-                return (int)$row['provider_plan_id'];
-            }
-        } catch (\Throwable) {
-        }
-
         if (str_contains($norm, 'NECO')) return 2;
         if (str_contains($norm, 'WAEC')) return 5;
+        if (is_numeric($norm)) return (int)$norm;
 
         try {
-            $plans = $this->fetchExamPlans();
-            foreach ($plans as $item) {
-                $label = strtoupper((string)($item['exam_name'] ?? ($item['name'] ?? '')));
-                if ($label !== '' && str_contains($label, $norm)) {
-                    return (int)$item['provider_plan_id'];
+            $res = $this->executeHttp('/api/get-exam', 'GET');
+            $list = $res['data']['data'] ?? $res['data'] ?? [];
+            if (is_array($list)) {
+                foreach ($list as $item) {
+                    $label = strtoupper((string)($item['exam_name'] ?? ($item['name'] ?? '')));
+                    if ($label !== '' && str_contains($label, $norm)) {
+                        return (int)($item['exam_id'] ?? ($item['id'] ?? 5));
+                    }
                 }
             }
         } catch (\Throwable) {
@@ -196,7 +186,6 @@ class UlamaDataAdapter implements TelecomAdapterInterface
         $rawResponse = curl_exec($ch);
         $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
         $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErrno = curl_errno($ch);
         $curlError = curl_error($ch);
         curl_close($ch);
 
@@ -209,40 +198,6 @@ class UlamaDataAdapter implements TelecomAdapterInterface
         $this->logProviderCall($endpoint, $method, $statusCode, $payload, $parsed ?: $rawResponse, $latencyMs, $reference);
 
         if ($rawResponse === false) {
-            $reqId = isset($payload['request-id']) ? trim((string)$payload['request-id']) : '';
-            if ($curlErrno === CURLE_OPERATION_TIMEDOUT && strtoupper($method) === 'POST' && $reqId !== '' && !str_starts_with($endpoint, '/api/transaction/')) {
-                try {
-                    $recheck = $this->queryTransaction($reqId);
-                    $reStatus = strtolower(trim((string)($recheck['status'] ?? ($recheck['Status'] ?? ''))));
-                    if (in_array($reStatus, ['success', 'successful', 'delivered', 'completed'], true)) {
-                        return [
-                            'status_code' => 200,
-                            'latency_ms' => $latencyMs,
-                            'data' => $recheck,
-                            'raw' => json_encode($recheck),
-                        ];
-                    }
-                    if (in_array($reStatus, ['failed', 'fail', 'error', 'reversed'], true)) {
-                        $errMsg = (string)($recheck['message'] ?? ($recheck['api_response'] ?? 'Transaction failed upstream after timeout'));
-                        throw new RuntimeException($errMsg);
-                    }
-                } catch (RuntimeException $re) {
-                    if (!str_contains($re->getMessage(), 'network communication error') && !str_contains($re->getMessage(), 'HTTP 404')) {
-                        throw $re;
-                    }
-                } catch (\Throwable) {
-                }
-                return [
-                    'status_code' => 202,
-                    'latency_ms' => $latencyMs,
-                    'data' => [
-                        'status' => 'pending',
-                        'request-id' => $reqId,
-                        'message' => 'Carrier request timed out and is awaiting delivery confirmation. Use Check Status to verify.',
-                    ],
-                    'raw' => '',
-                ];
-            }
             throw new RuntimeException("UlamaData network communication error: {$curlError} ({$url})");
         }
 
@@ -304,40 +259,37 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     /**
      * 2. Airtime Vending (POST /api/airtime)
      */
-    public function topupAirtime(string $network, string $phone, float $amount, string $airtimeType = 'VTU', ?string $requestId = null): array
+    public function topupAirtime(string $network, string $phone, float $amount, string $airtimeType = 'VTU'): array
     {
         $networkId = $this->getNetworkId($network);
-        $reqId = $requestId ?: ('HT_AIR_' . strtoupper(bin2hex(random_bytes(5))));
+        $requestId = 'HT_AIR_' . strtoupper(bin2hex(random_bytes(5)));
         $payload = [
             'network' => $networkId,
             'phone' => $phone,
             'amount' => (int)round($amount),
             'type' => strtoupper($airtimeType ?: 'VTU'),
             'bypass' => true,
-            'request-id' => $reqId,
+            'request-id' => $requestId,
         ];
 
         $res = $this->executeHttp('/api/airtime', 'POST', $payload);
         $data = $res['data'];
 
-        $status = strtolower(trim((string)($data['status'] ?? ($data['Status'] ?? 'failed'))));
-        $msg = (string)($data['message'] ?? ($data['api_response'] ?? ($data['msg'] ?? '')));
-        $isSuccess = in_array($status, ['success', 'successful', 'delivered', 'completed'], true);
-        $isPending = in_array($status, ['pending', 'processing', 'queued', 'initiated'], true)
-            || str_contains(strtolower($msg), 'is processing');
-        $providerRef = (string)($data['request-id'] ?? ($data['ident'] ?? ($data['id'] ?? $reqId)));
+        $status = strtolower((string)($data['status'] ?? ($data['Status'] ?? 'failed')));
+        $isSuccess = in_array($status, ['success', 'successful', 'delivered'], true);
+        $providerRef = (string)($data['request-id'] ?? ($data['ident'] ?? ($data['id'] ?? $requestId)));
 
-        if (!$isSuccess && !$isPending) {
-            throw new RuntimeException($msg !== '' ? $msg : 'Airtime top-up failed upstream');
+        if (!$isSuccess) {
+            $msg = $data['message'] ?? ($data['msg'] ?? 'Airtime top-up failed upstream');
+            throw new RuntimeException((string)$msg);
         }
 
         return [
-            'status' => $isSuccess ? 'successful' : 'pending',
+            'status' => 'successful',
             'provider_reference' => $providerRef,
             'network' => $network,
             'phone' => $phone,
             'amount' => $amount,
-            'api_response' => $msg,
             'raw' => $data,
         ];
     }
@@ -591,7 +543,7 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     }
 
     /**
-     * 4b. Sync Airtime PIN Catalogue into airtime_pin_denominations (preserves fixed/admin-locked prices & disables anomalous upstream costs)
+     * 4b. Sync Airtime PIN Catalogue into airtime_pin_denominations (preserves fixed/admin-locked prices)
      */
     public function syncAirtimePinCatalogue(bool $recalculateUnlocked = false): array
     {
@@ -609,7 +561,6 @@ class UlamaDataAdapter implements TelecomAdapterInterface
         $inserted = 0;
         $updated = 0;
         $preservedOverrides = 0;
-        $anomaliesDisabled = 0;
         $syncedIds = [];
 
         foreach ($items as $item) {
@@ -620,22 +571,16 @@ class UlamaDataAdapter implements TelecomAdapterInterface
                 continue;
             }
 
-            // Guard against corrupted upstream catalog prices (e.g. 9mobile ₦200/₦500/₦1000 returning ₦96.03)
-            $isAnomaly = $wholesale < ($denomination * 0.70);
             $rowId = 'apin_ud_' . $ppid;
             $defaultSelling = round($wholesale * (1 + ($defaultMarkup / 100)), 2);
 
-            $existing = $this->db->fetchOne('SELECT id, price, pricing_mode, admin_price_locked, is_active FROM airtime_pin_denominations WHERE id = :id', ['id' => $rowId]);
+            $existing = $this->db->fetchOne('SELECT id, price, pricing_mode, admin_price_locked FROM airtime_pin_denominations WHERE id = :id', ['id' => $rowId]);
             if (!$existing) {
-                $activeFlag = $isAnomaly ? 0 : 1;
-                if ($isAnomaly) {
-                    $anomaliesDisabled++;
-                }
                 $this->db->execute(
                     'INSERT INTO airtime_pin_denominations
                      (id, provider_plan_id, network, network_id, value, wholesale_cost, api_discount, available_stock, max_quantity, price, pricing_mode, admin_price_locked, provider_id, is_active, updated_at)
                      VALUES
-                     (:id, :ppid, :net, :nid, :val, :wcost, :adisc, :avail, 50, :price, "default_markup", 0, "ulamadata", :act, NOW())',
+                     (:id, :ppid, :net, :nid, :val, :wcost, :adisc, :avail, 50, :price, "default_markup", 0, "ulamadata", 1, NOW())',
                     [
                         'id' => $rowId,
                         'ppid' => $ppid,
@@ -646,7 +591,6 @@ class UlamaDataAdapter implements TelecomAdapterInterface
                         'adisc' => $item['api_discount'],
                         'avail' => $item['available_stock'],
                         'price' => $defaultSelling,
-                        'act' => $activeFlag,
                     ]
                 );
                 $inserted++;
@@ -654,32 +598,7 @@ class UlamaDataAdapter implements TelecomAdapterInterface
                 $isLocked = (int)($existing['admin_price_locked'] ?? 0) === 1
                     || in_array((string)($existing['pricing_mode'] ?? ''), ['fixed', 'markup_percent', 'discount_percent'], true);
 
-                if ($isAnomaly && !$isLocked) {
-                    $anomaliesDisabled++;
-                    $this->db->execute(
-                        'UPDATE airtime_pin_denominations
-                         SET provider_plan_id = :ppid,
-                             network = :net,
-                             network_id = :nid,
-                             value = :val,
-                             wholesale_cost = :wcost,
-                             api_discount = :adisc,
-                             available_stock = :avail,
-                             is_active = 0,
-                             updated_at = NOW()
-                         WHERE id = :id',
-                        [
-                            'id' => $rowId,
-                            'ppid' => $ppid,
-                            'net' => $item['network'],
-                            'nid' => $item['network_id'],
-                            'val' => $denomination,
-                            'wcost' => $wholesale,
-                            'adisc' => $item['api_discount'],
-                            'avail' => $item['available_stock'],
-                        ]
-                    );
-                } elseif ($isLocked || !$recalculateUnlocked) {
+                if ($isLocked || !$recalculateUnlocked) {
                     $this->db->execute(
                         'UPDATE airtime_pin_denominations
                          SET provider_plan_id = :ppid,
@@ -751,7 +670,6 @@ class UlamaDataAdapter implements TelecomAdapterInterface
             'inserted_count' => $inserted,
             'updated_count' => $updated,
             'preserved_overrides' => $preservedOverrides,
-            'anomalies_disabled' => $anomaliesDisabled,
             'items' => $items,
             'timestamp' => date('c'),
         ];
@@ -915,236 +833,54 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     }
 
     /**
-     * 6. Airtime Swap (Disabled — Ulamadata documentation exposes no automated /api/airtime-swap endpoint)
+     * 6. Airtime Swap (POST /api/airtime-swap)
      */
     public function processAirtimeSwap(string $network, string $phone, float $amount): array
     {
-        throw new RuntimeException('Automated Airtime-to-Cash conversion is not currently supported by the active carrier gateway.');
-    }
+        $networkId = $this->getSwapNetworkId($network);
+        $payload = [
+            'network' => $networkId,
+            'phone' => $phone,
+            'amount' => (int)round($amount),
+        ];
 
-    /**
-     * 7a. Fetch Live Cable TV Plans (GET /api/get-cable-plan?cable=... or GET /api/get-cable)
-     */
-    public function fetchCablePlans(?string $cable = null): array
-    {
-        $rawList = [];
-        if ($cable !== null && trim($cable) !== '') {
-            $res = $this->executeHttp('/api/get-cable-plan?cable=' . urlencode(strtoupper(trim($cable))), 'GET');
-            $data = $res['data'];
-            $rows = isset($data['data']) && is_array($data['data']) ? $data['data'] : $data;
-            if (is_array($rows)) {
-                $rawList = $rows;
-            }
-        } else {
-            try {
-                $res = $this->executeHttp('/api/get-cable', 'GET');
-                $data = $res['data'];
-                $rows = isset($data['data']) && is_array($data['data']) ? $data['data'] : $data;
-                if (is_array($rows) && !empty($rows)) {
-                    $rawList = $rows;
-                }
-            } catch (\Throwable) {
-            }
-            if (empty($rawList)) {
-                foreach (['GOTV', 'DSTV', 'STARTIMES', 'SHOWMAX'] as $prov) {
-                    try {
-                        $res = $this->executeHttp('/api/get-cable-plan?cable=' . $prov, 'GET');
-                        $data = $res['data'];
-                        $rows = isset($data['data']) && is_array($data['data']) ? $data['data'] : $data;
-                        if (is_array($rows)) {
-                            foreach ($rows as $r) {
-                                if (is_array($r)) {
-                                    $rawList[] = $r;
-                                }
-                            }
-                        }
-                    } catch (\Throwable) {
-                    }
-                }
-            }
-        }
-
-        $items = [];
-        foreach ($rawList as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $planId = (int)($row['id'] ?? 0);
-            $rawCable = strtolower(trim((string)($row['cable'] ?? '')));
-            $provider = str_contains($rawCable, 'dstv') ? 'dstv'
-                : (str_contains($rawCable, 'gotv') ? 'gotv'
-                : (str_contains($rawCable, 'showmax') ? 'showmax' : 'startimes'));
-            $cableId = (int)($row['cable_id'] ?? $this->getCableId($provider));
-            $price = (float)($row['price'] ?? 0);
-            $name = trim((string)($row['name'] ?? ''));
-            if ($planId <= 0 || $price <= 0 || $name === '') {
-                continue;
-            }
-            $items[] = [
-                'provider_plan_id' => $planId,
-                'cable_id' => $cableId,
-                'provider' => $provider,
-                'name' => mb_substr($name, 0, 100),
-                'code' => 'ud-' . $provider . '-' . $planId,
-                'wholesale_cost' => $price,
-            ];
-        }
-        return $items;
-    }
-
-    /**
-     * 7b. Sync Live Cable TV Bouquets into cable_packages (preserves admin-locked pricing)
-     */
-    public function syncCablePackages(bool $recalculateUnlocked = false): array
-    {
-        $items = $this->fetchCablePlans();
-        $defaultMarkup = 2.0;
-        try {
-            $mRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "cable_default_markup_percent"');
-            if ($mRow && is_numeric($mRow['setting_value'])) {
-                $defaultMarkup = max(0.0, (float)$mRow['setting_value']);
-            }
-        } catch (\Throwable) {
-        }
-
-        $synced = 0;
-        $inserted = 0;
-        $updated = 0;
-        $preservedOverrides = 0;
-        $syncedIds = [];
-
-        foreach ($items as $item) {
-            $rowId = 'cab_ud_' . $item['provider_plan_id'];
-            $wholesale = (float)$item['wholesale_cost'];
-            $defaultSelling = round($wholesale * (1 + ($defaultMarkup / 100)), 2);
-
-            $existing = $this->db->fetchOne('SELECT id, price, pricing_mode, admin_price_locked FROM cable_packages WHERE id = :id', ['id' => $rowId]);
-            if (!$existing) {
-                $this->db->execute(
-                    'INSERT INTO cable_packages
-                     (id, provider_plan_id, cable_id, provider, name, code, channels, wholesale_cost, price, pricing_mode, admin_price_locked, provider_id, is_active, updated_at)
-                     VALUES
-                     (:id, :ppid, :cid, :prov, :name, :code, 0, :wcost, :price, "default_markup", 0, "ulamadata", 1, NOW())',
-                    [
-                        'id' => $rowId,
-                        'ppid' => $item['provider_plan_id'],
-                        'cid' => $item['cable_id'],
-                        'prov' => $item['provider'],
-                        'name' => $item['name'],
-                        'code' => $item['code'],
-                        'wcost' => $wholesale,
-                        'price' => $defaultSelling,
-                    ]
-                );
-                $inserted++;
-            } else {
-                $isLocked = (int)($existing['admin_price_locked'] ?? 0) === 1
-                    || in_array((string)($existing['pricing_mode'] ?? ''), ['fixed', 'markup_percent', 'discount_percent'], true);
-
-                if ($isLocked || !$recalculateUnlocked) {
-                    $this->db->execute(
-                        'UPDATE cable_packages
-                         SET provider_plan_id = :ppid,
-                             cable_id = :cid,
-                             provider = :prov,
-                             name = :name,
-                             code = :code,
-                             wholesale_cost = :wcost,
-                             updated_at = NOW()
-                         WHERE id = :id',
-                        [
-                            'id' => $rowId,
-                            'ppid' => $item['provider_plan_id'],
-                            'cid' => $item['cable_id'],
-                            'prov' => $item['provider'],
-                            'name' => $item['name'],
-                            'code' => $item['code'],
-                            'wcost' => $wholesale,
-                        ]
-                    );
-                    if ($isLocked) {
-                        $preservedOverrides++;
-                    }
-                } else {
-                    $this->db->execute(
-                        'UPDATE cable_packages
-                         SET provider_plan_id = :ppid,
-                             cable_id = :cid,
-                             provider = :prov,
-                             name = :name,
-                             code = :code,
-                             wholesale_cost = :wcost,
-                             price = :price,
-                             updated_at = NOW()
-                         WHERE id = :id',
-                        [
-                            'id' => $rowId,
-                            'ppid' => $item['provider_plan_id'],
-                            'cid' => $item['cable_id'],
-                            'prov' => $item['provider'],
-                            'name' => $item['name'],
-                            'code' => $item['code'],
-                            'wcost' => $wholesale,
-                            'price' => $defaultSelling,
-                        ]
-                    );
-                }
-                $updated++;
-            }
-
-            $syncedIds[] = $rowId;
-            $synced++;
-        }
-
-        if (!empty($syncedIds)) {
-            $placeholders = implode(',', array_fill(0, count($syncedIds), '?'));
-            $this->db->execute(
-                "UPDATE cable_packages SET is_active = 0, updated_at = NOW() WHERE id NOT IN ({$placeholders})",
-                $syncedIds
-            );
-        }
+        $res = $this->executeHttp('/api/airtime-swap', 'POST', $payload);
+        $data = $res['data'];
 
         return [
-            'synced_count' => $synced,
-            'inserted_count' => $inserted,
-            'updated_count' => $updated,
-            'preserved_overrides' => $preservedOverrides,
-            'timestamp' => date('c'),
+            'status' => 'pending',
+            'provider_reference' => (string)($data['request-id'] ?? ($data['ident'] ?? ('UD_SWP_' . time()))),
+            'network' => $network,
+            'phone' => $phone,
+            'amount' => $amount,
+            'transfer_number' => $data['transfer_number'] ?? $data['merchant_number'] ?? $data['phone'] ?? null,
+            'instructions' => $data['message'] ?? $data['instructions'] ?? 'Transfer airtime to provided merchant number and await automated verification.',
+            'raw' => $data,
         ];
     }
 
     /**
-     * 7. Smartcard Validation (GET /api/cable/cable-validation?iuc=...&cable=1|2|3|4)
+     * 7. Smartcard Validation (POST /api/cable/cable-validation)
      */
     public function validateSmartcard(string $provider, string $smartcard): array
     {
-        $cableId = is_numeric($provider) && (int)$provider > 0 ? (int)$provider : $this->getCableId($provider);
-        $query = http_build_query([
-            'iuc' => trim($smartcard),
+        $cableId = $this->getCableId($provider);
+        $res = $this->executeHttp('/api/cable/cable-validation', 'POST', [
             'cable' => $cableId,
+            'iuc' => $smartcard,
         ]);
-        $res = $this->executeHttp('/api/cable/cable-validation?' . $query, 'GET');
         $data = $res['data'];
 
-        $statusRaw = strtolower(trim((string)($data['status'] ?? '')));
-        $customer = trim((string)($data['name'] ?? ($data['customer_name'] ?? ($data['Customer_Name'] ?? ''))));
-        $lowerCust = strtolower($customer);
-
-        if ($statusRaw === 'fail' || $customer === '' || str_contains($lowerCust, 'unable to verify') || str_contains($lowerCust, 'invalid')) {
-            $errMsg = trim((string)($data['message'] ?? ''));
-            throw new RuntimeException($errMsg !== '' && strtolower($errMsg) !== 'unable to verify'
-                ? $errMsg
-                : 'Unable to validate smartcard/IUC number with the cable provider. Please confirm the number and decoder type.');
+        $customer = $data['name'] ?? ($data['customer_name'] ?? ($data['Customer_Name'] ?? ''));
+        if (empty($customer)) {
+            throw new RuntimeException((string)($data['message'] ?? 'Unable to validate smartcard. Please check IUC/smartcard number.'));
         }
 
-        $outstanding = trim((string)($data['outstandingAmount'] ?? ($data['outstanding_amount'] ?? '')));
         return [
             'success' => true,
             'customer_name' => $customer,
             'status' => $data['status'] ?? 'active',
-            'outstanding_amount' => $outstanding !== '' && is_numeric($outstanding) ? (float)$outstanding : 0.0,
             'due_date' => $data['due_date'] ?? null,
-            'message' => $data['message'] ?? $customer,
             'raw' => $data,
         ];
     }
@@ -1152,254 +888,62 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     /**
      * 8. Cable TV Subscription (POST /api/cable)
      */
-    public function renewCable(string $provider, string $smartcard, string|int $packageCode, bool $bypass = false, ?string $requestId = null): array
+    public function renewCable(string $provider, string $smartcard, string $packageCode): array
     {
-        $cableId = is_numeric($provider) && (int)$provider > 0 ? (int)$provider : $this->getCableId($provider);
-        $cablePlanId = 0;
-
-        if (is_numeric($packageCode) && (int)$packageCode > 0) {
-            $cablePlanId = (int)$packageCode;
-        } else {
-            try {
-                $pkgRow = $this->db->fetchOne(
-                    'SELECT provider_plan_id, cable_id FROM cable_packages WHERE (id = :id OR code = :code) AND provider_plan_id IS NOT NULL AND provider_plan_id > 0 LIMIT 1',
-                    ['id' => (string)$packageCode, 'code' => (string)$packageCode]
-                );
-                if ($pkgRow) {
-                    $cablePlanId = (int)$pkgRow['provider_plan_id'];
-                    if (!empty($pkgRow['cable_id'])) {
-                        $cableId = (int)$pkgRow['cable_id'];
-                    }
-                }
-            } catch (\Throwable) {
-            }
-        }
-
-        if ($cablePlanId <= 0) {
-            throw new RuntimeException('Selected cable bouquet lacks a valid live plan ID. Sync Cable Packages in Admin first.');
-        }
-
-        $reqId = $requestId ?: ('HT_CAB_' . strtoupper(bin2hex(random_bytes(5))));
+        $cableId = $this->getCableId($provider);
+        $requestId = 'HT_CAB_' . strtoupper(bin2hex(random_bytes(5)));
         $payload = [
             'cable' => $cableId,
-            'iuc' => trim($smartcard),
-            'cable_plan' => $cablePlanId,
-            'bypass' => $bypass,
-            'request-id' => $reqId,
+            'iuc' => $smartcard,
+            'cable_plan' => (int)$packageCode,
+            'request-id' => $requestId,
         ];
 
         $res = $this->executeHttp('/api/cable', 'POST', $payload);
         $data = $res['data'];
 
-        $status = strtolower(trim((string)($data['status'] ?? ($data['Status'] ?? 'failed'))));
-        $msg = (string)($data['message'] ?? ($data['api_response'] ?? ($data['msg'] ?? '')));
-        $isSuccess = in_array($status, ['success', 'successful', 'delivered', 'completed'], true);
-        $isPending = in_array($status, ['pending', 'processing', 'queued', 'initiated'], true)
-            || str_contains(strtolower($msg), 'is processing');
-
-        if (!$isSuccess && !$isPending) {
-            throw new RuntimeException($msg !== '' ? $msg : 'Cable TV renewal failed upstream');
+        $status = strtolower((string)($data['status'] ?? ($data['Status'] ?? 'failed')));
+        if (!in_array($status, ['success', 'successful'], true)) {
+            throw new RuntimeException((string)($data['message'] ?? ($data['msg'] ?? 'Cable TV renewal failed upstream')));
         }
 
         return [
-            'status' => $isSuccess ? 'successful' : 'pending',
-            'provider_reference' => (string)($data['request-id'] ?? ($data['ident'] ?? ($data['id'] ?? $reqId))),
+            'status' => 'successful',
+            'provider_reference' => (string)($data['request-id'] ?? ($data['ident'] ?? $requestId)),
             'provider' => $provider,
             'smartcard' => $smartcard,
-            'package' => $cablePlanId,
-            'api_response' => $msg,
+            'package' => $packageCode,
             'raw' => $data,
         ];
     }
 
     /**
-     * 9a. Fetch Live Electricity DISCOs (GET /api/get-bill)
-     */
-    public function fetchElectricityDiscos(): array
-    {
-        $res = $this->executeHttp('/api/get-bill', 'GET');
-        $rows = $res['data'];
-        if (isset($rows['data']) && is_array($rows['data'])) {
-            $rows = $rows['data'];
-        }
-        if (!is_array($rows)) {
-            return [];
-        }
-
-        $slugMap = [
-            1 => 'ikeja-electric',
-            2 => 'eko-electric',
-            3 => 'kano-electric',
-            4 => 'portharcourt-electric',
-            5 => 'jos-electric',
-            6 => 'ibadan-electric',
-            7 => 'kaduna-electric',
-            8 => 'abuja-electric',
-            9 => 'enugu-electric',
-            10 => 'benin-electric',
-            11 => 'yola-electric',
-            12 => 'aba-electric',
-        ];
-
-        $items = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $discoId = (int)($row['id'] ?? 0);
-            $name = trim((string)($row['name'] ?? ''));
-            $abb = strtoupper(trim((string)($row['abb'] ?? '')));
-            $apiDisc = (float)($row['apidiscount'] ?? 0);
-            if ($discoId <= 0 || $name === '') {
-                continue;
-            }
-            $code = $slugMap[$discoId] ?? strtolower(preg_replace('/[^a-z0-9]+/i', '-', $name));
-            $display = $abb !== '' && !str_contains(strtoupper($name), $abb) ? "{$name} ({$abb})" : $name;
-            $items[] = [
-                'provider_disco_id' => $discoId,
-                'name' => mb_substr($display, 0, 100),
-                'abbreviation' => $abb,
-                'code' => $code,
-                'api_discount' => $apiDisc,
-            ];
-        }
-        return $items;
-    }
-
-    /**
-     * 9b. Sync All 12 Live DISCOs into electricity_discos (preserves admin min/max/fees)
-     */
-    public function syncElectricityDiscos(): array
-    {
-        $items = $this->fetchElectricityDiscos();
-        $synced = 0;
-        $inserted = 0;
-        $updated = 0;
-        $syncedIds = [];
-
-        foreach ($items as $item) {
-            $rowId = 'disc_ud_' . $item['provider_disco_id'];
-            $existing = $this->db->fetchOne(
-                'SELECT id FROM electricity_discos WHERE id = :id OR code = :code LIMIT 1',
-                ['id' => $rowId, 'code' => $item['code']]
-            );
-            $targetId = $existing ? (string)$existing['id'] : $rowId;
-            if (!$existing) {
-                $this->db->execute(
-                    'INSERT INTO electricity_discos
-                     (id, provider_disco_id, abbreviation, name, code, api_discount, minimum_amount, max_amount, fee_type, convenience_fee, discount_percent, admin_price_locked, provider_id, is_active, updated_at)
-                     VALUES
-                     (:id, :pdid, :abb, :name, :code, :adisc, 1000.00, 500000.00, "fixed_fee", 100.00, 0.00, 0, "ulamadata", 1, NOW())',
-                    [
-                        'id' => $targetId,
-                        'pdid' => $item['provider_disco_id'],
-                        'abb' => $item['abbreviation'],
-                        'name' => $item['name'],
-                        'code' => $item['code'],
-                        'adisc' => $item['api_discount'],
-                    ]
-                );
-                $inserted++;
-            } else {
-                $this->db->execute(
-                    'UPDATE electricity_discos
-                     SET provider_disco_id = :pdid,
-                         abbreviation = :abb,
-                         name = :name,
-                         code = :code,
-                         api_discount = :adisc,
-                         provider_id = "ulamadata",
-                         is_active = 1,
-                         updated_at = NOW()
-                     WHERE id = :id',
-                    [
-                        'id' => $targetId,
-                        'pdid' => $item['provider_disco_id'],
-                        'abb' => $item['abbreviation'],
-                        'name' => $item['name'],
-                        'code' => $item['code'],
-                        'adisc' => $item['api_discount'],
-                    ]
-                );
-                $updated++;
-            }
-            $syncedIds[] = $targetId;
-            $synced++;
-        }
-
-        if (!empty($syncedIds)) {
-            $placeholders = implode(',', array_fill(0, count($syncedIds), '?'));
-            $this->db->execute(
-                "UPDATE electricity_discos SET is_active = 0, updated_at = NOW() WHERE id NOT IN ({$placeholders})",
-                $syncedIds
-            );
-        }
-
-        return [
-            'synced_count' => $synced,
-            'inserted_count' => $inserted,
-            'updated_count' => $updated,
-            'timestamp' => date('c'),
-        ];
-    }
-
-    /**
-     * 9. Electricity Meter Validation (GET /api/bill/bill-validation?meter_number=...&meter_type=...&disco=...)
+     * 9. Electricity Meter Validation (POST /api/bill/bill-validation)
      */
     public function validateMeter(string $discoCode, string $meterNumber, string $meterType): array
     {
-        $discoId = 0;
-        if (is_numeric($discoCode) && (int)$discoCode > 0) {
-            $discoId = (int)$discoCode;
-        } else {
-            try {
-                $dRow = $this->db->fetchOne(
-                    'SELECT provider_disco_id FROM electricity_discos WHERE (id = :id OR code = :code) AND provider_disco_id IS NOT NULL AND provider_disco_id > 0 LIMIT 1',
-                    ['id' => $discoCode, 'code' => $discoCode]
-                );
-                if ($dRow) {
-                    $discoId = (int)$dRow['provider_disco_id'];
-                }
-            } catch (\Throwable) {
-            }
-            if ($discoId <= 0) {
-                $discoId = $this->getDiscoId($discoCode);
-            }
-        }
+        $discoId = $this->getDiscoId($discoCode);
+        $mType = (strtolower($meterType) === 'postpaid') ? 'postpaid' : 'prepaid';
 
-        $mType = (strtolower(trim($meterType)) === 'postpaid') ? 'postpaid' : 'prepaid';
-        $query = http_build_query([
-            'meter_number' => trim($meterNumber),
-            'meter_type' => $mType,
+        $res = $this->executeHttp('/api/bill/bill-validation', 'POST', [
             'disco' => $discoId,
+            'meter_number' => $meterNumber,
+            'meter_type' => $mType,
         ]);
-
-        $res = $this->executeHttp('/api/bill/bill-validation?' . $query, 'GET');
         $data = $res['data'];
 
-        $statusRaw = strtolower(trim((string)($data['status'] ?? '')));
-        $customer = trim((string)($data['name'] ?? ($data['customer_name'] ?? ($data['Customer_Name'] ?? ''))));
-        $lowerCust = strtolower($customer);
-
-        if ($statusRaw === 'fail' || $customer === '' || str_contains($lowerCust, 'unable to verify') || str_contains($lowerCust, 'invalid')) {
-            throw new RuntimeException('Unable to verify meter number with the distribution company. Please verify the meter number, meter type, and DISCO.');
+        $customer = $data['name'] ?? ($data['customer_name'] ?? ($data['Customer_Name'] ?? ''));
+        if (empty($customer)) {
+            throw new RuntimeException((string)($data['message'] ?? 'Meter number could not be validated with distribution company.'));
         }
-
-        $address = trim((string)($data['customer_address'] ?? ($data['address'] ?? ($data['Customer_Address'] ?? ''))));
-        if (strtolower($address) === 'unable to verify') {
-            $address = '';
-        }
-        $outstanding = trim((string)($data['outstandingAmount'] ?? ($data['outstanding_amount'] ?? '')));
 
         return [
             'success' => true,
             'customer_name' => $customer,
-            'address' => $address,
-            'meter_number' => trim($meterNumber),
+            'address' => $data['address'] ?? ($data['Customer_Address'] ?? ''),
+            'meter_number' => $meterNumber,
             'disco' => $discoCode,
-            'disco_id' => $discoId,
             'meter_type' => $mType,
-            'outstanding_amount' => $outstanding !== '' && is_numeric($outstanding) ? (float)$outstanding : 0.0,
             'raw' => $data,
         ];
     }
@@ -1407,308 +951,87 @@ class UlamaDataAdapter implements TelecomAdapterInterface
     /**
      * 10. Electricity Bill Payment & STS Token (POST /api/bill)
      */
-    public function vendElectricity(string $discoCode, string $meterNumber, float $amount, string $meterType, string $phone = '', bool $bypass = false, ?string $requestId = null): array
+    public function vendElectricity(string $discoCode, string $meterNumber, float $amount, string $meterType): array
     {
-        $discoId = 0;
-        if (is_numeric($discoCode) && (int)$discoCode > 0) {
-            $discoId = (int)$discoCode;
-        } else {
-            try {
-                $dRow = $this->db->fetchOne(
-                    'SELECT provider_disco_id FROM electricity_discos WHERE (id = :id OR code = :code) AND provider_disco_id IS NOT NULL AND provider_disco_id > 0 LIMIT 1',
-                    ['id' => $discoCode, 'code' => $discoCode]
-                );
-                if ($dRow) {
-                    $discoId = (int)$dRow['provider_disco_id'];
-                }
-            } catch (\Throwable) {
-            }
-            if ($discoId <= 0) {
-                $discoId = $this->getDiscoId($discoCode);
-            }
-        }
-
-        $mType = (strtolower(trim($meterType)) === 'postpaid') ? 'postpaid' : 'prepaid';
-        $reqId = $requestId ?: ('HT_ELE_' . strtoupper(bin2hex(random_bytes(5))));
+        $discoId = $this->getDiscoId($discoCode);
+        $mType = (strtolower($meterType) === 'postpaid') ? 'postpaid' : 'prepaid';
+        $requestId = 'HT_ELE_' . strtoupper(bin2hex(random_bytes(5)));
 
         $payload = [
             'disco' => $discoId,
+            'meter_number' => $meterNumber,
             'meter_type' => $mType,
-            'meter_number' => trim($meterNumber),
             'amount' => (int)round($amount),
-            'bypass' => $bypass,
-            'request-id' => $reqId,
+            'request-id' => $requestId,
         ];
-        if (trim($phone) !== '') {
-            $payload['phone'] = trim($phone);
-        }
 
         $res = $this->executeHttp('/api/bill', 'POST', $payload);
         $data = $res['data'];
 
-        $status = strtolower(trim((string)($data['status'] ?? ($data['Status'] ?? 'failed'))));
-        $msg = (string)($data['message'] ?? ($data['api_response'] ?? ($data['msg'] ?? '')));
-        $isSuccess = in_array($status, ['success', 'successful', 'delivered', 'completed'], true);
-        $isPending = in_array($status, ['pending', 'processing', 'queued', 'initiated'], true)
-            || str_contains(strtolower($msg), 'is processing');
-
-        if (!$isSuccess && !$isPending) {
-            throw new RuntimeException($msg !== '' ? $msg : 'Electricity payment failed upstream');
+        $status = strtolower((string)($data['status'] ?? ($data['Status'] ?? 'failed')));
+        if (!in_array($status, ['success', 'successful'], true)) {
+            throw new RuntimeException((string)($data['message'] ?? ($data['msg'] ?? 'Electricity payment failed upstream')));
         }
 
-        $rawToken = trim((string)($data['token'] ?? ($data['Token'] ?? ($data['purchased_code'] ?? ($data['pin'] ?? '')))));
-        if (in_array(strtolower($rawToken), ['', 'null', 'none', 'n/a', 'undefined'], true)) {
-            $rawToken = null;
-        }
-        $units = trim((string)($data['units'] ?? ($data['Units'] ?? '')));
-        if (in_array(strtolower($units), ['', 'null', 'none', 'n/a'], true)) {
-            $units = null;
-        }
-
-        // For prepaid meters, never fabricate a token; if upstream has not returned the STS token yet, keep pending so status check can retrieve it.
-        $finalStatus = $isSuccess ? 'successful' : 'pending';
-        if ($mType === 'prepaid' && $rawToken === null) {
-            $finalStatus = 'pending';
-        }
+        $token = $data['token'] ?? ($data['Token'] ?? ($data['purchased_code'] ?? null));
+        $units = $data['units'] ?? ($data['Units'] ?? null);
 
         return [
-            'status' => $finalStatus,
-            'provider_reference' => (string)($data['request-id'] ?? ($data['ident'] ?? ($data['id'] ?? $reqId))),
+            'status' => 'successful',
+            'provider_reference' => (string)($data['request-id'] ?? ($data['ident'] ?? $requestId)),
             'disco' => $discoCode,
-            'meter_number' => trim($meterNumber),
-            'meter_type' => $mType,
-            'token' => $rawToken,
+            'meter_number' => $meterNumber,
+            'token' => $token,
             'units' => $units,
             'amount' => $amount,
-            'api_response' => $msg,
             'raw' => $data,
-        ];
-    }
-
-    /**
-     * 11a. Fetch Live Examination Plans (GET /api/get-exam)
-     */
-    public function fetchExamPlans(): array
-    {
-        $res = $this->executeHttp('/api/get-exam', 'GET');
-        $rows = $res['data'];
-        if (isset($rows['data']) && is_array($rows['data'])) {
-            $rows = $rows['data'];
-        }
-        if (!is_array($rows)) {
-            return [];
-        }
-
-        $items = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $examId = (int)($row['id'] ?? ($row['exam_id'] ?? 0));
-            $name = strtoupper(trim((string)($row['name'] ?? ($row['exam_name'] ?? ''))));
-            $price = (float)($row['price'] ?? 0);
-            if ($examId <= 0 || $name === '' || $price <= 0) {
-                continue;
-            }
-            $items[] = [
-                'provider_plan_id' => $examId,
-                'exam_name' => $name,
-                'name' => "{$name} Result Checker PIN",
-                'wholesale_cost' => $price,
-            ];
-        }
-        return $items;
-    }
-
-    /**
-     * 11b. Sync Live Exam Packages into exam_packages (preserves admin-locked prices & disables unsupported/stale rows)
-     */
-    public function syncExamPackages(bool $recalculateUnlocked = false): array
-    {
-        $items = $this->fetchExamPlans();
-        $defaultMarkup = 5.0;
-        try {
-            $mRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "exam_default_markup_percent"');
-            if ($mRow && is_numeric($mRow['setting_value'])) {
-                $defaultMarkup = max(0.0, (float)$mRow['setting_value']);
-            }
-        } catch (\Throwable) {
-        }
-
-        $synced = 0;
-        $inserted = 0;
-        $updated = 0;
-        $preservedOverrides = 0;
-        $syncedIds = [];
-
-        foreach ($items as $item) {
-            $rowId = 'exm_ud_' . $item['provider_plan_id'];
-            $wholesale = (float)$item['wholesale_cost'];
-            $defaultSelling = round($wholesale * (1 + ($defaultMarkup / 100)), 2);
-
-            $existing = $this->db->fetchOne('SELECT id, price, pricing_mode, admin_price_locked FROM exam_packages WHERE id = :id', ['id' => $rowId]);
-            if (!$existing) {
-                $desc = "Official {$item['exam_name']} e-PIN scratch card / token generated directly via verified exam gateway.";
-                $this->db->execute(
-                    'INSERT INTO exam_packages
-                     (id, provider_plan_id, exam_name, name, description, wholesale_cost, price, pricing_mode, admin_price_locked, max_quantity, provider_id, is_active, updated_at)
-                     VALUES
-                     (:id, :ppid, :ename, :name, :desc, :wcost, :price, "default_markup", 0, 10, "ulamadata", 1, NOW())',
-                    [
-                        'id' => $rowId,
-                        'ppid' => $item['provider_plan_id'],
-                        'ename' => $item['exam_name'],
-                        'name' => $item['name'],
-                        'desc' => $desc,
-                        'wcost' => $wholesale,
-                        'price' => $defaultSelling,
-                    ]
-                );
-                $inserted++;
-            } else {
-                $isLocked = (int)($existing['admin_price_locked'] ?? 0) === 1
-                    || in_array((string)($existing['pricing_mode'] ?? ''), ['fixed', 'markup_percent', 'discount_percent'], true);
-
-                if ($isLocked || !$recalculateUnlocked) {
-                    $this->db->execute(
-                        'UPDATE exam_packages
-                         SET provider_plan_id = :ppid,
-                             exam_name = :ename,
-                             name = :name,
-                             wholesale_cost = :wcost,
-                             updated_at = NOW()
-                         WHERE id = :id',
-                        [
-                            'id' => $rowId,
-                            'ppid' => $item['provider_plan_id'],
-                            'ename' => $item['exam_name'],
-                            'name' => $item['name'],
-                            'wcost' => $wholesale,
-                        ]
-                    );
-                    if ($isLocked) {
-                        $preservedOverrides++;
-                    }
-                } else {
-                    $this->db->execute(
-                        'UPDATE exam_packages
-                         SET provider_plan_id = :ppid,
-                             exam_name = :ename,
-                             name = :name,
-                             wholesale_cost = :wcost,
-                             price = :price,
-                             updated_at = NOW()
-                         WHERE id = :id',
-                        [
-                            'id' => $rowId,
-                            'ppid' => $item['provider_plan_id'],
-                            'ename' => $item['exam_name'],
-                            'name' => $item['name'],
-                            'wcost' => $wholesale,
-                            'price' => $defaultSelling,
-                        ]
-                    );
-                }
-                $updated++;
-            }
-
-            $syncedIds[] = $rowId;
-            $synced++;
-        }
-
-        if (!empty($syncedIds)) {
-            $placeholders = implode(',', array_fill(0, count($syncedIds), '?'));
-            $this->db->execute(
-                "UPDATE exam_packages SET is_active = 0, updated_at = NOW() WHERE id NOT IN ({$placeholders})",
-                $syncedIds
-            );
-        }
-
-        return [
-            'synced_count' => $synced,
-            'inserted_count' => $inserted,
-            'updated_count' => $updated,
-            'preserved_overrides' => $preservedOverrides,
-            'items' => $items,
-            'timestamp' => date('c'),
         ];
     }
 
     /**
      * 11. Examination Scratch Cards (POST /api/exam)
      */
-    public function vendExamPin(string $examName, int $quantity, ?int $providerPlanId = null, ?string $requestId = null): array
+    public function vendExamPin(string $examName, int $quantity): array
     {
-        $examId = ($providerPlanId !== null && $providerPlanId > 0) ? $providerPlanId : $this->getExamId($examName);
-        $reqId = $requestId ?: ('HT_EXM_' . strtoupper(bin2hex(random_bytes(5))));
+        $examId = $this->getExamId($examName);
+        $requestId = 'HT_EXM_' . strtoupper(bin2hex(random_bytes(5)));
         $payload = [
             'exam' => $examId,
             'quantity' => $quantity,
-            'request-id' => $reqId,
+            'request-id' => $requestId,
         ];
 
         $res = $this->executeHttp('/api/exam', 'POST', $payload);
         $data = $res['data'];
 
-        $status = strtolower(trim((string)($data['status'] ?? ($data['Status'] ?? 'failed'))));
-        $msg = (string)($data['message'] ?? ($data['api_response'] ?? ($data['msg'] ?? '')));
-        $isSuccess = in_array($status, ['success', 'successful', 'delivered', 'completed'], true);
-        $isPending = in_array($status, ['pending', 'processing', 'queued', 'initiated'], true);
-
-        if (!$isSuccess && !$isPending) {
-            throw new RuntimeException($msg !== '' ? $msg : 'Examination PIN purchase failed upstream');
+        $status = strtolower((string)($data['status'] ?? ($data['Status'] ?? 'failed')));
+        if (!in_array($status, ['success', 'successful'], true)) {
+            throw new RuntimeException((string)($data['message'] ?? ($data['msg'] ?? 'Examination PIN purchase failed upstream')));
         }
 
-        $rawCards = $data['cards'] ?? ($data['pins'] ?? ($data['pin'] ?? []));
-        $rawSerials = $data['serial'] ?? ($data['serials'] ?? []);
-        $cards = [];
-        if (is_string($rawCards)) {
-            $pinsArr = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $rawCards) ?: [])));
-            $serArr = is_string($rawSerials) ? array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $rawSerials) ?: []))) : (array)$rawSerials;
-            foreach ($pinsArr as $idx => $p) {
-                $cards[] = [
-                    'pin' => $p,
-                    'serial' => (string)($serArr[$idx] ?? ''),
-                ];
-            }
-        } elseif (is_array($rawCards)) {
-            foreach ($rawCards as $idx => $c) {
-                if (is_array($c)) {
-                    $cards[] = [
-                        'pin' => (string)($c['pin'] ?? ($c['code'] ?? ($c['token'] ?? json_encode($c)))),
-                        'serial' => (string)($c['serial'] ?? ($c['serial_number'] ?? '')),
-                    ];
-                } else {
-                    $serList = is_array($rawSerials) ? $rawSerials : [];
-                    $cards[] = [
-                        'pin' => trim((string)$c),
-                        'serial' => trim((string)($serList[$idx] ?? '')),
-                    ];
-                }
-            }
+        $cards = $data['cards'] ?? ($data['pins'] ?? ($data['pin'] ?? []));
+        if (is_string($cards)) {
+            $cards = [$cards];
         }
-
         return [
-            'status' => $isSuccess ? 'successful' : 'pending',
-            'provider_reference' => (string)($data['request-id'] ?? ($data['ident'] ?? ($data['id'] ?? $reqId))),
+            'status' => 'successful',
+            'provider_reference' => (string)($data['request-id'] ?? ($data['ident'] ?? $requestId)),
             'exam' => $examName,
-            'quantity' => count($cards) > 0 ? count($cards) : $quantity,
+            'quantity' => is_array($cards) && count($cards) > 0 ? count($cards) : $quantity,
             'cards' => $cards,
-            'api_response' => $msg,
             'raw' => $data,
         ];
     }
 
     /**
-     * 12a. Bulk SMS Messaging (POST /api/bulk-sms)
+     * 12. Bulk SMS Messaging (POST /api/bulk-sms)
      */
-    public function sendBulkSms(string $senderId, array $recipients, string $message, ?string $requestId = null): array
+    public function sendBulkSms(string $senderId, array $recipients, string $message): array
     {
         $cleanRecipients = array_values(array_filter(array_map('trim', $recipients), static fn($r) => $r !== ''));
         $phoneList = implode(',', $cleanRecipients);
-        $reqId = $requestId ?: ('HT_SMS_' . strtoupper(bin2hex(random_bytes(5))));
         $payload = [
-            'subject' => mb_substr($senderId ?: 'HAMBAK', 0, 11),
+            'subject' => substr($senderId ?: 'HAMBAK', 0, 11),
             'bulkPhones' => $phoneList,
             'message' => $message,
         ];
@@ -1716,53 +1039,18 @@ class UlamaDataAdapter implements TelecomAdapterInterface
         $res = $this->executeHttp('/api/bulk-sms', 'POST', $payload);
         $data = $res['data'];
 
-        $status = strtolower(trim((string)($data['status'] ?? ($data['Status'] ?? 'failed'))));
-        $msg = (string)($data['message'] ?? ($data['api_response'] ?? ($data['msg'] ?? '')));
-        $isSuccess = in_array($status, ['success', 'successful', 'delivered', 'completed', 'sent'], true);
-        $isPending = in_array($status, ['pending', 'processing', 'queued', 'initiated'], true);
-
-        if (!$isSuccess && !$isPending) {
-            throw new RuntimeException($msg !== '' ? $msg : 'Bulk SMS delivery failed upstream');
+        $status = strtolower((string)($data['status'] ?? ($data['Status'] ?? 'failed')));
+        if (!in_array($status, ['success', 'successful'], true)) {
+            throw new RuntimeException((string)($data['message'] ?? ($data['msg'] ?? 'Bulk SMS delivery failed upstream')));
         }
 
-        $smsId = (string)($data['sms_id'] ?? ($data['id'] ?? ($data['ident'] ?? ($data['request-id'] ?? $reqId))));
         return [
-            'status' => $isSuccess ? 'successful' : 'pending',
-            'provider_reference' => $smsId,
-            'sms_id' => $smsId,
+            'status' => 'successful',
+            'provider_reference' => (string)($data['request-id'] ?? ($data['ident'] ?? ('UD_SMS_' . time()))),
             'recipients_count' => count($cleanRecipients),
             'units_charged' => $data['units'] ?? count($cleanRecipients),
-            'api_response' => $msg,
             'raw' => $data,
         ];
-    }
-
-    /**
-     * 12b. Bulk SMS Delivery Report Lookup (GET /api/sms-report?sms_id=...)
-     */
-    public function getSmsReport(string $smsId): array
-    {
-        $cleanId = trim($smsId);
-        if ($cleanId === '') {
-            return ['available' => false, 'status' => 'unavailable', 'message' => 'Missing SMS campaign reference.'];
-        }
-        try {
-            $res = $this->executeHttp('/api/sms-report?sms_id=' . rawurlencode($cleanId), 'GET');
-            $data = $res['data'];
-            return [
-                'available' => true,
-                'sms_id' => $cleanId,
-                'status' => strtolower((string)($data['status'] ?? 'submitted')),
-                'report' => $data,
-            ];
-        } catch (\Throwable $e) {
-            return [
-                'available' => false,
-                'sms_id' => $cleanId,
-                'status' => 'unavailable',
-                'message' => 'Delivery report status is not available for this reference right now.',
-            ];
-        }
     }
 
     /**

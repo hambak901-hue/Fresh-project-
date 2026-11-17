@@ -1333,15 +1333,14 @@ class ProviderManager
             ?? $_ENV['JWT_SECRET'] 
             ?? getenv('ENCRYPTION_KEY') 
             ?? getenv('JWT_SECRET');
-        $appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: (getenv('NODE_ENV') ?: 'production'))));
-        $isTestingOnly = ($appEnv === 'testing' && PHP_SAPI === 'cli');
+        $appEnv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?? (getenv('NODE_ENV') ?: 'production');
         if (empty($secret)) {
-            if (!$isTestingOnly) {
+            if ($appEnv === 'production') {
                 throw new RuntimeException('SECURITY FATAL: ENCRYPTION_KEY or JWT_SECRET must be configured.');
             }
             $secret = 'test_fixture_only_deterministic_key';
         }
-        $key = hash('sha256', (string)$secret, true);
+        $key = hash('sha256', $secret, true);
 
         $decoded = base64_decode($ciphertext, true);
         if ($decoded === false) return '';
@@ -1366,15 +1365,14 @@ class ProviderManager
             ?? $_ENV['JWT_SECRET'] 
             ?? getenv('ENCRYPTION_KEY') 
             ?? getenv('JWT_SECRET');
-        $appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: (getenv('NODE_ENV') ?: 'production'))));
-        $isTestingOnly = ($appEnv === 'testing' && PHP_SAPI === 'cli');
+        $appEnv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?? (getenv('NODE_ENV') ?: 'production');
         if (empty($secret)) {
-            if (!$isTestingOnly) {
+            if ($appEnv === 'production') {
                 throw new RuntimeException('SECURITY FATAL: ENCRYPTION_KEY or JWT_SECRET must be configured.');
             }
             $secret = 'test_fixture_only_deterministic_key';
         }
-        $key = hash('sha256', (string)$secret, true);
+        $key = hash('sha256', $secret, true);
 
         $iv = random_bytes(16);
         $ciphertext = openssl_encrypt($plaintext, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
