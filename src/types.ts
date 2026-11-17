@@ -3,12 +3,33 @@
  * HambakTech Enterprise TypeScript interfaces.
  */
 
+export type UserRole =
+  | 'customer'
+  | 'student'
+  | 'agent'
+  | 'support'
+  | 'staff'
+  | 'manager'
+  | 'admin'
+  | 'superadmin';
+
+export type DashboardKey =
+  | 'customer'
+  | 'student'
+  | 'agent'
+  | 'support'
+  | 'staff'
+  | 'manager'
+  | 'admin';
+
 export interface User {
   id: string;
   email: string;
   full_name: string;
   phone_number: string;
-  role: 'customer' | 'agent' | 'staff' | 'admin' | 'superadmin';
+  role: UserRole;
+  assigned_dashboard?: DashboardKey;
+  dashboard_config?: RoleDashboardConfig;
   wallet_balance: number;
   kyc_status: 'unverified' | 'pending' | 'verified' | 'rejected';
   bvn?: string;
@@ -1099,7 +1120,9 @@ export interface AdminCreateCustomerPayload {
   full_name: string;
   email: string;
   phone_number: string;
-  role: 'customer' | 'agent' | 'staff' | 'admin';
+  role: UserRole;
+  assigned_dashboard?: DashboardKey;
+  permissions?: string[];
   status: 'active' | 'pending' | 'suspended';
   tier: number;
   password?: string;
@@ -2369,9 +2392,81 @@ export interface PrintingReportsData {
   }>;
 }
 
+export interface RoleCatalogItem {
+  slug: UserRole;
+  name: string;
+  category: 'portal' | 'console';
+  default_dashboard: DashboardKey;
+  description: string;
+  default_permissions: string[];
+  requires_superadmin: boolean;
+  is_protected?: boolean;
+}
 
+export interface DashboardCatalogItem {
+  key: DashboardKey;
+  name: string;
+  category: 'portal' | 'console';
+  description: string;
+}
 
+export interface RoleDashboardModuleItem {
+  id: string;
+  label: string;
+  description?: string;
+  status: 'active' | 'coming_soon' | 'disabled';
+  visible: boolean;
+  order: number;
+  coming_soon_message?: string;
+}
 
+export interface RoleDashboardAnnouncementBanner {
+  enabled: boolean;
+  title: string;
+  message: string;
+  tone: 'info' | 'emerald' | 'amber';
+}
 
+export interface RoleDashboardConfig {
+  dashboard_key: DashboardKey;
+  category: 'portal' | 'console';
+  title: string;
+  subtitle: string;
+  badge_text: string;
+  default_tab: string;
+  announcement_banner: RoleDashboardAnnouncementBanner;
+  sections: Record<string, boolean>;
+  features: Record<string, boolean>;
+  modules: RoleDashboardModuleItem[];
+  required_permissions?: string[];
+}
 
+export interface RoleDashboardConfigRecord {
+  dashboard_key: DashboardKey;
+  published_config: RoleDashboardConfig;
+  draft_config: RoleDashboardConfig | null;
+  has_draft: boolean;
+  updated_by?: string | null;
+  updated_at?: string | null;
+  published_by?: string | null;
+  published_at?: string | null;
+}
 
+export interface AdminDashboardPreviewResponse {
+  success: boolean;
+  preview: {
+    target_dashboard: DashboardKey;
+    target_role: UserRole;
+    category: 'portal' | 'console';
+    mode: 'published' | 'draft';
+    has_draft?: boolean;
+    config: RoleDashboardConfig;
+    academy_preview?: {
+      courses_count: number;
+      enrollments_count: number;
+      courses?: AcademyCourse[];
+      settings?: AcademySettings;
+      sample_students?: AcademyStudent[];
+    };
+  };
+}

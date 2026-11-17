@@ -58,12 +58,21 @@ interface AuthContextType {
   register: (data: Record<string, any>) => Promise<User | null>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  refreshDashboardConfig: () => Promise<void>;
   refreshPinPolicy: () => Promise<void>;
   updateBalance: (balance: number) => void;
   openPinSetupModal: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+function mergeUserConfig(user?: User | null, dashboardConfig?: import('../types').RoleDashboardConfig | null): User | null {
+  if (!user) return null;
+  if (dashboardConfig) {
+    return { ...user, dashboard_config: dashboardConfig };
+  }
+  return user;
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -95,11 +104,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const refreshDashboardConfig = async () => {
+    try {
+      const res = await api.getMyDashboardConfig();
+      if (res.success && res.config) {
+        setUser(prev =>
+          prev
+            ? {
+                ...prev,
+                assigned_dashboard: res.assigned_dashboard || prev.assigned_dashboard,
+                dashboard_config: res.config,
+              }
+            : prev
+        );
+      }
+    } catch {
+      // Non-fatal fallback
+    }
+  };
+
   const refreshUser = async () => {
     try {
       const res = await api.getMe();
       if (res.success && res.user) {
-        setUser(res.user);
+        setUser(mergeUserConfig(res.user, res.dashboard_config));
         setToken(getStoredToken());
         applyPinPolicy(res.pin_policy);
       } else {
@@ -133,10 +161,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new MfaChallengeRequiredError(res.challenge);
       }
       if (res.user) {
-        setUser(res.user);
+        const merged = mergeUserConfig(res.user, res.dashboard_config);
+        setUser(merged);
         setToken(res.token || getStoredToken());
         applyPinPolicy(res.pin_policy);
-        return res.user;
+        return merged;
       }
       return null;
     } finally {
@@ -149,10 +178,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await api.verifyMfaChallenge(challengeToken, code);
       if (res.user) {
-        setUser(res.user);
+        const merged = mergeUserConfig(res.user, res.dashboard_config);
+        setUser(merged);
         setToken(res.token || getStoredToken());
         applyPinPolicy(res.pin_policy);
-        return res.user;
+        return merged;
       }
       return null;
     } finally {
@@ -165,10 +195,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await api.register(data as any);
       if (res.user) {
-        setUser(res.user);
+        const merged = mergeUserConfig(res.user, res.dashboard_config);
+        setUser(merged);
         setToken(res.token || getStoredToken());
         applyPinPolicy(res.pin_policy);
-        return res.user;
+        return merged;
       }
       return null;
     } finally {
@@ -202,6 +233,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         refreshUser,
+        refreshDashboardConfig,
         refreshPinPolicy,
         updateBalance,
         openPinSetupModal,

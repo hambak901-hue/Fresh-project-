@@ -15,6 +15,13 @@ import crypto from 'crypto';
 import { db, hashPassword, verifyPassword, hashPin, verifyPin, User } from '../db/database.js';
 import { CREDENTIALS } from '../config/credentials.js';
 import { sendEmail } from '../services/mailer.js';
+import {
+  normalizeRole,
+  normalizeDashboardKey,
+  isConsoleRole,
+  getDefaultPermissionsForRole,
+  getDashboardConfig,
+} from '../services/dashboardConfig.js';
 
 export const authRouter = Router();
 
@@ -104,7 +111,12 @@ function base64UrlDecode(str: string): string {
   return Buffer.from(base64, 'base64').toString('utf-8');
 }
 
-export function generateToken(userId: string, role: string, expiresInSeconds: number = 86400 * 7): string {
+export function generateToken(
+  userId: string,
+  role: string,
+  expiresInSeconds: number = 86400 * 7,
+  tokenVersion: number = 1
+): string {
   const secret = CREDENTIALS.app.jwtSecret;
   const header = base64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const now = Math.floor(Date.now() / 1000);
@@ -112,6 +124,7 @@ export function generateToken(userId: string, role: string, expiresInSeconds: nu
     sub: userId,
     userId,
     role,
+    tv: tokenVersion,
     iat: now,
     exp: now + expiresInSeconds,
   }));
@@ -160,9 +173,17 @@ export function parseToken(tokenHeader?: string): { userId: string; role: string
     const userId = payloadJson.userId || payloadJson.sub || payloadJson.id;
     if (!userId) return null;
 
+    const user = db.findUserById(userId);
+    if (!user || user.status === 'suspended') {
+      return null;
+    }
+    if (payloadJson.tv !== undefined && Number(user.token_version ?? 1) !== Number(payloadJson.tv)) {
+      return null; // Immediately revoked after role/permission/password change
+    }
+
     return {
       userId,
-      role: payloadJson.role || 'customer',
+      role: normalizeRole(user.role),
     };
   } catch {
     return null;
@@ -182,42 +203,47 @@ export const LEGACY_ADMIN_DEFAULT_PERMISSIONS = [
 
 export function resolveUserPermissions(user: any): string[] {
   if (!user) return [];
-  if (user.role === 'superadmin') return ['*'];
-  if (user.role === 'staff') {
-    return Array.isArray(user.permissions) ? user.permissions : [];
-  }
-  if (user.role !== 'admin') return [];
+  const role = normalizeRole(user.role);
+  if (role === 'superadmin') return ['*'];
+  if (!isConsoleRole(role)) return [];
   if (Array.isArray(user.permissions)) {
     return user.permissions;
   }
-  return LEGACY_ADMIN_DEFAULT_PERMISSIONS;
+  return getDefaultPermissionsForRole(role);
 }
 
 export function hasUserPermission(user: any, permission: string): boolean {
   if (!user || user.status === 'suspended') return false;
-  if (user.role === 'superadmin') return true;
-  if (user.role !== 'admin' && user.role !== 'staff') return false;
+  const role = normalizeRole(user.role);
+  if (role === 'superadmin') return true;
+  if (!isConsoleRole(role)) return false;
   const perms = resolveUserPermissions(user);
   return perms.includes('*') || perms.includes(permission);
 }
 
 export function hasAnyUserPermission(user: any, permissions: string[]): boolean {
   if (!user || user.status === 'suspended') return false;
-  if (user.role === 'superadmin') return true;
+  if (normalizeRole(user.role) === 'superadmin') return true;
   return permissions.some((p) => hasUserPermission(user, p));
 }
 
-export function sanitizeUser(user: any): Partial<User> {
+export function sanitizeUser(user: any, includeDashboardConfig: boolean = false): Partial<User> & { dashboard_config?: any } {
   if (!user) return user;
-  const safe = { ...user };
+  const safe: any = { ...user };
   const hasPin = Boolean(safe.transaction_pin_hash);
   delete safe.password_hash;
   delete safe.transaction_pin_hash;
   delete safe.reset_password_token;
   delete safe.reset_password_expires;
+  delete safe.token_version;
+  safe.role = normalizeRole(safe.role);
+  safe.assigned_dashboard = normalizeDashboardKey(safe.assigned_dashboard, safe.role);
   safe.has_transaction_pin = hasPin;
-  (safe as any).has_pin_set = hasPin;
-  safe.permissions = resolveUserPermissions(user);
+  safe.has_pin_set = hasPin;
+  safe.permissions = resolveUserPermissions(safe);
+  if (includeDashboardConfig) {
+    safe.dashboard_config = getDashboardConfig(safe.assigned_dashboard, 'published');
+  }
   return safe;
 }
 
@@ -253,6 +279,8 @@ authRouter.post('/register', async (req, res) => {
       full_name: full_name.trim(),
       phone_number: phone_number.trim(),
       role: 'customer',
+      assigned_dashboard: 'customer',
+      token_version: 1,
       wallet_balance: 0,
       kyc_status: 'unverified',
       tier: 1,
@@ -276,12 +304,14 @@ authRouter.post('/register', async (req, res) => {
       `<h2>Welcome ${newUser.full_name}!</h2><p>Your account is ready at HambakTech. Access instant NIN/BVN verification, VTU airtime & data, and digital services.</p>`
     ).catch(() => {});
 
-    const token = generateToken(newUser.id, newUser.role);
+    const token = generateToken(newUser.id, newUser.role, 86400 * 7, newUser.token_version ?? 1);
+    const safeUser = sanitizeUser(newUser, true);
 
     return res.status(201).json({
       success: true,
       token,
-      user: sanitizeUser(newUser),
+      user: safeUser,
+      dashboard_config: safeUser.dashboard_config,
       message: 'Account created successfully',
     });
   } catch (error: any) {
@@ -348,14 +378,16 @@ authRouter.post('/login', async (req, res) => {
       db.saveDatabase();
     }
 
-    const token = generateToken(user.id, user.role);
+    const token = generateToken(user.id, user.role, 86400 * 7, user.token_version ?? 1);
+    const safeUser = sanitizeUser(user, true);
 
-    db.logAudit('USER_LOGIN', { role: user.role }, user.id, user.email, clientIp);
+    db.logAudit('USER_LOGIN', { role: user.role, assigned_dashboard: safeUser.assigned_dashboard }, user.id, user.email, clientIp);
 
     return res.json({
       success: true,
       token,
-      user: sanitizeUser(user),
+      user: safeUser,
+      dashboard_config: safeUser.dashboard_config,
       message: 'Logged in successfully',
     });
   } catch (error: any) {
@@ -375,9 +407,11 @@ authRouter.get('/me', (req, res) => {
     return res.status(401).json({ error: 'User not found' });
   }
 
+  const safeUser = sanitizeUser(user, true);
   return res.json({
     success: true,
-    user: sanitizeUser(user),
+    user: safeUser,
+    dashboard_config: safeUser.dashboard_config,
   });
 });
 

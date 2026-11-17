@@ -169,6 +169,7 @@ export const api = {
     success: boolean;
     token?: string;
     user?: User;
+    dashboard_config?: import('../types').RoleDashboardConfig;
     mfa_required?: boolean;
     challenge?: import('../types').MfaChallengeResponse;
     pin_policy?: import('../types').PinPolicy;
@@ -186,16 +187,24 @@ export const api = {
     }
     const token = res.token || res.data?.token || '';
     const user = res.user || res.data?.user;
+    const dashboardConfig = res.dashboard_config || res.data?.dashboard_config || user?.dashboard_config;
     if (token && token !== 'undefined') {
       setStoredToken(token);
     }
-    return { success: true, token, user, pin_policy: res.pin_policy || res.data?.pin_policy };
+    return {
+      success: true,
+      token,
+      user: user && dashboardConfig ? { ...user, dashboard_config: dashboardConfig } : user,
+      dashboard_config: dashboardConfig,
+      pin_policy: res.pin_policy || res.data?.pin_policy,
+    };
   },
 
   async verifyMfaChallenge(challengeToken: string, code: string): Promise<{
     success: boolean;
     token: string;
     user: User;
+    dashboard_config?: import('../types').RoleDashboardConfig;
     pin_policy?: import('../types').PinPolicy;
   }> {
     const res = await request<any>('/api/auth/mfa/verify', {
@@ -204,10 +213,17 @@ export const api = {
     });
     const token = res.token || res.data?.token || '';
     const user = res.user || res.data?.user;
+    const dashboardConfig = res.dashboard_config || res.data?.dashboard_config || user?.dashboard_config;
     if (token && token !== 'undefined') {
       setStoredToken(token);
     }
-    return { success: true, token, user, pin_policy: res.pin_policy || res.data?.pin_policy };
+    return {
+      success: true,
+      token,
+      user: user && dashboardConfig ? { ...user, dashboard_config: dashboardConfig } : user,
+      dashboard_config: dashboardConfig,
+      pin_policy: res.pin_policy || res.data?.pin_policy,
+    };
   },
 
   async register(data: {
@@ -228,23 +244,47 @@ export const api = {
     referral_code?: string;
     campaign_code?: string;
     [key: string]: any;
-  }): Promise<{ success: boolean; token: string; user: User; pin_policy?: import('../types').PinPolicy }> {
+  }): Promise<{
+    success: boolean;
+    token: string;
+    user: User;
+    dashboard_config?: import('../types').RoleDashboardConfig;
+    pin_policy?: import('../types').PinPolicy;
+  }> {
     const res = await request<any>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify(data),
     });
     const token = res.token || res.data?.token || '';
     const user = res.user || res.data?.user;
+    const dashboardConfig = res.dashboard_config || res.data?.dashboard_config || user?.dashboard_config;
     if (token && token !== 'undefined') {
       setStoredToken(token);
     }
-    return { success: true, token, user, pin_policy: res.pin_policy || res.data?.pin_policy };
+    return {
+      success: true,
+      token,
+      user: user && dashboardConfig ? { ...user, dashboard_config: dashboardConfig } : user,
+      dashboard_config: dashboardConfig,
+      pin_policy: res.pin_policy || res.data?.pin_policy,
+    };
   },
 
-  async getMe(): Promise<{ success: boolean; user: User; pin_policy?: import('../types').PinPolicy }> {
+  async getMe(): Promise<{
+    success: boolean;
+    user: User;
+    dashboard_config?: import('../types').RoleDashboardConfig;
+    pin_policy?: import('../types').PinPolicy;
+  }> {
     const res = await request<any>('/api/auth/me');
     const user = res.user || res.data?.user;
-    return { success: true, user, pin_policy: res.pin_policy || res.data?.pin_policy };
+    const dashboardConfig = res.dashboard_config || res.data?.dashboard_config || user?.dashboard_config;
+    return {
+      success: true,
+      user: user && dashboardConfig ? { ...user, dashboard_config: dashboardConfig } : user,
+      dashboard_config: dashboardConfig,
+      pin_policy: res.pin_policy || res.data?.pin_policy,
+    };
   },
 
   async logout(): Promise<void> {
@@ -1558,6 +1598,7 @@ export const api = {
       pending_kyc: number;
       verified_kyc: number;
       new_registrations: number;
+      role_counts?: Record<string, number>;
     };
   }> {
     const cleanParams: Record<string, string> = {};
@@ -1670,11 +1711,104 @@ export const api = {
     });
   },
 
+  // Role Catalog, Role Assignment & Central Dashboard Configs + Preview
+  async getMyDashboardConfig(): Promise<{
+    success: boolean;
+    role: import('../types').UserRole;
+    assigned_dashboard: import('../types').DashboardKey;
+    config: import('../types').RoleDashboardConfig;
+  }> {
+    return request('/api/dashboard/config');
+  },
+
+  async getAdminRolesCatalog(): Promise<{
+    success: boolean;
+    roles: import('../types').RoleCatalogItem[];
+    dashboards: import('../types').DashboardCatalogItem[];
+    allowed_permissions: string[];
+  }> {
+    return request('/api/admin/roles');
+  },
+
+  async assignCustomerRole(
+    id: string,
+    data: {
+      role: string;
+      assigned_dashboard?: string;
+      permissions?: string[];
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    session_revoked?: boolean;
+    customer: User;
+  }> {
+    return request(`/api/admin/customers/${encodeURIComponent(id)}/role`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getAdminDashboardConfigs(): Promise<{
+    success: boolean;
+    dashboards: import('../types').DashboardCatalogItem[];
+    roles: import('../types').RoleCatalogItem[];
+    configs: Record<string, import('../types').RoleDashboardConfigRecord>;
+  }> {
+    return request('/api/admin/dashboard-configs');
+  },
+
+  async saveAdminDashboardDraft(
+    dashboardKey: string,
+    config: Partial<import('../types').RoleDashboardConfig>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    record: import('../types').RoleDashboardConfigRecord;
+  }> {
+    return request(`/api/admin/dashboard-configs/${encodeURIComponent(dashboardKey)}`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
+
+  async publishAdminDashboardConfig(
+    dashboardKey: string,
+    config?: Partial<import('../types').RoleDashboardConfig>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    record: import('../types').RoleDashboardConfigRecord;
+  }> {
+    return request(`/api/admin/dashboard-configs/${encodeURIComponent(dashboardKey)}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(config || {}),
+    });
+  },
+
+  async previewAdminDashboard(
+    dashboard: string,
+    mode: 'published' | 'draft' = 'published'
+  ): Promise<import('../types').AdminDashboardPreviewResponse> {
+    return request('/api/admin/dashboard-preview', {
+      method: 'POST',
+      body: JSON.stringify({ dashboard, mode }),
+    });
+  },
+
   async getAdminStaff(): Promise<{ success: boolean; staff: User[] }> {
     return request('/api/admin/staff');
   },
 
-  async createStaffAccount(data: { full_name: string; email: string; phone_number?: string; password: string; role?: string; permissions?: string[] }): Promise<{
+  async createStaffAccount(data: {
+    full_name: string;
+    email: string;
+    phone_number?: string;
+    password: string;
+    role?: string;
+    assigned_dashboard?: string;
+    permissions?: string[];
+  }): Promise<{
     success: boolean;
     message: string;
     staff: User;

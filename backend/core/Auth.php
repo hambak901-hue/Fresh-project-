@@ -8,11 +8,20 @@ declare(strict_types=1);
 
 namespace HambakTech\Core;
 
+use HambakTech\Services\DashboardConfigService;
+
 class Auth
 {
+    public const CONSOLE_ROLES = ['support', 'staff', 'manager', 'admin', 'superadmin'];
+
     private static ?array $cachedPayload = null;
     private static ?array $cachedUser = null;
     private static ?string $cachedToken = null;
+
+    public static function isConsoleRole(?string $role): bool
+    {
+        return in_array(strtolower(trim((string)$role)), self::CONSOLE_ROLES, true);
+    }
 
     private static function getSecret(): string
     {
@@ -151,7 +160,7 @@ class Auth
     public static function generateToken(array $user, ?Request $request = null, ?int $ttlSeconds = null): string
     {
         $sec = self::getSecuritySettings();
-        $isAdminRole = in_array($user['role'] ?? 'customer', ['admin', 'superadmin'], true);
+        $isAdminRole = self::isConsoleRole((string)($user['role'] ?? 'customer'));
 
         if ($ttlSeconds === null) {
             if ($isAdminRole) {
@@ -339,8 +348,8 @@ class Auth
                     }
                 }
 
-                // Sliding idle timeout check for admin and staff roles
-                if (in_array($payload['role'] ?? '', ['admin', 'staff', 'superadmin'], true) && !empty($session['last_seen_at'])) {
+                // Sliding idle timeout check for internal console roles
+                if (self::isConsoleRole((string)($payload['role'] ?? '')) && !empty($session['last_seen_at'])) {
                     $idleMinutes = max(5, (int)($sec['admin_session_timeout_minutes'] ?? 60));
                     if ((time() - strtotime((string)$session['last_seen_at'])) > ($idleMinutes * 60)) {
                         self::revokeSessionByJti((string)$payload['jti'], 'idle_timeout');
@@ -359,7 +368,7 @@ class Auth
 
         try {
             $user = $db->fetchOne(
-                'SELECT u.id, u.email, u.full_name, u.phone_number, u.phone_normalized, u.role, u.wallet_balance, 
+                'SELECT u.id, u.email, u.full_name, u.phone_number, u.phone_normalized, u.role, u.assigned_dashboard, u.wallet_balance, 
                         u.kyc_status, u.kyc_level, u.tier, u.referral_code, u.referred_by_user_id, u.referral_source,
                         u.referral_campaign_code, u.referral_bound_at,
                         u.status, u.avatar_url, u.email_verified, u.token_version, u.assigned_permissions,
@@ -433,13 +442,19 @@ class Auth
                 break;
             }
         }
-        if ($user['role'] === 'superadmin') {
+        $normalizedRole = DashboardConfigService::normalizeRole((string)($user['role'] ?? 'customer'));
+        $user['role'] = $normalizedRole;
+        $user['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey(
+            $user['assigned_dashboard'] ?? null,
+            $normalizedRole
+        );
+
+        if ($normalizedRole === 'superadmin') {
             $perms = ['*'];
-        } elseif ($user['role'] === 'admin' && !$hasExplicitPerms) {
-            // Safe default operational permissions ONLY for legacy admins with NULL/unconfigured ACL
-            $perms = ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'];
+        } elseif (!$hasExplicitPerms && self::isConsoleRole($normalizedRole)) {
+            $perms = DashboardConfigService::getDefaultPermissionsForRole($normalizedRole);
         }
-        $user['permissions'] = $perms;
+        $user['permissions'] = array_values(array_unique($perms));
         unset($user['assigned_permissions'], $user['profile_permissions']);
 
         self::$cachedToken = $token;
@@ -485,7 +500,7 @@ class Auth
         return $user;
     }
 
-    public static function requirePermission(Request $request, string $permission, array $allowedRoles = ['admin', 'staff', 'superadmin']): array
+    public static function requirePermission(Request $request, string $permission, array $allowedRoles = self::CONSOLE_ROLES): array
     {
         $user = self::requireRole($request, $allowedRoles);
         if (!self::hasPermission($user, $permission)) {
@@ -494,7 +509,7 @@ class Auth
         return $user;
     }
 
-    public static function requireAnyPermission(Request $request, array $permissions, array $allowedRoles = ['admin', 'staff', 'superadmin']): array
+    public static function requireAnyPermission(Request $request, array $permissions, array $allowedRoles = self::CONSOLE_ROLES): array
     {
         $user = self::requireRole($request, $allowedRoles);
         foreach ($permissions as $perm) {

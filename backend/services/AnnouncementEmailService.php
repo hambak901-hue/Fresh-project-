@@ -146,13 +146,13 @@ class AnnouncementEmailService
 
         return match ($audience) {
             'all_users' => true,
-            'admins' => in_array($role, ['admin', 'superadmin', 'staff'], true),
-            'tier_1' => in_array($role, ['customer', 'agent'], true) && $tier === 1,
-            'tier_2' => in_array($role, ['customer', 'agent'], true) && $tier === 2,
-            'tier_3' => in_array($role, ['customer', 'agent'], true) && $tier === 3,
-            'verified_kyc' => in_array($role, ['customer', 'agent'], true) && $kycStatus === 'verified',
-            'pending_kyc' => in_array($role, ['customer', 'agent'], true) && in_array($kycStatus, ['pending', 'unverified'], true),
-            default => in_array($role, ['customer', 'agent'], true),
+            'admins' => in_array($role, ['admin', 'superadmin', 'manager', 'staff', 'support'], true),
+            'tier_1' => in_array($role, ['customer', 'student', 'agent'], true) && $tier === 1,
+            'tier_2' => in_array($role, ['customer', 'student', 'agent'], true) && $tier === 2,
+            'tier_3' => in_array($role, ['customer', 'student', 'agent'], true) && $tier === 3,
+            'verified_kyc' => in_array($role, ['customer', 'student', 'agent'], true) && $kycStatus === 'verified',
+            'pending_kyc' => in_array($role, ['customer', 'student', 'agent'], true) && in_array($kycStatus, ['pending', 'unverified'], true),
+            default => in_array($role, ['customer', 'student', 'agent'], true),
         };
     }
 

@@ -484,7 +484,7 @@ export const SupportManagement: React.FC = () => {
                   </div>
                 ) : (
                   ticketReplies.map(reply => {
-                    const isStaff = reply.author_role === 'admin' || reply.author_role === 'superadmin' || reply.author_role === 'staff';
+                    const isStaff = ['support', 'staff', 'manager', 'admin', 'superadmin'].includes(reply.author_role || '');
                     const isInternal = !!reply.is_internal_note;
 
                     return (

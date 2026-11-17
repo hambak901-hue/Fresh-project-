@@ -11,6 +11,12 @@ import { useCms } from '../../context/CmsContext';
 import { ThemeToggle } from '../ThemeToggle';
 import { getInitialsAvatar } from '../../lib/avatar';
 import {
+  getDashboardLabel,
+  getRoleLabel,
+  isConsoleRole,
+  normalizeDashboardKey,
+} from '../../lib/roles';
+import {
   LayoutDashboard,
   ShieldCheck,
   Smartphone,
@@ -38,7 +44,7 @@ import {
   Gift,
   Printer,
 } from 'lucide-react';
-import { User } from '../../types';
+import { RoleDashboardConfig, User } from '../../types';
 
 // Child components
 import { DashboardOverview } from './DashboardOverview';
@@ -66,6 +72,10 @@ interface CustomerDashboardProps {
   onSwitchToPhaseConsole?: () => void;
   onSwitchToAdmin?: () => void;
   onLogout?: () => void;
+  previewConfig?: RoleDashboardConfig | null;
+  previewRole?: string;
+  previewAcademyData?: any;
+  isPreviewMode?: boolean;
 }
 
 export type CustomerPageKey =
@@ -106,9 +116,18 @@ export function CustomerDashboard({
   onSwitchToPublic,
   onSwitchToAdmin,
   onLogout,
+  previewConfig,
+  previewRole,
+  previewAcademyData,
+  isPreviewMode = false,
 }: CustomerDashboardProps) {
   const { user, logout, refreshUser } = useAuth();
   const { branding } = useCms();
+  const activeConfig = isPreviewMode && previewConfig ? previewConfig : user?.dashboard_config || null;
+  const effectiveDashboardKey = normalizeDashboardKey(
+    activeConfig?.dashboard_key || user?.assigned_dashboard,
+    previewRole || user?.role
+  );
   const [currentPage, setCurrentPage] = useState<CustomerPageKey>(() => {
     if (typeof window !== 'undefined') {
       const h = window.location.hash.toLowerCase();
@@ -188,7 +207,7 @@ export function CustomerDashboard({
     );
   }
 
-  const navSections: NavSection[] = [
+  const baseNavSections: NavSection[] = [
     {
       title: 'Main Services',
       items: [
@@ -205,7 +224,7 @@ export function CustomerDashboard({
       items: [
         { id: 'store', label: 'HambakTech Store', icon: ShoppingBag, isComingSoon: true },
         { id: 'digital', label: 'Digital Services', icon: Zap },
-        { id: 'academy', label: 'HambakTech Academy', icon: GraduationCap, badge: 'Enroll' },
+        { id: 'academy', label: effectiveDashboardKey === 'student' ? 'My Academy & ID Card' : 'HambakTech Academy', icon: GraduationCap, badge: effectiveDashboardKey === 'student' ? 'Student' : 'Enroll' },
         { id: 'reports', label: 'Reports & Audits', icon: BarChart3, isComingSoon: true },
       ],
     },
@@ -229,6 +248,33 @@ export function CustomerDashboard({
     },
   ];
 
+  // Apply dynamic role dashboard config overrides (labels, order, visibility, coming_soon, disabled)
+  const moduleOverrides = new Map(
+    (activeConfig?.modules || []).map(m => [m.id === 'dashboard' ? 'overview' : m.id, m])
+  );
+  const navSections: NavSection[] = baseNavSections
+    .map(sec => {
+      const filteredItems = sec.items
+        .map(item => {
+          const ov = moduleOverrides.get(item.id);
+          if (!ov) return { ...item, _order: 999 };
+          if (!ov.visible || ov.status === 'disabled') return null;
+          return {
+            ...item,
+            label: ov.label || item.label,
+            isComingSoon: ov.status === 'coming_soon',
+            _order: ov.order ?? 999,
+          };
+        })
+        .filter((x): x is NavItem & { _order: number } => Boolean(x))
+        .sort((a, b) => a._order - b._order);
+      return {
+        title: sec.title,
+        items: filteredItems,
+      };
+    })
+    .filter(sec => sec.items.length > 0);
+
   const handleUpdateUser = (updated: User) => {
     refreshUser();
   };
@@ -238,7 +284,8 @@ export function CustomerDashboard({
     setMobileMenuOpen(false);
   };
 
-  // Resolve current active title
+  // Resolve current active title & optional coming soon override
+  const activeOverride = moduleOverrides.get(currentPage);
   let currentTitle = 'Dashboard Overview';
   for (const sec of navSections) {
     const item = sec.items.find(i => i.id === currentPage);
@@ -277,7 +324,9 @@ export function CustomerDashboard({
                 <span className="font-extrabold text-sm text-blue-900 dark:text-white tracking-tight flex items-center gap-1.5">
                   <span>{branding?.short_brand_name || 'HAMBAKTECH'}</span>
                 </span>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">Customer Dashboard</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {activeConfig?.badge_text || getDashboardLabel(effectiveDashboardKey)}
+                </p>
               </div>
             </div>
             <button
@@ -359,7 +408,7 @@ export function CustomerDashboard({
           {/* Bottom navigation links */}
           <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-2 bg-slate-50 dark:bg-slate-900/60">
             {/* Switch to Staff / Admin Console - Only for internal staff & admins */}
-            {onSwitchToAdmin && (user.role === 'staff' || user.role === 'admin' || user.role === 'superadmin') && (
+            {onSwitchToAdmin && isConsoleRole(user.role) && (
               <button
                 type="button"
                 onClick={onSwitchToAdmin}
@@ -367,7 +416,7 @@ export function CustomerDashboard({
               >
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>{user.role === 'superadmin' ? 'Super Admin Console' : 'Staff / Admin Console'}</span>
+                  <span>{getRoleLabel(user.role)} Console</span>
                 </div>
                 <ChevronRight className="w-3 h-3 text-slate-500" />
               </button>
@@ -425,7 +474,9 @@ export function CustomerDashboard({
               <Menu className="w-5 h-5" />
             </button>
             <div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">Customer Portal / {currentTitle}</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">
+                {getDashboardLabel(effectiveDashboardKey)} / {currentTitle}
+              </p>
               <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{currentTitle}</h1>
             </div>
           </div>
@@ -467,13 +518,52 @@ export function CustomerDashboard({
         </header>
 
         {/* Page View Container */}
-        <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto">
-          {currentPage === 'overview' && (
-            <DashboardOverview
-              onNavigateToPage={page => setCurrentPage(page as CustomerPageKey)}
-              onOpenFundModal={onOpenFundModal}
-            />
+        <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-6">
+          {activeConfig?.announcement_banner?.enabled && activeConfig.announcement_banner.message && (
+            <div className={`p-4 rounded-2xl border text-xs flex items-start gap-3 ${
+              activeConfig.announcement_banner.tone === 'amber'
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                : activeConfig.announcement_banner.tone === 'emerald'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                : 'bg-blue-500/10 border-blue-500/30 text-blue-200'
+            }`}>
+              <Sparkles className="w-4 h-4 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-white">{activeConfig.announcement_banner.title}</p>
+                <p className="mt-0.5 opacity-90">{activeConfig.announcement_banner.message}</p>
+              </div>
+            </div>
           )}
+
+          {activeOverride && activeOverride.status === 'coming_soon' && currentPage !== 'store' && currentPage !== 'reports' ? (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/15 text-amber-400 flex items-center justify-center mx-auto">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <h2 className="text-xl font-bold text-white">{activeOverride.label} — Coming Soon</h2>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                {activeOverride.coming_soon_message || 'This module is currently staged by an administrator and will be activated shortly.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setCurrentPage('overview')}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
+              >
+                Return to Overview
+              </button>
+            </div>
+          ) : (
+            <>
+              {currentPage === 'overview' && (
+                <DashboardOverview
+                  onNavigateToPage={page => setCurrentPage(page as CustomerPageKey)}
+                  onOpenFundModal={onOpenFundModal}
+                  effectiveDashboardKey={effectiveDashboardKey}
+                  activeConfig={activeConfig}
+                  previewAcademyData={previewAcademyData}
+                  isPreviewMode={isPreviewMode}
+                />
+              )}
 
           {currentPage === 'nin' && <NinServicesPage />}
 
@@ -535,6 +625,8 @@ export function CustomerDashboard({
           )}
 
           {currentPage === 'support' && <SupportPage user={user} />}
+            </>
+          )}
         </main>
       </div>
     </div>

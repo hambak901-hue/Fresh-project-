@@ -18,6 +18,7 @@ use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\AnnouncementEmailService;
 use HambakTech\Services\PinSecurityService;
+use HambakTech\Services\DashboardConfigService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Verification\VeripineAdapter;
 
@@ -187,8 +188,13 @@ class CustomerController
         $accNum = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_number"');
         $accName = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_name"');
 
+        $dashboardKey = (string)($user['assigned_dashboard'] ?? $user['role'] ?? 'customer');
+        $dashboardConfig = DashboardConfigService::getConfig($this->db, $dashboardKey, 'published');
+        $user['dashboard_config'] = $dashboardConfig;
+
         Response::success([
             'user' => $user,
+            'dashboard_config' => $dashboardConfig,
             'metrics' => [
                 'wallet_balance' => (float)$walletSummary['balance'],
                 'total_transactions' => (int)$walletSummary['total_transactions'],
@@ -211,6 +217,20 @@ class CustomerController
                 'accountNumber' => $accNum['setting_value'] ?? '5210471634',
                 'accountName' => $accName['setting_value'] ?? 'Hambaktech_Services',
             ],
+        ]);
+    }
+
+    /**
+     * GET /api/dashboard/config
+     */
+    public function dashboardConfig(Request $request): void
+    {
+        $user = Auth::requireAuth($request);
+        $targetKey = (string)($user['assigned_dashboard'] ?? $user['role'] ?? 'customer');
+        $config = DashboardConfigService::getConfig($this->db, $targetKey, 'published');
+        Response::success([
+            'dashboard_key' => $config['dashboard_key'],
+            'config' => $config,
         ]);
     }
 
@@ -767,8 +787,8 @@ class CustomerController
             Response::notFound('Document not found.');
         }
 
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
-        if (!$isAdmin && $doc['user_id'] !== $user['id']) {
+        $isConsole = Auth::isConsoleRole((string)($user['role'] ?? ''));
+        if (!$isConsole && $doc['user_id'] !== $user['id']) {
             Response::forbidden('Unauthorized access to document.');
         }
 

@@ -16,13 +16,22 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { User } from '../../types';
+import {
+  DASHBOARD_CATALOG_FALLBACK,
+  getDashboardLabel,
+  getRoleBadgeClasses,
+  getRoleLabel,
+  isConsoleRole,
+  normalizeDashboardKey,
+} from '../../lib/roles';
+import { DashboardKey, User, UserRole } from '../../types';
 
 const PERMISSION_OPTIONS = [
   { id: 'customers', label: 'Customer Management (Edit, Suspend, Notify)' },
   { id: 'wallet', label: 'Wallet Adjustments & Funding Approvals' },
   { id: 'kyc', label: 'KYC Compliance Reviews (Verify Documents & Tiers)' },
-  { id: 'services', label: 'Service Pricing & Catalogs (NIN, BVN, Telecom, Store, Academy)' },
+  { id: 'services', label: 'Service Pricing & Catalogs (NIN, BVN, Telecom, Store)' },
+  { id: 'academy', label: 'Digital Training Academy (Courses, Admissions, Student IDs)' },
   { id: 'printing', label: 'Printing & Document Services Operations (Orders, Quotes, Statuses, Delivery)' },
   { id: 'printing_pricing', label: 'Printing Pricing, Service Categories & Delivery Zone Configuration' },
   { id: 'referrals', label: 'Referral Moderation & Reward Settlement' },
@@ -46,49 +55,68 @@ const PERMISSION_OPTIONS = [
 const ROLE_APPOINTMENTS: Array<{
   key: string;
   label: string;
-  role: 'staff' | 'admin' | 'superadmin';
+  role: UserRole;
+  assigned_dashboard: DashboardKey;
   permissions: string[];
 }> = [
+  {
+    key: 'support_desk',
+    label: 'Customer Support Agent',
+    role: 'support',
+    assigned_dashboard: 'support',
+    permissions: ['support', 'customers', 'notifications'],
+  },
   {
     key: 'printing_officer',
     label: 'Printing Desk Officer',
     role: 'staff',
+    assigned_dashboard: 'staff',
     permissions: ['printing'],
   },
   {
     key: 'printing_manager',
     label: 'Printing Pricing & Delivery Manager',
     role: 'staff',
+    assigned_dashboard: 'staff',
     permissions: ['printing', 'printing_pricing'],
   },
   {
     key: 'front_desk',
     label: 'Front Desk / Physical Counter Staff',
     role: 'staff',
+    assigned_dashboard: 'staff',
     permissions: ['printing', 'accounting_physical'],
   },
   {
-    key: 'kyc_support',
-    label: 'KYC & Support Officer',
+    key: 'academy_coordinator',
+    label: 'Academy Admissions Coordinator',
     role: 'staff',
-    permissions: ['customers', 'kyc', 'support', 'notifications'],
+    assigned_dashboard: 'staff',
+    permissions: ['academy', 'customers', 'notifications'],
   },
   {
-    key: 'finance_officer',
-    label: 'Finance & Reconciliation Officer',
-    role: 'staff',
-    permissions: ['wallet', 'accounting', 'accounting_reconcile', 'reports'],
+    key: 'operations_manager',
+    label: 'Operations Manager',
+    role: 'manager',
+    assigned_dashboard: 'manager',
+    permissions: [
+      'customers', 'wallet', 'kyc', 'services', 'academy', 'printing', 'printing_pricing',
+      'support', 'reports', 'referrals', 'withdrawals', 'accounting', 'accounting_physical',
+      'accounting_reconcile', 'notifications',
+    ],
   },
   {
     key: 'operations_admin',
-    label: 'Operations Admin',
+    label: 'Operations Administrator',
     role: 'admin',
-    permissions: ['customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing', 'support', 'notifications', 'reports'],
+    assigned_dashboard: 'admin',
+    permissions: ['customers', 'wallet', 'kyc', 'services', 'academy', 'printing', 'printing_pricing', 'support', 'notifications', 'reports'],
   },
   {
     key: 'superadmin_root',
     label: 'Super Admin (Full Root)',
     role: 'superadmin',
+    assigned_dashboard: 'admin',
     permissions: ['*'],
   },
 ];
@@ -104,13 +132,15 @@ export function StaffPermissionsManagement() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'staff' | 'admin' | 'superadmin'>('staff');
+  const [role, setRole] = useState<UserRole>('staff');
+  const [assignedDashboard, setAssignedDashboard] = useState<DashboardKey>('staff');
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(['printing']);
 
   // Edit staff modal
   const [editingStaff, setEditingStaff] = useState<User | null>(null);
   const [editPermissions, setEditPermissions] = useState<string[]>([]);
   const [editRole, setEditRole] = useState<string>('admin');
+  const [editDashboard, setEditDashboard] = useState<DashboardKey>('admin');
   const [editSaving, setEditSaving] = useState(false);
 
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -142,6 +172,7 @@ export function StaffPermissionsManagement() {
         phone_number: phone.trim() || '+2348000000000',
         password,
         role,
+        assigned_dashboard: assignedDashboard,
         permissions: selectedPermissions,
       });
       setMessage({ type: 'success', text: res.message });
@@ -165,7 +196,8 @@ export function StaffPermissionsManagement() {
     try {
       const res = await api.updateStaffAccount(editingStaff.id, {
         role: editRole as any,
-        permissions: editPermissions,
+        assigned_dashboard: editDashboard,
+        permissions: isConsoleRole(editRole) ? editPermissions : [],
       });
       setMessage({ type: 'success', text: res.message });
       setEditingStaff(null);
@@ -178,7 +210,7 @@ export function StaffPermissionsManagement() {
   };
 
   const handleToggleStaffStatus = async (staffUser: User) => {
-    if (staffUser.role === 'superadmin') {
+    if (staffUser.role === 'superadmin' || staffUser.id === 'usr_superadmin') {
       setMessage({ type: 'error', text: 'Super Admin accounts cannot be suspended.' });
       return;
     }
@@ -293,11 +325,14 @@ export function StaffPermissionsManagement() {
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
-                      <span className={`px-2.5 py-1 rounded font-mono text-[10px] font-semibold uppercase ${
-                        isSuperAdmin ? 'bg-amber-500/10 text-amber-400' : 'bg-indigo-500/10 text-indigo-400'
-                      }`}>
-                        {s.role}
-                      </span>
+                      <div className="space-y-1">
+                        <span className={`px-2.5 py-0.5 rounded border font-mono text-[10px] font-semibold uppercase ${getRoleBadgeClasses(s.role)}`}>
+                          {getRoleLabel(s.role)}
+                        </span>
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          {getDashboardLabel(s.assigned_dashboard || normalizeDashboardKey(s.role))}
+                        </div>
+                      </div>
                     </td>
                     <td className="py-3.5 px-4">
                       <div className="flex flex-wrap gap-1 max-w-sm">
@@ -324,13 +359,14 @@ export function StaffPermissionsManagement() {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      {!isSuperAdmin && (
+                      {s.id !== 'usr_superadmin' && !isSuperAdmin ? (
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
                             onClick={() => {
                               setEditingStaff(s);
                               setEditRole(s.role);
+                              setEditDashboard(normalizeDashboardKey(s.assigned_dashboard, s.role));
                               setEditPermissions(Array.isArray(s.permissions) ? s.permissions : []);
                             }}
                             className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-semibold"
@@ -348,6 +384,11 @@ export function StaffPermissionsManagement() {
                             {isSuspended ? <Check className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
                           </button>
                         </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono">
+                          <Lock className="w-3 h-3" />
+                          Protected
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -427,14 +468,35 @@ export function StaffPermissionsManagement() {
                 <label className="text-slate-400">Administrative Role</label>
                 <select
                   value={role}
-                  onChange={e => setRole(e.target.value as any)}
+                  onChange={e => {
+                    const nextRole = e.target.value as UserRole;
+                    setRole(nextRole);
+                    setAssignedDashboard(normalizeDashboardKey(nextRole));
+                  }}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
                 >
-                  <option value="staff">Staff (Internal Desk Operator)</option>
-                  <option value="admin">Admin Operator</option>
+                  <option value="support">Support Agent (Help Desk)</option>
+                  <option value="staff">Operations Staff (Desk Operator)</option>
+                  <option value="manager">Operations Manager</option>
+                  <option value="admin">Administrator</option>
                   <option value="superadmin">Super Admin (Full Root)</option>
                 </select>
               </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-slate-400">Assigned Console Workspace</label>
+              <select
+                value={assignedDashboard}
+                onChange={e => setAssignedDashboard(e.target.value as DashboardKey)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+              >
+                {DASHBOARD_CATALOG_FALLBACK.filter(d => d.category === 'console').map(dc => (
+                  <option key={dc.key} value={dc.key}>
+                    {dc.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-2 pt-2 border-t border-slate-800">
@@ -446,6 +508,7 @@ export function StaffPermissionsManagement() {
                     type="button"
                     onClick={() => {
                       setRole(preset.role);
+                      setAssignedDashboard(preset.assigned_dashboard);
                       setSelectedPermissions(preset.permissions);
                     }}
                     className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 hover:border-indigo-500 text-[11px] text-slate-200 transition"
@@ -511,19 +574,43 @@ export function StaffPermissionsManagement() {
               </button>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-slate-400">Assigned Role</label>
-              <select
-                value={editRole}
-                onChange={e => setEditRole(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
-              >
-                <option value="staff">Staff (Internal Desk Operator)</option>
-                <option value="admin">Admin Operator</option>
-                <option value="superadmin">Super Admin</option>
-                <option value="customer">Customer (Remove Console Access)</option>
-                <option value="agent">Agent (Commercial Portal Only)</option>
-              </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-slate-400">Assigned Role</label>
+                <select
+                  value={editRole}
+                  onChange={e => {
+                    const nextRole = e.target.value;
+                    setEditRole(nextRole);
+                    setEditDashboard(normalizeDashboardKey(nextRole));
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                >
+                  <option value="support">Support Agent (Help Desk)</option>
+                  <option value="staff">Operations Staff (Desk Operator)</option>
+                  <option value="manager">Operations Manager</option>
+                  <option value="admin">Administrator</option>
+                  <option value="superadmin">Super Admin</option>
+                  <option value="customer">Customer (Demote to Portal)</option>
+                  <option value="student">Student (Demote to Academy Portal)</option>
+                  <option value="agent">Agent (Demote to Reseller Portal)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-400">Assigned Dashboard Workspace</label>
+                <select
+                  value={editDashboard}
+                  onChange={e => setEditDashboard(e.target.value as DashboardKey)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                >
+                  {DASHBOARD_CATALOG_FALLBACK.map(dc => (
+                    <option key={dc.key} value={dc.key}>
+                      {dc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="space-y-2 pt-2 border-t border-slate-800">
@@ -535,6 +622,7 @@ export function StaffPermissionsManagement() {
                     type="button"
                     onClick={() => {
                       setEditRole(preset.role);
+                      setEditDashboard(preset.assigned_dashboard);
                       setEditPermissions(preset.permissions);
                     }}
                     className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 hover:border-indigo-500 text-[11px] text-slate-200 transition"
@@ -545,7 +633,7 @@ export function StaffPermissionsManagement() {
               </div>
             </div>
 
-            {(editRole === 'staff' || editRole === 'admin') && (
+            {isConsoleRole(editRole) && editRole !== 'superadmin' && (
               <div className="space-y-2 pt-2 border-t border-slate-800">
                 <label className="text-slate-400 font-semibold">Active Permission Scopes</label>
                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">

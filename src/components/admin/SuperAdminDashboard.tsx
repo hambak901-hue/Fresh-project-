@@ -9,7 +9,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth, MfaChallengeRequiredError } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
 import { api } from '../../lib/api';
-import { MfaChallengeResponse } from '../../types';
+import {
+  DASHBOARD_CATALOG_FALLBACK,
+  getDashboardLabel,
+  getRoleLabel,
+  isConsoleRole as checkConsoleRole,
+} from '../../lib/roles';
+import { DashboardKey, MfaChallengeResponse, RoleDashboardConfig } from '../../types';
 import { ThemeToggle } from '../ThemeToggle';
 import {
   LayoutDashboard,
@@ -105,6 +111,10 @@ interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
   onSwitchToPublic: () => void;
   onSwitchToPhaseConsole?: () => void;
+  onLaunchPreview?: (dashboardKey: string, mode?: 'published' | 'draft') => void;
+  previewConfig?: RoleDashboardConfig | null;
+  previewDashboardKey?: DashboardKey | null;
+  isPreviewMode?: boolean;
 }
 
 export type AdminTabKey =
@@ -208,18 +218,25 @@ class AdminErrorBoundary extends React.Component<{ children: React.ReactNode }, 
 }
 
 function isInternalConsoleRole(role?: string | null): boolean {
-  return role === 'staff' || role === 'admin' || role === 'superadmin';
+  return checkConsoleRole(role);
 }
 
-function getDefaultTabForUser(u: { role?: string; permissions?: string[] } | null | undefined): AdminTabKey {
+function getDefaultTabForUser(
+  u: { role?: string; permissions?: string[]; dashboard_config?: RoleDashboardConfig } | null | undefined,
+  overrideDefaultTab?: string
+): AdminTabKey {
   if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('printing')) {
     const perms = Array.isArray(u?.permissions) ? u.permissions : [];
     if (!u || u.role === 'superadmin' || perms.includes('*') || perms.includes('printing') || perms.includes('printing_pricing')) {
       return 'printing';
     }
   }
+  if (overrideDefaultTab === 'support_admin') return 'support_admin';
   if (!u) return 'overview';
   const perms = Array.isArray(u.permissions) ? u.permissions : [];
+  if (u.role === 'support' && (perms.includes('support') || perms.length === 0)) {
+    return 'support_admin';
+  }
   if (
     u.role === 'superadmin' ||
     perms.includes('*') ||
@@ -237,6 +254,7 @@ function getDefaultTabForUser(u: { role?: string; permissions?: string[] } | nul
   if (perms.includes('support')) return 'support_admin';
   if (perms.includes('kyc')) return 'kyc_admin';
   if (perms.includes('services')) return 'services';
+  if (perms.includes('academy')) return 'academy_admin';
   if (perms.includes('cms')) return 'website';
   if (perms.includes('referrals')) return 'referrals_admin';
   if (perms.includes('withdrawals')) return 'withdrawals_admin';
@@ -251,12 +269,20 @@ function getDefaultTabForUser(u: { role?: string; permissions?: string[] } | nul
 export function SuperAdminDashboard({
   onSwitchToCustomerPortal,
   onSwitchToPublic,
+  onLaunchPreview,
+  previewConfig,
+  previewDashboardKey,
+  isPreviewMode = false,
 }: SuperAdminDashboardProps) {
   const { user, loading: sessionLoading, login, completeMfaLogin, logout, refreshUser } = useAuth();
   const { branding } = useCms();
   const brandName = branding?.short_brand_name || 'HAMBAKTECH';
   const logoSrc = branding?.logo_url || '/logo.png';
-  const [activeTab, setActiveTab] = useState<AdminTabKey>(() => getDefaultTabForUser(user));
+  const activeConfig = isPreviewMode && previewConfig ? previewConfig : user?.dashboard_config || null;
+  const effectiveConsoleRole = isPreviewMode && previewDashboardKey ? previewDashboardKey : user?.role || 'staff';
+  const [activeTab, setActiveTab] = useState<AdminTabKey>(() =>
+    getDefaultTabForUser(user, activeConfig?.default_tab)
+  );
   const lastAutoRoutedKeyRef = useRef<string>('');
   useEffect(() => {
     if (!user || !isInternalConsoleRole(user.role)) {
@@ -264,12 +290,20 @@ export function SuperAdminDashboard({
       return;
     }
     const permSig = Array.isArray(user.permissions) ? [...user.permissions].sort().join(',') : '';
-    const key = `${user.id}:${user.role}:${permSig}`;
+    const key = `${user.id}:${effectiveConsoleRole}:${isPreviewMode ? 'preview' : 'live'}:${permSig}`;
     if (lastAutoRoutedKeyRef.current !== key) {
       lastAutoRoutedKeyRef.current = key;
-      setActiveTab(getDefaultTabForUser(user));
+      const previewPerms = isPreviewMode && activeConfig?.required_permissions
+        ? activeConfig.required_permissions
+        : user.permissions;
+      setActiveTab(
+        getDefaultTabForUser(
+          { role: effectiveConsoleRole, permissions: previewPerms },
+          activeConfig?.default_tab
+        )
+      );
     }
-  }, [user?.id, user?.role, (user?.permissions || []).join(',')]);
+  }, [user?.id, user?.role, effectiveConsoleRole, isPreviewMode, activeConfig?.default_tab, (user?.permissions || []).join(',')]);
   const [initialPrintOrderRef] = useState<string | undefined>(() => {
     if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('printing')) {
       const qIdx = window.location.hash.indexOf('?');
@@ -728,8 +762,14 @@ export function SuperAdminDashboard({
     );
   }
 
-  const isSuperAdmin = user.role === 'superadmin';
-  const userPermissions = Array.isArray(user.permissions) ? user.permissions : [];
+  const isRealSuperAdmin = user.role === 'superadmin';
+  const isSuperAdmin = !isPreviewMode && isRealSuperAdmin;
+  const userPermissions =
+    isPreviewMode && activeConfig?.required_permissions
+      ? activeConfig.required_permissions
+      : Array.isArray(user.permissions)
+      ? user.permissions
+      : [];
   const hasPermission = (perm?: string, superAdminOnly?: boolean, permissionsAny?: string[]): boolean => {
     if (isSuperAdmin || userPermissions.includes('*')) return true;
     if (superAdminOnly) return false;
@@ -738,6 +778,38 @@ export function SuperAdminDashboard({
     }
     if (!perm) return true;
     return userPermissions.includes(perm);
+  };
+
+  const configModulesById = new Map<string, { visible: boolean; status: string; label?: string }>(
+    (activeConfig?.modules || []).map(m => [m.id, m])
+  );
+  const isModuleAllowedByConfig = (tabId: AdminTabKey): boolean => {
+    if (isSuperAdmin && (tabId === 'staff' || tabId === 'modules' || tabId === 'overview')) {
+      return true;
+    }
+    if (configModulesById.size === 0) return true;
+    const mapping: Record<string, string> = {
+      overview: 'overview',
+      customers: 'customers',
+      support_admin: 'support_admin',
+      printing: 'printing_admin',
+      academy_admin: 'academy_admin',
+      kyc_admin: 'kyc_admin',
+      services: 'services',
+      referrals_admin: 'referrals_admin',
+      notifications_admin: 'notifications_admin',
+      website: 'cms',
+      staff: 'staff',
+      modules: 'modules',
+      security_admin: 'security_audit',
+      audit: 'security_audit',
+      footprints: 'security_audit',
+    };
+    const modKey = tabId.startsWith('acc_') ? 'accounting' : mapping[tabId];
+    if (!modKey) return true;
+    const mod = configModulesById.get(modKey);
+    if (!mod) return true;
+    return mod.visible && mod.status !== 'disabled';
   };
 
   const allNavSections: AdminNavSection[] = [
@@ -776,7 +848,7 @@ export function SuperAdminDashboard({
         { id: 'enrolments_admin', label: 'Enrolment Centre', icon: UserPlus, badge: 'Stage 4', permission: 'services' },
         { id: 'digital_services', label: 'Digital Utilities (Cable & Disco)', icon: Tv, badge: 'Phase 8', permission: 'services' },
         { id: 'store_admin', label: 'Hardware Store', icon: ShoppingBag, badge: 'Catalog', permission: 'services' },
-        { id: 'academy_admin', label: 'Digital Training Academy', icon: GraduationCap, badge: '12 Courses', permission: 'services' },
+        { id: 'academy_admin', label: 'Digital Training Academy', icon: GraduationCap, badge: '12 Courses', permissionsAny: ['services', 'academy'] },
         { id: 'referrals_admin', label: 'Referral & Rewards Centre', icon: Gift, badge: 'Growth', permission: 'referrals' },
         { id: 'withdrawals_admin', label: 'Cash Withdrawal Desk', icon: Banknote, badge: 'Payouts', permission: 'withdrawals' },
       ],
@@ -813,12 +885,17 @@ export function SuperAdminDashboard({
   const navSections: AdminNavSection[] = allNavSections
     .map(section => ({
       ...section,
-      items: section.items.filter(item => hasPermission(item.permission, item.superAdminOnly, item.permissionsAny)),
+      items: section.items.filter(
+        item =>
+          hasPermission(item.permission, item.superAdminOnly, item.permissionsAny) &&
+          isModuleAllowedByConfig(item.id)
+      ),
     }))
     .filter(section => section.items.length > 0);
 
   const visibleTabIds = new Set(navSections.flatMap(sec => sec.items.map(i => i.id)));
-  const safeActiveTab: AdminTabKey = visibleTabIds.has(activeTab) ? activeTab : 'overview';
+  const firstVisibleTab = navSections[0]?.items[0]?.id || 'overview';
+  const safeActiveTab: AdminTabKey = visibleTabIds.has(activeTab) ? activeTab : firstVisibleTab;
 
   const handleSelectTab = (tab: AdminTabKey) => {
     setActiveTab(tab);
@@ -868,18 +945,22 @@ export function SuperAdminDashboard({
               <div>
                 <span className="font-extrabold text-sm text-slate-900 dark:text-white tracking-tight flex items-center gap-1.5">
                   <span>{brandName}</span>
-                  <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
-                    isSuperAdmin
+                  <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border uppercase ${
+                    effectiveConsoleRole === 'superadmin'
                       ? 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30'
-                      : user.role === 'admin'
+                      : effectiveConsoleRole === 'admin'
                       ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                      : effectiveConsoleRole === 'manager'
+                      ? 'bg-purple-500/15 text-purple-600 dark:text-purple-300 border-purple-500/30'
+                      : effectiveConsoleRole === 'support'
+                      ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 border-cyan-500/30'
                       : 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/30'
                   }`}>
-                    {isSuperAdmin ? 'ROOT' : user.role === 'admin' ? 'ADMIN' : 'STAFF'}
+                    {effectiveConsoleRole === 'superadmin' ? 'ROOT' : effectiveConsoleRole.toUpperCase()}
                   </span>
                 </span>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {isSuperAdmin ? 'Super Admin Console' : user.role === 'admin' ? 'Admin Console' : 'Staff Console'}
+                  {activeConfig?.badge_text || getDashboardLabel(effectiveConsoleRole)}
                 </p>
               </div>
             </div>
@@ -995,13 +1076,33 @@ export function SuperAdminDashboard({
             </button>
             <div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">
-                HAMBAK TECH &amp; SERVICES &bull; {isSuperAdmin ? 'Root Administration' : user.role === 'admin' ? 'Admin Administration' : 'Staff Administration'}
+                HAMBAK TECH &amp; SERVICES &bull; {getRoleLabel(effectiveConsoleRole)} Console
               </p>
               <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{currentTitle}</h1>
             </div>
           </div>
 
           <div className="flex items-center gap-2.5">
+            {(user.role === 'admin' || user.role === 'superadmin') && onLaunchPreview && !isPreviewMode && (
+              <select
+                value=""
+                onChange={e => {
+                  if (e.target.value) {
+                    onLaunchPreview(e.target.value, 'published');
+                  }
+                }}
+                className="hidden md:block bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none"
+                aria-label="Preview Role Dashboards"
+              >
+                <option value="">Preview Role Dashboard...</option>
+                {DASHBOARD_CATALOG_FALLBACK.map(d => (
+                  <option key={d.key} value={d.key}>
+                    Preview: {d.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
             <ThemeToggle compact />
 
             {/* Quick Customer Portal Button */}
@@ -1017,7 +1118,17 @@ export function SuperAdminDashboard({
         </header>
 
         {/* View Router */}
-        <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto">
+        <main className="p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-5">
+          {activeConfig?.announcement_banner?.enabled && activeConfig.announcement_banner.message && (
+            <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-200 text-xs flex items-start gap-2.5">
+              <Bell className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-white">{activeConfig.announcement_banner.title}</p>
+                <p className="text-slate-300 mt-0.5">{activeConfig.announcement_banner.message}</p>
+              </div>
+            </div>
+          )}
+
           <AdminErrorBoundary key={safeActiveTab}>
             {safeActiveTab === 'overview' && (
               <AdminOverview onNavigateToTab={tab => setActiveTab(tab as AdminTabKey)} />
@@ -1037,7 +1148,9 @@ export function SuperAdminDashboard({
 
             {safeActiveTab === 'website' && <WebsiteManagement />}
 
-            {safeActiveTab === 'modules' && <DashboardModuleManagement />}
+            {safeActiveTab === 'modules' && (
+              <DashboardModuleManagement onLaunchPreview={onLaunchPreview} />
+            )}
 
             {safeActiveTab === 'services' && <ServiceManagement />}
 

@@ -20,6 +20,9 @@ import { customerRouter } from './server/routes/customer.js';
 import { adminRouter } from './server/routes/admin.js';
 import { kycRouter } from './server/routes/kyc.js';
 import { printingRouter, adminPrintingRouter } from './server/routes/printing.js';
+import { parseToken } from './server/routes/auth.js';
+import { getDashboardConfig, normalizeDashboardKey } from './server/services/dashboardConfig.js';
+import { db } from './server/db/database.js';
 import { CREDENTIALS } from './server/config/credentials.js';
 
 import { rateLimiter, sanitizeBody, csrfProtection } from './server/services/security.js';
@@ -93,6 +96,22 @@ async function startServer() {
   app.use('/api/kyc', kycRouter);
   app.use('/api/printing', printingRouter);
   app.use('/api/admin/printing', adminPrintingRouter);
+  app.get('/api/dashboard/config', (req, res) => {
+    const session = parseToken(req.headers.authorization);
+    if (!session) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const user = db.findUserById(session.userId);
+    if (!user) {
+      return res.status(401).json({ error: 'User does not exist' });
+    }
+    const dashKey = normalizeDashboardKey(user.assigned_dashboard, user.role);
+    return res.json({
+      success: true,
+      dashboard_key: dashKey,
+      config: getDashboardConfig(dashKey, 'published'),
+    });
+  });
 
   const httpServer = http.createServer(app);
 

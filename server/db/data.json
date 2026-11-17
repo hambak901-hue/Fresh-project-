@@ -13,7 +13,9 @@
       "referral_code": "HAMBAK-SUPER",
       "created_at": "2026-01-01T00:00:00.000Z",
       "updated_at": "2026-11-12T15:32:17.405Z",
-      "status": "active"
+      "status": "active",
+      "assigned_dashboard": "admin",
+      "token_version": 1
     },
     {
       "id": "usr_customer_demo",
@@ -30,7 +32,9 @@
       "referral_code": "FATIMOH99",
       "created_at": "2026-02-15T00:00:00.000Z",
       "updated_at": "2026-11-12T11:56:50.109Z",
-      "status": "active"
+      "status": "active",
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "email": "qa_reg_1794497446870@hambaktech.com.ng",
@@ -57,7 +61,9 @@
           "status": "pending",
           "review_notes": "Pending admin compliance review"
         }
-      ]
+      ],
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "email": "qa_reg_1794497537207@hambaktech.com.ng",
@@ -84,7 +90,9 @@
           "status": "pending",
           "review_notes": "Pending admin compliance review"
         }
-      ]
+      ],
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "id": "usr_e2e_superadmin",
@@ -103,7 +111,9 @@
       "email_verified": true,
       "permissions": [
         "*"
-      ]
+      ],
+      "assigned_dashboard": "admin",
+      "token_version": 1
     },
     {
       "email": "e2e_customer@hambaktech.com.ng",
@@ -118,7 +128,9 @@
       "status": "active",
       "id": "usr_1794905488551_3924i",
       "created_at": "2026-11-17T08:51:28.551Z",
-      "updated_at": "2026-11-17T08:51:28.551Z"
+      "updated_at": "2026-11-17T08:51:28.551Z",
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "email": "e2e_cust_1794905548847@hambaktech.com.ng",
@@ -134,7 +146,9 @@
       "id": "usr_1794905549140_y51bv",
       "created_at": "2026-11-17T08:52:29.140Z",
       "updated_at": "2026-11-17T08:52:29.276Z",
-      "transaction_pin_hash": "$2b$10$yM7J.d2GcHkTywUbWw19huasgDCqV1Hz1yyiqFcPx25D5N2Vvgd4a"
+      "transaction_pin_hash": "$2b$10$yM7J.d2GcHkTywUbWw19huasgDCqV1Hz1yyiqFcPx25D5N2Vvgd4a",
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "email": "e2e_cust_1794905571448@hambaktech.com.ng",
@@ -150,7 +164,9 @@
       "id": "usr_1794905571743_atb49",
       "created_at": "2026-11-17T08:52:51.744Z",
       "updated_at": "2026-11-17T08:52:51.912Z",
-      "transaction_pin_hash": "$2b$10$EhnGtq0qXD3Dtcqi.uJ02.gXRRpu8QtRj0Dg12Uxp9a6h5Kgz233W"
+      "transaction_pin_hash": "$2b$10$EhnGtq0qXD3Dtcqi.uJ02.gXRRpu8QtRj0Dg12Uxp9a6h5Kgz233W",
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "email": "e2e_agent_1794905571448@hambaktech.com.ng",
@@ -165,7 +181,9 @@
       "status": "active",
       "id": "usr_1794905572044_ihzbm",
       "created_at": "2026-11-17T08:52:52.044Z",
-      "updated_at": "2026-11-17T08:52:52.059Z"
+      "updated_at": "2026-11-17T08:52:52.059Z",
+      "assigned_dashboard": "agent",
+      "token_version": 1
     },
     {
       "email": "e2e_sp_1794905571448@hambaktech.com.ng",
@@ -183,7 +201,9 @@
       ],
       "id": "usr_1794905572325_web4g",
       "created_at": "2026-11-17T08:52:52.325Z",
-      "updated_at": "2026-11-17T08:52:52.325Z"
+      "updated_at": "2026-11-17T08:52:52.325Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_cust_1794905577105@hambaktech.com.ng",
@@ -199,7 +219,9 @@
       "id": "usr_1794905577415_swwr6",
       "created_at": "2026-11-17T08:52:57.415Z",
       "updated_at": "2026-11-17T08:52:57.560Z",
-      "transaction_pin_hash": "$2b$10$sPZG/WqaRzKY8AY9C6o2i.rUXdOZWOBpGyrmcSCAzzzjaUjohcfGu"
+      "transaction_pin_hash": "$2b$10$sPZG/WqaRzKY8AY9C6o2i.rUXdOZWOBpGyrmcSCAzzzjaUjohcfGu",
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "email": "e2e_agent_1794905577105@hambaktech.com.ng",
@@ -214,7 +236,9 @@
       "status": "active",
       "id": "usr_1794905577697_okzzj",
       "created_at": "2026-11-17T08:52:57.697Z",
-      "updated_at": "2026-11-17T08:52:57.709Z"
+      "updated_at": "2026-11-17T08:52:57.709Z",
+      "assigned_dashboard": "agent",
+      "token_version": 1
     },
     {
       "email": "e2e_sp_1794905577105@hambaktech.com.ng",
@@ -232,7 +256,9 @@
       ],
       "id": "usr_1794905577982_r9j3t",
       "created_at": "2026-11-17T08:52:57.982Z",
-      "updated_at": "2026-11-17T08:52:57.982Z"
+      "updated_at": "2026-11-17T08:52:57.982Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_spm_1794905577105@hambaktech.com.ng",
@@ -251,7 +277,9 @@
       ],
       "id": "usr_1794905578256_e4whn",
       "created_at": "2026-11-17T08:52:58.256Z",
-      "updated_at": "2026-11-17T08:52:58.256Z"
+      "updated_at": "2026-11-17T08:52:58.256Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_kyc_1794905577105@hambaktech.com.ng",
@@ -271,7 +299,9 @@
       ],
       "id": "usr_1794905578501_fjp07",
       "created_at": "2026-11-17T08:52:58.501Z",
-      "updated_at": "2026-11-17T08:52:58.501Z"
+      "updated_at": "2026-11-17T08:52:58.501Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_ops_1794905577105@hambaktech.com.ng",
@@ -290,7 +320,9 @@
       ],
       "id": "usr_1794905578765_t5f06",
       "created_at": "2026-11-17T08:52:58.765Z",
-      "updated_at": "2026-11-17T08:52:58.765Z"
+      "updated_at": "2026-11-17T08:52:58.765Z",
+      "assigned_dashboard": "admin",
+      "token_version": 1
     },
     {
       "email": "e2e_cust_1794905604078@hambaktech.com.ng",
@@ -306,7 +338,9 @@
       "id": "usr_1794905604410_mhzal",
       "created_at": "2026-11-17T08:53:24.410Z",
       "updated_at": "2026-11-17T08:53:24.579Z",
-      "transaction_pin_hash": "$2b$10$xFFWAOkH9QAiLlRFZ4hHie9SpRC9ZjULKs0djC6e6PInObqDAO7dK"
+      "transaction_pin_hash": "$2b$10$xFFWAOkH9QAiLlRFZ4hHie9SpRC9ZjULKs0djC6e6PInObqDAO7dK",
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "email": "e2e_agent_1794905604078@hambaktech.com.ng",
@@ -321,7 +355,9 @@
       "status": "active",
       "id": "usr_1794905604707_dnxk5",
       "created_at": "2026-11-17T08:53:24.707Z",
-      "updated_at": "2026-11-17T08:53:24.722Z"
+      "updated_at": "2026-11-17T08:53:24.722Z",
+      "assigned_dashboard": "agent",
+      "token_version": 1
     },
     {
       "email": "e2e_sp_1794905604078@hambaktech.com.ng",
@@ -339,7 +375,9 @@
       ],
       "id": "usr_1794905604957_vl7fo",
       "created_at": "2026-11-17T08:53:24.957Z",
-      "updated_at": "2026-11-17T08:53:24.957Z"
+      "updated_at": "2026-11-17T08:53:24.957Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_spm_1794905604078@hambaktech.com.ng",
@@ -358,7 +396,9 @@
       ],
       "id": "usr_1794905605196_gl2x6",
       "created_at": "2026-11-17T08:53:25.196Z",
-      "updated_at": "2026-11-17T08:53:25.196Z"
+      "updated_at": "2026-11-17T08:53:25.196Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_kyc_1794905604078@hambaktech.com.ng",
@@ -378,7 +418,9 @@
       ],
       "id": "usr_1794905605437_pw8fu",
       "created_at": "2026-11-17T08:53:25.437Z",
-      "updated_at": "2026-11-17T08:53:25.437Z"
+      "updated_at": "2026-11-17T08:53:25.437Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_ops_1794905604078@hambaktech.com.ng",
@@ -397,7 +439,9 @@
       ],
       "id": "usr_1794905605677_kml9u",
       "created_at": "2026-11-17T08:53:25.677Z",
-      "updated_at": "2026-11-17T08:53:25.677Z"
+      "updated_at": "2026-11-17T08:53:25.677Z",
+      "assigned_dashboard": "admin",
+      "token_version": 1
     },
     {
       "email": "e2e_cust_1794905658676@hambaktech.com.ng",
@@ -413,7 +457,9 @@
       "id": "usr_1794905658941_jwsgq",
       "created_at": "2026-11-17T08:54:18.941Z",
       "updated_at": "2026-11-17T08:54:19.082Z",
-      "transaction_pin_hash": "$2b$10$Ei1VU2idz2rv6l.RnIiDSONgciBikSp5B8EBaY1vgUB78zztqdA16"
+      "transaction_pin_hash": "$2b$10$Ei1VU2idz2rv6l.RnIiDSONgciBikSp5B8EBaY1vgUB78zztqdA16",
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "email": "e2e_agent_1794905658676@hambaktech.com.ng",
@@ -428,7 +474,9 @@
       "status": "active",
       "id": "usr_1794905659209_f0d0s",
       "created_at": "2026-11-17T08:54:19.209Z",
-      "updated_at": "2026-11-17T08:54:19.223Z"
+      "updated_at": "2026-11-17T08:54:19.223Z",
+      "assigned_dashboard": "agent",
+      "token_version": 1
     },
     {
       "email": "e2e_sp_1794905658676@hambaktech.com.ng",
@@ -446,7 +494,9 @@
       ],
       "id": "usr_1794905659480_1cmcr",
       "created_at": "2026-11-17T08:54:19.480Z",
-      "updated_at": "2026-11-17T08:54:19.480Z"
+      "updated_at": "2026-11-17T08:54:19.480Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_spm_1794905658676@hambaktech.com.ng",
@@ -465,7 +515,9 @@
       ],
       "id": "usr_1794905659724_ugi3z",
       "created_at": "2026-11-17T08:54:19.724Z",
-      "updated_at": "2026-11-17T08:54:19.724Z"
+      "updated_at": "2026-11-17T08:54:19.724Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_kyc_1794905658676@hambaktech.com.ng",
@@ -485,7 +537,9 @@
       ],
       "id": "usr_1794905659964_k5c08",
       "created_at": "2026-11-17T08:54:19.964Z",
-      "updated_at": "2026-11-17T08:54:19.964Z"
+      "updated_at": "2026-11-17T08:54:19.964Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_ops_1794905658676@hambaktech.com.ng",
@@ -504,7 +558,9 @@
       ],
       "id": "usr_1794905660208_hzmtj",
       "created_at": "2026-11-17T08:54:20.208Z",
-      "updated_at": "2026-11-17T08:54:20.208Z"
+      "updated_at": "2026-11-17T08:54:20.208Z",
+      "assigned_dashboard": "admin",
+      "token_version": 1
     },
     {
       "email": "e2e_cust_1794905693753@hambaktech.com.ng",
@@ -520,7 +576,9 @@
       "id": "usr_1794905694019_ymhi1",
       "created_at": "2026-11-17T08:54:54.019Z",
       "updated_at": "2026-11-17T08:54:54.165Z",
-      "transaction_pin_hash": "$2b$10$MsgjfNgEBMkOnGPLusiQEerDoZ7TE7bwC7Ekf7QVDO2V40Ee2M5pK"
+      "transaction_pin_hash": "$2b$10$MsgjfNgEBMkOnGPLusiQEerDoZ7TE7bwC7Ekf7QVDO2V40Ee2M5pK",
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "email": "e2e_agent_1794905693753@hambaktech.com.ng",
@@ -535,7 +593,9 @@
       "status": "active",
       "id": "usr_1794905694295_faqmx",
       "created_at": "2026-11-17T08:54:54.295Z",
-      "updated_at": "2026-11-17T08:54:54.311Z"
+      "updated_at": "2026-11-17T08:54:54.311Z",
+      "assigned_dashboard": "agent",
+      "token_version": 1
     },
     {
       "email": "e2e_sp_1794905693753@hambaktech.com.ng",
@@ -553,7 +613,9 @@
       ],
       "id": "usr_1794905694554_kksb1",
       "created_at": "2026-11-17T08:54:54.554Z",
-      "updated_at": "2026-11-17T08:54:54.554Z"
+      "updated_at": "2026-11-17T08:54:54.554Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_spm_1794905693753@hambaktech.com.ng",
@@ -572,7 +634,9 @@
       ],
       "id": "usr_1794905694806_cnzfu",
       "created_at": "2026-11-17T08:54:54.806Z",
-      "updated_at": "2026-11-17T08:54:54.806Z"
+      "updated_at": "2026-11-17T08:54:54.806Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_kyc_1794905693753@hambaktech.com.ng",
@@ -592,7 +656,9 @@
       ],
       "id": "usr_1794905695059_d8gol",
       "created_at": "2026-11-17T08:54:55.059Z",
-      "updated_at": "2026-11-17T08:54:55.059Z"
+      "updated_at": "2026-11-17T08:54:55.059Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_ops_1794905693753@hambaktech.com.ng",
@@ -611,7 +677,9 @@
       ],
       "id": "usr_1794905695320_5y1ej",
       "created_at": "2026-11-17T08:54:55.320Z",
-      "updated_at": "2026-11-17T08:54:55.320Z"
+      "updated_at": "2026-11-17T08:54:55.320Z",
+      "assigned_dashboard": "admin",
+      "token_version": 1
     },
     {
       "email": "e2e_cust_1794905737097@hambaktech.com.ng",
@@ -627,7 +695,9 @@
       "id": "usr_1794905737362_saxw0",
       "created_at": "2026-11-17T08:55:37.362Z",
       "updated_at": "2026-11-17T08:55:37.521Z",
-      "transaction_pin_hash": "$2b$10$3LNq90ql2gd9CnPbNR7PguQRdKvF8SEyjbD3ovA5FA/HDgEYsH07O"
+      "transaction_pin_hash": "$2b$10$3LNq90ql2gd9CnPbNR7PguQRdKvF8SEyjbD3ovA5FA/HDgEYsH07O",
+      "assigned_dashboard": "customer",
+      "token_version": 1
     },
     {
       "email": "e2e_agent_1794905737097@hambaktech.com.ng",
@@ -642,7 +712,9 @@
       "status": "active",
       "id": "usr_1794905737651_xmhh7",
       "created_at": "2026-11-17T08:55:37.651Z",
-      "updated_at": "2026-11-17T08:55:37.668Z"
+      "updated_at": "2026-11-17T08:55:37.668Z",
+      "assigned_dashboard": "agent",
+      "token_version": 1
     },
     {
       "email": "e2e_sp_1794905737097@hambaktech.com.ng",
@@ -660,7 +732,9 @@
       ],
       "id": "usr_1794905737933_u244j",
       "created_at": "2026-11-17T08:55:37.933Z",
-      "updated_at": "2026-11-17T08:55:37.933Z"
+      "updated_at": "2026-11-17T08:55:37.933Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_spm_1794905737097@hambaktech.com.ng",
@@ -679,7 +753,9 @@
       ],
       "id": "usr_1794905738196_h1lq6",
       "created_at": "2026-11-17T08:55:38.196Z",
-      "updated_at": "2026-11-17T08:55:38.196Z"
+      "updated_at": "2026-11-17T08:55:38.196Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_kyc_1794905737097@hambaktech.com.ng",
@@ -699,7 +775,9 @@
       ],
       "id": "usr_1794905738450_m9g8b",
       "created_at": "2026-11-17T08:55:38.450Z",
-      "updated_at": "2026-11-17T08:55:38.450Z"
+      "updated_at": "2026-11-17T08:55:38.450Z",
+      "assigned_dashboard": "staff",
+      "token_version": 1
     },
     {
       "email": "e2e_ops_1794905737097@hambaktech.com.ng",
@@ -718,7 +796,9 @@
       ],
       "id": "usr_1794905738692_73eo8",
       "created_at": "2026-11-17T08:55:38.692Z",
-      "updated_at": "2026-11-17T08:55:38.692Z"
+      "updated_at": "2026-11-17T08:55:38.692Z",
+      "assigned_dashboard": "admin",
+      "token_version": 1
     }
   ],
   "transactions": [
@@ -6499,5 +6579,6 @@
       "file_url": "/api/printing/files/0e55130c-e2b1-4192-9a77-49463ff8e4b5",
       "created_at": "2026-11-17T08:54:24.610Z"
     }
-  ]
+  ],
+  "role_dashboard_configs": {}
 }

@@ -49,7 +49,8 @@ class SchemaSync
                 password_hash VARCHAR(255) NOT NULL,
                 full_name VARCHAR(191) NOT NULL,
                 phone_number VARCHAR(30) NOT NULL,
-                role ENUM("customer", "agent", "staff", "admin", "superadmin") NOT NULL DEFAULT "customer",
+                role ENUM("customer", "student", "agent", "support", "staff", "manager", "admin", "superadmin") NOT NULL DEFAULT "customer",
+                assigned_dashboard VARCHAR(64) NULL,
                 wallet_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 kyc_status ENUM("unverified", "pending", "verified", "rejected") NOT NULL DEFAULT "unverified",
                 tier INT NOT NULL DEFAULT 1,
@@ -2322,6 +2323,7 @@ class SchemaSync
             'phone_normalized' => 'ADD COLUMN phone_normalized VARCHAR(32) NULL',
             'token_version' => 'ADD COLUMN token_version INT NOT NULL DEFAULT 1',
             'assigned_permissions' => 'ADD COLUMN assigned_permissions TEXT NULL',
+            'assigned_dashboard' => 'ADD COLUMN assigned_dashboard VARCHAR(64) NULL',
             'referred_by_user_id' => 'ADD COLUMN referred_by_user_id VARCHAR(36) NULL',
             'referral_source' => 'ADD COLUMN referral_source VARCHAR(64) NULL',
             'referral_campaign_code' => 'ADD COLUMN referral_campaign_code VARCHAR(64) NULL',
@@ -2355,12 +2357,29 @@ class SchemaSync
                 'SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "users" AND COLUMN_NAME = "role"'
             );
             $colType = strtolower((string)($roleCol['COLUMN_TYPE'] ?? ''));
-            if ($colType !== '' && (!str_contains($colType, "'staff'") || !str_contains($colType, "'agent'"))) {
-                $db->execute('ALTER TABLE users MODIFY COLUMN role ENUM("customer", "agent", "staff", "admin", "superadmin") NOT NULL DEFAULT "customer"');
+            if (
+                $colType !== '' && (
+                    !str_contains($colType, "'student'") ||
+                    !str_contains($colType, "'agent'") ||
+                    !str_contains($colType, "'support'") ||
+                    !str_contains($colType, "'staff'") ||
+                    !str_contains($colType, "'manager'")
+                )
+            ) {
+                $db->execute('ALTER TABLE users MODIFY COLUMN role ENUM("customer", "student", "agent", "support", "staff", "manager", "admin", "superadmin") NOT NULL DEFAULT "customer"');
                 $applied[] = 'col:users.role_enum';
             }
         } catch (Throwable $e) {
             $errors[] = 'col:users.role_enum => ' . $e->getMessage();
+        }
+
+        // Safe non-destructive backfill for assigned_dashboard
+        try {
+            $db->execute(
+                'UPDATE users SET assigned_dashboard = CASE WHEN role = "superadmin" THEN "admin" ELSE role END
+                 WHERE assigned_dashboard IS NULL OR assigned_dashboard = ""'
+            );
+        } catch (Throwable) {
         }
 
         // Safe backfill for phone_normalized (canonical 2348XXXXXXXXX / digits)
@@ -2620,6 +2639,19 @@ class SchemaSync
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_ral_action (action, created_at),
                 INDEX idx_ral_target (target_user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'role_dashboard_configs' => 'CREATE TABLE IF NOT EXISTS role_dashboard_configs (
+                dashboard_key VARCHAR(64) PRIMARY KEY,
+                category ENUM("portal", "console") NOT NULL DEFAULT "portal",
+                draft_config JSON NOT NULL,
+                published_config JSON NOT NULL,
+                has_unpublished_changes TINYINT(1) NOT NULL DEFAULT 0,
+                updated_by VARCHAR(100) NULL,
+                published_by VARCHAR(100) NULL,
+                published_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
         ];
 

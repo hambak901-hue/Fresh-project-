@@ -7,7 +7,8 @@
 
 import { Router } from 'express';
 import { db, hashPassword, verifyPassword, hashPin, verifyPin, User } from '../db/database.js';
-import { parseToken } from './auth.js';
+import { parseToken, sanitizeUser } from './auth.js';
+import { getDashboardConfig, normalizeDashboardKey } from '../services/dashboardConfig.js';
 import { sendEmail } from '../services/mailer.js';
 import { validateUploadFile, validateUploadBuffer, generateSecureFilename } from '../services/security.js';
 
@@ -30,12 +31,18 @@ function requireCustomer(req: any, res: any, next: any) {
 }
 
 function safeUserResponse(user: User) {
-  const safe: any = { ...user };
-  delete safe.password_hash;
-  safe.has_transaction_pin = Boolean(user.transaction_pin_hash);
-  delete safe.transaction_pin_hash;
-  return safe;
+  return sanitizeUser(user, true);
 }
+
+// GET /api/customer/dashboard-config
+customerRouter.get('/dashboard-config', requireCustomer, (req: any, res) => {
+  const dashKey = normalizeDashboardKey(req.user.assigned_dashboard, req.user.role);
+  res.json({
+    success: true,
+    dashboard_key: dashKey,
+    config: getDashboardConfig(dashKey, 'published'),
+  });
+});
 
 // GET /api/customer/summary - Live dashboard overview metrics
 customerRouter.get('/summary', requireCustomer, (req: any, res) => {
@@ -93,9 +100,11 @@ customerRouter.get('/summary', requireCustomer, (req: any, res) => {
     .filter(a => a.status === 'published')
     .slice(0, 3);
 
+  const safeUser = safeUserResponse(user);
   res.json({
     success: true,
-    user: safeUserResponse(user),
+    user: safeUser,
+    dashboard_config: safeUser.dashboard_config,
     metrics: {
       wallet_balance: user.wallet_balance,
       total_transactions: userTxns.length,

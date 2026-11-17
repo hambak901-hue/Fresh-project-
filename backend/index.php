@@ -220,6 +220,7 @@ $router->post('/api/telecom/providers/switch', [TelecomController::class, 'switc
 // -----------------------------------------------------------------------------
 $router->get('/api/customer/dashboard', [CustomerController::class, 'dashboard']);
 $router->get('/api/customer/summary', [CustomerController::class, 'summary']);
+$router->get('/api/dashboard/config', [CustomerController::class, 'dashboardConfig']);
 $router->put('/api/customer/profile', [AuthController::class, 'updateProfile']);
 $router->put('/api/customer/password', [AuthController::class, 'changePassword']);
 $router->put('/api/customer/pin', [CustomerController::class, 'updatePin']);
@@ -276,6 +277,8 @@ $router->get('/api/admin/customers', [AdminController::class, 'customers']);
 $router->get('/api/admin/customers/:id', [AdminController::class, 'customerDetail']);
 $router->put('/api/admin/customers/:id', [AdminController::class, 'updateCustomer']);
 $router->post('/api/admin/customers/:id/status', [AdminController::class, 'updateCustomerStatus']);
+$router->post('/api/admin/customers/:id/role', [AdminController::class, 'assignCustomerRole']);
+$router->put('/api/admin/customers/:id/role', [AdminController::class, 'assignCustomerRole']);
 $router->post('/api/admin/customers/:id/wallet-adjust', [AdminController::class, 'customerWalletAdjust']);
 $router->post('/api/admin/customers/:id/kyc', [AdminController::class, 'reviewCustomerKyc']);
 $router->post('/api/admin/customers/:id/notify', [AdminController::class, 'notifyCustomer']);
@@ -422,11 +425,17 @@ $router->post('/api/admin/sms-config', [AdminController::class, 'updateSmsConfig
 $router->put('/api/admin/sms-config/template/:id', [AdminController::class, 'updateSmsTemplate']);
 $router->post('/api/admin/sms-config/test', [AdminController::class, 'testSms']);
 
-// Dashboard Modules Configuration
+// Dashboard Modules & Central Role Dashboard Configuration
 $router->get('/api/admin/dashboard-modules', [AdminController::class, 'dashboardModules']);
 $router->put('/api/admin/dashboard-modules/:id', [AdminController::class, 'updateDashboardModule']);
+$router->get('/api/admin/dashboard-configs', [AdminController::class, 'dashboardConfigs']);
+$router->put('/api/admin/dashboard-configs/:role', [AdminController::class, 'saveDashboardConfigDraft']);
+$router->post('/api/admin/dashboard-configs/:role/publish', [AdminController::class, 'publishDashboardConfig']);
+$router->get('/api/admin/dashboard-preview', [AdminController::class, 'previewDashboard']);
+$router->post('/api/admin/dashboard-preview', [AdminController::class, 'previewDashboard']);
 
-// Staff & Role-Based Access Control
+// Staff, Roles Catalog & Role-Based Access Control
+$router->get('/api/admin/roles', [AdminController::class, 'rolesCatalog']);
 $router->get('/api/admin/staff', [AdminController::class, 'staff']);
 $router->post('/api/admin/staff', [AdminController::class, 'createStaff']);
 $router->put('/api/admin/staff/:id', [AdminController::class, 'updateStaff']);

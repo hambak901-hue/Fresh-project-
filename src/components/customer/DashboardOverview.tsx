@@ -23,42 +23,77 @@ import {
   Zap,
   CheckCircle2,
   Clock,
-  AlertTriangle,
   XCircle,
   Bell,
   ChevronRight,
   RefreshCw,
   Plus,
   ArrowRight,
-  Layers,
   Printer,
+  GraduationCap,
+  QrCode,
+  Gift,
+  BookOpen,
 } from 'lucide-react';
+import {
+  AcademyApplication,
+  AcademyStudent,
+  DashboardKey,
+  RoleDashboardConfig,
+} from '../../types';
+import { getDashboardLabel } from '../../lib/roles';
+import { StudentIdCardModal } from '../academy/StudentIdCardModal';
 
 interface DashboardOverviewProps {
   onNavigateToPage: (page: string) => void;
   onOpenFundModal: () => void;
+  effectiveDashboardKey?: DashboardKey;
+  activeConfig?: RoleDashboardConfig | null;
+  previewAcademyData?: any;
+  isPreviewMode?: boolean;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onNavigateToPage,
   onOpenFundModal,
+  effectiveDashboardKey = 'customer',
+  activeConfig,
+  previewAcademyData,
+  isPreviewMode = false,
 }) => {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const { rates } = useCms();
   const airtimeDiscountPercent = rates?.airtime_discount_percent ?? 2.5;
   const [summary, setSummary] = useState<any | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [academyStudents, setAcademyStudents] = useState<AcademyStudent[]>([]);
+  const [academyApps, setAcademyApps] = useState<AcademyApplication[]>([]);
+  const [academyCoursesCount, setAcademyCoursesCount] = useState<number>(12);
+  const [idCardStudent, setIdCardStudent] = useState<AcademyStudent | null>(null);
 
   useEffect(() => {
     loadSummary();
-  }, []);
+  }, [effectiveDashboardKey]);
 
   const loadSummary = async () => {
     try {
       setLoading(true);
-      const res = await api.getCustomerSummary();
-      if (res.success) {
-        setSummary(res);
+      const [sumRes, acadRes] = await Promise.all([
+        api.getCustomerSummary().catch(() => null),
+        effectiveDashboardKey === 'student' || previewAcademyData
+          ? api.getCustomerAcademy().catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      if (sumRes?.success) {
+        setSummary(sumRes);
+      }
+      if (acadRes?.success) {
+        setAcademyStudents(acadRes.students || previewAcademyData?.sample_students || []);
+        setAcademyApps(acadRes.applications || []);
+        setAcademyCoursesCount((acadRes.courses || []).length || previewAcademyData?.courses_count || 12);
+      } else if (previewAcademyData) {
+        setAcademyStudents(previewAcademyData.sample_students || []);
+        setAcademyCoursesCount(previewAcademyData.courses_count || 12);
       }
     } catch (err) {
       console.warn('Failed to load dashboard summary:', err);
@@ -75,13 +110,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     failed_transactions: 0,
   };
 
+  const sections = activeConfig?.sections || {};
+  const showSection = (key: string, defaultVal = true): boolean =>
+    key in sections ? Boolean(sections[key]) : defaultVal;
+
+  const activeEnrollment = academyStudents[0] || null;
+
   return (
     <div className="space-y-8">
       {/* Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
-            <span>Customer Portal</span>
+            <span>{activeConfig?.badge_text || getDashboardLabel(effectiveDashboardKey)}</span>
             <span className="text-slate-600">&bull;</span>
             <button
               onClick={() => onNavigateToPage('kyc')}
@@ -95,10 +136,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </button>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight mt-1">
-            Welcome, {user?.full_name || 'Customer'}
+            {isPreviewMode
+              ? activeConfig?.title || getDashboardLabel(effectiveDashboardKey)
+              : `Welcome, ${user?.full_name || 'Customer'}`}
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
-            Your real-time operations dashboard for Nigerian telecom vending, identity lookups, and wallet management.
+            {activeConfig?.subtitle ||
+              'Your real-time operations dashboard for Nigerian telecom vending, identity lookups, and wallet management.'}
           </p>
         </div>
 
@@ -112,7 +156,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </button>
           <button
             onClick={onOpenFundModal}
-            className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all"
+            className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
             <span>Fund Wallet</span>
@@ -120,8 +164,101 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
       </div>
 
+      {/* STUDENT ACADEMY WORKSPACE HERO */}
+      {effectiveDashboardKey === 'student' && showSection('student_academy_hero', true) && (
+        <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-emerald-950/70 via-slate-900 to-blue-950/60 border border-emerald-500/30 space-y-4 shadow-lg">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
+                <GraduationCap className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-white">
+                  Digital Training Academy — Student Hub
+                </h2>
+                <p className="text-xs text-slate-300 mt-1 max-w-2xl">
+                  {activeEnrollment
+                    ? `Enrolled in ${activeEnrollment.course_title} (${activeEnrollment.student_id}) • Status: ${activeEnrollment.academic_status.toUpperCase()}`
+                    : `Explore all ${academyCoursesCount} official training tracks, check application progress, or download your QR-verified Student ID Card.`}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              {activeEnrollment && (
+                <button
+                  type="button"
+                  onClick={() => setIdCardStudent(activeEnrollment)}
+                  className="px-3.5 py-2 rounded-xl bg-white text-slate-950 hover:bg-slate-100 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap transition"
+                >
+                  <QrCode className="w-4 h-4 text-blue-700" />
+                  <span>View Student ID Card</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onNavigateToPage('academy')}
+                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap transition"
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Open My Academy &amp; Courses</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-emerald-500/20 text-xs">
+            <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+              <span className="text-slate-400 block text-[11px]">Available Courses</span>
+              <span className="font-mono font-bold text-white text-base tabular-nums">{academyCoursesCount} Tracks</span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+              <span className="text-slate-400 block text-[11px]">My Applications</span>
+              <span className="font-mono font-bold text-amber-300 text-base tabular-nums">{academyApps.length}</span>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+              <span className="text-slate-400 block text-[11px]">Active Enrollments / ID Cards</span>
+              <span className="font-mono font-bold text-emerald-400 text-base tabular-nums">{academyStudents.length}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AGENT / RESELLER PARTNER DESK PANEL */}
+      {effectiveDashboardKey === 'agent' && showSection('agent_reseller_panel', true) && (
+        <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-sky-950/70 via-slate-900 to-indigo-950/60 border border-sky-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+          <div className="flex items-start gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 flex items-center justify-center shrink-0">
+              <Gift className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white">Authorized Agent &amp; Reseller Desk</h2>
+              <p className="text-xs text-slate-300 mt-1 max-w-2xl">
+                Access bulk telecom vending, NIMC/BVN identity services, printing orders, and track partner referral commissions.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => onNavigateToPage('referrals')}
+              className="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap transition"
+            >
+              <Gift className="w-4 h-4" />
+              <span>Agent Commissions</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateToPage('nin')}
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs whitespace-nowrap transition"
+            >
+              Identity Desk
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* KYC Tier Upgrade Banner */}
-      {(!user?.kyc_level || user?.kyc_level < 2) && (
+      {showSection('kyc_upgrade_banner', true) && (!user?.kyc_level || user?.kyc_level < 2) && (
         <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-indigo-950/40 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
@@ -145,8 +282,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       )}
 
       {/* Main Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Wallet Balance Card */}
+      {(showSection('wallet_balance_card', true) || showSection('transaction_kpis', true)) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Wallet Balance Card */}
+          {showSection('wallet_balance_card', true) && (
         <div className="sm:col-span-2 lg:col-span-1 rounded-2xl bg-gradient-to-tr from-slate-900 to-emerald-950/40 border border-slate-800 p-5 space-y-3">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span className="font-semibold uppercase text-[10px] tracking-wider">Available Balance</span>
@@ -161,56 +300,63 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               onClick={() => onNavigateToPage('wallet')}
               className="text-emerald-400 hover:underline font-semibold flex items-center gap-0.5"
             >
-              <span>Manage Wallet</span>
-              <ChevronRight className="w-3 h-3" />
-            </button>
+                <span>Manage Wallet</span>
+                <ChevronRight className="w-3 h-3" />
+              </button>
+            </div>
           </div>
-        </div>
+          )}
 
-        {/* Successful Transactions */}
-        <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="font-semibold uppercase text-[10px] tracking-wider">Successful Operations</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="text-3xl font-extrabold text-white font-mono tabular-nums">
-            {metrics.successful_transactions}
-          </div>
-          <div className="text-[11px] text-slate-400">
-            Total Logged: <span className="text-slate-200 font-mono font-bold">{metrics.total_transactions}</span>
-          </div>
-        </div>
+          {/* Successful Transactions */}
+        {showSection('transaction_kpis', true) && (
+          <>
+            <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span className="font-semibold uppercase text-[10px] tracking-wider">Successful Operations</span>
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="text-3xl font-extrabold text-white font-mono tabular-nums">
+                {metrics.successful_transactions}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Total Logged: <span className="text-slate-200 font-mono font-bold">{metrics.total_transactions}</span>
+              </div>
+            </div>
 
-        {/* Pending Operations */}
-        <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="font-semibold uppercase text-[10px] tracking-wider">Pending Processing</span>
-            <Clock className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="text-3xl font-extrabold text-white font-mono tabular-nums">
-            {metrics.pending_transactions}
-          </div>
-          <div className="text-[11px] text-slate-400">
-            Manual transfers &amp; KYC
-          </div>
-        </div>
+            {/* Pending Operations */}
+            <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span className="font-semibold uppercase text-[10px] tracking-wider">Pending Processing</span>
+                <Clock className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="text-3xl font-extrabold text-white font-mono tabular-nums">
+                {metrics.pending_transactions}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Manual transfers &amp; KYC
+              </div>
+            </div>
 
-        {/* Failed Operations */}
-        <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="font-semibold uppercase text-[10px] tracking-wider">Failed / Cancelled</span>
-            <XCircle className="w-4 h-4 text-rose-400" />
-          </div>
-          <div className="text-3xl font-extrabold text-white font-mono tabular-nums">
-            {metrics.failed_transactions}
-          </div>
-          <div className="text-[11px] text-slate-400">
-            Automatically refunded
-          </div>
+            {/* Failed Operations */}
+            <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span className="font-semibold uppercase text-[10px] tracking-wider">Failed / Cancelled</span>
+                <XCircle className="w-4 h-4 text-rose-400" />
+              </div>
+              <div className="text-3xl font-extrabold text-white font-mono tabular-nums">
+                {metrics.failed_transactions}
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Automatically refunded
+              </div>
+            </div>
+          </>
+        )}
         </div>
-      </div>
+      )}
 
       {/* Quick Service Access Grid */}
+      {showSection('quick_actions_grid', true) && (
       <div className="space-y-3">
         <h2 className="text-sm font-bold text-white uppercase tracking-wider">Quick Actions</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -287,10 +433,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </button>
         </div>
       </div>
+      )}
 
       {/* Two Column Layout: Recent Activities & Announcements */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Recent Activities Feed */}
+        {showSection('recent_activities', true) && (
         <div className="lg:col-span-8 rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <h2 className="text-base font-bold text-white">Recent Activities</h2>
@@ -352,10 +500,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             )}
           </div>
         </div>
+        )}
 
         {/* Right: Announcements & Notifications Glance */}
+        {(showSection('notice_board', true) || showSection('virtual_account_card', true)) && (
         <div className="lg:col-span-4 space-y-6">
           {/* Announcements Card */}
+          {showSection('notice_board', true) && (
           <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold text-white">
@@ -379,8 +530,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               ))}
             </div>
           </div>
+          )}
 
           {/* Virtual Account Glance */}
+          {showSection('virtual_account_card', true) && (
           <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-3 text-xs">
             <span className="text-[10px] uppercase font-bold text-slate-400">Automated Funding Account</span>
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
@@ -393,8 +546,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </div>
             </div>
           </div>
+          )}
         </div>
+        )}
       </div>
+
+      <StudentIdCardModal
+        isOpen={Boolean(idCardStudent)}
+        onClose={() => setIdCardStudent(null)}
+        student={idCardStudent}
+      />
     </div>
   );
 };

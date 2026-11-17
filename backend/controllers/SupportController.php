@@ -164,7 +164,7 @@ class SupportController
     {
         $user = Auth::requireAuth($request);
         $ticketId = $params['id'] ?? '';
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true) && Auth::hasPermission($user, 'support');
+        $isAdmin = Auth::isConsoleRole((string)($user['role'] ?? '')) && Auth::hasPermission($user, 'support');
 
         $ticket = $this->db->fetchOne(
             'SELECT t.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
@@ -227,7 +227,7 @@ class SupportController
         $ticketId = $params['id'] ?? '';
         $message = trim((string)$request->input('message', ''));
         $attachmentUrl = (string)$request->input('attachment_url', '');
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true) && Auth::hasPermission($user, 'support');
+        $isAdmin = Auth::isConsoleRole((string)($user['role'] ?? '')) && Auth::hasPermission($user, 'support');
         $isInternalNote = $isAdmin && (bool)$request->input('is_internal_note', false);
         $requestedStatus = strtolower(trim((string)$request->input('status', '')));
 

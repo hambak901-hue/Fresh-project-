@@ -11,37 +11,28 @@ import { CREDENTIALS } from '../config/credentials.js';
 import { parseToken, hasUserPermission, hasAnyUserPermission, sanitizeUser } from './auth.js';
 import { sendEmail, testSmtpConnection, reloadTransporter } from '../services/mailer.js';
 import { verificationManager } from '../adapters/verification/VerificationAdapter.js';
+import {
+  ALL_ROLES,
+  CONSOLE_ROLES,
+  PORTAL_ROLES,
+  ALLOWED_PERMISSIONS,
+  normalizeRole,
+  isConsoleRole,
+  normalizeDashboardKey,
+  getDefaultPermissionsForRole,
+  getRolesCatalog,
+  getDashboardsCatalog,
+  getDashboardConfig,
+  listAllDashboardConfigs,
+  saveDashboardDraft,
+  publishDashboardConfig,
+} from '../services/dashboardConfig.js';
 
 export const adminRouter = Router();
 
-const ALLOWED_STAFF_PERMISSIONS = new Set([
-  '*',
-  'customers',
-  'wallet',
-  'kyc',
-  'services',
-  'cms',
-  'audit',
-  'staff',
-  'support',
-  'notifications',
-  'reports',
-  'referrals',
-  'withdrawals',
-  'academy',
-  'accounting',
-  'accounting_physical',
-  'accounting_reconcile',
-  'accounting_adjust',
-  'accounting_config',
-  'pin_security',
-  'security',
-  'settings',
-  'printing',
-  'printing_pricing',
-]);
+const ALLOWED_STAFF_PERMISSIONS = new Set<string>(['*', ...ALLOWED_PERMISSIONS]);
 
-// Middleware: Require Internal Console Role (Staff, Admin, or SuperAdmin)
+// Middleware: Require Internal Console Role (Support, Staff, Manager, Admin, or SuperAdmin)
 function requireAdmin(req: any, res: any, next: any) {
   const session = parseToken(req.headers.authorization);
   if (!session) {
@@ -57,8 +48,8 @@ function requireAdmin(req: any, res: any, next: any) {
     return res.status(403).json({ error: 'Your account is suspended. Contact system administrator.' });
   }
 
-  if (user.role !== 'admin' && user.role !== 'staff' && user.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Access denied: Staff, Admin, or Super Admin authorization required' });
+  if (!isConsoleRole(user.role)) {
+    return res.status(403).json({ error: 'Access denied: Internal console role authorization required' });
   }
 
   req.user = user;
@@ -111,10 +102,10 @@ adminRouter.get('/overview', requireAdmin, (req: any, res) => {
   const orders = db.data.telecom_orders || [];
   const verifications = db.data.verifications || [];
 
-  const customers = users.filter(u => u.role === 'customer' || u.role === 'agent');
+  const customers = users.filter(u => (PORTAL_ROLES as readonly string[]).includes(u.role));
   const activeCustomers = customers.filter(u => u.status === 'active');
   const suspendedCustomers = customers.filter(u => u.status === 'suspended');
-  const staff = users.filter(u => u.role === 'staff' || u.role === 'admin' || u.role === 'superadmin');
+  const staff = users.filter(u => isConsoleRole(u.role));
 
   const todayPrefix = new Date().toISOString().slice(0, 10);
   const todayRegistrations = canCustomers
@@ -265,7 +256,7 @@ adminRouter.get('/overview', requireAdmin, (req: any, res) => {
   };
 
   const recentRegistrations = canCustomers
-    ? customers.slice(-8).reverse().map(sanitizeUser)
+    ? customers.slice(-8).reverse().map((u) => sanitizeUser(u))
     : [];
   const recentOrders = (canServices || canReports) ? orders.slice(0, 8) : [];
 
@@ -292,13 +283,18 @@ adminRouter.get('/overview', requireAdmin, (req: any, res) => {
 // -------------------------------------------------------------
 adminRouter.get('/customers', requireAdmin, requirePermission('customers'), (req, res) => {
   const { search, status, tier, role, kyc_status, filter } = req.query;
-  const baseUsers = db.data.users.filter(u => u.role === 'customer' || u.role === 'agent');
+  const allUsers = db.data.users || [];
+  const portalUsers = allUsers.filter(u => (PORTAL_ROLES as readonly string[]).includes(normalizeRole(u.role)));
   const nowCutoff = Date.now() - 72 * 3600 * 1000;
 
-  let list = [...baseUsers];
-
-  if (role && role !== 'all' && ['customer', 'agent'].includes(String(role))) {
-    list = list.filter(u => u.role === role);
+  const roleParam = String(role || 'portal').trim().toLowerCase();
+  let list: User[];
+  if (roleParam === 'all' || roleParam === 'all_users') {
+    list = [...allUsers];
+  } else if (roleParam !== '' && roleParam !== 'portal' && (ALL_ROLES as readonly string[]).includes(roleParam)) {
+    list = allUsers.filter(u => normalizeRole(u.role) === roleParam);
+  } else {
+    list = [...portalUsers];
   }
 
   if (search) {
@@ -344,12 +340,16 @@ adminRouter.get('/customers', requireAdmin, requirePermission('customers'), (req
     }));
 
   const summary = {
-    total: baseUsers.length,
-    active: baseUsers.filter(u => u.status === 'active').length,
-    suspended: baseUsers.filter(u => u.status === 'suspended').length,
-    pending_kyc: baseUsers.filter(u => u.kyc_status === 'pending').length,
-    verified_kyc: baseUsers.filter(u => u.kyc_status === 'verified').length,
-    new_registrations: baseUsers.filter(u => new Date(u.created_at).getTime() >= nowCutoff).length,
+    total: portalUsers.length,
+    active: portalUsers.filter(u => u.status === 'active').length,
+    suspended: portalUsers.filter(u => u.status === 'suspended').length,
+    pending_kyc: portalUsers.filter(u => u.kyc_status === 'pending').length,
+    verified_kyc: portalUsers.filter(u => u.kyc_status === 'verified').length,
+    new_registrations: portalUsers.filter(u => new Date(u.created_at).getTime() >= nowCutoff).length,
+    all_accounts: allUsers.length,
+    students: allUsers.filter(u => normalizeRole(u.role) === 'student').length,
+    agents: allUsers.filter(u => normalizeRole(u.role) === 'agent').length,
+    console_accounts: allUsers.filter(u => isConsoleRole(u.role)).length,
   };
 
   res.json({
@@ -383,13 +383,13 @@ adminRouter.post('/customers/create', requireAdmin, requirePermission('customers
     return res.status(400).json({ error: 'Full name, email, and phone number are required.' });
   }
 
-  const targetRole = String(role || 'customer').toLowerCase();
-  if (!['customer', 'agent', 'staff', 'admin'].includes(targetRole)) {
-    return res.status(400).json({ error: 'Role must be customer, agent, staff, or admin.' });
+  const targetRole = String(role || 'customer').toLowerCase().trim();
+  if (!(ALL_ROLES as readonly string[]).includes(targetRole)) {
+    return res.status(400).json({ error: `Role must be one of: ${ALL_ROLES.join(', ')}` });
   }
 
-  if ((targetRole === 'staff' || targetRole === 'admin') && req.user?.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Only Super Admin can provision staff or administrator accounts.' });
+  if (isConsoleRole(targetRole) && req.user?.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Only Super Admin can provision internal console or administrator accounts.' });
   }
 
   const cleanEmail = String(email).trim().toLowerCase();
@@ -404,6 +404,10 @@ adminRouter.post('/customers/create', requireAdmin, requirePermission('customers
   const numTier = Math.min(3, Math.max(1, Number(tier || 1))) as 1 | 2 | 3;
   const kycStatus: User['kyc_status'] = (nin || bvn || numTier >= 2) ? 'verified' : 'unverified';
   const normalizedBalance = Math.max(0, Number(initial_balance || 0));
+  const assignedDashboard = normalizeDashboardKey(req.body.assigned_dashboard, targetRole);
+  const reqPerms = Array.isArray(req.body.permissions)
+    ? req.body.permissions.filter((p: any) => ALLOWED_STAFF_PERMISSIONS.has(String(p)))
+    : getDefaultPermissionsForRole(targetRole);
 
   const created = db.createUser({
     email: cleanEmail,
@@ -411,6 +415,8 @@ adminRouter.post('/customers/create', requireAdmin, requirePermission('customers
     full_name: String(full_name).trim(),
     phone_number: String(phone_number).trim(),
     role: targetRole as User['role'],
+    assigned_dashboard: assignedDashboard,
+    token_version: 1,
     wallet_balance: normalizedBalance,
     kyc_status: kycStatus,
     tier: numTier,
@@ -421,9 +427,9 @@ adminRouter.post('/customers/create', requireAdmin, requirePermission('customers
     address: residential_address || undefined,
     state: state || undefined,
     lga: lga || undefined,
-    referral_code: (targetRole === 'agent' ? 'AGT-' : 'HT-') + Math.random().toString(36).substring(2, 7).toUpperCase(),
+    referral_code: (targetRole === 'agent' ? 'AGT-' : targetRole === 'student' ? 'STD-' : 'HT-') + Math.random().toString(36).substring(2, 7).toUpperCase(),
     status: status === 'suspended' ? 'suspended' : 'active',
-    permissions: targetRole === 'staff' ? [] : targetRole === 'admin' ? ['customers', 'wallet', 'kyc', 'services', 'support'] : undefined,
+    permissions: isConsoleRole(targetRole) ? (targetRole === 'superadmin' ? ['*'] : reqPerms) : undefined,
   });
 
   if (normalizedBalance > 0) {
@@ -508,7 +514,10 @@ adminRouter.put('/customers/:id', requireAdmin, requirePermission('customers'), 
     return res.status(404).json({ error: 'Customer not found' });
   }
 
-  if (['staff', 'admin', 'superadmin'].includes(user.role) && req.user?.role !== 'superadmin') {
+  if (user.id === 'usr_superadmin' && req.user?.id !== 'usr_superadmin') {
+    return res.status(403).json({ error: 'Only the primary supervisor account can modify its own profile.' });
+  }
+  if (isConsoleRole(user.role) && req.user?.role !== 'superadmin') {
     return res.status(403).json({ error: 'Only Super Admin can modify internal staff or admin accounts.' });
   }
 
@@ -526,10 +535,12 @@ adminRouter.put('/customers/:id', requireAdmin, requirePermission('customers'), 
     nin,
     bvn,
     role,
+    assigned_dashboard,
     new_password,
   } = req.body;
 
   const updates: Partial<User> = {};
+  let bumpToken = false;
   if (full_name !== undefined) updates.full_name = String(full_name).trim();
   if (email !== undefined && String(email).trim()) {
     const cleanEmail = String(email).trim().toLowerCase();
@@ -554,11 +565,25 @@ adminRouter.put('/customers/:id', requireAdmin, requirePermission('customers'), 
   if (nin !== undefined) updates.nin = nin;
   if (bvn !== undefined) updates.bvn = bvn;
 
-  if (role !== undefined && ['customer', 'agent', 'staff', 'admin'].includes(String(role))) {
-    if (String(role) !== user.role && req.user?.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Only Super Admin can reassign user roles.' });
+  if (role !== undefined && (ALL_ROLES as readonly string[]).includes(String(role).toLowerCase())) {
+    const nextRole = String(role).toLowerCase() as User['role'];
+    if (nextRole !== user.role) {
+      if ((isConsoleRole(nextRole) || isConsoleRole(user.role)) && req.user?.role !== 'superadmin') {
+        return res.status(403).json({ error: 'Only Super Admin can assign or modify internal console roles.' });
+      }
+      if (user.id === 'usr_superadmin' && nextRole !== 'superadmin') {
+        return res.status(403).json({ error: 'Primary supervisor account role cannot be demoted.' });
+      }
+      if (user.id === req.user?.id && user.role === 'superadmin' && nextRole !== 'superadmin') {
+        return res.status(403).json({ error: 'You cannot demote your own active Super Admin account.' });
+      }
+      updates.role = nextRole;
+      updates.assigned_dashboard = normalizeDashboardKey(assigned_dashboard, nextRole);
+      bumpToken = true;
     }
-    updates.role = String(role) as User['role'];
+  } else if (assigned_dashboard !== undefined) {
+    updates.assigned_dashboard = normalizeDashboardKey(assigned_dashboard, user.role);
+    bumpToken = true;
   }
 
   if (typeof new_password === 'string' && new_password.length > 0) {
@@ -566,6 +591,11 @@ adminRouter.put('/customers/:id', requireAdmin, requirePermission('customers'), 
       return res.status(400).json({ error: 'New password must be at least 8 characters.' });
     }
     updates.password_hash = hashPassword(new_password);
+    bumpToken = true;
+  }
+
+  if (bumpToken) {
+    updates.token_version = Number(user.token_version ?? 1) + 1;
   }
 
   const updated = db.updateUser(user.id, updates);
@@ -587,11 +617,8 @@ adminRouter.delete('/customers/:id', requireAdmin, requirePermission('customers'
   if (!user) {
     return res.status(404).json({ error: 'Customer not found' });
   }
-  if (user.role === 'superadmin') {
-    return res.status(403).json({ error: 'Cannot delete Super Admin account.' });
-  }
-  if ((user.role === 'staff' || user.role === 'admin') && req.user?.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Only Super Admin can remove staff or admin accounts.' });
+  if (user.id === 'usr_superadmin' || isConsoleRole(user.role)) {
+    return res.status(403).json({ error: 'Internal staff and administrator accounts cannot be deleted from Customer Management.' });
   }
 
   const force = req.query.force === 'true';
@@ -624,16 +651,27 @@ adminRouter.post('/customers/:id/status', requireAdmin, requirePermission('custo
     return res.status(404).json({ error: 'Customer not found' });
   }
 
-  if (user.role === 'superadmin') {
-    return res.status(400).json({ error: 'Cannot alter Super Admin account status' });
-  }
-
   const { status, reason } = req.body;
   if (!status || !['active', 'suspended'].includes(status)) {
     return res.status(400).json({ error: 'Status must be active or suspended' });
   }
 
-  const updated = db.updateUser(user.id, { status: status as any });
+  if (user.id === 'usr_superadmin' || user.role === 'superadmin') {
+    return res.status(403).json({ error: 'Cannot alter Super Admin account status' });
+  }
+  if (isConsoleRole(user.role) && req.user?.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Only a Super Admin can modify internal console account status.' });
+  }
+  if (user.id === req.user?.id && status === 'suspended') {
+    return res.status(403).json({ error: 'You cannot suspend your own active account.' });
+  }
+
+  const updates: Partial<User> = { status: status as any };
+  if (status === 'suspended') {
+    updates.token_version = Number(user.token_version ?? 1) + 1;
+  }
+
+  const updated = db.updateUser(user.id, updates);
 
   db.logAudit('ACCOUNT_STATUS_CHANGED', {
     targetUserId: user.id,
@@ -848,23 +886,31 @@ adminRouter.put('/dashboard-modules/:id', requireAdmin, requirePermission('setti
 // 4. STAFF & PERMISSIONS RBAC (Phase 4 requirement 5)
 // -------------------------------------------------------------
 adminRouter.get('/staff', requireAdmin, requirePermission('staff'), (req, res) => {
-  const staff = db.data.users.filter(u => u.role === 'staff' || u.role === 'admin' || u.role === 'superadmin');
+  const orderRank: Record<string, number> = { superadmin: 1, admin: 2, manager: 3, staff: 4, support: 5 };
+  const staff = db.data.users
+    .filter(u => isConsoleRole(u.role))
+    .sort((a, b) => (orderRank[a.role] || 99) - (orderRank[b.role] || 99))
+    .map(u => ({
+      ...sanitizeUser(u),
+      is_protected: u.id === 'usr_superadmin',
+    }));
   res.json({
     success: true,
-    staff: staff.map(sanitizeUser),
+    staff,
   });
 });
 
 adminRouter.post('/staff', requireAdmin, requireSuperAdmin, async (req: any, res) => {
   try {
-    const { full_name, email, phone_number, password, role = 'staff', permissions } = req.body;
+    const { full_name, email, phone_number, password, role = 'staff', permissions, assigned_dashboard } = req.body;
 
     if (!full_name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
     }
 
-    if (!['staff', 'admin', 'superadmin'].includes(role)) {
-      return res.status(400).json({ error: 'Role must be staff, admin, or superadmin' });
+    const dbRole = String(role || 'staff').toLowerCase();
+    if (!(CONSOLE_ROLES as readonly string[]).includes(dbRole)) {
+      return res.status(400).json({ error: `Role must be one of: ${CONSOLE_ROLES.join(', ')}` });
     }
 
     const existing = db.findUserByEmail(email);
@@ -872,18 +918,22 @@ adminRouter.post('/staff', requireAdmin, requireSuperAdmin, async (req: any, res
       return res.status(409).json({ error: 'User with this email already exists' });
     }
 
-    const sanitizedPerms = role === 'superadmin'
+    const sanitizedPerms = dbRole === 'superadmin'
       ? ['*']
       : Array.isArray(permissions)
         ? permissions.filter((p: any) => ALLOWED_STAFF_PERMISSIONS.has(String(p)))
-        : [];
+        : getDefaultPermissionsForRole(dbRole);
+
+    const dashKey = normalizeDashboardKey(assigned_dashboard, dbRole);
 
     const newStaff = db.createUser({
       email: email.trim().toLowerCase(),
       password_hash: hashPassword(password),
       full_name: full_name.trim(),
       phone_number: phone_number || '+2348000000000',
-      role: role as any,
+      role: dbRole as any,
+      assigned_dashboard: dashKey,
+      token_version: 1,
       wallet_balance: 0,
       kyc_status: 'verified',
       tier: 3,
@@ -896,10 +946,11 @@ adminRouter.post('/staff', requireAdmin, requireSuperAdmin, async (req: any, res
       staffId: newStaff.id,
       email: newStaff.email,
       role: newStaff.role,
+      assigned_dashboard: dashKey,
       permissions: sanitizedPerms,
     }, req.user.id, req.user.email);
 
-    res.json({
+    res.status(201).json({
       success: true,
       message: `Staff member ${newStaff.full_name} (${newStaff.role}) created successfully`,
       staff: sanitizeUser(newStaff),
@@ -915,23 +966,59 @@ adminRouter.put('/staff/:id', requireAdmin, requireSuperAdmin, (req: any, res) =
     return res.status(404).json({ error: 'Staff member not found' });
   }
 
-  const { role, permissions, status, full_name, phone_number } = req.body;
-  const updates: Partial<User> = {};
+  const { role, permissions, status, full_name, phone_number, assigned_dashboard } = req.body;
 
-  if (role && ['staff', 'admin', 'superadmin', 'customer', 'agent'].includes(role)) {
-    updates.role = role as any;
+  if (staffUser.id === 'usr_superadmin' && req.user?.id !== 'usr_superadmin') {
+    return res.status(403).json({ error: 'Only the primary supervisor account can modify its own profile.' });
   }
-  if (status && ['active', 'suspended'].includes(status)) updates.status = status as any;
+  if (staffUser.id === 'usr_superadmin' && (status === 'suspended' || (role && role !== 'superadmin'))) {
+    return res.status(403).json({ error: 'The primary supervisor account role and active status cannot be demoted or suspended.' });
+  }
+  if (staffUser.id === req.user?.id && (status === 'suspended' || (role && role !== 'superadmin'))) {
+    return res.status(403).json({ error: 'You cannot demote or suspend your own active Super Admin account.' });
+  }
+  if (staffUser.role === 'superadmin' && (status === 'suspended' || (role && role !== 'superadmin'))) {
+    const remaining = db.data.users.filter(u => u.role === 'superadmin' && u.status === 'active' && u.id !== staffUser.id).length;
+    if (remaining < 1) {
+      return res.status(403).json({ error: 'At least one active Super Admin account must remain on the platform.' });
+    }
+  }
+
+  const updates: Partial<User> = {};
+  let bumpToken = false;
+
+  if (role && (ALL_ROLES as readonly string[]).includes(String(role).toLowerCase())) {
+    const nextRole = String(role).toLowerCase() as User['role'];
+    if (nextRole !== staffUser.role) bumpToken = true;
+    updates.role = nextRole;
+  }
+  if (assigned_dashboard !== undefined || role !== undefined) {
+    const nextDash = normalizeDashboardKey(assigned_dashboard, updates.role || staffUser.role);
+    if (nextDash !== staffUser.assigned_dashboard) bumpToken = true;
+    updates.assigned_dashboard = nextDash;
+  }
+  if (status && ['active', 'suspended'].includes(status)) {
+    if (status !== staffUser.status) bumpToken = true;
+    updates.status = status as any;
+  }
   if (full_name) updates.full_name = full_name;
   if (phone_number) updates.phone_number = phone_number;
 
-  const effectiveRole = (updates.role || staffUser.role);
-  if (effectiveRole === 'customer' || effectiveRole === 'agent') {
+  const effectiveRole = updates.role || staffUser.role;
+  if (!isConsoleRole(effectiveRole)) {
     updates.permissions = [];
+    bumpToken = true;
   } else if (effectiveRole === 'superadmin') {
     updates.permissions = ['*'];
   } else if (Array.isArray(permissions)) {
     updates.permissions = permissions.filter((p: any) => ALLOWED_STAFF_PERMISSIONS.has(String(p)));
+    bumpToken = true;
+  } else if (updates.role && updates.role !== staffUser.role) {
+    updates.permissions = getDefaultPermissionsForRole(effectiveRole);
+  }
+
+  if (bumpToken) {
+    updates.token_version = Number(staffUser.token_version ?? 1) + 1;
   }
 
   const updated = db.updateUser(staffUser.id, updates);
@@ -1921,7 +2008,7 @@ adminRouter.delete('/store/item/:id', requireAdmin, requirePermission('services'
 // -------------------------------------------------------------
 
 // GET /api/admin/academy
-adminRouter.get('/academy', requireAdmin, requirePermission('services'), (req, res) => {
+adminRouter.get('/academy', requireAdmin, requireAnyPermission(['services', 'academy']), (req, res) => {
   res.json({
     success: true,
     courses: db.data.academy_courses || [],
@@ -1930,21 +2017,21 @@ adminRouter.get('/academy', requireAdmin, requirePermission('services'), (req, r
 });
 
 // PUT /api/admin/academy/settings
-adminRouter.put('/academy/settings', requireAdmin, requirePermission('services'), (req: any, res) => {
+adminRouter.put('/academy/settings', requireAdmin, requireAnyPermission(['services', 'academy']), (req: any, res) => {
   const updated = db.updateAcademySettings(req.body);
   db.logAudit('ACADEMY_SETTINGS_UPDATED', req.body, req.user?.id, req.user?.email);
   res.json({ success: true, message: 'Academy settings updated', settings: updated });
 });
 
 // POST /api/admin/academy/course
-adminRouter.post('/academy/course', requireAdmin, requirePermission('services'), (req: any, res) => {
+adminRouter.post('/academy/course', requireAdmin, requireAnyPermission(['services', 'academy']), (req: any, res) => {
   const created = db.addAcademyCourse(req.body);
   db.logAudit('ACADEMY_COURSE_CREATED', created, req.user?.id, req.user?.email);
   res.json({ success: true, message: 'Course created', course: created });
 });
 
 // PUT /api/admin/academy/course/:id
-adminRouter.put('/academy/course/:id', requireAdmin, requirePermission('services'), (req: any, res) => {
+adminRouter.put('/academy/course/:id', requireAdmin, requireAnyPermission(['services', 'academy']), (req: any, res) => {
   const updated = db.updateAcademyCourse(req.params.id, req.body);
   if (!updated) return res.status(404).json({ error: 'Course not found' });
   db.logAudit('ACADEMY_COURSE_UPDATED', { id: req.params.id, updates: req.body }, req.user?.id, req.user?.email);
@@ -1952,7 +2039,7 @@ adminRouter.put('/academy/course/:id', requireAdmin, requirePermission('services
 });
 
 // DELETE /api/admin/academy/course/:id
-adminRouter.delete('/academy/course/:id', requireAdmin, requirePermission('services'), (req: any, res) => {
+adminRouter.delete('/academy/course/:id', requireAdmin, requireAnyPermission(['services', 'academy']), (req: any, res) => {
   const ok = db.deleteAcademyCourse(req.params.id);
   db.logAudit('ACADEMY_COURSE_DELETED', { id: req.params.id }, req.user?.id, req.user?.email);
   res.json({ success: ok, message: ok ? 'Course removed' : 'Not found' });
@@ -2141,4 +2228,176 @@ adminRouter.get('/settings', requireAdmin, requirePermission('settings'), (req, 
 adminRouter.post('/settings', requireAdmin, requirePermission('settings'), (req, res) => {
   res.json({ success: true, message: 'Settings saved successfully' });
 });
+
+// -------------------------------------------------------------
+// 16. ROLE CATALOG, ROLE REASSIGNMENT & CENTRAL DASHBOARD MANAGEMENT
+// -------------------------------------------------------------
+
+// GET /api/admin/roles
+adminRouter.get('/roles', requireAdmin, requireAnyPermission(['customers', 'staff', 'settings']), (req: any, res) => {
+  res.json({
+    success: true,
+    roles: getRolesCatalog(),
+    dashboards: getDashboardsCatalog(),
+    permissions: ALLOWED_PERMISSIONS,
+    can_assign_console_roles: req.user?.role === 'superadmin',
+    can_assign_superadmin: req.user?.role === 'superadmin',
+  });
+});
+
+// POST|PUT /api/admin/customers/:id/role
+const handleAssignCustomerRole = (req: any, res: any) => {
+  const target = db.findUserById(req.params.id);
+  if (!target) {
+    return res.status(404).json({ error: 'User account not found.' });
+  }
+
+  const requestedRole = String(req.body.role || target.role).trim().toLowerCase();
+  if (!(ALL_ROLES as readonly string[]).includes(requestedRole)) {
+    return res.status(422).json({ error: `Invalid role selected. Allowed: ${ALL_ROLES.join(', ')}` });
+  }
+
+  const currentRole = normalizeRole(target.role);
+
+  if (target.id === 'usr_superadmin' && req.user?.id !== 'usr_superadmin') {
+    return res.status(403).json({ error: 'Only the primary supervisor account can modify its own profile.' });
+  }
+  if (target.id === 'usr_superadmin' && requestedRole !== 'superadmin') {
+    return res.status(403).json({ error: 'The primary supervisor role cannot be demoted or reassigned.' });
+  }
+  if (target.id === req.user?.id && currentRole === 'superadmin' && requestedRole !== 'superadmin') {
+    return res.status(403).json({ error: 'You cannot demote your own active Super Admin account.' });
+  }
+  if ((isConsoleRole(currentRole) || isConsoleRole(requestedRole)) && req.user?.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Only a Super Admin can assign or modify internal staff or administrator roles.' });
+  }
+  if (currentRole === 'superadmin' && requestedRole !== 'superadmin') {
+    const remaining = db.data.users.filter(u => u.role === 'superadmin' && u.status === 'active' && u.id !== target.id).length;
+    if (remaining < 1) {
+      return res.status(403).json({ error: 'At least one active Super Admin account must remain on the platform.' });
+    }
+  }
+
+  const assignedDashboard = normalizeDashboardKey(req.body.assigned_dashboard, requestedRole);
+  const rawPerms = req.body.permissions ?? req.body.assigned_permissions;
+  let nextPerms: string[] = [];
+  if (requestedRole === 'superadmin') {
+    nextPerms = ['*'];
+  } else if (isConsoleRole(requestedRole)) {
+    nextPerms = Array.isArray(rawPerms)
+      ? rawPerms.filter((p: any) => ALLOWED_STAFF_PERMISSIONS.has(String(p)))
+      : (requestedRole === currentRole && Array.isArray(target.permissions))
+        ? target.permissions
+        : getDefaultPermissionsForRole(requestedRole);
+  }
+
+  const updated = db.updateUser(target.id, {
+    role: requestedRole as User['role'],
+    assigned_dashboard: assignedDashboard,
+    permissions: nextPerms,
+    token_version: Number(target.token_version ?? 1) + 1,
+  });
+
+  db.logAudit('CUSTOMER_ROLE_UPDATED', {
+    target_user_id: target.id,
+    target_email: target.email,
+    previous_role: currentRole,
+    new_role: requestedRole,
+    previous_dashboard: target.assigned_dashboard || currentRole,
+    new_dashboard: assignedDashboard,
+    permissions: nextPerms,
+  }, req.user.id, req.user.email);
+
+  const safe = sanitizeUser(updated, true);
+  return res.json({
+    success: true,
+    message: `Role updated to ${requestedRole} (${assignedDashboard} workspace). Active sessions were revoked cleanly.`,
+    customer: safe,
+    user: safe,
+    session_revoked: true,
+  });
+};
+
+adminRouter.post('/customers/:id/role', requireAdmin, requireAnyPermission(['customers', 'staff']), handleAssignCustomerRole);
+adminRouter.put('/customers/:id/role', requireAdmin, requireAnyPermission(['customers', 'staff']), handleAssignCustomerRole);
+
+// GET /api/admin/dashboard-configs
+adminRouter.get('/dashboard-configs', requireAdmin, requireAnyPermission(['settings', 'staff']), (req, res) => {
+  res.json({
+    success: true,
+    configs: listAllDashboardConfigs(),
+    dashboards: getDashboardsCatalog(),
+    roles: getRolesCatalog(),
+  });
+});
+
+// PUT /api/admin/dashboard-configs/:role
+adminRouter.put('/dashboard-configs/:role', requireAdmin, requirePermission('settings'), (req: any, res) => {
+  const key = normalizeDashboardKey(req.params.role, 'customer');
+  const payload = req.body?.config && typeof req.body.config === 'object' ? req.body.config : req.body;
+  const record = saveDashboardDraft(key, payload, req.user.email);
+
+  db.logAudit('DASHBOARD_CONFIG_DRAFT_SAVED', { dashboard_key: key }, req.user.id, req.user.email);
+
+  res.json({
+    success: true,
+    message: `Draft configuration saved for ${record.name}.`,
+    record,
+    configs: listAllDashboardConfigs(),
+  });
+});
+
+// POST /api/admin/dashboard-configs/:role/publish
+adminRouter.post('/dashboard-configs/:role/publish', requireAdmin, requirePermission('settings'), (req: any, res) => {
+  const key = normalizeDashboardKey(req.params.role, 'customer');
+  const optionalPayload = req.body?.config && typeof req.body.config === 'object'
+    ? req.body.config
+    : (Array.isArray(req.body?.modules) ? req.body : undefined);
+  const record = publishDashboardConfig(key, req.user.email, optionalPayload);
+
+  db.logAudit('DASHBOARD_CONFIG_PUBLISHED', { dashboard_key: key }, req.user.id, req.user.email);
+
+  res.json({
+    success: true,
+    message: `${record.name} published live to users.`,
+    record,
+    configs: listAllDashboardConfigs(),
+  });
+});
+
+// GET|POST /api/admin/dashboard-preview
+const handlePreviewDashboard = (req: any, res: any) => {
+  const rawTarget = String(req.body?.dashboard ?? req.body?.role ?? req.query?.dashboard ?? req.query?.role ?? 'customer');
+  const mode = String(req.body?.mode ?? req.query?.mode ?? 'published').toLowerCase() === 'draft' ? 'draft' : 'published';
+  const targetRole = normalizeRole(rawTarget);
+  const targetDashboard = normalizeDashboardKey(rawTarget, targetRole);
+  const config = getDashboardConfig(targetDashboard, mode);
+
+  let academy_preview: any = null;
+  if (targetDashboard === 'student') {
+    academy_preview = {
+      courses: (db.data.academy_courses || []).filter((c: any) => c.status !== 'draft').slice(0, 6),
+      sample_student: null,
+    };
+  }
+
+  db.logAudit('ADMIN_DASHBOARD_PREVIEW', {
+    target_role: targetRole,
+    target_dashboard: targetDashboard,
+    mode,
+  }, req.user.id, req.user.email);
+
+  res.json({
+    success: true,
+    target_role: targetRole,
+    target_dashboard: targetDashboard,
+    mode,
+    config,
+    academy_preview,
+  });
+};
+
+adminRouter.get('/dashboard-preview', requireAdmin, requireAnyPermission(['settings', 'customers', 'staff']), handlePreviewDashboard);
+adminRouter.post('/dashboard-preview', requireAdmin, requireAnyPermission(['settings', 'customers', 'staff']), handlePreviewDashboard);
+
 

@@ -29,7 +29,27 @@ import {
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { getInitialsAvatar } from '../../lib/avatar';
-import { User, Transaction, TelecomOrder, AdminCreateCustomerPayload } from '../../types';
+import { useAuth } from '../../context/AuthContext';
+import {
+  DASHBOARD_CATALOG_FALLBACK,
+  ROLE_CATALOG_FALLBACK,
+  getDashboardLabel,
+  getRoleBadgeClasses,
+  getRoleLabel,
+  isConsoleRole,
+  normalizeDashboardKey,
+  normalizeRole,
+} from '../../lib/roles';
+import {
+  AdminCreateCustomerPayload,
+  DashboardCatalogItem,
+  DashboardKey,
+  RoleCatalogItem,
+  TelecomOrder,
+  Transaction,
+  User,
+  UserRole,
+} from '../../types';
 
 const NIGERIAN_STATES = [
   'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
@@ -41,9 +61,46 @@ const NIGERIAN_STATES = [
 
 type DrawerTab = 'profile' | 'wallet' | 'kyc' | 'transactions' | 'orders' | 'verifications' | 'audit' | 'notify';
 
+const STAFF_PERMISSION_SHORTLIST = [
+  { id: 'customers', label: 'Customers Directory' },
+  { id: 'wallet', label: 'Wallet & Funding' },
+  { id: 'kyc', label: 'KYC Compliance' },
+  { id: 'services', label: 'Services & Pricing' },
+  { id: 'academy', label: 'Academy Management' },
+  { id: 'printing', label: 'Printing Operations' },
+  { id: 'printing_pricing', label: 'Printing Pricing' },
+  { id: 'support', label: 'Support Desk' },
+  { id: 'notifications', label: 'Notifications' },
+  { id: 'referrals', label: 'Referrals' },
+  { id: 'withdrawals', label: 'Withdrawals' },
+  { id: 'reports', label: 'Reports & Analytics' },
+  { id: 'cms', label: 'Website CMS' },
+  { id: 'accounting', label: 'Accounting (Full)' },
+  { id: 'accounting_physical', label: 'Physical Counter' },
+  { id: 'accounting_reconcile', label: 'Reconciliation' },
+  { id: 'security', label: 'Security Overview' },
+  { id: 'pin_security', label: 'PIN Security' },
+  { id: 'settings', label: 'Global Settings' },
+  { id: 'audit', label: 'Audit Logs' },
+  { id: 'staff', label: 'Staff Management' },
+];
+
 export function CustomerManagement() {
+  const { user: currentAdmin } = useAuth();
+  const isCurrentSuperAdmin = currentAdmin?.role === 'superadmin';
+  const [rolesCatalog, setRolesCatalog] = useState<RoleCatalogItem[]>(ROLE_CATALOG_FALLBACK);
+  const [dashboardsCatalog, setDashboardsCatalog] = useState<DashboardCatalogItem[]>(DASHBOARD_CATALOG_FALLBACK);
+
   const [customers, setCustomers] = useState<User[]>([]);
-  const [summary, setSummary] = useState({
+  const [summary, setSummary] = useState<{
+    total: number;
+    active: number;
+    suspended: number;
+    pending_kyc: number;
+    verified_kyc: number;
+    new_registrations: number;
+    role_counts?: Record<string, number>;
+  }>({
     total: 0,
     active: 0,
     suspended: 0,
@@ -57,7 +114,7 @@ export function CustomerManagement() {
   const [tierFilter, setTierFilter] = useState('all');
   const [kycStatusFilter, setKycStatusFilter] = useState('all');
   const [newFilter, setNewFilter] = useState<'all' | 'new'>('all');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'customer' | 'agent'>('all');
+  const [roleFilter, setRoleFilter] = useState<string>('portal');
 
   // Selected customer for inspection drawer/modal
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -111,7 +168,12 @@ export function CustomerManagement() {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [editRole, setEditRole] = useState<'customer' | 'agent'>('customer');
+  const [editRole, setEditRole] = useState<UserRole>('customer');
+  const [editAssignedDashboard, setEditAssignedDashboard] = useState<DashboardKey>('customer');
+  const [editPermissions, setEditPermissions] = useState<string[]>([]);
+  const [roleSaving, setRoleSaving] = useState(false);
+  const [roleSuccess, setRoleSuccess] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
   const [editTier, setEditTier] = useState<number>(1);
   const [editKycStatus, setEditKycStatus] = useState<string>('pending');
   const [editDob, setEditDob] = useState('');
@@ -159,6 +221,8 @@ export function CustomerManagement() {
     email: '',
     phone_number: '',
     role: 'customer',
+    assigned_dashboard: 'customer',
+    permissions: [],
     status: 'active',
     tier: 2,
     password: '',
@@ -191,6 +255,8 @@ export function CustomerManagement() {
       email: '',
       phone_number: '',
       role: 'customer',
+      assigned_dashboard: 'customer',
+      permissions: [],
       status: 'active',
       tier: 1,
       password: '',
@@ -214,7 +280,8 @@ export function CustomerManagement() {
     setCreateError(null);
     setCreateSuccess(null);
 
-    const requiresTier2Docs = (createForm.role === 'customer' || createForm.role === 'agent') && Number(createForm.tier) >= 2;
+    const isPortalAccount = !isConsoleRole(createForm.role);
+    const requiresTier2Docs = isPortalAccount && Number(createForm.tier) >= 2;
     const cleanNin = (createForm.nin || '').replace(/\D/g, '');
     const cleanBvn = (createForm.bvn || '').replace(/\D/g, '');
     const effectiveIdNumber = createForm.id_number?.trim() || cleanNin || cleanBvn;
@@ -265,7 +332,7 @@ export function CustomerManagement() {
         tier: tierFilter !== 'all' ? tierFilter : undefined,
         kyc_status: kycStatusFilter !== 'all' ? kycStatusFilter : undefined,
         filter: newFilter === 'new' ? 'new' : undefined,
-        role: roleFilter !== 'all' ? roleFilter : undefined,
+        role: roleFilter !== 'portal' ? roleFilter : undefined,
       });
       setCustomers(res.customers || []);
       if (res.summary) {
@@ -282,11 +349,23 @@ export function CustomerManagement() {
     fetchCustomers();
   }, [search, statusFilter, tierFilter, kycStatusFilter, newFilter, roleFilter]);
 
+  useEffect(() => {
+    api.getAdminRolesCatalog().then(res => {
+      if (res.success) {
+        if (Array.isArray(res.roles) && res.roles.length > 0) setRolesCatalog(res.roles);
+        if (Array.isArray(res.dashboards) && res.dashboards.length > 0) setDashboardsCatalog(res.dashboards);
+      }
+    }).catch(() => {});
+  }, []);
+
   const populateEditFields = (u: User, kyc?: any) => {
+    const normRole = normalizeRole(u.role);
     setEditName(u.full_name || '');
     setEditEmail(u.email || '');
     setEditPhone(u.phone_number || '');
-    setEditRole(u.role === 'agent' ? 'agent' : 'customer');
+    setEditRole(normRole);
+    setEditAssignedDashboard(normalizeDashboardKey(u.assigned_dashboard, normRole));
+    setEditPermissions(Array.isArray(u.permissions) ? u.permissions : []);
     setEditTier(Number(u.tier || 1));
     setEditKycStatus(u.kyc_status || 'pending');
     setEditDob(u.date_of_birth || kyc?.date_of_birth || '');
@@ -296,6 +375,8 @@ export function CustomerManagement() {
     setEditNin(u.nin || kyc?.nin || '');
     setEditBvn(u.bvn || kyc?.bvn || '');
     setEditNewPassword('');
+    setRoleSuccess(null);
+    setRoleError(null);
   };
 
   const openCustomerDetail = async (user: User) => {
@@ -312,6 +393,8 @@ export function CustomerManagement() {
     setEditSuccess(null);
     setEditError(null);
     setStatusError(null);
+    setRoleSuccess(null);
+    setRoleError(null);
 
     try {
       const detail = await api.getAdminCustomerDetail(user.id);
@@ -468,7 +551,6 @@ export function CustomerManagement() {
         full_name: editName.trim(),
         email: editEmail.trim().toLowerCase(),
         phone_number: editPhone.trim(),
-        role: editRole,
         tier: editTier as any,
         kyc_status: editKycStatus as any,
         date_of_birth: editDob || undefined,
@@ -491,6 +573,32 @@ export function CustomerManagement() {
       setEditError(err.message || 'Failed to update profile');
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const handleAssignRoleAndWorkspace = async () => {
+    if (!selectedUser) return;
+    setRoleSaving(true);
+    setRoleSuccess(null);
+    setRoleError(null);
+    try {
+      const res = await api.assignCustomerRole(selectedUser.id, {
+        role: editRole,
+        assigned_dashboard: editAssignedDashboard,
+        permissions: isConsoleRole(editRole) ? editPermissions : [],
+      });
+      if (res.customer) {
+        setSelectedUser(res.customer);
+        populateEditFields(res.customer, customerDetail?.kyc);
+      }
+      setRoleSuccess(
+        res.message || `Assigned ${getRoleLabel(editRole)} role and ${getDashboardLabel(editAssignedDashboard)}.`
+      );
+      await fetchCustomers();
+    } catch (err: any) {
+      setRoleError(err?.message || 'Failed to update role assignment.');
+    } finally {
+      setRoleSaving(false);
     }
   };
 
@@ -678,12 +786,16 @@ export function CustomerManagement() {
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={roleFilter}
-            onChange={e => setRoleFilter(e.target.value as 'all' | 'customer' | 'agent')}
+            onChange={e => setRoleFilter(e.target.value)}
             className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
           >
-            <option value="all">All Account Roles</option>
-            <option value="customer">Customers Only</option>
-            <option value="agent">Agents Only</option>
+            <option value="portal">Portal Users (Customer / Student / Agent)</option>
+            <option value="all">All System Accounts (8 Roles)</option>
+            {rolesCatalog.map(rc => (
+              <option key={rc.slug} value={rc.slug}>
+                Role: {rc.name}
+              </option>
+            ))}
           </select>
 
           <select
@@ -769,9 +881,12 @@ export function CustomerManagement() {
                           <div>
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <p className="font-medium text-white">{user.full_name}</p>
-                              {user.role === 'agent' && (
-                                <span className="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[9px] font-bold uppercase tracking-wider">
-                                  AGENT
+                              <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider whitespace-nowrap ${getRoleBadgeClasses(user.role)}`}>
+                                {getRoleLabel(user.role)}
+                              </span>
+                              {user.assigned_dashboard && user.assigned_dashboard !== normalizeDashboardKey(user.role) && (
+                                <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[9px] font-mono whitespace-nowrap">
+                                  {user.assigned_dashboard} desk
                                 </span>
                               )}
                               {isNewReg && (
@@ -893,9 +1008,12 @@ export function CustomerManagement() {
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2 flex-wrap">
                     <span>{selectedUser.full_name}</span>
-                    {selectedUser.role === 'agent' && (
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 uppercase">
-                        AGENT ACCOUNT
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase whitespace-nowrap ${getRoleBadgeClasses(selectedUser.role)}`}>
+                      {getRoleLabel(selectedUser.role)}
+                    </span>
+                    {selectedUser.assigned_dashboard && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 whitespace-nowrap">
+                        {getDashboardLabel(selectedUser.assigned_dashboard)}
                       </span>
                     )}
                     {selectedUser.is_new && (
@@ -1090,17 +1208,6 @@ export function CustomerManagement() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-slate-400">Account Role</label>
-                      <select
-                        value={editRole}
-                        onChange={e => setEditRole(e.target.value as 'customer' | 'agent')}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
-                      >
-                        <option value="customer">Customer (Standard User)</option>
-                        <option value="agent">Agent (Commercial Partner)</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
                       <label className="text-slate-400">Account Tier</label>
                       <select
                         value={editTier}
@@ -1139,6 +1246,153 @@ export function CustomerManagement() {
                       />
                     </div>
                   </div>
+
+                  {/* ROLE & WORKSPACE ASSIGNMENT GOVERNANCE CARD */}
+                  {(() => {
+                    const isProtectedOwner =
+                      selectedUser.id === 'usr_superadmin' || selectedUser.role === 'superadmin';
+                    const isSelf = currentAdmin?.id === selectedUser.id;
+                    const roleLocked = (isProtectedOwner && selectedUser.id === 'usr_superadmin') || isSelf || (!isCurrentSuperAdmin && isConsoleRole(selectedUser.role));
+
+                    return (
+                      <div className="p-4 rounded-xl bg-slate-950 border border-indigo-500/30 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                          <div>
+                            <h4 className="font-bold text-indigo-300 flex items-center gap-1.5">
+                              <Shield className="w-4 h-4" />
+                              <span>Role &amp; Workspace Assignment</span>
+                            </h4>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              Changing an account&apos;s role or assigned dashboard revokes active session tokens immediately while preserving wallet, Academy, and transaction records.
+                            </p>
+                          </div>
+                          {selectedUser.id === 'usr_superadmin' && (
+                            <span className="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-300 font-mono text-[10px] whitespace-nowrap">
+                              PROTECTED ROOT SUPERVISOR
+                            </span>
+                          )}
+                        </div>
+
+                        {roleSuccess && (
+                          <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 shrink-0" />
+                            <span>{roleSuccess}</span>
+                          </div>
+                        )}
+                        {roleError && (
+                          <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 shrink-0" />
+                            <span>{roleError}</span>
+                          </div>
+                        )}
+
+                        {isSelf && (
+                          <p className="text-[11px] text-amber-300">
+                            Self-role modification is disabled to prevent accidental admin lockout.
+                          </p>
+                        )}
+                        {!isCurrentSuperAdmin && (
+                          <p className="text-[11px] text-amber-300">
+                            Only Super Administrators can assign internal staff/manager/admin console roles.
+                          </p>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-slate-400">Account Role</label>
+                            <select
+                              value={editRole}
+                              disabled={roleLocked}
+                              onChange={e => {
+                                const nextRole = normalizeRole(e.target.value);
+                                setEditRole(nextRole);
+                                const catalogEntry = rolesCatalog.find(r => r.slug === nextRole);
+                                setEditAssignedDashboard(
+                                  catalogEntry?.default_dashboard || normalizeDashboardKey(nextRole)
+                                );
+                                if (catalogEntry && isConsoleRole(nextRole)) {
+                                  setEditPermissions(catalogEntry.default_permissions || []);
+                                }
+                              }}
+                              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white disabled:opacity-60"
+                            >
+                              {rolesCatalog.map(rc => {
+                                const disabledOption =
+                                  !isCurrentSuperAdmin && rc.category === 'console';
+                                return (
+                                  <option key={rc.slug} value={rc.slug} disabled={disabledOption}>
+                                    {rc.name} ({rc.category === 'console' ? 'Internal Console' : 'Portal'})
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-slate-400">Assigned Dashboard Workspace</label>
+                            <select
+                              value={editAssignedDashboard}
+                              disabled={roleLocked}
+                              onChange={e => setEditAssignedDashboard(e.target.value as DashboardKey)}
+                              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white disabled:opacity-60"
+                            >
+                              {dashboardsCatalog.map(dc => {
+                                const disabledOption =
+                                  !isCurrentSuperAdmin && dc.category === 'console';
+                                return (
+                                  <option key={dc.key} value={dc.key} disabled={disabledOption}>
+                                    {dc.name}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+                        </div>
+
+                        {isConsoleRole(editRole) && editRole !== 'superadmin' && isCurrentSuperAdmin && !roleLocked && (
+                          <div className="space-y-2 pt-2 border-t border-slate-800">
+                            <label className="text-slate-400 font-semibold block">
+                              Console Permission Scopes ({editPermissions.length} active)
+                            </label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                              {STAFF_PERMISSION_SHORTLIST.map(perm => (
+                                <label
+                                  key={perm.id}
+                                  className="flex items-center gap-2 p-2 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer hover:border-slate-700"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={editPermissions.includes(perm.id)}
+                                    onChange={() => {
+                                      setEditPermissions(prev =>
+                                        prev.includes(perm.id)
+                                          ? prev.filter(x => x !== perm.id)
+                                          : [...prev, perm.id]
+                                      );
+                                    }}
+                                    className="accent-indigo-600 rounded"
+                                  />
+                                  <span className="text-[11px] text-slate-200">{perm.label}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            disabled={roleLocked || roleSaving}
+                            onClick={handleAssignRoleAndWorkspace}
+                            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-semibold flex items-center gap-1.5 whitespace-nowrap transition"
+                          >
+                            {roleSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                            <span>Assign Role &amp; Workspace</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
@@ -1681,13 +1935,50 @@ export function CustomerManagement() {
                   <label className="text-slate-300 font-medium block mb-1">Account Role</label>
                   <select
                     value={createForm.role}
-                    onChange={e => setCreateForm(prev => ({ ...prev, role: e.target.value as any }))}
+                    onChange={e => {
+                      const nextRole = normalizeRole(e.target.value);
+                      const catalogEntry = rolesCatalog.find(r => r.slug === nextRole);
+                      setCreateForm(prev => ({
+                        ...prev,
+                        role: nextRole,
+                        assigned_dashboard:
+                          catalogEntry?.default_dashboard || normalizeDashboardKey(nextRole),
+                        permissions: catalogEntry?.default_permissions || [],
+                      }));
+                    }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="customer">Customer (Standard End-User)</option>
-                    <option value="agent">Agent (Commercial Reseller)</option>
-                    <option value="staff">Staff (Internal Operator)</option>
-                    <option value="admin">Administrator (Super Admin Access)</option>
+                    {rolesCatalog.map(rc => {
+                      const disabledOption = !isCurrentSuperAdmin && rc.category === 'console';
+                      return (
+                        <option key={rc.slug} value={rc.slug} disabled={disabledOption}>
+                          {rc.name} ({rc.category === 'console' ? 'Internal Console' : 'Portal'})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">Assigned Dashboard</label>
+                  <select
+                    value={createForm.assigned_dashboard || normalizeDashboardKey(createForm.role)}
+                    onChange={e =>
+                      setCreateForm(prev => ({
+                        ...prev,
+                        assigned_dashboard: e.target.value as DashboardKey,
+                      }))
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    {dashboardsCatalog.map(dc => {
+                      const disabledOption = !isCurrentSuperAdmin && dc.category === 'console';
+                      return (
+                        <option key={dc.key} value={dc.key} disabled={disabledOption}>
+                          {dc.name}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -1730,7 +2021,41 @@ export function CustomerManagement() {
                   />
                 </div>
 
-                {(createForm.role === 'customer' || createForm.role === 'agent') && (
+                {isConsoleRole(createForm.role) && createForm.role !== 'superadmin' && (
+                  <div className="sm:col-span-2 p-4 rounded-xl bg-slate-950 border border-indigo-500/30 space-y-2.5">
+                    <span className="font-bold text-indigo-300 block">
+                      Console Permission Scopes for {getRoleLabel(createForm.role)}
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                      {STAFF_PERMISSION_SHORTLIST.map(perm => (
+                        <label
+                          key={perm.id}
+                          className="flex items-center gap-2 p-2 rounded-lg bg-slate-900 border border-slate-800 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={(createForm.permissions || []).includes(perm.id)}
+                            onChange={() => {
+                              setCreateForm(prev => {
+                                const curr = prev.permissions || [];
+                                return {
+                                  ...prev,
+                                  permissions: curr.includes(perm.id)
+                                    ? curr.filter(p => p !== perm.id)
+                                    : [...curr, perm.id],
+                                };
+                              });
+                            }}
+                            className="accent-indigo-600 rounded"
+                          />
+                          <span className="text-[11px] text-slate-200">{perm.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!isConsoleRole(createForm.role) && (
                   <div className="sm:col-span-2 p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-indigo-300 flex items-center gap-1.5">

@@ -30,7 +30,17 @@ import { CustomerLoginScreen } from './components/customer/CustomerLoginScreen';
 import { SuperAdminDashboard } from './components/admin/SuperAdminDashboard';
 import { NinServicesPage } from './components/customer/NinServicesPage';
 import { MandatoryPinSetupModal } from './components/customer/MandatoryPinSetupModal';
-import { Calculator, ShieldCheck, Shield, Fingerprint, Loader2 } from 'lucide-react';
+import { api } from './lib/api';
+import {
+  DASHBOARD_CATALOG_FALLBACK,
+  getDashboardLabel,
+  getRoleLabel,
+  isConsoleDashboard,
+  isConsoleRole,
+  shouldRouteToConsole,
+} from './lib/roles';
+import { DashboardKey, RoleDashboardConfig, UserRole } from './types';
+import { Calculator, ShieldCheck, Shield, Fingerprint, Loader2, Eye, X } from 'lucide-react';
 
 function normalizePublicPageKey(raw: string): string {
   const clean = raw.replace(/^#/, '').trim();
@@ -85,13 +95,18 @@ function isExplicitPublicHash(): boolean {
   );
 }
 
-function isInternalConsoleRole(role?: string | null): boolean {
-  return role === 'staff' || role === 'admin' || role === 'superadmin';
-}
-
 function MainAppContent() {
   const { user, loading: authLoading, logout, pinPolicy } = useAuth();
   const [forcePinSetupOpen, setForcePinSetupOpen] = useState<boolean>(false);
+  const [previewSession, setPreviewSession] = useState<{
+    targetRole: UserRole;
+    targetDashboard: DashboardKey;
+    mode: 'published' | 'draft';
+    config: RoleDashboardConfig;
+    academy_preview?: any;
+  } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState<boolean>(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // URL path / hash detection for direct deep-linking
   const getInitialPhase = (): string => {
@@ -123,6 +138,9 @@ function MainAppContent() {
   const userRef = useRef(user);
   useEffect(() => {
     userRef.current = user;
+    if (!user) {
+      setPreviewSession(null);
+    }
   }, [user]);
 
   // Auto-route authenticated users to their portal ONLY on login / default entry or #login,
@@ -130,7 +148,7 @@ function MainAppContent() {
   useEffect(() => {
     if (!user) return;
     if (activePhase === '06') {
-      if (isInternalConsoleRole(user.role)) {
+      if (shouldRouteToConsole(user)) {
         setActivePhase('04');
       } else {
         setActivePhase('03');
@@ -139,7 +157,7 @@ function MainAppContent() {
     }
     if (manualPublicBrowseRef.current || isExplicitPublicHash()) return;
     if (activePhase === '02') {
-      if (isInternalConsoleRole(user.role)) {
+      if (shouldRouteToConsole(user)) {
         setActivePhase('04');
       } else {
         setActivePhase('03');
@@ -201,7 +219,7 @@ function MainAppContent() {
         s.includes('portal')
       ) {
         manualPublicBrowseRef.current = false;
-        if ((h.startsWith('#printing') || s.includes('printing_order')) && currentUser && isInternalConsoleRole(currentUser.role)) {
+        if ((h.startsWith('#printing') || s.includes('printing_order')) && currentUser && shouldRouteToConsole(currentUser)) {
           setActivePhase('04');
         } else {
           setActivePhase('03');
@@ -341,7 +359,44 @@ function MainAppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleLaunchPreview = async (
+    dashboardOrRole: string,
+    mode: 'published' | 'draft' = 'published'
+  ) => {
+    if (!user || !isConsoleRole(user.role)) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const res = await api.previewAdminDashboard(dashboardOrRole, mode);
+      if (res.success && res.preview) {
+        setPreviewSession({
+          targetRole: res.preview.target_role,
+          targetDashboard: res.preview.target_dashboard,
+          mode: res.preview.mode,
+          config: res.preview.config,
+          academy_preview: res.preview.academy_preview,
+        });
+        manualPublicBrowseRef.current = false;
+        setActivePhase(isConsoleDashboard(res.preview.target_dashboard) ? '04' : '03');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } catch (err: any) {
+      setPreviewError(err?.message || 'Unable to launch dashboard preview.');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handleExitPreview = () => {
+    setPreviewSession(null);
+    setPreviewError(null);
+    manualPublicBrowseRef.current = false;
+    setActivePhase('04');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleCustomerLogout = () => {
+    setPreviewSession(null);
     setForcePinSetupOpen(false);
     setWalletModalOpen(false);
     void logout();
@@ -360,6 +415,75 @@ function MainAppContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-700 selection:text-white transition-colors">
+      {/* ADMIN CENTRAL DASHBOARD PREVIEW BANNER */}
+      {previewSession && user && isConsoleRole(user.role) && (
+        <div className="no-print sticky top-0 z-[60] bg-amber-950/95 border-b border-amber-500/40 text-amber-100 px-4 py-2.5 backdrop-blur-md shadow-lg">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/40 text-amber-300 font-bold uppercase text-[10px] whitespace-nowrap">
+                <Eye className="w-3.5 h-3.5" />
+                <span>Admin Preview Mode</span>
+              </span>
+              <span className="font-semibold text-white">
+                Inspecting: {getDashboardLabel(previewSession.targetDashboard)}
+              </span>
+              <span className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold uppercase ${
+                previewSession.mode === 'draft'
+                  ? 'bg-purple-500/25 text-purple-200 border border-purple-400/40'
+                  : 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/40'
+              }`}>
+                {previewSession.mode === 'draft' ? 'DRAFT PREVIEW' : 'LIVE PUBLISHED'}
+              </span>
+              <span className="text-[11px] text-amber-200/80 hidden md:inline">
+                (Session preserved as {getRoleLabel(user.role)})
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={previewSession.targetDashboard}
+                disabled={previewLoading}
+                onChange={e => handleLaunchPreview(e.target.value, previewSession.mode)}
+                className="bg-slate-900 border border-amber-500/40 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
+                aria-label="Switch Preview Dashboard"
+              >
+                {DASHBOARD_CATALOG_FALLBACK.map(d => (
+                  <option key={d.key} value={d.key}>
+                    Preview: {d.name}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                disabled={previewLoading}
+                onClick={() =>
+                  handleLaunchPreview(
+                    previewSession.targetDashboard,
+                    previewSession.mode === 'draft' ? 'published' : 'draft'
+                  )
+                }
+                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 font-semibold whitespace-nowrap transition"
+              >
+                {previewLoading ? 'Switching...' : previewSession.mode === 'draft' ? 'View Published' : 'View Draft'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExitPreview}
+                className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold flex items-center gap-1 whitespace-nowrap transition"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Exit Preview &amp; Return to Admin</span>
+              </button>
+            </div>
+          </div>
+          {previewError && (
+            <p className="max-w-7xl mx-auto mt-1 text-[11px] text-rose-300">{previewError}</p>
+          )}
+        </div>
+      )}
+
       {/* IDENTITY DESK VIEW (PROTECTED) */}
       {activePhase === '05' && (
         authLoading ? renderSessionLoader() : !user ? (
@@ -367,8 +491,7 @@ function MainAppContent() {
             notice="Authentication required to access the Identity Verification Desk."
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
-              const role = loggedInUser?.role;
-              setActivePhase(isInternalConsoleRole(role) ? '04' : '05');
+              setActivePhase(shouldRouteToConsole(loggedInUser) ? '04' : '05');
             }}
             onOpenRegister={() => handleOpenAuth('register')}
             onSwitchToPublic={switchToPublicHome}
@@ -394,14 +517,14 @@ function MainAppContent() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {isInternalConsoleRole(user?.role) && (
+                {isConsoleRole(user?.role) && (
                   <button
                     type="button"
                     onClick={() => setActivePhase('04')}
                     className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs flex items-center gap-1.5 transition"
                   >
                     <Shield className="w-3.5 h-3.5" />
-                    <span>{user?.role === 'staff' ? 'Staff Console' : 'Admin Console'}</span>
+                    <span>{getRoleLabel(user?.role)} Console</span>
                   </button>
                 )}
                 <button
@@ -428,6 +551,20 @@ function MainAppContent() {
             setActivePhase('03');
           }}
           onSwitchToPublic={switchToPublicHome}
+          onLaunchPreview={handleLaunchPreview}
+          previewConfig={
+            previewSession && isConsoleDashboard(previewSession.targetDashboard)
+              ? previewSession.config
+              : null
+          }
+          previewDashboardKey={
+            previewSession && isConsoleDashboard(previewSession.targetDashboard)
+              ? previewSession.targetDashboard
+              : null
+          }
+          isPreviewMode={Boolean(
+            previewSession && isConsoleDashboard(previewSession.targetDashboard)
+          )}
         />
       )}
 
@@ -437,8 +574,7 @@ function MainAppContent() {
           <CustomerLoginScreen
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
-              const role = loggedInUser?.role || user?.role;
-              setActivePhase(isInternalConsoleRole(role) ? '04' : '03');
+              setActivePhase(shouldRouteToConsole(loggedInUser || user) ? '04' : '03');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onOpenRegister={() => handleOpenAuth('register')}
@@ -451,15 +587,14 @@ function MainAppContent() {
         )
       )}
 
-      {/* CUSTOMER DASHBOARD VIEW (STRICT AUTH GUARD) */}
+      {/* CUSTOMER / STUDENT / AGENT PORTAL VIEW (STRICT AUTH GUARD) */}
       {activePhase === '03' && (
         authLoading ? renderSessionLoader() : !user ? (
           <CustomerLoginScreen
-            notice="Please sign in with your customer credentials to access the Customer Portal."
+            notice="Please sign in with your portal credentials to access your dashboard."
             onSuccess={(loggedInUser) => {
               manualPublicBrowseRef.current = false;
-              const role = loggedInUser?.role;
-              setActivePhase(isInternalConsoleRole(role) ? '04' : '03');
+              setActivePhase(shouldRouteToConsole(loggedInUser) ? '04' : '03');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onOpenRegister={() => handleOpenAuth('register')}
@@ -478,6 +613,24 @@ function MainAppContent() {
               setActivePhase('04');
             }}
             onLogout={handleCustomerLogout}
+            previewConfig={
+              previewSession && !isConsoleDashboard(previewSession.targetDashboard)
+                ? previewSession.config
+                : null
+            }
+            previewRole={
+              previewSession && !isConsoleDashboard(previewSession.targetDashboard)
+                ? previewSession.targetRole
+                : undefined
+            }
+            previewAcademyData={
+              previewSession && !isConsoleDashboard(previewSession.targetDashboard)
+                ? previewSession.academy_preview
+                : undefined
+            }
+            isPreviewMode={Boolean(
+              previewSession && !isConsoleDashboard(previewSession.targetDashboard)
+            )}
           />
         )
       )}
@@ -582,8 +735,7 @@ function MainAppContent() {
         initialMode={authMode}
         onSuccess={(loggedInUser) => {
           manualPublicBrowseRef.current = false;
-          const role = loggedInUser?.role || user?.role;
-          if (isInternalConsoleRole(role)) {
+          if (shouldRouteToConsole(loggedInUser || user)) {
             setActivePhase('04');
           } else {
             setActivePhase('03');
@@ -602,7 +754,8 @@ function MainAppContent() {
       <MandatoryPinSetupModal
         isOpen={Boolean(
           user &&
-          (user.role === 'customer' || user.role === 'agent') &&
+          !previewSession &&
+          (user.role === 'customer' || user.role === 'student' || user.role === 'agent') &&
           !user.has_transaction_pin &&
           (pinPolicy?.require_pin_activation_for_all_customers || forcePinSetupOpen)
         )}

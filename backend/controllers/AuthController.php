@@ -19,6 +19,7 @@ use HambakTech\Services\MailService;
 use HambakTech\Services\MfaService;
 use HambakTech\Services\PinSecurityService;
 use HambakTech\Services\ReferralEngineService;
+use HambakTech\Services\DashboardConfigService;
 use RuntimeException;
 use Throwable;
 
@@ -240,17 +241,30 @@ class AuthController
                 break;
             }
         }
-        if ($user['role'] === 'superadmin') {
+        $normalizedRole = DashboardConfigService::normalizeRole((string)($user['role'] ?? 'customer'));
+        $user['role'] = $normalizedRole;
+        $user['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey(
+            $user['assigned_dashboard'] ?? null,
+            $normalizedRole
+        );
+
+        if ($normalizedRole === 'superadmin') {
             $perms = ['*'];
-        } elseif ($user['role'] === 'admin' && !$hasExplicitPerms) {
-            $perms = ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'];
+        } elseif (!$hasExplicitPerms && Auth::isConsoleRole($normalizedRole)) {
+            $perms = DashboardConfigService::getDefaultPermissionsForRole($normalizedRole);
         }
-        $user['permissions'] = $perms;
+        $user['permissions'] = array_values(array_unique($perms));
+        $user['dashboard_config'] = DashboardConfigService::getConfig($this->db, (string)$user['assigned_dashboard'], 'published');
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance'], $user['assigned_permissions'], $user['profile_permissions']);
 
-        $loginAction = match ($user['role'] ?? 'customer') {
+        $loginAction = match ($normalizedRole) {
             'superadmin' => 'SUPERADMIN_LOGIN',
             'admin' => 'ADMIN_LOGIN',
+            'manager' => 'MANAGER_LOGIN',
+            'support' => 'SUPPORT_LOGIN',
+            'staff' => 'STAFF_LOGIN',
+            'student' => 'STUDENT_LOGIN',
+            'agent' => 'AGENT_LOGIN',
             default => 'CUSTOMER_LOGIN',
         };
 
@@ -388,21 +402,38 @@ class AuthController
             $dateOfBirth, $residentialAddress, $state, $lga, $nin, $bvn, $idType, $idNumber,
             $hasIdentitySubmission, $initialKycStatus
         ) {
-            // 1. Create User at KYC Level 1 (Tier 1 Basic Profile)
-            $db->execute(
-                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, kyc_status, tier, referral_code, status, created_at)
-                 VALUES (:id, :email, :pass, :name, :phone, :pnorm, "customer", :ks, 1, :ref, "active", NOW())',
-                [
-                    'id' => $userId,
-                    'email' => $email,
-                    'pass' => $passwordHash,
-                    'name' => $fullName,
-                    'phone' => $phoneNumber,
-                    'pnorm' => $phoneNormalized ?: null,
-                    'ks' => $initialKycStatus,
-                    'ref' => $referralCode,
-                ]
-            );
+            // 1. Create User at KYC Level 1 (Tier 1 Basic Profile) — always role=customer
+            try {
+                $db->execute(
+                    'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, assigned_dashboard, kyc_status, tier, referral_code, status, created_at)
+                     VALUES (:id, :email, :pass, :name, :phone, :pnorm, "customer", "customer", :ks, 1, :ref, "active", NOW())',
+                    [
+                        'id' => $userId,
+                        'email' => $email,
+                        'pass' => $passwordHash,
+                        'name' => $fullName,
+                        'phone' => $phoneNumber,
+                        'pnorm' => $phoneNormalized ?: null,
+                        'ks' => $initialKycStatus,
+                        'ref' => $referralCode,
+                    ]
+                );
+            } catch (Throwable) {
+                $db->execute(
+                    'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, kyc_status, tier, referral_code, status, created_at)
+                     VALUES (:id, :email, :pass, :name, :phone, :pnorm, "customer", :ks, 1, :ref, "active", NOW())',
+                    [
+                        'id' => $userId,
+                        'email' => $email,
+                        'pass' => $passwordHash,
+                        'name' => $fullName,
+                        'phone' => $phoneNumber,
+                        'pnorm' => $phoneNormalized ?: null,
+                        'ks' => $initialKycStatus,
+                        'ref' => $referralCode,
+                    ]
+                );
+            }
 
             try {
                 $db->execute('UPDATE users SET kyc_level = 1 WHERE id = :id', ['id' => $userId]);
@@ -628,7 +659,10 @@ class AuthController
         $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
         $user['mfa_enabled'] = false;
         $user['pin_is_locked'] = false;
+        $user['role'] = 'customer';
+        $user['assigned_dashboard'] = 'customer';
         $user['permissions'] = [];
+        $user['dashboard_config'] = DashboardConfigService::getConfig($this->db, 'customer', 'published');
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
 
         Response::success([
@@ -642,9 +676,15 @@ class AuthController
     public function me(Request $request): void
     {
         $user = Auth::requireAuth($request);
+        $user['dashboard_config'] = DashboardConfigService::getConfig(
+            $this->db,
+            (string)($user['assigned_dashboard'] ?? $user['role'] ?? 'customer'),
+            'published'
+        );
         $pinService = new PinSecurityService($this->db);
         Response::success([
             'user' => $user,
+            'dashboard_config' => $user['dashboard_config'],
             'pin_policy' => $pinService->getPublicPolicy(),
         ]);
     }

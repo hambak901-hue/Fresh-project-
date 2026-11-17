@@ -20,6 +20,7 @@ use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\MailService;
 use HambakTech\Services\ReferralEngineService;
+use HambakTech\Services\DashboardConfigService;
 use HambakTech\Adapters\Verification\VeripineAdapter;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Telecom\UlamaDataAdapter;
@@ -44,11 +45,11 @@ class AdminController
     {
         try {
             $row = $this->db->fetchOne(
-                'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.wallet_balance,
+                'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.assigned_dashboard, u.assigned_permissions, u.wallet_balance,
                         u.kyc_status, u.tier, u.kyc_level, u.referral_code, u.status, u.avatar_url, u.email_verified,
                         u.created_at, u.updated_at,
                         w.balance as live_balance,
-                        p.nin, p.bvn, p.address, p.state, p.lga, p.bio, p.date_of_birth
+                        p.nin, p.bvn, p.address, p.state, p.lga, p.bio, p.date_of_birth, p.assigned_permissions as profile_permissions
                  FROM users u
                  LEFT JOIN wallets w ON w.user_id = u.id
                  LEFT JOIN user_profiles p ON p.user_id = u.id
@@ -74,13 +75,35 @@ class AdminController
             return null;
         }
 
+        $roleNorm = DashboardConfigService::normalizeRole((string)($row['role'] ?? 'customer'));
+        $row['role'] = $roleNorm;
+        $row['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey($row['assigned_dashboard'] ?? null, $roleNorm);
+
+        $perms = [];
+        $hasExplicit = false;
+        foreach ([$row['assigned_permissions'] ?? null, $row['profile_permissions'] ?? null] as $rawP) {
+            if (is_string($rawP) && trim($rawP) !== '') {
+                $decoded = json_decode($rawP, true);
+                if (is_array($decoded)) {
+                    $perms = $decoded;
+                    $hasExplicit = true;
+                    break;
+                }
+            }
+        }
+        if ($roleNorm === 'superadmin') {
+            $perms = ['*'];
+        } elseif (!$hasExplicit && Auth::isConsoleRole($roleNorm)) {
+            $perms = DashboardConfigService::getDefaultPermissionsForRole($roleNorm);
+        }
+        $row['permissions'] = array_values(array_unique($perms));
         $row['wallet_balance'] = (float)($row['live_balance'] ?? $row['wallet_balance'] ?? 0);
         $row['tier'] = (int)($row['tier'] ?? 1);
         $row['kyc_level'] = (int)($row['kyc_level'] ?? $row['tier']);
         $row['email_verified'] = (bool)($row['email_verified'] ?? false);
         $createdTs = !empty($row['created_at']) ? strtotime((string)$row['created_at']) : false;
         $row['is_new'] = $createdTs !== false && $createdTs >= (time() - 72 * 3600);
-        unset($row['live_balance']);
+        unset($row['live_balance'], $row['assigned_permissions'], $row['profile_permissions']);
 
         $kycIdRows = $this->db->fetchAll(
             'SELECT id FROM kyc_submissions WHERE user_id = :uid ORDER BY created_at DESC',
@@ -130,7 +153,7 @@ class AdminController
 
     public function overview(Request $request): void
     {
-        $actor = Auth::requireRole($request, ['admin', 'staff', 'superadmin']);
+        $actor = Auth::requireRole($request, DashboardConfigService::CONSOLE_ROLES);
         $canCustomers = Auth::hasPermission($actor, 'customers');
         $canWallet = Auth::hasPermission($actor, 'wallet');
         $canKyc = Auth::hasPermission($actor, 'kyc');
@@ -143,12 +166,12 @@ class AdminController
         // 1. User Metrics
         $userStats = $this->db->fetchOne(
             'SELECT 
-                SUM(CASE WHEN role IN ("customer", "agent") THEN 1 ELSE 0 END) as total_customers,
-                SUM(CASE WHEN status = "active" AND role IN ("customer", "agent") THEN 1 ELSE 0 END) as active_customers,
-                SUM(CASE WHEN status = "suspended" AND role IN ("customer", "agent") THEN 1 ELSE 0 END) as suspended_customers,
-                SUM(CASE WHEN role IN ("admin", "superadmin", "staff") THEN 1 ELSE 0 END) as total_staff,
-                SUM(CASE WHEN role IN ("customer", "agent") AND DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_registrations,
-                SUM(CASE WHEN role IN ("customer", "agent") AND kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc_users
+                SUM(CASE WHEN role IN ("customer", "student", "agent") THEN 1 ELSE 0 END) as total_customers,
+                SUM(CASE WHEN status = "active" AND role IN ("customer", "student", "agent") THEN 1 ELSE 0 END) as active_customers,
+                SUM(CASE WHEN status = "suspended" AND role IN ("customer", "student", "agent") THEN 1 ELSE 0 END) as suspended_customers,
+                SUM(CASE WHEN role IN ("support", "staff", "manager", "admin", "superadmin") THEN 1 ELSE 0 END) as total_staff,
+                SUM(CASE WHEN role IN ("customer", "student", "agent") AND DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_registrations,
+                SUM(CASE WHEN role IN ("customer", "student", "agent") AND kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc_users
              FROM users'
         );
 
@@ -218,11 +241,11 @@ class AdminController
         $recentUsers = [];
         if ($canCustomers) {
             $recentUsers = $this->db->fetchAll(
-                'SELECT u.id, u.full_name, u.email, u.phone_number, u.role, COALESCE(w.balance, u.wallet_balance, 0) as wallet_balance,
+                'SELECT u.id, u.full_name, u.email, u.phone_number, u.role, u.assigned_dashboard, COALESCE(w.balance, u.wallet_balance, 0) as wallet_balance,
                         u.kyc_status, u.tier, u.status, u.created_at 
                  FROM users u
                  LEFT JOIN wallets w ON w.user_id = u.id
-                 WHERE u.role IN ("customer", "agent") 
+                 WHERE u.role IN ("customer", "student", "agent") 
                  ORDER BY u.created_at DESC LIMIT 8'
             );
             foreach ($recentUsers as &$ru) {
@@ -337,11 +360,19 @@ class AdminController
         $status = trim((string)$request->query('status', ''));
         $tier = trim((string)$request->query('tier', ''));
         $kycStatus = trim((string)$request->query('kyc_status', ''));
+        $roleFilter = strtolower(trim((string)$request->query('role', 'portal')));
         $filter = trim((string)$request->query('filter', ''));
         $limit = min(250, max(1, (int)$request->query('limit', 150)));
 
-        $where = 'WHERE u.role IN ("customer", "agent") ';
         $params = [];
+        if ($roleFilter === 'all' || $roleFilter === 'all_users') {
+            $where = 'WHERE 1=1 ';
+        } elseif ($roleFilter !== '' && in_array($roleFilter, DashboardConfigService::ALL_ROLES, true)) {
+            $where = 'WHERE u.role = :rf ';
+            $params['rf'] = $roleFilter;
+        } else {
+            $where = 'WHERE u.role IN ("customer", "student", "agent") ';
+        }
 
         if (!empty($search)) {
             $where .= 'AND (u.full_name LIKE :s1 OR u.email LIKE :s2 OR u.phone_number LIKE :s3 OR COALESCE(u.referral_code, "") LIKE :s4 OR COALESCE(p.nin, "") LIKE :s5 OR COALESCE(p.bvn, "") LIKE :s6) ';
@@ -374,11 +405,11 @@ class AdminController
         }
 
         try {
-            $sql = 'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.wallet_balance, 
+            $sql = 'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.assigned_dashboard, u.assigned_permissions, u.wallet_balance, 
                            u.kyc_status, u.tier, u.kyc_level, u.referral_code, u.status, u.avatar_url, u.email_verified,
                            u.created_at, u.updated_at,
                            w.balance as live_balance,
-                           p.nin, p.bvn, p.address, p.state, p.lga, p.date_of_birth,
+                           p.nin, p.bvn, p.address, p.state, p.lga, p.date_of_birth, p.assigned_permissions as profile_permissions,
                            (SELECT COUNT(*) FROM transactions tx WHERE tx.user_id = u.id) as tx_count,
                            (SELECT COUNT(*) FROM telecom_orders ord WHERE ord.user_id = u.id) as orders_count,
                            (SELECT COUNT(*) FROM verification_records vr WHERE vr.user_id = u.id) as verifications_count
@@ -400,6 +431,28 @@ class AdminController
 
         $nowCutoff = time() - (72 * 3600);
         foreach ($rows as &$r) {
+            $rRole = DashboardConfigService::normalizeRole((string)($r['role'] ?? 'customer'));
+            $r['role'] = $rRole;
+            $r['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey($r['assigned_dashboard'] ?? null, $rRole);
+
+            $perms = [];
+            $hasExplicit = false;
+            foreach ([$r['assigned_permissions'] ?? null, $r['profile_permissions'] ?? null] as $rawP) {
+                if (is_string($rawP) && trim($rawP) !== '') {
+                    $decoded = json_decode($rawP, true);
+                    if (is_array($decoded)) {
+                        $perms = $decoded;
+                        $hasExplicit = true;
+                        break;
+                    }
+                }
+            }
+            if ($rRole === 'superadmin') {
+                $perms = ['*'];
+            } elseif (!$hasExplicit && Auth::isConsoleRole($rRole)) {
+                $perms = DashboardConfigService::getDefaultPermissionsForRole($rRole);
+            }
+            $r['permissions'] = array_values(array_unique($perms));
             $r['wallet_balance'] = (float)($r['live_balance'] ?? $r['wallet_balance'] ?? 0);
             $r['tier'] = (int)($r['tier'] ?? 1);
             $r['kyc_level'] = (int)($r['kyc_level'] ?? $r['tier']);
@@ -408,18 +461,22 @@ class AdminController
             $r['verifications_count'] = (int)($r['verifications_count'] ?? 0);
             $createdTs = !empty($r['created_at']) ? strtotime((string)$r['created_at']) : false;
             $r['is_new'] = $createdTs !== false && $createdTs >= $nowCutoff;
-            unset($r['live_balance']);
+            unset($r['live_balance'], $r['assigned_permissions'], $r['profile_permissions']);
         }
 
         $summary = $this->db->fetchOne(
             'SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN status = "active" THEN 1 ELSE 0 END) as active,
-                SUM(CASE WHEN status = "suspended" THEN 1 ELSE 0 END) as suspended,
-                SUM(CASE WHEN kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc,
-                SUM(CASE WHEN kyc_status = "verified" THEN 1 ELSE 0 END) as verified_kyc,
-                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 72 HOUR) THEN 1 ELSE 0 END) as new_registrations
-             FROM users WHERE role IN ("customer", "agent")'
+                SUM(CASE WHEN role IN ("customer", "student", "agent") THEN 1 ELSE 0 END) as total,
+                SUM(CASE WHEN role IN ("customer", "student", "agent") AND status = "active" THEN 1 ELSE 0 END) as active,
+                SUM(CASE WHEN role IN ("customer", "student", "agent") AND status = "suspended" THEN 1 ELSE 0 END) as suspended,
+                SUM(CASE WHEN role IN ("customer", "student", "agent") AND kyc_status = "pending" THEN 1 ELSE 0 END) as pending_kyc,
+                SUM(CASE WHEN role IN ("customer", "student", "agent") AND kyc_status = "verified" THEN 1 ELSE 0 END) as verified_kyc,
+                SUM(CASE WHEN role IN ("customer", "student", "agent") AND created_at >= DATE_SUB(NOW(), INTERVAL 72 HOUR) THEN 1 ELSE 0 END) as new_registrations,
+                COUNT(*) as all_accounts,
+                SUM(CASE WHEN role = "student" THEN 1 ELSE 0 END) as students,
+                SUM(CASE WHEN role = "agent" THEN 1 ELSE 0 END) as agents,
+                SUM(CASE WHEN role IN ("support", "staff", "manager", "admin", "superadmin") THEN 1 ELSE 0 END) as console_accounts
+             FROM users'
         );
 
         Response::success([
@@ -432,6 +489,10 @@ class AdminController
                 'pending_kyc' => (int)($summary['pending_kyc'] ?? 0),
                 'verified_kyc' => (int)($summary['verified_kyc'] ?? 0),
                 'new_registrations' => (int)($summary['new_registrations'] ?? 0),
+                'all_accounts' => (int)($summary['all_accounts'] ?? count($rows)),
+                'students' => (int)($summary['students'] ?? 0),
+                'agents' => (int)($summary['agents'] ?? 0),
+                'console_accounts' => (int)($summary['console_accounts'] ?? 0),
             ],
         ]);
     }
@@ -452,8 +513,11 @@ class AdminController
             Response::error('Customer account not found.', 404);
         }
 
-        if (in_array(strtolower((string)$existing['role']), ['admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
-            Response::forbidden('Only a Super Admin can modify an administrator account.');
+        if ($customerId === 'usr_superadmin' && $newStatus === 'suspended') {
+            Response::forbidden('The primary supervisor account cannot be suspended.');
+        }
+        if (Auth::isConsoleRole((string)$existing['role']) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can modify an internal staff or administrator account.');
         }
         if ($customerId === $admin['id'] && $newStatus === 'suspended') {
             Response::forbidden('You cannot suspend your own active administrator account.');
@@ -517,8 +581,8 @@ class AdminController
         if (!$targetUser) {
             Response::error('Customer not found.', 404);
         }
-        if (in_array(strtolower((string)$targetUser['role']), ['admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
-            Response::forbidden('Only a Super Admin can adjust privileged administrator wallets.');
+        if (Auth::isConsoleRole((string)$targetUser['role']) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can adjust privileged administrator or staff wallets.');
         }
 
         $reference = 'ADMIN_ADJ_' . strtoupper(bin2hex(random_bytes(6)));
@@ -1249,7 +1313,10 @@ class AdminController
             Response::error('Customer not found.', 404);
             return;
         }
-        if (in_array(strtolower((string)$existing['role']), ['admin', 'staff', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
+        if ($customerId === 'usr_superadmin' && $admin['id'] !== 'usr_superadmin') {
+            Response::forbidden('Only the primary Super Admin account can modify its own profile.');
+        }
+        if (Auth::isConsoleRole((string)$existing['role']) && $admin['role'] !== 'superadmin') {
             Response::forbidden('Only a Super Admin can update an administrator or staff account.');
         }
 
@@ -1416,8 +1483,8 @@ class AdminController
             Response::error('Customer account not found.', 404);
         }
 
-        if (in_array(strtolower((string)$target['role']), ['superadmin', 'admin'], true)) {
-            Response::error('Administrator accounts cannot be deleted from Customer Management.', 403);
+        if ($customerId === 'usr_superadmin' || Auth::isConsoleRole((string)$target['role'])) {
+            Response::error('Internal staff and administrator accounts cannot be deleted from Customer Management.', 403);
         }
 
         $balance = (float)($target['live_balance'] ?? 0);
@@ -1512,8 +1579,8 @@ class AdminController
             Response::error('Customer not found.', 404);
             return;
         }
-        if (in_array(strtolower((string)$targetUser['role']), ['admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
-            Response::forbidden('Only a Super Admin can adjust privileged administrator wallets.');
+        if (Auth::isConsoleRole((string)$targetUser['role']) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can adjust privileged administrator or staff wallets.');
         }
 
         $reference = 'ADMIN_ADJ_' . strtoupper(bin2hex(random_bytes(6)));
@@ -3623,17 +3690,20 @@ class AdminController
     {
         Auth::requirePermission($request, 'staff');
         $staff = $this->db->fetchAll(
-            'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.kyc_status, u.tier, u.status,
+            'SELECT u.id, u.email, u.full_name, u.phone_number, u.role, u.assigned_dashboard, u.kyc_status, u.tier, u.status,
                     u.assigned_permissions, u.mfa_enabled, u.last_login_at, u.created_at,
                     p.assigned_permissions AS profile_permissions
              FROM users u
              LEFT JOIN user_profiles p ON p.user_id = u.id
-             WHERE u.role IN ("admin", "staff", "superadmin")
-             ORDER BY FIELD(u.role, "superadmin", "admin", "staff"), u.full_name ASC'
+             WHERE u.role IN ("support", "staff", "manager", "admin", "superadmin")
+             ORDER BY FIELD(u.role, "superadmin", "admin", "manager", "staff", "support"), u.full_name ASC'
         );
 
-        $defaultAdminPerms = ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'];
         foreach ($staff as &$s) {
+            $roleNorm = DashboardConfigService::normalizeRole((string)($s['role'] ?? 'staff'));
+            $s['role'] = $roleNorm;
+            $s['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey($s['assigned_dashboard'] ?? null, $roleNorm);
+
             $perms = [];
             $hasExplicitPerms = false;
             foreach ([$s['assigned_permissions'] ?? null, $s['profile_permissions'] ?? null] as $raw) {
@@ -3646,15 +3716,14 @@ class AdminController
                     }
                 }
             }
-            if (($s['role'] ?? '') === 'superadmin') {
+            if ($roleNorm === 'superadmin') {
                 $perms = ['*'];
-            } elseif (($s['role'] ?? '') === 'staff' && !$hasExplicitPerms) {
-                $perms = [];
             } elseif (!$hasExplicitPerms) {
-                $perms = $defaultAdminPerms;
+                $perms = DashboardConfigService::getDefaultPermissionsForRole($roleNorm);
             }
             $s['permissions'] = array_values(array_unique($perms));
             $s['mfa_enabled'] = (bool)($s['mfa_enabled'] ?? false);
+            $s['is_protected'] = ($s['id'] === 'usr_superadmin');
             unset($s['assigned_permissions'], $s['profile_permissions']);
         }
 
@@ -3668,7 +3737,7 @@ class AdminController
         $email = trim(strtolower((string)$request->input('email', '')));
         $password = (string)$request->input('password', '');
         $phone = trim((string)$request->input('phone_number', '')) ?: '+2348000000000';
-        $role = strtolower(trim((string)$request->input('role', 'admin')));
+        $role = strtolower(trim((string)$request->input('role', 'staff')));
         $rawPerms = $request->input('permissions', $request->input('assigned_permissions', null));
 
         if (empty($fullName) || empty($email) || empty($password)) {
@@ -3687,13 +3756,17 @@ class AdminController
             return;
         }
 
-        $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
-        $cleanPerms = ['customers', 'wallet', 'kyc', 'support', 'reports'];
+        $dbRole = in_array($role, DashboardConfigService::CONSOLE_ROLES, true) ? $role : 'staff';
+        $assignedDashboard = DashboardConfigService::normalizeDashboardKey(
+            $request->input('assigned_dashboard', null),
+            $dbRole
+        );
+
+        $allowedPerms = DashboardConfigService::ALLOWED_PERMISSIONS;
+        $cleanPerms = DashboardConfigService::getDefaultPermissionsForRole($dbRole);
         if (is_array($rawPerms)) {
-            $filtered = array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
-            $cleanPerms = $filtered;
+            $cleanPerms = array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
         }
-        $dbRole = in_array($role, ['staff', 'admin', 'superadmin'], true) ? $role : 'staff';
         if ($dbRole === 'superadmin') {
             $cleanPerms = ['*'];
         }
@@ -3703,10 +3776,10 @@ class AdminController
         $hash = password_hash($password, PASSWORD_BCRYPT);
         $refCode = (new ReferralEngineService($this->db))->generateUniqueCode('STF', 6);
 
-        $this->db->withTransaction(function (Database $db) use ($id, $email, $hash, $fullName, $phone, $phoneNorm, $dbRole, $refCode, $permsJson) {
+        $this->db->withTransaction(function (Database $db) use ($id, $email, $hash, $fullName, $phone, $phoneNorm, $dbRole, $assignedDashboard, $refCode, $permsJson) {
             $db->execute(
-                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, wallet_balance, kyc_status, tier, kyc_level, referral_code, assigned_permissions, status, email_verified, token_version, created_at)
-                 VALUES (:id, :email, :hash, :name, :phone, :pnorm, :role, 0.00, "verified", 3, 3, :ref, :perms, "active", 1, 1, NOW())',
+                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, assigned_dashboard, wallet_balance, kyc_status, tier, kyc_level, referral_code, assigned_permissions, status, email_verified, token_version, created_at)
+                 VALUES (:id, :email, :hash, :name, :phone, :pnorm, :role, :dash, 0.00, "verified", 3, 3, :ref, :perms, "active", 1, 1, NOW())',
                 [
                     'id' => $id,
                     'email' => $email,
@@ -3715,6 +3788,7 @@ class AdminController
                     'phone' => $phone,
                     'pnorm' => $phoneNorm ?: null,
                     'role' => $dbRole,
+                    'dash' => $assignedDashboard,
                     'ref' => $refCode,
                     'perms' => $permsJson,
                 ]
@@ -3739,12 +3813,12 @@ class AdminController
                 'id' => Security::generateUuid(),
                 'uid' => $super['id'],
                 'email' => $super['email'],
-                'det' => json_encode(['staff_id' => $id, 'staff_email' => $email, 'role' => $dbRole, 'permissions' => $cleanPerms]),
+                'det' => json_encode(['staff_id' => $id, 'staff_email' => $email, 'role' => $dbRole, 'assigned_dashboard' => $assignedDashboard, 'permissions' => $cleanPerms]),
                 'ip' => $request->getIp(),
             ]
         );
 
-        $row = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, status, assigned_permissions FROM users WHERE id = :id', ['id' => $id]);
+        $row = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, assigned_dashboard, status, assigned_permissions FROM users WHERE id = :id', ['id' => $id]);
         if ($row) {
             $row['permissions'] = $cleanPerms;
             unset($row['assigned_permissions']);
@@ -3758,7 +3832,7 @@ class AdminController
         $id = $params['id'] ?? '';
         $body = $request->getBody();
 
-        $existing = $this->db->fetchOne('SELECT id, email, role, status, assigned_permissions FROM users WHERE id = :id LIMIT 1', ['id' => $id]);
+        $existing = $this->db->fetchOne('SELECT id, email, role, assigned_dashboard, status, assigned_permissions FROM users WHERE id = :id LIMIT 1', ['id' => $id]);
         if (!$existing) {
             Response::notFound('Staff account not found.');
         }
@@ -3772,6 +3846,12 @@ class AdminController
 
         if ($id === 'usr_superadmin' && $super['id'] !== 'usr_superadmin') {
             Response::forbidden('Only the primary Super Admin account can modify its own profile.');
+        }
+        if ($id === 'usr_superadmin' && (
+            (isset($body['status']) && $body['status'] === 'suspended') ||
+            (isset($body['role']) && $body['role'] !== 'superadmin')
+        )) {
+            Response::forbidden('The primary supervisor account role and active status cannot be demoted or suspended.');
         }
 
         if ($existing['role'] === 'superadmin' && $id !== $super['id'] && $super['id'] !== 'usr_superadmin') {
@@ -3792,12 +3872,25 @@ class AdminController
         $paramsDb = ['id' => $id];
         $securitySensitiveChanged = false;
 
-        if (isset($body['role']) && in_array($body['role'], ['staff', 'admin', 'superadmin', 'customer', 'agent'], true)) {
-            if ($body['role'] !== $existing['role']) {
+        $nextRole = (string)$existing['role'];
+        if (isset($body['role']) && in_array($body['role'], DashboardConfigService::ALL_ROLES, true)) {
+            $nextRole = (string)$body['role'];
+            if ($nextRole !== $existing['role']) {
                 $securitySensitiveChanged = true;
             }
             $updates[] = 'role = :r';
-            $paramsDb['r'] = $body['role'];
+            $paramsDb['r'] = $nextRole;
+        }
+        if (array_key_exists('assigned_dashboard', $body) || isset($body['role'])) {
+            $dashKey = DashboardConfigService::normalizeDashboardKey(
+                $body['assigned_dashboard'] ?? null,
+                $nextRole
+            );
+            $updates[] = 'assigned_dashboard = :dash';
+            $paramsDb['dash'] = $dashKey;
+            if ($dashKey !== ($existing['assigned_dashboard'] ?? null)) {
+                $securitySensitiveChanged = true;
+            }
         }
         if (isset($body['status']) && in_array($body['status'], ['active', 'suspended'], true)) {
             if ($body['status'] !== $existing['status']) {
@@ -3820,15 +3913,18 @@ class AdminController
         $rawPerms = $body['permissions'] ?? ($body['assigned_permissions'] ?? null);
         $cleanPerms = null;
         if (is_array($rawPerms)) {
-            $allowedPerms = ['customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
-            $effectiveRole = $paramsDb['r'] ?? $existing['role'];
-            $cleanPerms = ($effectiveRole === 'superadmin')
+            $allowedPerms = DashboardConfigService::ALLOWED_PERMISSIONS;
+            $cleanPerms = ($nextRole === 'superadmin')
                 ? ['*']
                 : array_values(array_intersect($allowedPerms, array_map('strval', $rawPerms)));
             $permsJson = json_encode($cleanPerms);
             $updates[] = 'assigned_permissions = :perms';
             $paramsDb['perms'] = $permsJson;
             $securitySensitiveChanged = true;
+        } elseif (isset($body['role']) && $nextRole !== $existing['role']) {
+            $cleanPerms = DashboardConfigService::getDefaultPermissionsForRole($nextRole);
+            $updates[] = 'assigned_permissions = :perms';
+            $paramsDb['perms'] = json_encode($cleanPerms);
         }
 
         if (!empty($updates)) {
@@ -3859,10 +3955,13 @@ class AdminController
             ]
         );
 
-        $updated = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, status, assigned_permissions FROM users WHERE id = :id', ['id' => $id]);
+        $updated = $this->db->fetchOne('SELECT id, email, full_name, phone_number, role, assigned_dashboard, status, assigned_permissions FROM users WHERE id = :id', ['id' => $id]);
         if ($updated) {
+            $roleNorm = DashboardConfigService::normalizeRole((string)$updated['role']);
             $decoded = is_string($updated['assigned_permissions'] ?? null) ? json_decode($updated['assigned_permissions'], true) : [];
-            $updated['permissions'] = ($updated['role'] === 'superadmin') ? ['*'] : (is_array($decoded) ? $decoded : []);
+            $updated['role'] = $roleNorm;
+            $updated['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey($updated['assigned_dashboard'] ?? null, $roleNorm);
+            $updated['permissions'] = ($roleNorm === 'superadmin') ? ['*'] : (is_array($decoded) ? $decoded : []);
             unset($updated['assigned_permissions']);
         }
         Response::success(['staff' => $updated], 'Staff account updated');
@@ -4907,11 +5006,11 @@ class AdminController
             Response::error('Please enter a valid email address.', 422);
         }
 
-        if (!in_array($role, ['customer', 'agent', 'staff', 'admin'], true)) {
+        if (!in_array($role, DashboardConfigService::ALL_ROLES, true)) {
             $role = 'customer';
         }
-        if (in_array($role, ['staff', 'admin', 'superadmin'], true) && $admin['role'] !== 'superadmin') {
-            Response::forbidden('Only a Super Admin can create staff or administrator accounts.');
+        if (Auth::isConsoleRole($role) && $admin['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can create internal console or administrator accounts.');
         }
 
         if (!in_array($status, ['active', 'pending', 'suspended'], true)) {
@@ -4966,26 +5065,24 @@ class AdminController
         $refEngine = new ReferralEngineService($this->db);
         $userId = Security::generateUuid();
         $kycId = Security::generateUuid();
-        $dbRole = match ($role) {
-            'superadmin' => 'superadmin',
-            'admin' => 'admin',
-            'staff' => 'staff',
-            'agent' => 'agent',
-            default => 'customer',
-        };
+        $dbRole = DashboardConfigService::normalizeRole($role);
+        $assignedDashboard = DashboardConfigService::normalizeDashboardKey(
+            $request->input('assigned_dashboard', null),
+            $dbRole
+        );
+
         $assignedPermsJson = null;
-        if ($role === 'staff' || $role === 'admin') {
-            $defaultPerms = $role === 'admin'
-                ? ['customers', 'wallet', 'kyc', 'services', 'printing', 'support', 'reports']
-                : ['printing', 'support'];
+        if (Auth::isConsoleRole($dbRole)) {
+            $defaultPerms = DashboardConfigService::getDefaultPermissionsForRole($dbRole);
             $reqPerms = $request->input('permissions', $defaultPerms);
-            $allowedStaffPerms = ['customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing', 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals', 'pin_security', 'security', 'settings', 'notifications', 'staff', 'accounting', 'accounting_physical', 'accounting_reconcile', 'accounting_adjust', 'accounting_config'];
+            $allowedStaffPerms = DashboardConfigService::ALLOWED_PERMISSIONS;
             $filteredPerms = is_array($reqPerms)
                 ? array_values(array_intersect($allowedStaffPerms, array_map('strval', $reqPerms)))
                 : $defaultPerms;
+            if ($dbRole === 'superadmin') {
+                $filteredPerms = ['*'];
+            }
             $assignedPermsJson = json_encode($filteredPerms);
-        } elseif ($dbRole === 'superadmin') {
-            $assignedPermsJson = json_encode(['*']);
         } else {
             $assignedPermsJson = json_encode([]);
         }
@@ -4996,14 +5093,14 @@ class AdminController
         $referralCode = $refEngine->generateUniqueCode();
 
         $this->db->withTransaction(function (Database $db) use (
-            $userId, $kycId, $email, $passwordHash, $fullName, $phone, $phoneNorm, $dbRole, $assignedPermsJson, $role, $dbStatus, $tier, $kycStatus,
+            $userId, $kycId, $email, $passwordHash, $fullName, $phone, $phoneNorm, $dbRole, $assignedDashboard, $assignedPermsJson, $role, $dbStatus, $tier, $kycStatus,
             $referralCode, $emailVerified, $initialBalance, $admin,
             $dateOfBirth, $residentialAddress, $state, $lga, $nin, $bvn, $idType, $idNumber
         ) {
             // 1. Create User
             $db->execute(
-                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, assigned_permissions, kyc_status, tier, referral_code, status, email_verified, created_at)
-                 VALUES (:id, :email, :pass, :name, :phone, :pnorm, :role, :perms, :ks, :tier, :ref, :st, :ev, NOW())',
+                'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, assigned_dashboard, assigned_permissions, kyc_status, tier, referral_code, status, email_verified, created_at)
+                 VALUES (:id, :email, :pass, :name, :phone, :pnorm, :role, :dash, :perms, :ks, :tier, :ref, :st, :ev, NOW())',
                 [
                     'id' => $userId,
                     'email' => $email,
@@ -5012,6 +5109,7 @@ class AdminController
                     'phone' => $phone,
                     'pnorm' => $phoneNorm ?: null,
                     'role' => $dbRole,
+                    'dash' => $assignedDashboard,
                     'perms' => $assignedPermsJson,
                     'ks' => $kycStatus,
                     'tier' => $tier,
@@ -5150,7 +5248,7 @@ class AdminController
         });
 
         // 6B. Optional referral attribution for admin-created customer
-        if ($referredByCode !== '' && $dbRole === 'customer') {
+        if ($referredByCode !== '' && in_array($dbRole, DashboardConfigService::PORTAL_ROLES, true)) {
             try {
                 $refEngine->bindReferralOnSignup(
                     $userId,
@@ -5433,5 +5531,300 @@ class AdminController
 
         Response::success(['logo_url' => $defaultLogo], 'Logo removed. Restored system default logo.');
     }
+
+    // =========================================================================
+    // 23. ROLE CATALOG, ROLE ASSIGNMENT & CENTRAL DASHBOARD MANAGEMENT
+    // =========================================================================
+
+    /**
+     * GET /api/admin/roles
+     */
+    public function rolesCatalog(Request $request): void
+    {
+        $actor = Auth::requireAnyPermission($request, ['customers', 'staff', 'settings']);
+        Response::success([
+            'roles' => DashboardConfigService::getRolesCatalog(),
+            'dashboards' => DashboardConfigService::getDashboardsCatalog(),
+            'permissions' => DashboardConfigService::ALLOWED_PERMISSIONS,
+            'can_assign_console_roles' => ($actor['role'] === 'superadmin'),
+            'can_assign_superadmin' => ($actor['role'] === 'superadmin'),
+        ]);
+    }
+
+    /**
+     * POST|PUT /api/admin/customers/:id/role
+     * Reassign any existing user's role & assigned_dashboard while preserving wallet, Academy, & transaction records.
+     */
+    public function assignCustomerRole(Request $request, array $params): void
+    {
+        $actor = Auth::requireAnyPermission($request, ['customers', 'staff']);
+        $targetId = trim((string)($params['id'] ?? ''));
+        $body = $request->getBody();
+
+        $existing = $this->db->fetchOne('SELECT id, email, full_name, role, assigned_dashboard, status, assigned_permissions FROM users WHERE id = :id LIMIT 1', ['id' => $targetId]);
+        if (!$existing) {
+            Response::notFound('User account not found.');
+        }
+
+        $requestedRoleRaw = strtolower(trim((string)($body['role'] ?? $existing['role'])));
+        if (!in_array($requestedRoleRaw, DashboardConfigService::ALL_ROLES, true)) {
+            Response::error('Invalid role selected. Allowed roles: ' . implode(', ', DashboardConfigService::ALL_ROLES), 422);
+        }
+
+        $currentRole = DashboardConfigService::normalizeRole((string)$existing['role']);
+
+        // Protected primary supervisor & console account guards
+        if ($targetId === 'usr_superadmin' && $actor['id'] !== 'usr_superadmin') {
+            Response::forbidden('Only the primary supervisor account can modify its own profile.');
+        }
+        if ($targetId === 'usr_superadmin' && $requestedRoleRaw !== 'superadmin') {
+            Response::forbidden('The primary supervisor role cannot be demoted or reassigned.');
+        }
+        if ($targetId === $actor['id'] && $currentRole === 'superadmin' && $requestedRoleRaw !== 'superadmin') {
+            Response::forbidden('You cannot demote your own active Super Admin account.');
+        }
+        if ((Auth::isConsoleRole($currentRole) || Auth::isConsoleRole($requestedRoleRaw)) && $actor['role'] !== 'superadmin') {
+            Response::forbidden('Only a Super Admin can assign or modify internal staff or administrator roles.');
+        }
+        if ($currentRole === 'superadmin' && $requestedRoleRaw !== 'superadmin') {
+            $activeSupers = $this->db->fetchOne('SELECT COUNT(*) AS cnt FROM users WHERE role = "superadmin" AND status = "active" AND id != :id', ['id' => $targetId]);
+            if ((int)($activeSupers['cnt'] ?? 0) < 1) {
+                Response::forbidden('At least one active Super Admin account must remain on the platform.');
+            }
+        }
+
+        $assignedDashboard = DashboardConfigService::normalizeDashboardKey(
+            $body['assigned_dashboard'] ?? null,
+            $requestedRoleRaw
+        );
+
+        $rawPerms = $body['permissions'] ?? ($body['assigned_permissions'] ?? null);
+        if ($requestedRoleRaw === 'superadmin') {
+            $cleanPerms = ['*'];
+        } elseif (Auth::isConsoleRole($requestedRoleRaw)) {
+            if (is_array($rawPerms)) {
+                $cleanPerms = array_values(array_intersect(DashboardConfigService::ALLOWED_PERMISSIONS, array_map('strval', $rawPerms)));
+            } elseif ($requestedRoleRaw === $currentRole && is_string($existing['assigned_permissions'] ?? null)) {
+                $decoded = json_decode((string)$existing['assigned_permissions'], true);
+                $cleanPerms = is_array($decoded) ? $decoded : DashboardConfigService::getDefaultPermissionsForRole($requestedRoleRaw);
+            } else {
+                $cleanPerms = DashboardConfigService::getDefaultPermissionsForRole($requestedRoleRaw);
+            }
+        } else {
+            $cleanPerms = [];
+        }
+
+        $permsJson = json_encode($cleanPerms);
+        $this->db->execute(
+            'UPDATE users SET role = :r, assigned_dashboard = :dash, assigned_permissions = :perms, updated_at = NOW() WHERE id = :id',
+            ['r' => $requestedRoleRaw, 'dash' => $assignedDashboard, 'perms' => $permsJson, 'id' => $targetId]
+        );
+        try {
+            $this->db->execute(
+                'INSERT INTO user_profiles (user_id, assigned_permissions, created_at, updated_at)
+                 VALUES (:uid, :perms, NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE assigned_permissions = :perms2, updated_at = NOW()',
+                ['uid' => $targetId, 'perms' => $permsJson, 'perms2' => $permsJson]
+            );
+        } catch (Throwable) {
+        }
+
+        // Immediately invalidate previous session tokens when role or workspace changes
+        Auth::revokeAllUserSessions($targetId, 'role_reassigned', true);
+
+        $meta = [
+            'target_user_id' => $targetId,
+            'target_email' => $existing['email'],
+            'previous_role' => $currentRole,
+            'new_role' => $requestedRoleRaw,
+            'previous_dashboard' => $existing['assigned_dashboard'] ?? $currentRole,
+            'new_dashboard' => $assignedDashboard,
+            'permissions' => $cleanPerms,
+        ];
+        $this->db->execute(
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, :uid, :email, "CUSTOMER_ROLE_UPDATED", :meta, :ip, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $actor['id'],
+                'email' => $actor['email'],
+                'meta' => json_encode($meta),
+                'ip' => $request->getIp(),
+            ]
+        );
+        FootprintService::record(
+            'admin',
+            'CUSTOMER_ROLE_UPDATED',
+            $actor,
+            'role_governance',
+            $targetId,
+            null,
+            'successful',
+            null,
+            null,
+            $meta,
+            $request->getIp()
+        );
+
+        $updated = $this->hydrateCustomerRow($targetId);
+        Response::success([
+            'customer' => $updated,
+            'user' => $updated,
+            'session_revoked' => true,
+        ], "Role updated to {$requestedRoleRaw} ({$assignedDashboard} workspace). Active sessions were revoked cleanly.");
+    }
+
+    /**
+     * GET /api/admin/dashboard-configs
+     */
+    public function dashboardConfigs(Request $request): void
+    {
+        Auth::requireAnyPermission($request, ['settings', 'staff']);
+        Response::success([
+            'configs' => DashboardConfigService::listAllConfigs($this->db),
+            'dashboards' => DashboardConfigService::getDashboardsCatalog(),
+            'roles' => DashboardConfigService::getRolesCatalog(),
+        ]);
+    }
+
+    /**
+     * PUT /api/admin/dashboard-configs/:role
+     */
+    public function saveDashboardConfigDraft(Request $request, array $params): void
+    {
+        $actor = Auth::requirePermission($request, 'settings');
+        $key = DashboardConfigService::normalizeDashboardKey((string)($params['role'] ?? 'customer'), 'customer');
+        $body = $request->getBody();
+        $payload = isset($body['config']) && is_array($body['config']) ? $body['config'] : $body;
+
+        $record = DashboardConfigService::saveDraft($this->db, $key, $payload, (string)$actor['email']);
+
+        $this->db->execute(
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, :uid, :email, "DASHBOARD_CONFIG_DRAFT_SAVED", :meta, :ip, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $actor['id'],
+                'email' => $actor['email'],
+                'meta' => json_encode(['dashboard_key' => $key]),
+                'ip' => $request->getIp(),
+            ]
+        );
+
+        Response::success([
+            'record' => $record,
+            'configs' => DashboardConfigService::listAllConfigs($this->db),
+        ], "Draft configuration saved for {$record['name']}.");
+    }
+
+    /**
+     * POST /api/admin/dashboard-configs/:role/publish
+     */
+    public function publishDashboardConfig(Request $request, array $params): void
+    {
+        $actor = Auth::requirePermission($request, 'settings');
+        $key = DashboardConfigService::normalizeDashboardKey((string)($params['role'] ?? 'customer'), 'customer');
+        $body = $request->getBody();
+        $optionalPayload = isset($body['config']) && is_array($body['config']) ? $body['config'] : (isset($body['modules']) ? $body : null);
+
+        $record = DashboardConfigService::publish($this->db, $key, (string)$actor['email'], $optionalPayload);
+
+        $this->db->execute(
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, :uid, :email, "DASHBOARD_CONFIG_PUBLISHED", :meta, :ip, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $actor['id'],
+                'email' => $actor['email'],
+                'meta' => json_encode(['dashboard_key' => $key]),
+                'ip' => $request->getIp(),
+            ]
+        );
+        FootprintService::record(
+            'admin',
+            'DASHBOARD_CONFIG_PUBLISHED',
+            $actor,
+            'dashboard_management',
+            $key,
+            null,
+            'successful',
+            null,
+            null,
+            ['dashboard_key' => $key],
+            $request->getIp()
+        );
+
+        Response::success([
+            'record' => $record,
+            'configs' => DashboardConfigService::listAllConfigs($this->db),
+        ], "{$record['name']} published live to users.");
+    }
+
+    /**
+     * GET|POST /api/admin/dashboard-preview
+     * Allows admin/superadmin to safely preview any role dashboard without changing accounts or credentials.
+     */
+    public function previewDashboard(Request $request): void
+    {
+        $actor = Auth::requireAnyPermission($request, ['settings', 'customers', 'staff']);
+        $rawTarget = (string)($request->input('dashboard') ?? $request->input('role') ?? $request->query('dashboard') ?? $request->query('role') ?? 'customer');
+        $mode = strtolower(trim((string)($request->input('mode') ?? $request->query('mode') ?? 'published')));
+        if ($mode !== 'draft') {
+            $mode = 'published';
+        }
+
+        $targetRole = DashboardConfigService::normalizeRole($rawTarget);
+        $targetDashboard = DashboardConfigService::normalizeDashboardKey($rawTarget, $targetRole);
+        $config = DashboardConfigService::getConfig($this->db, $targetDashboard, $mode);
+
+        $academyPreview = null;
+        if ($targetDashboard === 'student') {
+            try {
+                \HambakTech\Services\AcademyService::ensureSeeded($this->db);
+                $courses = $this->db->fetchAll('SELECT id, title, category, level, duration, price FROM academy_courses WHERE status != "draft" ORDER BY display_order ASC LIMIT 6');
+                $sampleStudent = $this->db->fetchOne('SELECT student_id, full_name, academic_status, enrollment_date, id_card_issued_at FROM academy_students ORDER BY created_at DESC LIMIT 1');
+                $academyPreview = [
+                    'courses' => $courses,
+                    'sample_student' => $sampleStudent ?: null,
+                ];
+            } catch (Throwable) {
+            }
+        }
+
+        $meta = ['target_role' => $targetRole, 'target_dashboard' => $targetDashboard, 'mode' => $mode];
+        $this->db->execute(
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, :uid, :email, "ADMIN_DASHBOARD_PREVIEW", :meta, :ip, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $actor['id'],
+                'email' => $actor['email'],
+                'meta' => json_encode($meta),
+                'ip' => $request->getIp(),
+            ]
+        );
+        FootprintService::record(
+            'admin',
+            'ADMIN_DASHBOARD_PREVIEW',
+            $actor,
+            'dashboard_preview',
+            $targetDashboard,
+            null,
+            'successful',
+            null,
+            null,
+            $meta,
+            $request->getIp()
+        );
+
+        Response::success([
+            'target_role' => $targetRole,
+            'target_dashboard' => $targetDashboard,
+            'mode' => $mode,
+            'config' => $config,
+            'academy_preview' => $academyPreview,
+        ]);
+    }
 }
+
 

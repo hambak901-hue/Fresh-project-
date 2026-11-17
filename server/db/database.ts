@@ -15,7 +15,9 @@ export interface User {
   password_hash: string;
   full_name: string;
   phone_number: string;
-  role: 'customer' | 'agent' | 'staff' | 'admin' | 'superadmin';
+  role: 'customer' | 'student' | 'agent' | 'support' | 'staff' | 'manager' | 'admin' | 'superadmin';
+  assigned_dashboard?: 'customer' | 'student' | 'agent' | 'support' | 'staff' | 'manager' | 'admin';
+  token_version?: number;
   wallet_balance: number;
   kyc_status: 'unverified' | 'pending' | 'verified' | 'rejected';
   bvn?: string;
@@ -637,6 +639,7 @@ interface DatabaseSchema {
   faqs: FaqItem[];
   navigation: NavMenuItem[];
   dashboard_modules: DashboardModuleConfig[];
+  role_dashboard_configs?: Record<string, any>;
   store_items: StoreItem[];
   academy_courses: AcademyCourse[];
   identity_services: IdentityServiceConfig[];
@@ -729,6 +732,8 @@ function getDefaultData(): DatabaseSchema {
       full_name: 'Bakar Hambak (Super Admin)',
       phone_number: '+2348030001122',
       role: 'superadmin',
+      assigned_dashboard: 'admin',
+      token_version: 1,
       wallet_balance: 500000,
       kyc_status: 'verified',
       tier: 3,
@@ -2132,6 +2137,17 @@ export function initDatabase(): void {
       if (!dbData.faqs) dbData.faqs = defaults.faqs;
       if (!dbData.navigation) dbData.navigation = defaults.navigation;
       if (!dbData.dashboard_modules) dbData.dashboard_modules = defaults.dashboard_modules;
+      if (!dbData.role_dashboard_configs) dbData.role_dashboard_configs = {};
+      if (Array.isArray(dbData.users)) {
+        for (const u of dbData.users) {
+          if (!u.assigned_dashboard) {
+            u.assigned_dashboard = u.role === 'superadmin' ? 'admin' : (u.role as any) || 'customer';
+          }
+          if (!u.token_version) {
+            u.token_version = 1;
+          }
+        }
+      }
       if (!dbData.store_items) dbData.store_items = defaults.store_items;
       if (!dbData.academy_courses) dbData.academy_courses = defaults.academy_courses;
       if (!dbData.identity_services) dbData.identity_services = defaults.identity_services;
