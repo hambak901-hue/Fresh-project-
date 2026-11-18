@@ -7,6 +7,7 @@
 
 import React from 'react';
 import { useCms } from '../../context/CmsContext';
+import { InstallAppButton } from '../pwa/InstallPromptSystem';
 import { Mail, Phone, MapPin, MessageCircle, Globe, Building2 } from 'lucide-react';
 
 interface FooterProps {
@@ -69,6 +70,9 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-blue-700 dark:text-blue-400">
               <Building2 className="w-3.5 h-3.5 shrink-0" />
               <span>Reg No: {regNumber} &bull; Est. {branding?.founded_year || '2024'}</span>
+            </div>
+            <div className="pt-1">
+              <InstallAppButton variant="footer" />
             </div>
           </div>
 

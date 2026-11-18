@@ -17,6 +17,7 @@ import {
 } from '../../lib/roles';
 import { DashboardKey, MfaChallengeResponse, RoleDashboardConfig } from '../../types';
 import { ThemeToggle } from '../ThemeToggle';
+import { InstallAppButton } from '../pwa/InstallPromptSystem';
 import {
   LayoutDashboard,
   Users,
@@ -1017,6 +1018,8 @@ export function SuperAdminDashboard({
 
           {/* Quick Switchers & User Session Card */}
           <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-2 bg-slate-50 dark:bg-slate-900/60">
+            <InstallAppButton variant="sidebar" onAfterClick={() => setMobileMenuOpen(false)} />
+
             {/* Switch to Customer Portal */}
             <button
               type="button"

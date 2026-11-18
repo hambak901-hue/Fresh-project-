@@ -57,6 +57,74 @@ class SystemController
         ]);
     }
 
+    /**
+     * GET /api/app/version (Public)
+     */
+    public function appVersion(Request $request): void
+    {
+        $docRoot = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? dirname(HAMBAKTECH_ROOT)), '/');
+        $manifestCandidates = [
+            $docRoot . '/downloads/app-version.json',
+            dirname(HAMBAKTECH_ROOT) . '/downloads/app-version.json',
+        ];
+
+        $meta = [
+            'available' => true,
+            'android' => [
+                'available' => true,
+                'version_code' => 1,
+                'version_name' => '1.0.0',
+                'download_url' => 'https://hambaktech.com.ng/downloads/hambaktech-v1.0.0.apk',
+                'size_label' => 'Signed Release APK',
+                'min_android' => 'Android 7.0+',
+                'force_update' => false,
+                'release_notes' => 'Official HAMBAK TECH & SERVICES Android App with instant wallet funding, NIN/BVN verification & PDF slip downloads, Telecom VTU, Printing Services, and KYC uploads.',
+            ],
+            'pwa' => [
+                'version' => '1.0.0',
+            ],
+        ];
+
+        foreach ($manifestCandidates as $candidate) {
+            if (is_file($candidate)) {
+                $decoded = json_decode((string)file_get_contents($candidate), true);
+                if (is_array($decoded)) {
+                    if (isset($decoded['android']) && is_array($decoded['android'])) {
+                        $meta['android'] = array_merge($meta['android'], $decoded['android']);
+                    }
+                    if (isset($decoded['pwa']) && is_array($decoded['pwa'])) {
+                        $meta['pwa'] = array_merge($meta['pwa'], $decoded['pwa']);
+                    }
+                    if (isset($decoded['available'])) {
+                        $meta['available'] = (bool)$decoded['available'];
+                    }
+                }
+                break;
+            }
+        }
+
+        $apkUrlPath = parse_url((string)($meta['android']['download_url'] ?? ''), PHP_URL_PATH) ?: '/downloads/hambaktech-v1.0.0.apk';
+        $apkFilename = basename($apkUrlPath);
+        $apkPath = $docRoot . '/downloads/' . $apkFilename;
+        if (!is_file($apkPath)) {
+            $apkPath = dirname(HAMBAKTECH_ROOT) . '/downloads/' . $apkFilename;
+        }
+
+        if (is_file($apkPath)) {
+            $bytes = (int)filesize($apkPath);
+            $meta['android']['size_bytes'] = $bytes;
+            if ($bytes >= 1048576) {
+                $meta['android']['size_label'] = number_format($bytes / 1048576, 2) . ' MB';
+            } elseif ($bytes >= 1024) {
+                $meta['android']['size_label'] = number_format($bytes / 1024, 0) . ' KB';
+            }
+            $meta['android']['available'] = true;
+            $meta['available'] = true;
+        }
+
+        Response::success($meta);
+    }
+
     public function settings(Request $request): void
     {
         $bankRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_bank"');

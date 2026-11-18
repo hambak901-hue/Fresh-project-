@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import { useCms } from '../../context/CmsContext';
 import { useAuth } from '../../context/AuthContext';
 import { ThemeToggle } from '../ThemeToggle';
+import { InstallAppButton } from '../pwa/InstallPromptSystem';
 import { getRoleLabel, isConsoleRole as checkConsoleRole } from '../../lib/roles';
 import { Menu, X, Settings, LogOut, Wallet, Shield, ShieldCheck } from 'lucide-react';
 
@@ -104,6 +105,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
 
           {/* ZONE 3: Theme Toggle, Auth & Quick Portal Switch */}
           <div className="flex items-center gap-2.5 shrink-0">
+            <InstallAppButton variant="navbar" />
             <ThemeToggle compact />
 
             {user && (
@@ -288,8 +290,9 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
             })}
           </nav>
 
-          {canAccessCms && (
-            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+            <InstallAppButton variant="mobile-drawer" onAfterClick={() => setMobileMenuOpen(false)} />
+            {canAccessCms && (
               <button
                 type="button"
                 onClick={() => {
@@ -301,8 +304,8 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
                 <Settings className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <span>Admin CMS Studio</span>
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </header>

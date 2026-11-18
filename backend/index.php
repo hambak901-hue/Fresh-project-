@@ -41,6 +41,7 @@ $router = new Router();
 // 1. SYSTEM, CPANEL & SCHEMA SYNC
 // -----------------------------------------------------------------------------
 $router->get('/api/health', [SystemController::class, 'health']);
+$router->get('/api/app/version', [SystemController::class, 'appVersion']);
 $router->get('/api/system/status', [SystemController::class, 'status']);
 $router->get('/api/system/settings', [SystemController::class, 'settings']);
 $router->get('/api/system/rates', [SystemController::class, 'rates']);

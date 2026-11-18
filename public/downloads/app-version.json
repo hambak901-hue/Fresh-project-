@@ -1,0 +1,18 @@
+{
+  "available": true,
+  "android": {
+    "available": true,
+    "version_code": 1,
+    "version_name": "1.0.0",
+    "download_url": "https://hambaktech.com.ng/downloads/hambaktech-v1.0.0.apk",
+    "size_label": "85 KB",
+    "min_android": "Android 7.0+",
+    "force_update": false,
+    "release_notes": "Official HAMBAK TECH & SERVICES Android App with instant wallet funding, NIN/BVN verification & PDF slip downloads, Telecom VTU, Printing Services, and KYC uploads.",
+    "size_bytes": 87407,
+    "sha256": "c35482576481bfe23f59fc9abc4253bc661dfb46cbb683ba4f99d6f2e5bed388"
+  },
+  "pwa": {
+    "version": "1.0.0"
+  }
+}

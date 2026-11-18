@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
 import { ThemeToggle } from '../ThemeToggle';
+import { InstallAppButton } from '../pwa/InstallPromptSystem';
 import { getInitialsAvatar } from '../../lib/avatar';
 import {
   getDashboardLabel,
@@ -407,6 +408,8 @@ export function CustomerDashboard({
 
           {/* Bottom navigation links */}
           <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-2 bg-slate-50 dark:bg-slate-900/60">
+            <InstallAppButton variant="sidebar" onAfterClick={() => setMobileMenuOpen(false)} />
+
             {/* Switch to Staff / Admin Console - Only for internal staff & admins */}
             {onSwitchToAdmin && isConsoleRole(user.role) && (
               <button

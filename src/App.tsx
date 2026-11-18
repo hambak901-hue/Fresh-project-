@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CmsProvider } from './context/CmsContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { PwaInstallProvider } from './components/pwa/InstallPromptSystem';
 import { PublicNavbar } from './components/public/PublicNavbar';
 import { LandingPage } from './components/public/LandingPage';
 import { AboutPage } from './components/public/AboutPage';
@@ -771,7 +772,9 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <CmsProvider>
-          <MainAppContent />
+          <PwaInstallProvider>
+            <MainAppContent />
+          </PwaInstallProvider>
         </CmsProvider>
       </AuthProvider>
     </ThemeProvider>
