@@ -198,7 +198,7 @@ class AccountingController
         $actor = $this->authorizeSensitiveAdjustment($request);
         try {
             $id = (string)($params['id'] ?? '');
-            $reason = (string)$request->input('reason', 'Voided by supervisor');
+            $reason = (string)$request->input('reason', 'Voided by administrator');
             $sale = $this->service->voidPhysicalSale($id, $reason, $actor);
             Response::success(['sale' => $sale], 'Physical sale voided cleanly.');
         } catch (Throwable $e) {

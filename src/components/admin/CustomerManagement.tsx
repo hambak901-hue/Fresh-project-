@@ -1249,10 +1249,8 @@ export function CustomerManagement() {
 
                   {/* ROLE & WORKSPACE ASSIGNMENT GOVERNANCE CARD */}
                   {(() => {
-                    const isProtectedOwner =
-                      selectedUser.id === 'usr_superadmin' || selectedUser.role === 'superadmin';
                     const isSelf = currentAdmin?.id === selectedUser.id;
-                    const roleLocked = (isProtectedOwner && selectedUser.id === 'usr_superadmin') || isSelf || (!isCurrentSuperAdmin && isConsoleRole(selectedUser.role));
+                    const roleLocked = isSelf || (!isCurrentSuperAdmin && isConsoleRole(selectedUser.role));
 
                     return (
                       <div className="p-4 rounded-xl bg-slate-950 border border-indigo-500/30 space-y-3">
@@ -1266,9 +1264,9 @@ export function CustomerManagement() {
                               Changing an account&apos;s role or assigned dashboard revokes active session tokens immediately while preserving wallet, Academy, and transaction records.
                             </p>
                           </div>
-                          {selectedUser.id === 'usr_superadmin' && (
-                            <span className="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-300 font-mono text-[10px] whitespace-nowrap">
-                              PROTECTED ROOT SUPERVISOR
+                          {selectedUser.role === 'superadmin' && (
+                            <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono text-[10px] whitespace-nowrap">
+                              SUPER ADMIN AUTHORITY
                             </span>
                           )}
                         </div>

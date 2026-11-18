@@ -444,7 +444,7 @@ export const AccountingLedgerView: React.FC<{
     if (!reverseTarget) return;
     setReversing(true);
     try {
-      await api.reverseAccountingLedgerEntry(reverseTarget.id, reverseReason.trim() || 'Reversed by supervisor');
+      await api.reverseAccountingLedgerEntry(reverseTarget.id, reverseReason.trim() || 'Reversed by administrator');
       setReverseTarget(null);
       setReverseReason('');
       setFeedback({ type: 'success', text: `Ledger entry ${reverseTarget.entry_number} reversed cleanly.` });

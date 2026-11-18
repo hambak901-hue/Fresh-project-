@@ -725,7 +725,7 @@ export const PhysicalSalesView: React.FC<{
     if (!voidTarget) return;
     setVoiding(true);
     try {
-      await api.voidAccountingPhysicalSale(voidTarget.id, voidReason.trim() || 'Voided by supervisor');
+      await api.voidAccountingPhysicalSale(voidTarget.id, voidReason.trim() || 'Voided by administrator');
       setVoidTarget(null);
       setVoidReason('');
       setFeedback({ type: 'success', text: `Receipt ${voidTarget.receipt_number} voided and inventory restored.` });

@@ -514,9 +514,6 @@ adminRouter.put('/customers/:id', requireAdmin, requirePermission('customers'), 
     return res.status(404).json({ error: 'Customer not found' });
   }
 
-  if (user.id === 'usr_superadmin' && req.user?.id !== 'usr_superadmin') {
-    return res.status(403).json({ error: 'Only the primary supervisor account can modify its own profile.' });
-  }
   if (isConsoleRole(user.role) && req.user?.role !== 'superadmin') {
     return res.status(403).json({ error: 'Only Super Admin can modify internal staff or admin accounts.' });
   }
@@ -571,11 +568,14 @@ adminRouter.put('/customers/:id', requireAdmin, requirePermission('customers'), 
       if ((isConsoleRole(nextRole) || isConsoleRole(user.role)) && req.user?.role !== 'superadmin') {
         return res.status(403).json({ error: 'Only Super Admin can assign or modify internal console roles.' });
       }
-      if (user.id === 'usr_superadmin' && nextRole !== 'superadmin') {
-        return res.status(403).json({ error: 'Primary supervisor account role cannot be demoted.' });
-      }
       if (user.id === req.user?.id && user.role === 'superadmin' && nextRole !== 'superadmin') {
         return res.status(403).json({ error: 'You cannot demote your own active Super Admin account.' });
+      }
+      if (user.role === 'superadmin' && nextRole !== 'superadmin') {
+        const remaining = db.data.users.filter(u => u.role === 'superadmin' && u.status === 'active' && u.id !== user.id).length;
+        if (remaining < 1) {
+          return res.status(403).json({ error: 'At least one active Super Admin account must remain on the platform.' });
+        }
       }
       updates.role = nextRole;
       updates.assigned_dashboard = normalizeDashboardKey(assigned_dashboard, nextRole);
@@ -617,7 +617,7 @@ adminRouter.delete('/customers/:id', requireAdmin, requirePermission('customers'
   if (!user) {
     return res.status(404).json({ error: 'Customer not found' });
   }
-  if (user.id === 'usr_superadmin' || isConsoleRole(user.role)) {
+  if (isConsoleRole(user.role)) {
     return res.status(403).json({ error: 'Internal staff and administrator accounts cannot be deleted from Customer Management.' });
   }
 
@@ -656,14 +656,17 @@ adminRouter.post('/customers/:id/status', requireAdmin, requirePermission('custo
     return res.status(400).json({ error: 'Status must be active or suspended' });
   }
 
-  if (user.id === 'usr_superadmin' || user.role === 'superadmin') {
-    return res.status(403).json({ error: 'Cannot alter Super Admin account status' });
-  }
   if (isConsoleRole(user.role) && req.user?.role !== 'superadmin') {
     return res.status(403).json({ error: 'Only a Super Admin can modify internal console account status.' });
   }
   if (user.id === req.user?.id && status === 'suspended') {
     return res.status(403).json({ error: 'You cannot suspend your own active account.' });
+  }
+  if (user.role === 'superadmin' && status === 'suspended') {
+    const remaining = db.data.users.filter(u => u.role === 'superadmin' && u.status === 'active' && u.id !== user.id).length;
+    if (remaining < 1) {
+      return res.status(403).json({ error: 'At least one active Super Admin account must remain on the platform.' });
+    }
   }
 
   const updates: Partial<User> = { status: status as any };
@@ -892,7 +895,6 @@ adminRouter.get('/staff', requireAdmin, requirePermission('staff'), (req, res) =
     .sort((a, b) => (orderRank[a.role] || 99) - (orderRank[b.role] || 99))
     .map(u => ({
       ...sanitizeUser(u),
-      is_protected: u.id === 'usr_superadmin',
     }));
   res.json({
     success: true,
@@ -968,12 +970,6 @@ adminRouter.put('/staff/:id', requireAdmin, requireSuperAdmin, (req: any, res) =
 
   const { role, permissions, status, full_name, phone_number, assigned_dashboard } = req.body;
 
-  if (staffUser.id === 'usr_superadmin' && req.user?.id !== 'usr_superadmin') {
-    return res.status(403).json({ error: 'Only the primary supervisor account can modify its own profile.' });
-  }
-  if (staffUser.id === 'usr_superadmin' && (status === 'suspended' || (role && role !== 'superadmin'))) {
-    return res.status(403).json({ error: 'The primary supervisor account role and active status cannot be demoted or suspended.' });
-  }
   if (staffUser.id === req.user?.id && (status === 'suspended' || (role && role !== 'superadmin'))) {
     return res.status(403).json({ error: 'You cannot demote or suspend your own active Super Admin account.' });
   }
@@ -2259,12 +2255,6 @@ const handleAssignCustomerRole = (req: any, res: any) => {
 
   const currentRole = normalizeRole(target.role);
 
-  if (target.id === 'usr_superadmin' && req.user?.id !== 'usr_superadmin') {
-    return res.status(403).json({ error: 'Only the primary supervisor account can modify its own profile.' });
-  }
-  if (target.id === 'usr_superadmin' && requestedRole !== 'superadmin') {
-    return res.status(403).json({ error: 'The primary supervisor role cannot be demoted or reassigned.' });
-  }
   if (target.id === req.user?.id && currentRole === 'superadmin' && requestedRole !== 'superadmin') {
     return res.status(403).json({ error: 'You cannot demote your own active Super Admin account.' });
   }

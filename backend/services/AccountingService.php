@@ -1801,7 +1801,7 @@ class AccountingService
             throw new RuntimeException('This physical sale is already voided/refunded.');
         }
 
-        $cleanReason = trim($reason) !== '' ? trim($reason) : 'Voided by supervisor';
+        $cleanReason = trim($reason) !== '' ? trim($reason) : 'Voided by administrator';
         $this->db->withTransaction(function (Database $db) use ($id, $sale, $cleanReason, $actor) {
             $db->execute(
                 'UPDATE accounting_physical_sales SET status = "voided", void_reason = :vr, voided_by = :vb, voided_at = NOW() WHERE id = :id',

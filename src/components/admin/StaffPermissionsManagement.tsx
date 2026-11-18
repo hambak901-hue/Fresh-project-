@@ -210,10 +210,6 @@ export function StaffPermissionsManagement() {
   };
 
   const handleToggleStaffStatus = async (staffUser: User) => {
-    if (staffUser.role === 'superadmin' || staffUser.id === 'usr_superadmin') {
-      setMessage({ type: 'error', text: 'Super Admin accounts cannot be suspended.' });
-      return;
-    }
     const nextStatus = staffUser.status === 'active' ? 'suspended' : 'active';
     try {
       await api.updateStaffAccount(staffUser.id, { status: nextStatus });
@@ -359,8 +355,7 @@ export function StaffPermissionsManagement() {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      {s.id !== 'usr_superadmin' && !isSuperAdmin ? (
-                        <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
                             onClick={() => {
@@ -384,12 +379,6 @@ export function StaffPermissionsManagement() {
                             {isSuspended ? <Check className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
                           </button>
                         </div>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-mono">
-                          <Lock className="w-3 h-3" />
-                          Protected
-                        </span>
-                      )}
                     </td>
                   </tr>
                 );

@@ -237,10 +237,9 @@ export const ROLE_CATALOG_FALLBACK: RoleCatalogItem[] = [
     name: 'Super Administrator',
     category: 'console',
     default_dashboard: 'admin',
-    description: 'Unrestricted owner/supervisor authority including role governance, security policy, and dashboard config.',
+    description: 'Unrestricted highest system authority including user/role governance, security policy, and dashboard config.',
     default_permissions: ['*'],
     requires_superadmin: true,
-    is_protected: true,
   },
 ];
 
@@ -250,6 +249,6 @@ export const DASHBOARD_CATALOG_FALLBACK: DashboardCatalogItem[] = [
   { key: 'agent', name: 'Agent / Reseller Portal', category: 'portal', description: 'Partner reseller workspace with bulk telecom/identity tools and referral growth features.' },
   { key: 'support', name: 'Support Agent Console', category: 'console', description: 'Dedicated helpdesk console for resolving customer tickets and checking account summaries.' },
   { key: 'staff', name: 'Operations Staff Console', category: 'console', description: 'Permission-scoped operations console for assigned staff workflows.' },
-  { key: 'manager', name: 'Operations Manager Console', category: 'console', description: 'Supervisory console with operational KPIs, reporting, printing, and reconciliation access.' },
+  { key: 'manager', name: 'Operations Manager Console', category: 'console', description: 'Operations management console with KPIs, reporting, printing, and reconciliation access.' },
   { key: 'admin', name: 'Admin & Super Admin Console', category: 'console', description: 'Full central administration and system governance console.' },
 ];

@@ -513,14 +513,17 @@ class AdminController
             Response::error('Customer account not found.', 404);
         }
 
-        if ($customerId === 'usr_superadmin' && $newStatus === 'suspended') {
-            Response::forbidden('The primary supervisor account cannot be suspended.');
-        }
         if (Auth::isConsoleRole((string)$existing['role']) && $admin['role'] !== 'superadmin') {
             Response::forbidden('Only a Super Admin can modify an internal staff or administrator account.');
         }
         if ($customerId === $admin['id'] && $newStatus === 'suspended') {
             Response::forbidden('You cannot suspend your own active administrator account.');
+        }
+        if (strtolower((string)$existing['role']) === 'superadmin' && $newStatus === 'suspended') {
+            $activeSupers = $this->db->fetchOne('SELECT COUNT(*) AS cnt FROM users WHERE role = "superadmin" AND status = "active" AND id != :id', ['id' => $customerId]);
+            if ((int)($activeSupers['cnt'] ?? 0) < 1) {
+                Response::forbidden('At least one active Super Admin account must remain on the platform.');
+            }
         }
 
         $explicitTier = $request->input('tier');
@@ -1313,9 +1316,6 @@ class AdminController
             Response::error('Customer not found.', 404);
             return;
         }
-        if ($customerId === 'usr_superadmin' && $admin['id'] !== 'usr_superadmin') {
-            Response::forbidden('Only the primary Super Admin account can modify its own profile.');
-        }
         if (Auth::isConsoleRole((string)$existing['role']) && $admin['role'] !== 'superadmin') {
             Response::forbidden('Only a Super Admin can update an administrator or staff account.');
         }
@@ -1483,7 +1483,7 @@ class AdminController
             Response::error('Customer account not found.', 404);
         }
 
-        if ($customerId === 'usr_superadmin' || Auth::isConsoleRole((string)$target['role'])) {
+        if (Auth::isConsoleRole((string)$target['role'])) {
             Response::error('Internal staff and administrator accounts cannot be deleted from Customer Management.', 403);
         }
 
@@ -3723,7 +3723,6 @@ class AdminController
             }
             $s['permissions'] = array_values(array_unique($perms));
             $s['mfa_enabled'] = (bool)($s['mfa_enabled'] ?? false);
-            $s['is_protected'] = ($s['id'] === 'usr_superadmin');
             unset($s['assigned_permissions'], $s['profile_permissions']);
         }
 
@@ -3842,20 +3841,6 @@ class AdminController
             (isset($body['role']) && $body['role'] !== 'superadmin')
         )) {
             Response::forbidden('You cannot demote or suspend your own active Super Admin account.');
-        }
-
-        if ($id === 'usr_superadmin' && $super['id'] !== 'usr_superadmin') {
-            Response::forbidden('Only the primary Super Admin account can modify its own profile.');
-        }
-        if ($id === 'usr_superadmin' && (
-            (isset($body['status']) && $body['status'] === 'suspended') ||
-            (isset($body['role']) && $body['role'] !== 'superadmin')
-        )) {
-            Response::forbidden('The primary supervisor account role and active status cannot be demoted or suspended.');
-        }
-
-        if ($existing['role'] === 'superadmin' && $id !== $super['id'] && $super['id'] !== 'usr_superadmin') {
-            Response::forbidden('Only the primary Super Admin can modify another Super Admin account.');
         }
 
         if (($existing['role'] ?? '') === 'superadmin' && (
@@ -5573,13 +5558,7 @@ class AdminController
 
         $currentRole = DashboardConfigService::normalizeRole((string)$existing['role']);
 
-        // Protected primary supervisor & console account guards
-        if ($targetId === 'usr_superadmin' && $actor['id'] !== 'usr_superadmin') {
-            Response::forbidden('Only the primary supervisor account can modify its own profile.');
-        }
-        if ($targetId === 'usr_superadmin' && $requestedRoleRaw !== 'superadmin') {
-            Response::forbidden('The primary supervisor role cannot be demoted or reassigned.');
-        }
+        // Console & Super Admin governance guards (any Super Admin has full authority; prevent self-demotion & last-superadmin removal)
         if ($targetId === $actor['id'] && $currentRole === 'superadmin' && $requestedRoleRaw !== 'superadmin') {
             Response::forbidden('You cannot demote your own active Super Admin account.');
         }
