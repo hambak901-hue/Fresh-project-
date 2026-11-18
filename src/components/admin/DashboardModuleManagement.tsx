@@ -274,7 +274,7 @@ export function DashboardModuleManagement({ onLaunchPreview }: DashboardModuleMa
                   <span className="text-[10px] font-mono uppercase text-slate-400">
                     {dash.category}
                   </span>
-                  {rec?.has_draft && (
+                  {Boolean(rec?.has_draft ?? rec?.has_unpublished_changes) && (
                     <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold">
                       DRAFT
                     </span>
@@ -309,11 +309,11 @@ export function DashboardModuleManagement({ onLaunchPreview }: DashboardModuleMa
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg font-bold text-white">{getDashboardLabel(selectedKey)}</h2>
                 <span className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold uppercase ${
-                  currentRecord?.has_draft
+                  (currentRecord?.has_draft ?? currentRecord?.has_unpublished_changes)
                     ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                     : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                 }`}>
-                  {currentRecord?.has_draft ? 'Has Unpublished Draft' : 'Live Synced'}
+                  {(currentRecord?.has_draft ?? currentRecord?.has_unpublished_changes) ? 'Has Unpublished Draft' : 'Live Synced'}
                 </span>
                 <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
                   key: {selectedKey}
@@ -327,7 +327,7 @@ export function DashboardModuleManagement({ onLaunchPreview }: DashboardModuleMa
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              {currentRecord?.has_draft && (
+              {Boolean(currentRecord?.has_draft ?? currentRecord?.has_unpublished_changes) && (
                 <button
                   type="button"
                   onClick={handleLoadPublishedSnapshot}

@@ -126,8 +126,28 @@ async function startServer() {
       server: {
         middlewareMode: true,
         hmr: false,
+        ws: false,
       },
       appType: 'spa',
+    });
+    app.get('/@vite/client', async (_req, res, next) => {
+      try {
+        const transformed = await vite.transformRequest('/@vite/client');
+        if (transformed?.code) {
+          const code = transformed.code
+            .replace(
+              'transport.connect(createHMRHandler(handleMessage));',
+              '/* HMR disabled: WebSocket transport connect skipped */'
+            )
+            .replace('console.debug("[vite] connecting...");', '');
+          res.status(200).setHeader('Content-Type', 'application/javascript; charset=utf-8');
+          res.end(code);
+          return;
+        }
+      } catch (err) {
+        return next(err);
+      }
+      next();
     });
     app.use(vite.middlewares);
   } else {

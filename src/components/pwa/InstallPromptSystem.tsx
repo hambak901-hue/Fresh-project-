@@ -153,6 +153,7 @@ const InstallSystemOverlays: React.FC = () => {
     closeInstallModal,
     triggerPwaInstall,
     applyAppUpdate,
+    dismissUpdatePrompt,
   } = ctx;
 
   const androidRelease = versionInfo.android;
@@ -196,9 +197,19 @@ const InstallSystemOverlays: React.FC = () => {
             <RefreshCw className="w-4 h-4" />
           </div>
           <div className="flex-1 text-xs space-y-2">
-            <div className="font-bold">Update Available</div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-bold">Update Available</div>
+              <button
+                type="button"
+                onClick={dismissUpdatePrompt}
+                aria-label="Dismiss update notification"
+                className="p-0.5 rounded text-slate-400 hover:text-white transition"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
             <p className="text-slate-300 leading-relaxed">
-              A newer version of HAMBAKTECH is ready. Refresh to apply the latest improvements.
+              A newer version of HAMBAKTECH is ready. Finish any active transaction, then tap Update Now.
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -210,10 +221,10 @@ const InstallSystemOverlays: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => applyAppUpdate().catch(() => {})}
-                className="sr-only"
+                onClick={dismissUpdatePrompt}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition"
               >
-                Reload
+                Later
               </button>
             </div>
           </div>

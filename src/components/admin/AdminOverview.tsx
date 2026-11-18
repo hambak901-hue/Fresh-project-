@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api, getStoredToken } from '../../lib/api';
+import { isConsoleRole } from '../../lib/roles';
 import { AdminOverviewData, Transaction } from '../../types';
 
 interface AdminOverviewProps {
@@ -46,9 +47,9 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   const [rejectReason, setRejectReason] = useState('Bank deposit could not be verified on statement');
 
   const fetchOverview = async () => {
-    if (!user || !['staff', 'admin', 'superadmin'].includes(user.role)) {
+    if (!user || !isConsoleRole(user.role)) {
       setLoading(false);
-      setError('Staff or Administrator authentication token required to view console telemetry.');
+      setError('Internal console authentication token required to view console telemetry.');
       return;
     }
 

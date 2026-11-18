@@ -5,7 +5,7 @@
  * quick wallet funding, unread notification counter, and seamless app switches.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useCms } from '../../context/CmsContext';
 import { ThemeToggle } from '../ThemeToggle';
@@ -129,84 +129,31 @@ export function CustomerDashboard({
     activeConfig?.dashboard_key || user?.assigned_dashboard,
     previewRole || user?.role
   );
-  const [currentPage, setCurrentPage] = useState<CustomerPageKey>(() => {
-    if (typeof window !== 'undefined') {
-      const h = window.location.hash.toLowerCase();
-      const s = window.location.search.toLowerCase();
-      if (h.includes('printing') || s.includes('printing_order')) {
-        return 'printing';
-      }
-    }
-    return 'overview';
-  });
-  const [initialPrintOrderRef, setInitialPrintOrderRef] = useState<string | undefined>(() => {
-    if (typeof window !== 'undefined') {
-      const h = window.location.hash || '';
-      const qIdx = h.indexOf('?');
-      if (h.toLowerCase().includes('printing') && qIdx !== -1) {
-        const hashParams = new URLSearchParams(h.slice(qIdx + 1));
-        const fromHash = hashParams.get('order') || hashParams.get('printing_order');
-        if (fromHash) return fromHash;
-      }
-      const searchParams = new URLSearchParams(window.location.search || '');
-      return searchParams.get('order') || searchParams.get('printing_order') || undefined;
-    }
-    return undefined;
-  });
-  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const syncPrintHash = () => {
-      const h = window.location.hash || '';
-      const s = window.location.search || '';
-      if (h.toLowerCase().includes('printing') || s.toLowerCase().includes('printing_order')) {
-        setCurrentPage('printing');
-        const qIdx = h.indexOf('?');
-        if (qIdx !== -1) {
-          const hashParams = new URLSearchParams(h.slice(qIdx + 1));
-          const ord = hashParams.get('order') || hashParams.get('printing_order');
-          if (ord) {
-            setInitialPrintOrderRef(ord);
-            return;
-          }
-        }
-        const searchParams = new URLSearchParams(s);
-        const ordSearch = searchParams.get('order') || searchParams.get('printing_order') || undefined;
-        if (ordSearch) setInitialPrintOrderRef(ordSearch);
-      }
+  const resolveConfiguredCustomerPage = (defaultTab?: string): CustomerPageKey => {
+    const raw = (defaultTab || '').trim().toLowerCase();
+    const map: Record<string, CustomerPageKey> = {
+      dashboard: 'overview',
+      overview: 'overview',
+      nin: 'nin',
+      telecom: 'telecom',
+      printing: 'printing',
+      wallet: 'wallet',
+      referrals: 'referrals',
+      store: 'store',
+      digital: 'digital',
+      academy: 'academy',
+      reports: 'reports',
+      transactions: 'transactions',
+      orders: 'orders',
+      notifications: 'notifications',
+      messages: 'messages',
+      kyc: 'kyc',
+      profile: 'profile',
+      settings: 'settings',
+      support: 'support',
     };
-    window.addEventListener('hashchange', syncPrintHash);
-    return () => window.removeEventListener('hashchange', syncPrintHash);
-  }, []);
-
-  const handleSignOut = () => {
-    if (onLogout) {
-      onLogout();
-    } else {
-      logout();
-      if (typeof window !== 'undefined') {
-        window.location.hash = '#login';
-      }
-    }
+    return map[raw] || 'overview';
   };
-
-  if (!user) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 p-6 text-center space-y-4">
-        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Your session has ended. Please sign in to continue.
-        </p>
-        <button
-          type="button"
-          onClick={handleSignOut}
-          className="px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold"
-        >
-          Go to Customer Login
-        </button>
-      </div>
-    );
-  }
 
   const baseNavSections: NavSection[] = [
     {
@@ -241,7 +188,7 @@ export function CustomerDashboard({
     {
       title: 'Account & Security',
       items: [
-        { id: 'kyc', label: 'Identity & KYC', icon: ShieldCheck, badge: user.kyc_status === 'verified' ? 'Verified' : 'Required' },
+        { id: 'kyc', label: 'Identity & KYC', icon: ShieldCheck, badge: user?.kyc_status === 'verified' ? 'Verified' : 'Required' },
         { id: 'profile', label: 'My Profile', icon: UserIcon },
         { id: 'settings', label: 'Security & PIN', icon: Settings },
         { id: 'support', label: 'Help & Support Desk', icon: HelpCircle },
@@ -276,20 +223,135 @@ export function CustomerDashboard({
     })
     .filter(sec => sec.items.length > 0);
 
+  const allowedPageIds = new Set<CustomerPageKey>(
+    navSections.flatMap(sec => sec.items.map(i => i.id))
+  );
+  const firstAllowedPage: CustomerPageKey = navSections[0]?.items[0]?.id || 'overview';
+  const allowedIdsSignature = Array.from(allowedPageIds).join(',');
+
+  const [currentPage, setCurrentPage] = useState<CustomerPageKey>(() => {
+    if (typeof window !== 'undefined') {
+      const h = window.location.hash.toLowerCase();
+      const s = window.location.search.toLowerCase();
+      if ((h.includes('printing') || s.includes('printing_order')) && allowedPageIds.has('printing')) {
+        return 'printing';
+      }
+    }
+    const configured = resolveConfiguredCustomerPage(activeConfig?.default_tab);
+    return allowedPageIds.has(configured) ? configured : firstAllowedPage;
+  });
+  const [initialPrintOrderRef, setInitialPrintOrderRef] = useState<string | undefined>(() => {
+    if (typeof window !== 'undefined') {
+      const h = window.location.hash || '';
+      const qIdx = h.indexOf('?');
+      if (h.toLowerCase().includes('printing') && qIdx !== -1) {
+        const hashParams = new URLSearchParams(h.slice(qIdx + 1));
+        const fromHash = hashParams.get('order') || hashParams.get('printing_order');
+        if (fromHash) return fromHash;
+      }
+      const searchParams = new URLSearchParams(window.location.search || '');
+      return searchParams.get('order') || searchParams.get('printing_order') || undefined;
+    }
+    return undefined;
+  });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const lastWorkspaceKeyRef = useRef<string>('');
+
+  // Enforce configured default_tab when user/workspace/config changes and clamp away disabled/hidden modules
+  useEffect(() => {
+    if (!user) {
+      lastWorkspaceKeyRef.current = '';
+      return;
+    }
+    const workspaceKey = `${user.id}:${effectiveDashboardKey}:${isPreviewMode ? 'preview' : 'live'}:${activeConfig?.default_tab || ''}`;
+    if (lastWorkspaceKeyRef.current !== workspaceKey) {
+      lastWorkspaceKeyRef.current = workspaceKey;
+      const h = typeof window !== 'undefined' ? window.location.hash.toLowerCase() : '';
+      const s = typeof window !== 'undefined' ? window.location.search.toLowerCase() : '';
+      if ((h.includes('printing') || s.includes('printing_order')) && allowedPageIds.has('printing')) {
+        setCurrentPage('printing');
+      } else {
+        const configured = resolveConfiguredCustomerPage(activeConfig?.default_tab);
+        setCurrentPage(allowedPageIds.has(configured) ? configured : firstAllowedPage);
+      }
+      return;
+    }
+    if (!allowedPageIds.has(currentPage)) {
+      setCurrentPage(firstAllowedPage);
+    }
+  }, [user?.id, effectiveDashboardKey, isPreviewMode, activeConfig?.default_tab, allowedIdsSignature, currentPage]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const syncPrintHash = () => {
+      const h = window.location.hash || '';
+      const s = window.location.search || '';
+      if (h.toLowerCase().includes('printing') || s.toLowerCase().includes('printing_order')) {
+        if (allowedPageIds.has('printing')) {
+          setCurrentPage('printing');
+        }
+        const qIdx = h.indexOf('?');
+        if (qIdx !== -1) {
+          const hashParams = new URLSearchParams(h.slice(qIdx + 1));
+          const ord = hashParams.get('order') || hashParams.get('printing_order');
+          if (ord) {
+            setInitialPrintOrderRef(ord);
+            return;
+          }
+        }
+        const searchParams = new URLSearchParams(s);
+        const ordSearch = searchParams.get('order') || searchParams.get('printing_order') || undefined;
+        if (ordSearch) setInitialPrintOrderRef(ordSearch);
+      }
+    };
+    window.addEventListener('hashchange', syncPrintHash);
+    return () => window.removeEventListener('hashchange', syncPrintHash);
+  }, [allowedIdsSignature]);
+
+  const handleSignOut = () => {
+    if (onLogout) {
+      onLogout();
+    } else {
+      logout();
+      if (typeof window !== 'undefined') {
+        window.location.hash = '#login';
+      }
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 p-6 text-center space-y-4">
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Your session has ended. Please sign in to continue.
+        </p>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold"
+        >
+          Go to Customer Login
+        </button>
+      </div>
+    );
+  }
+
   const handleUpdateUser = (updated: User) => {
     refreshUser();
   };
 
   const handleSelectPage = (id: CustomerPageKey) => {
-    setCurrentPage(id);
+    setCurrentPage(allowedPageIds.has(id) ? id : firstAllowedPage);
     setMobileMenuOpen(false);
   };
 
+  const safeCurrentPage: CustomerPageKey = allowedPageIds.has(currentPage) ? currentPage : firstAllowedPage;
+
   // Resolve current active title & optional coming soon override
-  const activeOverride = moduleOverrides.get(currentPage);
+  const activeOverride = moduleOverrides.get(safeCurrentPage);
   let currentTitle = 'Dashboard Overview';
   for (const sec of navSections) {
-    const item = sec.items.find(i => i.id === currentPage);
+    const item = sec.items.find(i => i.id === safeCurrentPage);
     if (item) {
       currentTitle = item.label;
       break;
@@ -372,7 +434,7 @@ export function CustomerDashboard({
                 <div className="space-y-0.5">
                   {section.items.map(item => {
                     const Icon = item.icon;
-                    const isActive = currentPage === item.id;
+                    const isActive = safeCurrentPage === item.id;
                     return (
                       <button
                         key={item.id}
@@ -488,25 +550,29 @@ export function CustomerDashboard({
             <ThemeToggle compact />
 
             {/* Quick Balance Header Pill */}
-            <div
-              onClick={() => setCurrentPage('wallet')}
-              className="cursor-pointer bg-slate-100 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 hover:border-blue-400 rounded-xl px-3 py-1.5 hidden sm:flex items-center gap-2 transition"
-            >
-              <Wallet className="w-3.5 h-3.5 text-blue-700 dark:text-emerald-400" />
-              <span className="text-xs font-mono font-bold text-blue-800 dark:text-emerald-400 tabular-nums">
-                ₦{user.wallet_balance.toLocaleString()}
-              </span>
-            </div>
+            {allowedPageIds.has('wallet') && (
+              <div
+                onClick={() => handleSelectPage('wallet')}
+                className="cursor-pointer bg-slate-100 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 hover:border-blue-400 rounded-xl px-3 py-1.5 hidden sm:flex items-center gap-2 transition"
+              >
+                <Wallet className="w-3.5 h-3.5 text-blue-700 dark:text-emerald-400" />
+                <span className="text-xs font-mono font-bold text-blue-800 dark:text-emerald-400 tabular-nums">
+                  ₦{user.wallet_balance.toLocaleString()}
+                </span>
+              </div>
+            )}
 
             {/* Notifications Shortcut */}
-            <button
-              type="button"
-              onClick={() => setCurrentPage('notifications')}
-              className="p-2 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl relative transition"
-              title="Notifications"
-            >
-              <Bell className="w-4 h-4" />
-            </button>
+            {allowedPageIds.has('notifications') && (
+              <button
+                type="button"
+                onClick={() => handleSelectPage('notifications')}
+                className="p-2 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl relative transition"
+                title="Notifications"
+              >
+                <Bell className="w-4 h-4" />
+              </button>
+            )}
 
             {/* Quick Public Link */}
             <button
@@ -538,7 +604,7 @@ export function CustomerDashboard({
             </div>
           )}
 
-          {activeOverride && activeOverride.status === 'coming_soon' && currentPage !== 'store' && currentPage !== 'reports' ? (
+          {activeOverride && activeOverride.status === 'coming_soon' && safeCurrentPage !== 'store' && safeCurrentPage !== 'reports' ? (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-3">
               <div className="w-12 h-12 rounded-2xl bg-amber-500/15 text-amber-400 flex items-center justify-center mx-auto">
                 <Sparkles className="w-6 h-6" />
@@ -549,7 +615,7 @@ export function CustomerDashboard({
               </p>
               <button
                 type="button"
-                onClick={() => setCurrentPage('overview')}
+                onClick={() => handleSelectPage(firstAllowedPage)}
                 className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
               >
                 Return to Overview
@@ -557,9 +623,9 @@ export function CustomerDashboard({
             </div>
           ) : (
             <>
-              {currentPage === 'overview' && (
+              {safeCurrentPage === 'overview' && (
                 <DashboardOverview
-                  onNavigateToPage={page => setCurrentPage(page as CustomerPageKey)}
+                  onNavigateToPage={page => handleSelectPage(page as CustomerPageKey)}
                   onOpenFundModal={onOpenFundModal}
                   effectiveDashboardKey={effectiveDashboardKey}
                   activeConfig={activeConfig}
@@ -568,66 +634,66 @@ export function CustomerDashboard({
                 />
               )}
 
-          {currentPage === 'nin' && <NinServicesPage />}
+          {safeCurrentPage === 'nin' && <NinServicesPage />}
 
-          {currentPage === 'telecom' && <TelecomPage />}
+          {safeCurrentPage === 'telecom' && <TelecomPage />}
 
-          {currentPage === 'printing' && (
+          {safeCurrentPage === 'printing' && (
             <PrintingServicesPage
               initialOrderRef={initialPrintOrderRef}
-              onNavigateToSecurity={() => setCurrentPage('settings')}
+              onNavigateToSecurity={() => handleSelectPage('settings')}
             />
           )}
 
-          {currentPage === 'wallet' && (
+          {safeCurrentPage === 'wallet' && (
             <WalletPage onOpenFundModal={onOpenFundModal} />
           )}
 
-          {currentPage === 'referrals' && <ReferralCentrePage />}
+          {safeCurrentPage === 'referrals' && <ReferralCentrePage />}
 
-          {currentPage === 'store' && <StoreComingSoonPage />}
+          {safeCurrentPage === 'store' && <StoreComingSoonPage />}
 
-          {currentPage === 'digital' && (
+          {safeCurrentPage === 'digital' && (
             <DigitalServicesPage
               user={user}
               onRefreshBalance={refreshUser}
             />
           )}
 
-          {currentPage === 'academy' && <AcademyComingSoonPage />}
+          {safeCurrentPage === 'academy' && <AcademyComingSoonPage />}
 
-          {currentPage === 'reports' && <ReportsComingSoonPage />}
+          {safeCurrentPage === 'reports' && <ReportsComingSoonPage />}
 
-          {currentPage === 'transactions' && <TransactionsPage />}
+          {safeCurrentPage === 'transactions' && <TransactionsPage />}
 
-          {currentPage === 'orders' && <OrdersPage />}
+          {safeCurrentPage === 'orders' && <OrdersPage />}
 
-          {currentPage === 'notifications' && <NotificationsPage />}
+          {safeCurrentPage === 'notifications' && <NotificationsPage />}
 
-          {currentPage === 'messages' && <MessagesPage />}
+          {safeCurrentPage === 'messages' && <MessagesPage />}
 
-          {currentPage === 'kyc' && (
+          {safeCurrentPage === 'kyc' && (
             <CustomerKycPage
               user={user}
               onRefreshUser={refreshUser}
             />
           )}
 
-          {currentPage === 'profile' && (
+          {safeCurrentPage === 'profile' && (
             <ProfilePage
               user={user}
               onUpdateUser={handleUpdateUser}
             />
           )}
 
-          {currentPage === 'settings' && (
+          {safeCurrentPage === 'settings' && (
             <SettingsPage
               user={user}
               onUpdateUser={handleUpdateUser}
             />
           )}
 
-          {currentPage === 'support' && <SupportPage user={user} />}
+          {safeCurrentPage === 'support' && <SupportPage user={user} />}
             </>
           )}
         </main>

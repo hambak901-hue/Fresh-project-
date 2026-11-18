@@ -115,21 +115,24 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
                     type="button"
                     onClick={onSwitchToAdminDashboard}
                     title={`Open ${getRoleLabel(user?.role)} Console`}
-                    className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-500/15 hover:bg-amber-100 dark:hover:bg-amber-500/25 border border-amber-300 dark:border-amber-500/30 text-xs font-semibold text-amber-800 dark:text-amber-300 transition-colors"
+                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-500/15 hover:bg-amber-100 dark:hover:bg-amber-500/25 border border-amber-300 dark:border-amber-500/30 text-xs font-semibold text-amber-800 dark:text-amber-300 transition-colors whitespace-nowrap"
                   >
-                    <Shield className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                    <span>{user?.role === 'admin' || user?.role === 'superadmin' ? 'Admin' : getRoleLabel(user?.role)}</span>
+                    <Shield className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span className="hidden sm:inline">
+                      {user?.role === 'admin' || user?.role === 'superadmin' ? 'Admin Console' : `${getRoleLabel(user?.role)} Console`}
+                    </span>
+                    <span className="sm:hidden">Console</span>
                   </button>
                 )}
 
-                {onSwitchToCustomerDashboard && (
+                {!isConsoleRole && onSwitchToCustomerDashboard && (
                   <button
                     type="button"
                     onClick={onSwitchToCustomerDashboard}
-                    title="Open Customer Portal"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-xs font-semibold text-white shadow-sm transition-colors"
+                    title="Open My Portal"
+                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-xs font-semibold text-white shadow-sm transition-colors whitespace-nowrap"
                   >
-                    <ShieldCheck className="w-3.5 h-3.5 text-white" />
+                    <ShieldCheck className="w-3.5 h-3.5 text-white shrink-0" />
                     <span className="hidden sm:inline">My Dashboard</span>
                     <span className="sm:hidden">Portal</span>
                   </button>
@@ -178,7 +181,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
                         <span>{getRoleLabel(user?.role)} Console</span>
                       </button>
                     )}
-                    {onSwitchToCustomerDashboard && (
+                    {!isConsoleRole && onSwitchToCustomerDashboard && (
                       <button
                         type="button"
                         onClick={() => {
@@ -188,7 +191,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
                         className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-left text-blue-700 dark:text-blue-300 font-semibold"
                       >
                         <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                        <span>Customer Portal</span>
+                        <span>My Portal ({getRoleLabel(user?.role)})</span>
                       </button>
                     )}
                     {onOpenWalletModal && (
@@ -291,6 +294,32 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
           </nav>
 
           <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+            {user && isConsoleRole && onSwitchToAdminDashboard && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onSwitchToAdminDashboard();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-sm transition"
+              >
+                <Shield className="w-4 h-4" />
+                <span>Open {getRoleLabel(user?.role)} Console</span>
+              </button>
+            )}
+            {user && !isConsoleRole && onSwitchToCustomerDashboard && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onSwitchToCustomerDashboard();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold shadow-sm transition"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Open My {getRoleLabel(user?.role)} Portal</span>
+              </button>
+            )}
             <InstallAppButton variant="mobile-drawer" onAfterClick={() => setMobileMenuOpen(false)} />
             {canAccessCms && (
               <button

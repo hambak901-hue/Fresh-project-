@@ -39,15 +39,33 @@ interface WalletModalProps {
 }
 
 export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
-  const { user, updateBalance } = useAuth();
+  const { user, updateBalance, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'online' | 'manual_form'>('online');
   const [amount, setAmount] = useState<string>('5000');
   const [gateway, setGateway] = useState<'paystack' | 'flutterwave' | 'manual'>('flutterwave');
   const [loading, setLoading] = useState<boolean>(false);
+  const [verifyingOnline, setVerifyingOnline] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [copiedDynAcc, setCopiedDynAcc] = useState<boolean>(false);
   const [summary, setSummary] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [pendingCheckout, setPendingCheckout] = useState<{
+    reference: string;
+    gateway: string;
+    amount: number;
+    checkoutUrl?: string;
+    transferDetails?: {
+      account_number: string;
+      bank_name: string;
+      account_name: string;
+      amount: number;
+      currency: string;
+      expires_at?: string;
+      note?: string;
+      reference: string;
+    } | null;
+  } | null>(null);
 
   // Manual Transfer Form State
   const [depositorName, setDepositorName] = useState<string>(user?.full_name || '');
@@ -66,6 +84,9 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
       if (user?.full_name && !depositorName) {
         setDepositorName(user.full_name);
       }
+    } else {
+      setPendingCheckout(null);
+      setVerifyingOnline(false);
     }
   }, [isOpen]);
 
@@ -78,9 +99,53 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
     }
   };
 
+  const handleVerifyPendingCheckout = async (silent = false) => {
+    if (!pendingCheckout) return;
+    if (!silent) {
+      setVerifyingOnline(true);
+      setErrorMessage(null);
+    }
+    try {
+      const verifyRes = await api.verifyFunding(pendingCheckout.reference, pendingCheckout.gateway);
+      if (verifyRes.success && !verifyRes.pending) {
+        const creditedAmt = verifyRes.amount || pendingCheckout.amount;
+        if (typeof verifyRes.balance === 'number') {
+          updateBalance(verifyRes.balance);
+        }
+        await refreshUser();
+        setPendingCheckout(null);
+        setSuccessMessage(`Payment of ₦${Number(creditedAmt).toLocaleString()} verified and credited to your wallet!`);
+        confetti({
+          particleCount: 50,
+          spread: 60,
+          origin: { y: 0.7 },
+        });
+        await loadSummary();
+      } else if (!silent) {
+        setSuccessMessage(verifyRes.message || 'Payment is still awaiting confirmation from the gateway. If you just paid, please check again in a few seconds.');
+      }
+    } catch (err: any) {
+      if (!silent) {
+        setErrorMessage(err.message || 'Payment confirmation pending or incomplete.');
+      }
+    } finally {
+      if (!silent) {
+        setVerifyingOnline(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen || !pendingCheckout) return;
+    const pollInterval = window.setInterval(() => {
+      void handleVerifyPendingCheckout(true);
+    }, 5500);
+    return () => window.clearInterval(pollInterval);
+  }, [isOpen, pendingCheckout]);
+
   if (!isOpen) return null;
 
-  // Handle Online Payment (Paystack or Flutterwave)
+  // Handle Online Payment (Paystack or Flutterwave Hosted Checkout / v4 Dynamic Bank Transfer)
   const handleOnlineCheckout = async () => {
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -99,31 +164,57 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
 
     setLoading(true);
     try {
-      const initRes = await api.initializePayment(gateway, num);
-      if (initRes.success && initRes.authorization_url) {
-        setSuccessMessage(`Redirecting to secure ${gateway === 'flutterwave' ? 'Flutterwave' : 'Paystack'} checkout...`);
-        
-        // Open secure hosted payment checkout in a new window or redirect
-        const win = window.open(initRes.authorization_url, '_blank');
-        if (!win) {
-          window.location.href = initRes.authorization_url;
-        }
+      const callbackUrl =
+        typeof window !== 'undefined'
+          ? `${window.location.origin}/?payment=verify#portal`
+          : 'https://hambaktech.com.ng/?payment=verify#portal';
+      const initRes = await api.initializePayment(gateway, num, callbackUrl);
+      const checkoutUrl = initRes.authorization_url || initRes.link || '';
+      const transferDetails = initRes.transfer_details || null;
 
-        // Poll or verify reference in background
-        const verifyRes = await api.verifyFunding(initRes.reference, gateway);
-        if (verifyRes.success) {
-          updateBalance(verifyRes.balance);
-          setSuccessMessage(`Payment of ₦${num.toLocaleString()} verified and credited to your wallet!`);
-          confetti({
-            particleCount: 50,
-            spread: 60,
-            origin: { y: 0.7 },
-          });
-          await loadSummary();
-        }
-      } else {
+      if (!initRes.success || (!checkoutUrl && !transferDetails)) {
         throw new Error(initRes.message || 'Payment initiation failed.');
       }
+
+      if (transferDetails) {
+        setPendingCheckout({
+          reference: initRes.reference,
+          gateway,
+          amount: num,
+          transferDetails,
+        });
+        setSuccessMessage(`Temporary transfer account generated (Ref: ${initRes.reference}). Transfer exact amount below and click Verify Transfer.`);
+        return;
+      }
+
+      const isStandaloneOrApk =
+        typeof window !== 'undefined' &&
+        (Boolean((window as any).HambakAndroidBridge) ||
+          /HambakTechAndroidApp/i.test(navigator.userAgent || '') ||
+          window.matchMedia?.('(display-mode: standalone)').matches ||
+          Boolean((window.navigator as any).standalone));
+
+      if (isStandaloneOrApk) {
+        setSuccessMessage(`Redirecting to secure ${gateway === 'flutterwave' ? 'Flutterwave' : 'Paystack'} checkout...`);
+        window.location.href = checkoutUrl;
+        return;
+      }
+
+      setPendingCheckout({
+        reference: initRes.reference,
+        gateway,
+        amount: num,
+        checkoutUrl,
+      });
+
+      const win = window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
+      if (!win) {
+        setSuccessMessage(`Redirecting to secure ${gateway === 'flutterwave' ? 'Flutterwave' : 'Paystack'} checkout...`);
+        window.location.href = checkoutUrl;
+        return;
+      }
+
+      setSuccessMessage(`Checkout opened in a new window (Ref: ${initRes.reference}). Complete payment there, then return here or click Verify Payment.`);
     } catch (err: any) {
       setErrorMessage(err.message || `Failed to initialize ${gateway} checkout.`);
     } finally {
@@ -294,6 +385,109 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
           )}
 
           {activeTab === 'online' ? (
+            pendingCheckout ? (
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/40 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                      <Clock className="w-4 h-4 animate-pulse" />
+                      <span>
+                        {pendingCheckout.transferDetails
+                          ? 'Transfer to Temporary Account'
+                          : `Awaiting ${pendingCheckout.gateway === 'flutterwave' ? 'Flutterwave' : 'Paystack'} Confirmation`}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-400">{pendingCheckout.reference}</span>
+                  </div>
+
+                  {pendingCheckout.transferDetails ? (
+                    <div className="space-y-2.5 text-xs">
+                      <p className="text-slate-300 leading-relaxed">
+                        {pendingCheckout.transferDetails.note || 'Transfer the exact amount below to credit your wallet automatically.'}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 p-3 rounded-xl bg-slate-900 border border-slate-800">
+                        <div>
+                          <span className="text-[10px] text-slate-500 uppercase block">Bank Name</span>
+                          <strong className="text-white">{pendingCheckout.transferDetails.bank_name}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 uppercase block">Exact Amount</span>
+                          <strong className="text-emerald-400 font-mono">
+                            ₦{Number(pendingCheckout.transferDetails.amount || pendingCheckout.amount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                          </strong>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-[10px] text-slate-500 uppercase block">Beneficiary Name</span>
+                          <strong className="text-white">{pendingCheckout.transferDetails.account_name}</strong>
+                        </div>
+                        <div className="col-span-2 flex items-center justify-between pt-2 border-t border-slate-800">
+                          <div>
+                            <span className="text-[10px] text-slate-500 uppercase block">Temporary Account Number</span>
+                            <span className="text-base font-extrabold font-mono text-emerald-400 tracking-wider">
+                              {pendingCheckout.transferDetails.account_number}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(pendingCheckout.transferDetails!.account_number);
+                              setCopiedDynAcc(true);
+                              setTimeout(() => setCopiedDynAcc(false), 2000);
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1"
+                          >
+                            {copiedDynAcc ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span>{copiedDynAcc ? 'Copied' : 'Copy'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 text-xs">
+                      <p className="text-slate-300 leading-relaxed">
+                        Complete your payment of{' '}
+                        <strong className="text-white font-mono">₦{pendingCheckout.amount.toLocaleString()}</strong> on the{' '}
+                        {pendingCheckout.gateway === 'flutterwave' ? 'Flutterwave' : 'Paystack'} checkout page, then click verify below.
+                      </p>
+                      {pendingCheckout.checkoutUrl && (
+                        <a
+                          href={pendingCheckout.checkoutUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-semibold transition"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Re-open Checkout Window</span>
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleVerifyPendingCheckout(false)}
+                    disabled={verifyingOnline}
+                    className="flex-1 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${verifyingOnline ? 'animate-spin' : ''}`} />
+                    <span>{verifyingOnline ? 'Checking Gateway...' : 'I Have Completed Payment — Verify'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingCheckout(null);
+                      setErrorMessage(null);
+                      setSuccessMessage(null);
+                    }}
+                    className="px-4 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
+                  >
+                    Start New Deposit
+                  </button>
+                </div>
+              </div>
+            ) : (
             <div className="space-y-4">
               {/* Preset Amounts */}
               <div>
@@ -444,6 +638,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
                 )}
               </button>
             </div>
+            )
           ) : (
             /* Manual Bank Transfer Form */
             <form onSubmit={handleManualFormSubmit} className="space-y-4">

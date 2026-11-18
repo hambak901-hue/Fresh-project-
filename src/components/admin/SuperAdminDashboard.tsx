@@ -222,48 +222,210 @@ function isInternalConsoleRole(role?: string | null): boolean {
   return checkConsoleRole(role);
 }
 
+function resolveConfiguredConsoleTab(defaultTab?: string): AdminTabKey | null {
+  const raw = (defaultTab || '').trim().toLowerCase();
+  if (!raw) return null;
+  const map: Record<string, AdminTabKey> = {
+    overview: 'overview',
+    dashboard: 'overview',
+    customers: 'customers',
+    funding: 'funding',
+    support_admin: 'support_admin',
+    support: 'support_admin',
+    reports_admin: 'reports_admin',
+    reports: 'reports_admin',
+    printing_admin: 'printing',
+    printing: 'printing',
+    modifications_admin: 'modifications_admin',
+    enrolments_admin: 'enrolments_admin',
+    digital_services: 'digital_services',
+    store_admin: 'store_admin',
+    academy_admin: 'academy_admin',
+    academy: 'academy_admin',
+    kyc_admin: 'kyc_admin',
+    kyc: 'kyc_admin',
+    accounting: 'acc_overview',
+    acc_overview: 'acc_overview',
+    acc_website: 'acc_website',
+    acc_liabilities: 'acc_liabilities',
+    acc_expenses_income: 'acc_expenses_income',
+    acc_physical_sales: 'acc_physical_sales',
+    acc_inventory: 'acc_inventory',
+    acc_reconciliation: 'acc_reconciliation',
+    acc_ledger: 'acc_ledger',
+    acc_analytics: 'acc_analytics',
+    acc_daily_report: 'acc_daily_report',
+    acc_config: 'acc_config',
+    services: 'services',
+    referrals_admin: 'referrals_admin',
+    withdrawals_admin: 'withdrawals_admin',
+    notifications_admin: 'notifications_admin',
+    smtp: 'smtp',
+    email_templates: 'email_templates',
+    sms: 'sms',
+    global_settings: 'global_settings',
+    website: 'website',
+    cms: 'website',
+    staff: 'staff',
+    modules: 'modules',
+    security_audit: 'audit',
+    security_admin: 'security_admin',
+    audit: 'audit',
+    footprints: 'footprints',
+  };
+  return map[raw] || null;
+}
+
+const CONSOLE_TAB_MODULE_MAP: Record<string, string> = {
+  overview: 'overview',
+  customers: 'customers',
+  funding: 'funding',
+  support_admin: 'support_admin',
+  reports_admin: 'reports_admin',
+  printing: 'printing_admin',
+  academy_admin: 'academy_admin',
+  kyc_admin: 'kyc_admin',
+  services: 'services',
+  modifications_admin: 'services',
+  enrolments_admin: 'services',
+  digital_services: 'services',
+  store_admin: 'services',
+  referrals_admin: 'referrals_admin',
+  withdrawals_admin: 'referrals_admin',
+  notifications_admin: 'notifications_admin',
+  website: 'cms',
+  staff: 'staff',
+  modules: 'modules',
+  security_admin: 'security_audit',
+  audit: 'security_audit',
+  footprints: 'security_audit',
+};
+
+const CONSOLE_TAB_REQUIRED_PERMS: Record<string, string[]> = {
+  customers: ['customers'],
+  funding: ['wallet'],
+  support_admin: ['support'],
+  reports_admin: ['reports'],
+  acc_overview: ['accounting', 'reports'],
+  acc_website: ['accounting'],
+  acc_liabilities: ['accounting', 'wallet'],
+  acc_expenses_income: ['accounting', 'accounting_physical'],
+  acc_physical_sales: ['accounting', 'accounting_physical'],
+  acc_inventory: ['accounting', 'accounting_physical', 'accounting_reconcile'],
+  acc_reconciliation: ['accounting', 'accounting_reconcile'],
+  acc_ledger: ['accounting', 'accounting_reconcile'],
+  acc_analytics: ['accounting', 'reports'],
+  acc_daily_report: ['accounting', 'accounting_config'],
+  acc_config: ['accounting', 'accounting_config'],
+  services: ['services'],
+  printing: ['printing', 'printing_pricing'],
+  modifications_admin: ['services'],
+  enrolments_admin: ['services'],
+  digital_services: ['services'],
+  store_admin: ['services'],
+  academy_admin: ['services', 'academy'],
+  referrals_admin: ['referrals'],
+  withdrawals_admin: ['withdrawals'],
+  notifications_admin: ['notifications'],
+  smtp: ['settings'],
+  email_templates: ['settings'],
+  sms: ['settings'],
+  global_settings: ['settings'],
+  website: ['cms'],
+  modules: ['settings'],
+  footprints: ['audit'],
+  kyc_admin: ['kyc'],
+  security_admin: ['security', 'pin_security'],
+  staff: ['staff'],
+  audit: ['audit'],
+};
+
+function isConsoleTabAllowedInConfig(
+  tabId: AdminTabKey,
+  config?: RoleDashboardConfig | null,
+  isSuperAdmin = false
+): boolean {
+  if (isSuperAdmin && (tabId === 'staff' || tabId === 'modules' || tabId === 'overview')) {
+    return true;
+  }
+  const mods = config?.modules || [];
+  if (mods.length === 0) return true;
+  const modKey = tabId.startsWith('acc_') ? 'accounting' : CONSOLE_TAB_MODULE_MAP[tabId];
+  if (!modKey) return true;
+  const mod = mods.find(m => m.id === modKey);
+  if (!mod) return true;
+  return mod.visible && mod.status !== 'disabled';
+}
+
+function canUserAccessTab(
+  tabId: AdminTabKey,
+  u: { role?: string; permissions?: string[] } | null | undefined,
+  config?: RoleDashboardConfig | null,
+  isSuperAdmin = false
+): boolean {
+  if (!isConsoleTabAllowedInConfig(tabId, config, isSuperAdmin)) return false;
+  if (!u) return tabId === 'overview';
+  const perms = Array.isArray(u.permissions) ? u.permissions : [];
+  if (isSuperAdmin || perms.includes('*')) return true;
+  const required = CONSOLE_TAB_REQUIRED_PERMS[tabId];
+  if (!required || required.length === 0) return true;
+  return required.some(p => perms.includes(p));
+}
+
 function getDefaultTabForUser(
   u: { role?: string; permissions?: string[]; dashboard_config?: RoleDashboardConfig } | null | undefined,
-  overrideDefaultTab?: string
+  config?: RoleDashboardConfig | null,
+  isSuperAdmin = false
 ): AdminTabKey {
   if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('printing')) {
-    const perms = Array.isArray(u?.permissions) ? u.permissions : [];
-    if (!u || u.role === 'superadmin' || perms.includes('*') || perms.includes('printing') || perms.includes('printing_pricing')) {
+    if (canUserAccessTab('printing', u, config, isSuperAdmin)) {
       return 'printing';
     }
   }
-  if (overrideDefaultTab === 'support_admin') return 'support_admin';
+  const configuredTab = resolveConfiguredConsoleTab(config?.default_tab);
+  if (configuredTab && canUserAccessTab(configuredTab, u, config, isSuperAdmin)) {
+    return configuredTab;
+  }
   if (!u) return 'overview';
   const perms = Array.isArray(u.permissions) ? u.permissions : [];
-  if (u.role === 'support' && (perms.includes('support') || perms.length === 0)) {
+  if (u.role === 'support' && canUserAccessTab('support_admin', u, config, isSuperAdmin)) {
     return 'support_admin';
   }
   if (
-    u.role === 'superadmin' ||
-    perms.includes('*') ||
-    perms.includes('customers') ||
-    perms.includes('wallet') ||
-    perms.includes('reports')
+    (u.role === 'superadmin' ||
+      perms.includes('*') ||
+      perms.includes('customers') ||
+      perms.includes('wallet') ||
+      perms.includes('reports')) &&
+    canUserAccessTab('overview', u, config, isSuperAdmin)
   ) {
     return 'overview';
   }
-  if (perms.includes('printing') || perms.includes('printing_pricing')) return 'printing';
-  if (perms.includes('accounting_physical')) return 'acc_physical_sales';
-  if (perms.includes('accounting_reconcile')) return 'acc_reconciliation';
-  if (perms.includes('accounting')) return 'acc_overview';
-  if (perms.includes('accounting_config')) return 'acc_config';
-  if (perms.includes('support')) return 'support_admin';
-  if (perms.includes('kyc')) return 'kyc_admin';
-  if (perms.includes('services')) return 'services';
-  if (perms.includes('academy')) return 'academy_admin';
-  if (perms.includes('cms')) return 'website';
-  if (perms.includes('referrals')) return 'referrals_admin';
-  if (perms.includes('withdrawals')) return 'withdrawals_admin';
-  if (perms.includes('notifications')) return 'notifications_admin';
-  if (perms.includes('settings')) return 'global_settings';
-  if (perms.includes('security') || perms.includes('pin_security')) return 'security_admin';
-  if (perms.includes('audit')) return 'audit';
-  if (perms.includes('staff')) return 'staff';
+  const priority: AdminTabKey[] = [
+    'printing',
+    'acc_physical_sales',
+    'acc_reconciliation',
+    'acc_overview',
+    'acc_config',
+    'support_admin',
+    'kyc_admin',
+    'services',
+    'academy_admin',
+    'website',
+    'referrals_admin',
+    'withdrawals_admin',
+    'notifications_admin',
+    'global_settings',
+    'security_admin',
+    'audit',
+    'staff',
+    'overview',
+  ];
+  for (const candidate of priority) {
+    if (canUserAccessTab(candidate, u, config, isSuperAdmin)) {
+      return candidate;
+    }
+  }
   return 'overview';
 }
 
@@ -281,8 +443,9 @@ export function SuperAdminDashboard({
   const logoSrc = branding?.logo_url || '/logo.png';
   const activeConfig = isPreviewMode && previewConfig ? previewConfig : user?.dashboard_config || null;
   const effectiveConsoleRole = isPreviewMode && previewDashboardKey ? previewDashboardKey : user?.role || 'staff';
+  const effectiveSuperAdmin = !isPreviewMode && user?.role === 'superadmin';
   const [activeTab, setActiveTab] = useState<AdminTabKey>(() =>
-    getDefaultTabForUser(user, activeConfig?.default_tab)
+    getDefaultTabForUser(user, activeConfig, effectiveSuperAdmin)
   );
   const lastAutoRoutedKeyRef = useRef<string>('');
   useEffect(() => {
@@ -291,7 +454,7 @@ export function SuperAdminDashboard({
       return;
     }
     const permSig = Array.isArray(user.permissions) ? [...user.permissions].sort().join(',') : '';
-    const key = `${user.id}:${effectiveConsoleRole}:${isPreviewMode ? 'preview' : 'live'}:${permSig}`;
+    const key = `${user.id}:${effectiveConsoleRole}:${isPreviewMode ? 'preview' : 'live'}:${activeConfig?.default_tab || ''}:${permSig}`;
     if (lastAutoRoutedKeyRef.current !== key) {
       lastAutoRoutedKeyRef.current = key;
       const previewPerms = isPreviewMode && activeConfig?.required_permissions
@@ -300,7 +463,8 @@ export function SuperAdminDashboard({
       setActiveTab(
         getDefaultTabForUser(
           { role: effectiveConsoleRole, permissions: previewPerms },
-          activeConfig?.default_tab
+          activeConfig,
+          effectiveSuperAdmin
         )
       );
     }
@@ -352,7 +516,7 @@ export function SuperAdminDashboard({
     try {
       const logged = await login(adminEmail.trim().toLowerCase(), adminPassword);
       if (logged && !isInternalConsoleRole(logged.role)) {
-        setAuthError('This account does not have Staff or Administrator privileges.');
+        onSwitchToCustomerPortal();
       }
     } catch (err: any) {
       if (err instanceof MfaChallengeRequiredError) {
@@ -375,13 +539,11 @@ export function SuperAdminDashboard({
     setAuthError(null);
     try {
       const logged = await completeMfaLogin(mfaChallenge.challenge_token, mfaCode.trim());
+      setMfaChallenge(null);
+      setMfaCode('');
+      setAuthMode('login');
       if (logged && !isInternalConsoleRole(logged.role)) {
-        setAuthError('This account does not have Staff or Administrator privileges.');
-        await logout();
-      } else {
-        setMfaChallenge(null);
-        setMfaCode('');
-        setAuthMode('login');
+        onSwitchToCustomerPortal();
       }
     } catch (err: any) {
       setAuthError(err?.message || 'Invalid MFA verification or recovery code.');
@@ -781,37 +943,14 @@ export function SuperAdminDashboard({
     return userPermissions.includes(perm);
   };
 
-  const configModulesById = new Map<string, { visible: boolean; status: string; label?: string }>(
-    (activeConfig?.modules || []).map(m => [m.id, m])
-  );
   const isModuleAllowedByConfig = (tabId: AdminTabKey): boolean => {
-    if (isSuperAdmin && (tabId === 'staff' || tabId === 'modules' || tabId === 'overview')) {
-      return true;
-    }
-    if (configModulesById.size === 0) return true;
-    const mapping: Record<string, string> = {
-      overview: 'overview',
-      customers: 'customers',
-      support_admin: 'support_admin',
-      printing: 'printing_admin',
-      academy_admin: 'academy_admin',
-      kyc_admin: 'kyc_admin',
-      services: 'services',
-      referrals_admin: 'referrals_admin',
-      notifications_admin: 'notifications_admin',
-      website: 'cms',
-      staff: 'staff',
-      modules: 'modules',
-      security_admin: 'security_audit',
-      audit: 'security_audit',
-      footprints: 'security_audit',
-    };
-    const modKey = tabId.startsWith('acc_') ? 'accounting' : mapping[tabId];
-    if (!modKey) return true;
-    const mod = configModulesById.get(modKey);
-    if (!mod) return true;
-    return mod.visible && mod.status !== 'disabled';
+    return isConsoleTabAllowedInConfig(tabId, activeConfig, isSuperAdmin);
   };
+  const canPreviewDashboards = Boolean(
+    !isPreviewMode &&
+    onLaunchPreview &&
+    (user.role === 'admin' || user.role === 'superadmin' || hasPermission('settings') || hasPermission('staff'))
+  );
 
   const allNavSections: AdminNavSection[] = [
     {
@@ -1020,18 +1159,20 @@ export function SuperAdminDashboard({
           <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-2 bg-slate-50 dark:bg-slate-900/60">
             <InstallAppButton variant="sidebar" onAfterClick={() => setMobileMenuOpen(false)} />
 
-            {/* Switch to Customer Portal */}
-            <button
-              type="button"
-              onClick={onSwitchToCustomerPortal}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-blue-700 dark:text-indigo-300 hover:text-blue-900 dark:hover:text-white bg-blue-50 dark:bg-transparent hover:bg-blue-100 dark:hover:bg-indigo-950/30 border border-blue-200 dark:border-indigo-500/20 transition"
-            >
-              <div className="flex items-center gap-2">
-                <Layers className="w-3.5 h-3.5 text-blue-700 dark:text-indigo-400" />
-                <span>Customer Portal View</span>
-              </div>
-              <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-500" />
-            </button>
+            {/* Preview Customer Portal (Admin / SuperAdmin / Authorized Previewers Only) */}
+            {canPreviewDashboards && (
+              <button
+                type="button"
+                onClick={onSwitchToCustomerPortal}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-blue-700 dark:text-indigo-300 hover:text-blue-900 dark:hover:text-white bg-blue-50 dark:bg-transparent hover:bg-blue-100 dark:hover:bg-indigo-950/30 border border-blue-200 dark:border-indigo-500/20 transition"
+              >
+                <div className="flex items-center gap-2">
+                  <Layers className="w-3.5 h-3.5 text-blue-700 dark:text-indigo-400" />
+                  <span>Preview Customer Portal</span>
+                </div>
+                <ChevronRight className="w-3 h-3 text-slate-400 dark:text-slate-500" />
+              </button>
+            )}
 
             {/* Switch to Public Website */}
             <button
@@ -1086,7 +1227,7 @@ export function SuperAdminDashboard({
           </div>
 
           <div className="flex items-center gap-2.5">
-            {(user.role === 'admin' || user.role === 'superadmin') && onLaunchPreview && !isPreviewMode && (
+            {canPreviewDashboards && onLaunchPreview && (
               <select
                 value=""
                 onChange={e => {
@@ -1108,15 +1249,17 @@ export function SuperAdminDashboard({
 
             <ThemeToggle compact />
 
-            {/* Quick Customer Portal Button */}
-            <button
-              type="button"
-              onClick={onSwitchToCustomerPortal}
-              className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm"
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Customer Portal</span>
-            </button>
+            {/* Quick Customer Portal Preview Button (Authorized Roles Only) */}
+            {canPreviewDashboards && (
+              <button
+                type="button"
+                onClick={onSwitchToCustomerPortal}
+                className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Preview Portal</span>
+              </button>
+            )}
           </div>
         </header>
 

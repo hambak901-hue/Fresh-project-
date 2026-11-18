@@ -45,17 +45,17 @@ export interface AppVersionMetadata {
 const DEFAULT_VERSION_METADATA: AppVersionMetadata = {
   available: true,
   android: {
-    version_code: 1,
-    version_name: '1.0.0',
-    download_url: '/downloads/hambaktech-v1.0.0.apk',
+    version_code: 2,
+    version_name: '1.0.1',
+    download_url: '/downloads/hambaktech-v1.0.1.apk',
     size_label: 'Signed Release APK',
     min_android: 'Android 7.0+',
     force_update: false,
     release_notes:
-      'Official HAMBAK TECH & SERVICES Android App with instant wallet funding, NIN/BVN verification & PDF slip downloads, Telecom VTU, Printing Services, and KYC document uploads.',
+      'Official HAMBAK TECH & SERVICES Android App with native printing support, instant wallet funding, NIN/BVN verification & PDF slip downloads, Telecom VTU, Printing Services, and KYC document uploads.',
   },
   pwa: {
-    version: '1.0.0',
+    version: '1.0.1',
   },
 };
 
@@ -126,9 +126,22 @@ export function usePWAInstall() {
   const [versionInfo, setVersionInfo] = useState<AppVersionMetadata>(DEFAULT_VERSION_METADATA);
   const updateSwRef = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null);
 
-  // Register Service Worker cleanly with controlled update callback
+  const swRegistrationRef = useRef<ServiceWorkerRegistration | null>(null);
+  const lastUpdateCheckRef = useRef<number>(0);
+
+  const checkServiceWorkerUpdate = useCallback(() => {
+    const reg = swRegistrationRef.current;
+    if (!reg) return;
+    const now = Date.now();
+    if (now - lastUpdateCheckRef.current < 60 * 1000) return;
+    lastUpdateCheckRef.current = now;
+    reg.update().catch(() => {});
+  }, []);
+
+  // Register Service Worker cleanly with controlled update callback + resume/online sync
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    let intervalId: number | undefined;
     try {
       const updateSW = registerSW({
         immediate: true,
@@ -137,9 +150,11 @@ export function usePWAInstall() {
         },
         onRegisteredSW(_swUrl, registration) {
           if (registration) {
-            window.setInterval(() => {
-              registration.update().catch(() => {});
-            }, 60 * 60 * 1000);
+            swRegistrationRef.current = registration;
+            lastUpdateCheckRef.current = Date.now();
+            intervalId = window.setInterval(() => {
+              checkServiceWorkerUpdate();
+            }, 15 * 60 * 1000);
           }
         },
         onRegisterError() {
@@ -150,7 +165,27 @@ export function usePWAInstall() {
     } catch {
       // Ignore registration failure
     }
-  }, []);
+
+    const onVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        checkServiceWorkerUpdate();
+      }
+    };
+    const onOnlineSync = () => {
+      checkServiceWorkerUpdate();
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityOrFocus);
+    window.addEventListener('focus', onVisibilityOrFocus);
+    window.addEventListener('online', onOnlineSync);
+
+    return () => {
+      if (intervalId) window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      window.removeEventListener('focus', onVisibilityOrFocus);
+      window.removeEventListener('online', onOnlineSync);
+    };
+  }, [checkServiceWorkerUpdate]);
 
   // Capture browser beforeinstallprompt + display-mode + online/offline listeners
   useEffect(() => {
@@ -196,7 +231,7 @@ export function usePWAInstall() {
     };
   }, []);
 
-  // Fetch live Android APK / App version metadata
+  // Fetch live Android APK / App version metadata (and re-fetch when reconnecting)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     let active = true;
@@ -240,8 +275,13 @@ export function usePWAInstall() {
       }
     };
     void loadVersion();
+    const onOnlineRefreshVersion = () => {
+      void loadVersion();
+    };
+    window.addEventListener('online', onOnlineRefreshVersion);
     return () => {
       active = false;
+      window.removeEventListener('online', onOnlineRefreshVersion);
     };
   }, []);
 
@@ -328,6 +368,10 @@ export function usePWAInstall() {
     }
   }, []);
 
+  const dismissUpdatePrompt = useCallback(() => {
+    setNeedRefresh(false);
+  }, []);
+
   const canOneClickInstallPwa = Boolean(deferredPrompt);
 
   return {
@@ -348,5 +392,6 @@ export function usePWAInstall() {
     closeInstallModal,
     triggerPwaInstall,
     applyAppUpdate,
+    dismissUpdatePrompt,
   };
 }

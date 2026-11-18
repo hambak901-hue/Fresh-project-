@@ -21,6 +21,10 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintManager;
+import android.provider.MediaStore;
 import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
@@ -51,7 +55,11 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 public class MainActivity extends Activity {
 
@@ -60,12 +68,33 @@ public class MainActivity extends Activity {
     private static final String OFFLINE_ASSET_URL = "file:///android_asset/offline.html";
     private static final int FILE_CHOOSER_REQUEST_CODE = 1001;
     private static final int STORAGE_PERMISSION_REQUEST_CODE = 1002;
+    private static final int MAX_BASE64_DECODED_BYTES = 20 * 1024 * 1024; // 20MB safety cap
+
+    private static final Set<String> ALLOWED_SAVE_MIMES = new HashSet<String>(Arrays.asList(
+            "application/pdf",
+            "image/png",
+            "image/jpeg",
+            "image/jpg",
+            "image/webp",
+            "text/csv",
+            "text/plain"
+    ));
 
     private WebView webView;
     private ProgressBar progressBar;
     private ValueCallback<Uri[]> filePathCallback;
+    private Uri pendingCameraPhotoUri;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean hasShownUpdateDialog = false;
+
+    // Pending download state for runtime WRITE_EXTERNAL_STORAGE permission on Android 7-9
+    private String pendingHttpDownloadUrl;
+    private String pendingHttpUserAgent;
+    private String pendingHttpContentDisposition;
+    private String pendingHttpMimeType;
+    private String pendingB64Data;
+    private String pendingB64Mime;
+    private String pendingB64Name;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -111,7 +140,7 @@ public class MainActivity extends Activity {
         String target = null;
         if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
             String candidate = intent.getData().toString();
-            if (candidate.startsWith("https://hambaktech.com.ng")) {
+            if (isTrustedFirstPartyUrl(candidate)) {
                 target = candidate;
             }
         }
@@ -122,13 +151,28 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isTrustedFirstPartyUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.trim().isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(rawUrl);
+            String scheme = uri.getScheme() != null ? uri.getScheme().toLowerCase(Locale.US) : "";
+            String host = uri.getHost() != null ? uri.getHost().toLowerCase(Locale.US) : "";
+            return "https".equals(scheme) && ("hambaktech.com.ng".equals(host) || "www.hambaktech.com.ng".equals(host));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     private void configureWebView() {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        settings.setAllowFileAccess(true);
+        // Security hardening: disallow local file URI access from web content
+        settings.setAllowFileAccess(false);
+        settings.setAllowFileAccessFromFileURLs(false);
+        settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setAllowContentAccess(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
@@ -171,22 +215,25 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (url != null && url.startsWith("https://hambaktech.com.ng")) {
-                    injectDownloadCaptureScript(view);
+                if (isTrustedFirstPartyUrl(url)) {
+                    injectDownloadAndPrintBridgeScript(view);
                 }
             }
 
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request != null && request.isForMainFrame()) {
-                    view.loadUrl(OFFLINE_ASSET_URL);
+                if (request != null && request.isForMainFrame() && error != null) {
+                    int code = error.getErrorCode();
+                    if (isGenuineNetworkError(code)) {
+                        view.loadUrl(OFFLINE_ASSET_URL);
+                    }
                 }
             }
 
             @SuppressWarnings("deprecation")
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                if (failingUrl != null && failingUrl.equals(view.getUrl())) {
+                if (failingUrl != null && failingUrl.equals(view.getUrl()) && isGenuineNetworkError(errorCode)) {
                     view.loadUrl(OFFLINE_ASSET_URL);
                 }
             }
@@ -212,6 +259,7 @@ public class MainActivity extends Activity {
                 if (MainActivity.this.filePathCallback != null) {
                     MainActivity.this.filePathCallback.onReceiveValue(null);
                 }
+                clearPendingCameraUri();
                 MainActivity.this.filePathCallback = filePathCallbackParam;
 
                 Intent contentIntent;
@@ -226,10 +274,24 @@ public class MainActivity extends Activity {
                     contentIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 }
 
-                Intent chooser = Intent.createChooser(contentIntent, "Select file or photo");
+                List<Intent> extraIntents = new ArrayList<Intent>();
+                boolean acceptsImage = acceptsImageCapture(fileChooserParams);
+                if (acceptsImage && checkSelfPermissionSafe(Manifest.permission.CAMERA)) {
+                    Intent camIntent = createSafeCameraIntent();
+                    if (camIntent != null) {
+                        extraIntents.add(camIntent);
+                    }
+                }
+
+                Intent chooser = Intent.createChooser(contentIntent, "Select file or take photo");
+                if (!extraIntents.isEmpty()) {
+                    chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, extraIntents.toArray(new Intent[0]));
+                }
+
                 try {
                     startActivityForResult(chooser, FILE_CHOOSER_REQUEST_CODE);
                 } catch (Exception ex) {
+                    clearPendingCameraUri();
                     MainActivity.this.filePathCallback = null;
                     Toast.makeText(MainActivity.this, "Unable to open file picker", Toast.LENGTH_SHORT).show();
                     return false;
@@ -252,16 +314,78 @@ public class MainActivity extends Activity {
         });
     }
 
+    private boolean isGenuineNetworkError(int errorCode) {
+        return errorCode == WebViewClient.ERROR_HOST_LOOKUP
+                || errorCode == WebViewClient.ERROR_CONNECT
+                || errorCode == WebViewClient.ERROR_TIMEOUT
+                || errorCode == WebViewClient.ERROR_IO
+                || errorCode == WebViewClient.ERROR_PROXY_AUTHENTICATION
+                || errorCode == WebViewClient.ERROR_UNKNOWN;
+    }
+
+    private boolean checkSelfPermissionSafe(String permission) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return true;
+        }
+        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean acceptsImageCapture(WebChromeClient.FileChooserParams params) {
+        if (params == null) return false;
+        String[] types = params.getAcceptTypes();
+        if (types == null || types.length == 0) return true;
+        for (String t : types) {
+            if (t == null || t.trim().isEmpty()) continue;
+            String lower = t.toLowerCase(Locale.US);
+            if (lower.contains("image") || lower.contains("*/*") || lower.contains("jpg") || lower.contains("jpeg") || lower.contains("png")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Intent createSafeCameraIntent() {
+        try {
+            Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            if (takePictureIntent.resolveActivity(getPackageManager()) == null) {
+                return null;
+            }
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, "HAMBAK_CAPTURE_" + System.currentTimeMillis() + ".jpg");
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            Uri imageUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (imageUri == null) {
+                return null;
+            }
+            pendingCameraPhotoUri = imageUri;
+            takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, imageUri);
+            takePictureIntent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            return takePictureIntent;
+        } catch (Exception e) {
+            clearPendingCameraUri();
+            return null;
+        }
+    }
+
+    private void clearPendingCameraUri() {
+        if (pendingCameraPhotoUri != null) {
+            try {
+                getContentResolver().delete(pendingCameraPhotoUri, null, null);
+            } catch (Exception ignored) {
+            }
+            pendingCameraPhotoUri = null;
+        }
+    }
+
     private boolean handleUriNavigation(WebView view, Uri uri) {
         if (uri == null) return false;
-        String scheme = uri.getScheme() != null ? uri.getScheme().toLowerCase() : "";
-        String host = uri.getHost() != null ? uri.getHost().toLowerCase() : "";
+        String scheme = uri.getScheme() != null ? uri.getScheme().toLowerCase(Locale.US) : "";
+        String host = uri.getHost() != null ? uri.getHost().toLowerCase(Locale.US) : "";
 
         if ("https".equals(scheme)) {
             if (isTrustedInAppHost(host)) {
                 return false;
             }
-            // Open other HTTPS sites (like social links, external help) cleanly in external browser
             try {
                 startActivity(new Intent(Intent.ACTION_VIEW, uri));
             } catch (Exception e) {
@@ -270,11 +394,15 @@ public class MainActivity extends Activity {
             return true;
         }
 
-        if ("file".equals(scheme) && uri.toString().equals(OFFLINE_ASSET_URL)) {
-            return false;
+        if ("file".equals(scheme)) {
+            return !uri.toString().equals(OFFLINE_ASSET_URL);
         }
 
-        // Handle tel:, mailto:, whatsapp:, intent:, etc.
+        if ("http".equals(scheme) || "javascript".equals(scheme) || "data".equals(scheme)) {
+            // Disallow cleartext HTTP & unsafe inline navigation in WebView
+            return true;
+        }
+
         if ("intent".equals(scheme)) {
             try {
                 Intent parsed = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME);
@@ -283,7 +411,7 @@ public class MainActivity extends Activity {
                     return true;
                 }
                 String fallbackUrl = parsed.getStringExtra("browser_fallback_url");
-                if (fallbackUrl != null) {
+                if (fallbackUrl != null && fallbackUrl.startsWith("https://")) {
                     view.loadUrl(fallbackUrl);
                     return true;
                 }
@@ -292,10 +420,12 @@ public class MainActivity extends Activity {
             return true;
         }
 
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, uri));
-        } catch (Exception e) {
-            Toast.makeText(this, "No app found to handle link", Toast.LENGTH_SHORT).show();
+        if ("tel".equals(scheme) || "mailto".equals(scheme) || "whatsapp".equals(scheme) || "sms".equals(scheme)) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            } catch (Exception e) {
+                Toast.makeText(this, "No app found to handle link", Toast.LENGTH_SHORT).show();
+            }
         }
         return true;
     }
@@ -310,10 +440,13 @@ public class MainActivity extends Activity {
                 || host.endsWith("monnify.com");
     }
 
-    private void injectDownloadCaptureScript(WebView view) {
+    private void injectDownloadAndPrintBridgeScript(WebView view) {
         String js = "(function(){"
-                + "if(window.__hambakDownloadHooked) return;"
-                + "window.__hambakDownloadHooked = true;"
+                + "if(window.__hambakBridgeHooked) return;"
+                + "window.__hambakBridgeHooked = true;"
+                + "window.print = function(){"
+                + "  try { window.HambakAndroidBridge.printPage(document.title || 'HAMBAKTECH Document'); } catch(e) {}"
+                + "};"
                 + "document.addEventListener('click', function(ev){"
                 + "  var a = ev.target && ev.target.closest ? ev.target.closest('a') : null;"
                 + "  if(!a) return;"
@@ -377,13 +510,21 @@ public class MainActivity extends Activity {
             return;
         }
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-                    checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST_CODE);
-            }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            pendingHttpDownloadUrl = url;
+            pendingHttpUserAgent = userAgent;
+            pendingHttpContentDisposition = contentDisposition;
+            pendingHttpMimeType = mimeType;
+            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST_CODE);
+            return;
         }
 
+        enqueueSystemDownload(url, userAgent, contentDisposition, mimeType);
+    }
+
+    private void enqueueSystemDownload(String url, String userAgent, String contentDisposition, String mimeType) {
         try {
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
             String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
@@ -392,7 +533,9 @@ public class MainActivity extends Activity {
             if (cookies != null) {
                 request.addRequestHeader("Cookie", cookies);
             }
-            request.addRequestHeader("User-Agent", userAgent);
+            if (userAgent != null) {
+                request.addRequestHeader("User-Agent", userAgent);
+            }
             request.setTitle(fileName);
             request.setDescription("Downloading from HAMBAKTECH");
             request.allowScanningByMediaScanner();
@@ -415,7 +558,32 @@ public class MainActivity extends Activity {
             mainHandler.post(new Runnable() {
                 @Override
                 public void run() {
+                    if (webView == null || !isTrustedFirstPartyUrl(webView.getUrl())) {
+                        return;
+                    }
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                        pendingB64Data = base64Data;
+                        pendingB64Mime = mimeType;
+                        pendingB64Name = fileName;
+                        requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST_CODE);
+                        return;
+                    }
                     writeBase64ToDownloads(base64Data, mimeType, fileName);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void printPage(final String jobName) {
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (webView == null || !isTrustedFirstPartyUrl(webView.getUrl())) {
+                        return;
+                    }
+                    launchWebViewPrint(jobName);
                 }
             });
         }
@@ -425,26 +593,72 @@ public class MainActivity extends Activity {
             mainHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                    if (webView == null || !isTrustedFirstPartyUrl(webView.getUrl())) {
+                        return;
+                    }
+                    if (msg != null && !msg.trim().isEmpty()) {
+                        Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                    }
                 }
             });
         }
     }
 
+    private void launchWebViewPrint(String rawJobName) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || webView == null) {
+            Toast.makeText(this, "Printing requires Android 5.0+", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            PrintManager printManager = (PrintManager) getSystemService(Context.PRINT_SERVICE);
+            if (printManager == null) {
+                Toast.makeText(this, "Print service unavailable on this device", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String safeJobName = (rawJobName != null && !rawJobName.trim().isEmpty())
+                    ? rawJobName.replaceAll("[^a-zA-Z0-9._ -]", "").trim()
+                    : "HAMBAKTECH_Document";
+            if (safeJobName.isEmpty()) {
+                safeJobName = "HAMBAKTECH_Document";
+            }
+            PrintDocumentAdapter printAdapter = webView.createPrintDocumentAdapter(safeJobName);
+            printManager.print(safeJobName, printAdapter, new PrintAttributes.Builder().build());
+        } catch (Exception e) {
+            Toast.makeText(this, "Unable to open print dialog: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void writeBase64ToDownloads(String base64Data, String mimeType, String rawName) {
         try {
+            if (base64Data == null || base64Data.length() > (MAX_BASE64_DECODED_BYTES * 4L / 3L) + 1024) {
+                Toast.makeText(this, "File too large to save.", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            String safeMime = (mimeType != null && !mimeType.trim().isEmpty())
+                    ? mimeType.toLowerCase(Locale.US).split(";")[0].trim()
+                    : "application/pdf";
+            if (!ALLOWED_SAVE_MIMES.contains(safeMime)) {
+                Toast.makeText(this, "Blocked unsupported file type: " + safeMime, Toast.LENGTH_LONG).show();
+                return;
+            }
+
             byte[] decoded = Base64.decode(base64Data, Base64.DEFAULT);
-            String safeMime = (mimeType != null && !mimeType.trim().isEmpty()) ? mimeType : "application/octet-stream";
+            if (decoded == null || decoded.length == 0 || decoded.length > MAX_BASE64_DECODED_BYTES) {
+                Toast.makeText(this, "Invalid or oversized file payload.", Toast.LENGTH_LONG).show();
+                return;
+            }
+
             String safeName = (rawName != null && !rawName.trim().isEmpty())
                     ? rawName.replaceAll("[^a-zA-Z0-9._-]", "_")
                     : "HAMBAKTECH_" + System.currentTimeMillis();
 
-            if (!safeName.contains(".")) {
-                String ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(safeMime);
-                if (ext == null || ext.isEmpty()) {
-                    ext = safeMime.contains("pdf") ? "pdf" : "bin";
-                }
-                safeName = safeName + "." + ext;
+            String ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(safeMime);
+            if (ext == null || ext.isEmpty()) {
+                ext = safeMime.contains("pdf") ? "pdf" : "png";
+            }
+            if (!safeName.toLowerCase(Locale.US).endsWith("." + ext)) {
+                safeName = safeName.replaceAll("\\.[^.]+$", "") + "." + ext;
             }
 
             Uri savedUri = null;
@@ -479,7 +693,7 @@ public class MainActivity extends Activity {
             }
 
             Toast.makeText(this, "Saved to Downloads: " + safeName, Toast.LENGTH_LONG).show();
-            if (savedUri != null && safeMime.contains("pdf")) {
+            if (savedUri != null && "application/pdf".equals(safeMime)) {
                 try {
                     Intent viewIntent = new Intent(Intent.ACTION_VIEW);
                     viewIntent.setDataAndType(savedUri, safeMime);
@@ -496,24 +710,63 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (requestCode == STORAGE_PERMISSION_REQUEST_CODE) {
+            boolean granted = grantResults != null && grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (granted) {
+                if (pendingHttpDownloadUrl != null) {
+                    String u = pendingHttpDownloadUrl;
+                    String ua = pendingHttpUserAgent;
+                    String cd = pendingHttpContentDisposition;
+                    String mt = pendingHttpMimeType;
+                    pendingHttpDownloadUrl = null;
+                    enqueueSystemDownload(u, ua, cd, mt);
+                }
+                if (pendingB64Data != null) {
+                    String b = pendingB64Data;
+                    String m = pendingB64Mime;
+                    String n = pendingB64Name;
+                    pendingB64Data = null;
+                    writeBase64ToDownloads(b, m, n);
+                }
+            } else {
+                pendingHttpDownloadUrl = null;
+                pendingB64Data = null;
+                Toast.makeText(this, "Storage permission required to save downloads.", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    }
+
+    @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
             if (filePathCallback == null) {
+                clearPendingCameraUri();
                 super.onActivityResult(requestCode, resultCode, data);
                 return;
             }
             Uri[] results = null;
-            if (resultCode == Activity.RESULT_OK && data != null) {
-                if (data.getClipData() != null) {
+            if (resultCode == Activity.RESULT_OK) {
+                if (data != null && data.getClipData() != null) {
                     ClipData clip = data.getClipData();
                     List<Uri> uris = new ArrayList<Uri>();
                     for (int i = 0; i < clip.getItemCount(); i++) {
                         uris.add(clip.getItemAt(i).getUri());
                     }
                     results = uris.toArray(new Uri[0]);
-                } else if (data.getData() != null) {
+                    clearPendingCameraUri();
+                } else if (data != null && data.getData() != null) {
                     results = new Uri[]{data.getData()};
+                    clearPendingCameraUri();
+                } else if (pendingCameraPhotoUri != null) {
+                    results = new Uri[]{pendingCameraPhotoUri};
+                    pendingCameraPhotoUri = null;
                 }
+            } else {
+                clearPendingCameraUri();
             }
             filePathCallback.onReceiveValue(results);
             filePathCallback = null;
@@ -530,16 +783,16 @@ public class MainActivity extends Activity {
             }
             return info.versionCode;
         } catch (Exception e) {
-            return 1;
+            return 2;
         }
     }
 
     private String getCurrentVersionName() {
         try {
             PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
-            return info.versionName != null ? info.versionName : "1.0.0";
+            return info.versionName != null ? info.versionName : "1.0.1";
         } catch (Exception e) {
-            return "1.0.0";
+            return "1.0.1";
         }
     }
 
@@ -569,8 +822,8 @@ public class MainActivity extends Activity {
                     final JSONObject androidObj = json.optJSONObject("android");
                     if (androidObj == null) return;
 
-                    final int remoteCode = androidObj.optInt("version_code", 1);
-                    final String remoteName = androidObj.optString("version_name", "1.0.0");
+                    final int remoteCode = androidObj.optInt("version_code", 2);
+                    final String remoteName = androidObj.optString("version_name", "1.0.1");
                     final String downloadUrl = androidObj.optString("download_url", "");
                     final String notes = androidObj.optString("release_notes", "A new version of HAMBAKTECH is available.");
                     final boolean forceUpdate = androidObj.optBoolean("force_update", false);
@@ -580,6 +833,9 @@ public class MainActivity extends Activity {
                         final String resolvedUrl = downloadUrl.startsWith("http")
                                 ? downloadUrl
                                 : START_URL + (downloadUrl.startsWith("/") ? "" : "/") + downloadUrl;
+                        if (!resolvedUrl.startsWith("https://hambaktech.com.ng/")) {
+                            return;
+                        }
                         mainHandler.post(new Runnable() {
                             @Override
                             public void run() {
@@ -624,6 +880,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        clearPendingCameraUri();
         if (webView != null) {
             webView.destroy();
         }

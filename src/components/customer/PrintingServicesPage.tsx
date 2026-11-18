@@ -301,10 +301,27 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
           const retRef =
             hashParams.get('reference') ||
             hashParams.get('trxref') ||
+            hashParams.get('tx_ref') ||
             searchParams.get('reference') ||
-            searchParams.get('trxref');
+            searchParams.get('trxref') ||
+            searchParams.get('tx_ref');
+          const txId = hashParams.get('transaction_id') || searchParams.get('transaction_id') || undefined;
           if (retRef) {
             setPendingVerifyRef(retRef);
+            api.verifyPrintingPayment(initialOrderRef, retRef, txId)
+              .then(res => {
+                if (res.success) {
+                  setPendingVerifyRef(null);
+                  setPendingCheckoutUrl(null);
+                  setGlobalSuccess(res.message || 'Printing payment confirmed!');
+                  void refreshUser();
+                  void loadOrders(statusFilter);
+                  void openOrderDetail(initialOrderRef);
+                }
+              })
+              .catch(() => {
+                // Keep manual verify button visible if awaiting confirmation
+              });
           }
         }
       });

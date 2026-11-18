@@ -2446,6 +2446,7 @@ export interface RoleDashboardConfigRecord {
   published_config: RoleDashboardConfig;
   draft_config: RoleDashboardConfig | null;
   has_draft: boolean;
+  has_unpublished_changes?: boolean;
   updated_by?: string | null;
   updated_at?: string | null;
   published_by?: string | null;

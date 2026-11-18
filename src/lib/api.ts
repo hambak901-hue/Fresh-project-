@@ -462,6 +462,9 @@ export const api = {
     if (token && token !== 'undefined') {
       setStoredToken(token);
     }
+    if (res?.user && !res.user.dashboard_config && res.dashboard_config) {
+      res.user.dashboard_config = res.dashboard_config;
+    }
     return res;
   },
 
@@ -501,7 +504,15 @@ export const api = {
   },
 
   async getWalletStatement(params?: { startDate?: string; endDate?: string; category?: string; type?: string }): Promise<any> {
-    const qs = new URLSearchParams(params as any).toString();
+    const clean = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && String(v).trim() !== '' && String(v) !== 'undefined') {
+          clean.set(k, String(v));
+        }
+      });
+    }
+    const qs = clean.toString();
     return request(`/api/wallet/statement${qs ? `?${qs}` : ''}`);
   },
 
@@ -513,7 +524,15 @@ export const api = {
     totalPages: number;
     transactions: Transaction[];
   }> {
-    const qs = new URLSearchParams(params as any).toString();
+    const clean = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && String(v).trim() !== '' && String(v) !== 'undefined') {
+          clean.set(k, String(v));
+        }
+      });
+    }
+    const qs = clean.toString();
     return request(`/api/wallet/transactions${qs ? `?${qs}` : ''}`);
   },
 
@@ -575,9 +594,21 @@ export const api = {
     success: boolean;
     message: string;
     authorization_url: string;
+    link?: string;
     reference: string;
+    tx_ref?: string;
     amount: number;
     gateway: string;
+    transfer_details?: {
+      account_number: string;
+      bank_name: string;
+      account_name: string;
+      amount: number;
+      currency: string;
+      expires_at?: string;
+      note?: string;
+      reference: string;
+    } | null;
   }> {
     return request('/api/wallet/fund/initiate', {
       method: 'POST',
@@ -585,16 +616,24 @@ export const api = {
     });
   },
 
-  async verifyFunding(reference: string, gateway?: string): Promise<{
+  async verifyFunding(reference: string, gateway?: string, transactionId?: string): Promise<{
     success: boolean;
     message: string;
     balance: number;
-    transaction: Transaction;
+    transaction?: Transaction;
     already_credited?: boolean;
+    settled?: boolean;
+    pending?: boolean;
+    status?: string;
+    amount?: number;
   }> {
     return request('/api/wallet/fund/verify', {
       method: 'POST',
-      body: JSON.stringify({ reference, gateway }),
+      body: JSON.stringify({
+        reference,
+        gateway,
+        ...(transactionId ? { transaction_id: transactionId } : {}),
+      }),
     });
   },
 
@@ -1790,10 +1829,23 @@ export const api = {
     dashboard: string,
     mode: 'published' | 'draft' = 'published'
   ): Promise<import('../types').AdminDashboardPreviewResponse> {
-    return request('/api/admin/dashboard-preview', {
+    const res = await request<any>('/api/admin/dashboard-preview', {
       method: 'POST',
       body: JSON.stringify({ dashboard, mode }),
     });
+    if (res && !res.preview && res.target_dashboard && res.config) {
+      return {
+        ...res,
+        preview: {
+          target_role: res.target_role,
+          target_dashboard: res.target_dashboard,
+          mode: res.mode || mode,
+          config: res.config,
+          academy_preview: res.academy_preview || null,
+        },
+      };
+    }
+    return res;
   },
 
   async getAdminStaff(): Promise<{ success: boolean; staff: User[] }> {

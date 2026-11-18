@@ -41,7 +41,7 @@ import {
   shouldRouteToConsole,
 } from './lib/roles';
 import { DashboardKey, RoleDashboardConfig, UserRole } from './types';
-import { Calculator, ShieldCheck, Shield, Fingerprint, Loader2, Eye, X } from 'lucide-react';
+import { Calculator, ShieldCheck, Shield, Fingerprint, Loader2, Eye, X, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 
 function normalizePublicPageKey(raw: string): string {
   const clean = raw.replace(/^#/, '').trim();
@@ -97,8 +97,16 @@ function isExplicitPublicHash(): boolean {
 }
 
 function MainAppContent() {
-  const { user, loading: authLoading, logout, pinPolicy } = useAuth();
+  const { user, loading: authLoading, logout, pinPolicy, refreshUser } = useAuth();
   const [forcePinSetupOpen, setForcePinSetupOpen] = useState<boolean>(false);
+  const [paymentReturnState, setPaymentReturnState] = useState<{
+    status: 'verifying' | 'success' | 'pending' | 'error';
+    message: string;
+    reference?: string;
+    gateway?: string;
+    transactionId?: string;
+  } | null>(null);
+  const processedPaymentKeyRef = useRef<string>('');
   const [previewSession, setPreviewSession] = useState<{
     targetRole: UserRole;
     targetDashboard: DashboardKey;
@@ -114,13 +122,26 @@ function MainAppContent() {
     if (typeof window !== 'undefined') {
       const p = window.location.pathname.toLowerCase();
       const h = window.location.hash.toLowerCase();
+      const s = window.location.search.toLowerCase();
       if (h.startsWith('#verify-student') || h.startsWith('#academy') || h.startsWith('#how-it-works') || h.startsWith('#refund-policy')) {
         return '02';
       }
       if (p.includes('/admin') || h.includes('admin')) return '04';
       if (p.includes('/login') || h === '#login') return '06';
       if (p.includes('/identity') || h.includes('identity')) return '05';
-      if (p.includes('/portal') || p.includes('/customer') || h.includes('portal') || h.includes('customer') || h.startsWith('#printing')) return '03';
+      if (
+        p.includes('/portal') ||
+        p.includes('/customer') ||
+        p.includes('/dashboard') ||
+        h.includes('portal') ||
+        h.includes('customer') ||
+        h.startsWith('#printing') ||
+        s.includes('payment=verify') ||
+        s.includes('trxref=') ||
+        s.includes('tx_ref=')
+      ) {
+        return '03';
+      }
     }
     return '02';
   };
@@ -144,27 +165,41 @@ function MainAppContent() {
     }
   }, [user]);
 
-  // Auto-route authenticated users to their portal ONLY on login / default entry or #login,
-  // preserving explicit public deep-links such as #verify-student/<id> or #academy
+  // Auto-route authenticated users and strictly enforce Portal vs Console boundaries
+  // across normal login, MFA login, refresh, direct URL navigation, and PWA reopening.
   useEffect(() => {
-    if (!user) return;
+    if (authLoading || !user) return;
+    const targetIsConsole = shouldRouteToConsole(user);
+    const isPortalPreview = Boolean(
+      previewSession &&
+      isConsoleRole(user.role) &&
+      !isConsoleDashboard(previewSession.targetDashboard)
+    );
+
     if (activePhase === '06') {
-      if (shouldRouteToConsole(user)) {
-        setActivePhase('04');
-      } else {
-        setActivePhase('03');
-      }
+      manualPublicBrowseRef.current = false;
+      setActivePhase(targetIsConsole ? '04' : '03');
       return;
     }
-    if (manualPublicBrowseRef.current || isExplicitPublicHash()) return;
-    if (activePhase === '02') {
-      if (shouldRouteToConsole(user)) {
+
+    if (targetIsConsole) {
+      if (activePhase === '03' && !isPortalPreview) {
         setActivePhase('04');
-      } else {
+        return;
+      }
+      if (activePhase === '02' && !manualPublicBrowseRef.current && !isExplicitPublicHash()) {
+        setActivePhase('04');
+      }
+    } else {
+      if (activePhase === '04') {
+        setActivePhase('03');
+        return;
+      }
+      if (activePhase === '02' && !manualPublicBrowseRef.current && !isExplicitPublicHash()) {
         setActivePhase('03');
       }
     }
-  }, [user, activePhase]);
+  }, [authLoading, user, activePhase, previewSession]);
 
   // Listen dynamically to window hash changes and history popstate
   useEffect(() => {
@@ -203,10 +238,18 @@ function MainAppContent() {
 
       if (h.includes('admin') || p.includes('/admin') || s.includes('admin')) {
         manualPublicBrowseRef.current = false;
-        setActivePhase('04');
+        if (currentUser && !shouldRouteToConsole(currentUser)) {
+          setActivePhase('03');
+        } else {
+          setActivePhase('04');
+        }
       } else if (h === '#login' || p.includes('/login')) {
         manualPublicBrowseRef.current = false;
-        setActivePhase('06');
+        if (currentUser) {
+          setActivePhase(shouldRouteToConsole(currentUser) ? '04' : '03');
+        } else {
+          setActivePhase('06');
+        }
       } else if (h.includes('identity') || p.includes('/identity')) {
         manualPublicBrowseRef.current = false;
         setActivePhase('05');
@@ -215,12 +258,16 @@ function MainAppContent() {
         h.includes('customer') ||
         h.startsWith('#printing') ||
         s.includes('printing_order') ||
+        s.includes('payment=verify') ||
+        s.includes('trxref=') ||
+        s.includes('tx_ref=') ||
         p.includes('/portal') ||
         p.includes('/customer') ||
+        p.includes('/dashboard') ||
         s.includes('portal')
       ) {
         manualPublicBrowseRef.current = false;
-        if ((h.startsWith('#printing') || s.includes('printing_order')) && currentUser && shouldRouteToConsole(currentUser)) {
+        if (currentUser && shouldRouteToConsole(currentUser)) {
           setActivePhase('04');
         } else {
           setActivePhase('03');
@@ -292,6 +339,103 @@ function MainAppContent() {
       }
     } catch {
       // Ignore malformed query strings
+    }
+  }, [authLoading, user]);
+
+  // Verify Paystack / Flutterwave wallet funding callback automatically on return (Browser, PWA & Android APK)
+  const runReturnedPaymentVerification = async (reference: string, gateway?: string, transactionId?: string) => {
+    setPaymentReturnState({
+      status: 'verifying',
+      message: `Verifying payment reference ${reference}...`,
+      reference,
+      gateway,
+      transactionId,
+    });
+    try {
+      const res = await api.verifyFunding(reference, gateway, transactionId);
+      if (res.success && !res.pending) {
+        await refreshUser();
+        setPaymentReturnState({
+          status: 'success',
+          message: res.message || `Wallet credited successfully (Ref: ${reference}).`,
+          reference,
+        });
+      } else {
+        setPaymentReturnState({
+          status: 'pending',
+          message: res.message || 'Payment is still awaiting gateway confirmation. Tap Check Again shortly.',
+          reference,
+          gateway,
+          transactionId,
+        });
+      }
+    } catch (err: any) {
+      setPaymentReturnState({
+        status: 'error',
+        message: err?.message || 'Unable to verify returned payment automatically.',
+        reference,
+        gateway,
+        transactionId,
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || authLoading || !user) return;
+    try {
+      const urlParams = new URLSearchParams(window.location.search || '');
+      const h = window.location.hash || '';
+      const qIdx = h.indexOf('?');
+      const hashParams = qIdx !== -1 ? new URLSearchParams(h.slice(qIdx + 1)) : new URLSearchParams('');
+
+      const isPrinting = Boolean(
+        urlParams.get('printing_order') ||
+        hashParams.get('printing_order') ||
+        h.toLowerCase().startsWith('#printing')
+      );
+      if (isPrinting) return;
+
+      const isPaymentCallback =
+        urlParams.get('payment') === 'verify' ||
+        hashParams.get('payment') === 'verify' ||
+        Boolean(urlParams.get('trxref') || urlParams.get('tx_ref') || urlParams.get('transaction_id')) ||
+        (Boolean(urlParams.get('reference')) && Boolean(urlParams.get('gateway')));
+
+      if (!isPaymentCallback) return;
+
+      const reference = (
+        urlParams.get('reference') ||
+        urlParams.get('trxref') ||
+        urlParams.get('tx_ref') ||
+        hashParams.get('reference') ||
+        hashParams.get('trxref') ||
+        hashParams.get('tx_ref') ||
+        ''
+      ).trim();
+      const gateway = (urlParams.get('gateway') || hashParams.get('gateway') || '').trim() || undefined;
+      const transactionId = (urlParams.get('transaction_id') || hashParams.get('transaction_id') || '').trim() || undefined;
+      const statusParam = (urlParams.get('status') || hashParams.get('status') || '').toLowerCase();
+
+      const dedupeKey = `${reference}:${transactionId || ''}:${statusParam}`;
+      if (!reference && !transactionId) return;
+      if (processedPaymentKeyRef.current === dedupeKey) return;
+      processedPaymentKeyRef.current = dedupeKey;
+
+      const cleanHash = shouldRouteToConsole(user) ? '#admin' : '#portal';
+      window.history.replaceState(null, '', `/${cleanHash}`);
+
+      if (statusParam === 'cancelled' || statusParam === 'canceled') {
+        setPaymentReturnState({
+          status: 'error',
+          message: `Checkout was cancelled (Ref: ${reference}). No funds were charged.`,
+          reference,
+        });
+        return;
+      }
+
+      void runReturnedPaymentVerification(reference, gateway, transactionId);
+    } catch {
+      // Ignore malformed return params
     }
   }, [authLoading, user]);
 
@@ -368,17 +512,18 @@ function MainAppContent() {
     setPreviewLoading(true);
     setPreviewError(null);
     try {
-      const res = await api.previewAdminDashboard(dashboardOrRole, mode);
-      if (res.success && res.preview) {
+      const res: any = await api.previewAdminDashboard(dashboardOrRole, mode);
+      const preview = res?.preview || (res?.target_dashboard && res?.config ? res : null);
+      if (res?.success && preview) {
         setPreviewSession({
-          targetRole: res.preview.target_role,
-          targetDashboard: res.preview.target_dashboard,
-          mode: res.preview.mode,
-          config: res.preview.config,
-          academy_preview: res.preview.academy_preview,
+          targetRole: preview.target_role,
+          targetDashboard: preview.target_dashboard,
+          mode: preview.mode || mode,
+          config: preview.config,
+          academy_preview: preview.academy_preview,
         });
         manualPublicBrowseRef.current = false;
-        setActivePhase(isConsoleDashboard(res.preview.target_dashboard) ? '04' : '03');
+        setActivePhase(isConsoleDashboard(preview.target_dashboard) ? '04' : '03');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (err: any) {
@@ -416,6 +561,67 @@ function MainAppContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-700 selection:text-white transition-colors">
+      {/* WALLET PAYMENT CALLBACK VERIFICATION BANNER */}
+      {paymentReturnState && (
+        <div
+          role="status"
+          className={`no-print fixed top-3 left-1/2 -translate-x-1/2 z-[85] max-w-md w-[calc(100%-1.5rem)] px-4 py-3 rounded-2xl border shadow-2xl backdrop-blur-md flex items-start gap-3 text-xs ${
+            paymentReturnState.status === 'success'
+              ? 'bg-emerald-950/95 border-emerald-500/50 text-emerald-100'
+              : paymentReturnState.status === 'verifying'
+              ? 'bg-blue-950/95 border-blue-500/50 text-blue-100'
+              : paymentReturnState.status === 'pending'
+              ? 'bg-amber-950/95 border-amber-500/50 text-amber-100'
+              : 'bg-rose-950/95 border-rose-500/50 text-rose-100'
+          }`}
+        >
+          {paymentReturnState.status === 'verifying' ? (
+            <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0 mt-0.5" />
+          ) : paymentReturnState.status === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          )}
+          <div className="flex-1 space-y-1.5">
+            <div className="font-bold">
+              {paymentReturnState.status === 'verifying'
+                ? 'Confirming Wallet Deposit'
+                : paymentReturnState.status === 'success'
+                ? 'Wallet Deposit Confirmed'
+                : paymentReturnState.status === 'pending'
+                ? 'Awaiting Gateway Confirmation'
+                : 'Payment Verification Notice'}
+            </div>
+            <p className="text-[11px] opacity-90 leading-snug">{paymentReturnState.message}</p>
+            {(paymentReturnState.status === 'pending' || paymentReturnState.status === 'error') &&
+              paymentReturnState.reference && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void runReturnedPaymentVerification(
+                      paymentReturnState.reference!,
+                      paymentReturnState.gateway,
+                      paymentReturnState.transactionId
+                    )
+                  }
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white font-semibold"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Check Again</span>
+                </button>
+              )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setPaymentReturnState(null)}
+            aria-label="Close payment notification"
+            className="p-1 rounded-lg hover:bg-white/10 transition shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* ADMIN CENTRAL DASHBOARD PREVIEW BANNER */}
       {previewSession && user && isConsoleRole(user.role) && (
         <div className="no-print sticky top-0 z-[60] bg-amber-950/95 border-b border-amber-500/40 text-amber-100 px-4 py-2.5 backdrop-blur-md shadow-lg">
@@ -518,7 +724,7 @@ function MainAppContent() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {isConsoleRole(user?.role) && (
+                {shouldRouteToConsole(user) ? (
                   <button
                     type="button"
                     onClick={() => setActivePhase('04')}
@@ -527,15 +733,16 @@ function MainAppContent() {
                     <Shield className="w-3.5 h-3.5" />
                     <span>{getRoleLabel(user?.role)} Console</span>
                   </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActivePhase('03')}
+                    className="px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-white font-semibold text-xs flex items-center gap-1.5 transition"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>{getDashboardLabel(user?.assigned_dashboard || user?.role)}</span>
+                  </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setActivePhase('03')}
-                  className="px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-white font-semibold text-xs flex items-center gap-1.5 transition"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Customer Portal</span>
-                </button>
               </div>
             </div>
 
@@ -549,7 +756,15 @@ function MainAppContent() {
         <SuperAdminDashboard
           onSwitchToCustomerPortal={() => {
             manualPublicBrowseRef.current = false;
-            setActivePhase('03');
+            if (!user) {
+              setActivePhase('03');
+              return;
+            }
+            if (!shouldRouteToConsole(user)) {
+              setActivePhase('03');
+              return;
+            }
+            void handleLaunchPreview('customer', 'published');
           }}
           onSwitchToPublic={switchToPublicHome}
           onLaunchPreview={handleLaunchPreview}
@@ -611,7 +826,7 @@ function MainAppContent() {
             onSwitchToPublic={switchToPublicHome}
             onSwitchToAdmin={() => {
               manualPublicBrowseRef.current = false;
-              setActivePhase('04');
+              setActivePhase(user && !shouldRouteToConsole(user) ? '03' : '04');
             }}
             onLogout={handleCustomerLogout}
             previewConfig={
