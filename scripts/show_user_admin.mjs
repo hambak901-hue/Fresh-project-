@@ -11,5 +11,5 @@ echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
 `;
 
 fs.writeFileSync('/tmp/_show_user_admin.php', php);
-execSync('curl -s -m 30 -T /tmp/_show_user_admin.php --user "qfqzpeqx:2h9PAQk[kE[t96" "ftp://51.89.153.183:21/public_html/_show_user_admin.php"');
+execSync('curl -s -m 30 -T /tmp/_show_user_admin.php --user "${process.env.CPANEL_FTP_USER || ''}:${process.env.CPANEL_SFTP_PASS || ''}" "ftp://${process.env.CPANEL_FTP_HOST || ''}:21/public_html/_show_user_admin.php"');
 console.log(execSync('curl -s "https://hambaktech.com.ng/_show_user_admin.php"', { encoding: 'utf-8' }));

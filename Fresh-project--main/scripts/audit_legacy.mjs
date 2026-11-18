@@ -47,6 +47,6 @@ try {
 `;
 
 fs.writeFileSync('/tmp/_audit_legacy.php', phpScript);
-execSync('curl -s -m 30 -T /tmp/_audit_legacy.php --user "qfqzpeqx:2h9PAQk[kE[t96" "ftp://51.89.153.183:21/public_html/_audit_legacy.php"');
+execSync('curl -s -m 30 -T /tmp/_audit_legacy.php --user "${process.env.CPANEL_FTP_USER || ''}:${process.env.CPANEL_SFTP_PASS || ''}" "ftp://${process.env.CPANEL_FTP_HOST || ''}:21/public_html/_audit_legacy.php"');
 const res = execSync('curl -s -m 20 "https://hambaktech.com.ng/_audit_legacy.php"', { encoding: 'utf-8' });
 console.log('Legacy audit result:', res);

@@ -9,10 +9,10 @@ import ftplib
 import sys
 import time
 
-FTP_HOST = "51.89.153.183"
+FTP_HOST = os.environ.get("CPANEL_FTP_HOST", "")
 FTP_PORT = 21
-FTP_USER = "qfqzpeqx"
-FTP_PASS = "2h9PAQk[kE[t96"
+FTP_USER = os.environ.get("CPANEL_FTP_USER", "")
+FTP_PASS = os.environ.get("CPANEL_SFTP_PASS", "")
 REMOTE_ROOT = "public_html"
 
 def connect_ftp():

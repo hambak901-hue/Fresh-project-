@@ -23,6 +23,6 @@ echo json_encode([
 `;
 
 fs.writeFileSync('/tmp/_test_argon.php', phpScript);
-execSync('curl -s -m 30 -T /tmp/_test_argon.php --user "qfqzpeqx:2h9PAQk[kE[t96" "ftp://51.89.153.183:21/public_html/_test_argon.php"');
+execSync('curl -s -m 30 -T /tmp/_test_argon.php --user "${process.env.CPANEL_FTP_USER || ''}:${process.env.CPANEL_SFTP_PASS || ''}" "ftp://${process.env.CPANEL_FTP_HOST || ''}:21/public_html/_test_argon.php"');
 const res = execSync('curl -s -m 20 "https://hambaktech.com.ng/_test_argon.php"', { encoding: 'utf-8' });
 console.log('Argon2 test result:', res);
