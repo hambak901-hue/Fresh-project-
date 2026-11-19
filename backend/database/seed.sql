@@ -28,7 +28,7 @@ ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 INSERT INTO system_settings (id, setting_key, setting_value, category, description) VALUES
 ('set_bank_name', 'bank_transfer_bank', 'Moniepoint MFB', 'payment', 'Official receiving bank name for customer manual funding'),
-('set_bank_acc', 'bank_transfer_account_number', '5210471634', 'payment', 'Official Moniepoint account number for bank transfer deposits'),
+('set_bank_acc', 'bank_transfer_account_number', '5210741634', 'payment', 'Official Moniepoint account number for bank transfer deposits'),
 ('set_bank_title', 'bank_transfer_account_name', 'Hambaktech_Services', 'payment', 'Official beneficiary account name for bank transfer deposits'),
 ('set_active_gateway', 'active_payment_gateway', 'paystack', 'payment', 'Active default online payment gateway (paystack / flutterwave)')
 ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value);
@@ -164,9 +164,9 @@ ON DUPLICATE KEY UPDATE balance=GREATEST(wallets.balance, VALUES(balance));
 
 INSERT INTO system_settings (id, setting_key, setting_value, category, description) VALUES
 ('set_bank_name', 'bank_transfer_bank', 'Moniepoint MFB', 'payment', 'Receiving bank name for manual customer funding'),
-('set_bank_acc_num', 'bank_transfer_account_number', '5210471634', 'payment', 'Receiving bank account number for manual customer funding'),
+('set_bank_acc_num', 'bank_transfer_account_number', '5210741634', 'payment', 'Receiving bank account number for manual customer funding'),
 ('set_bank_acc_name', 'bank_transfer_account_name', 'Hambaktech_Services', 'payment', 'Receiving account name for manual customer funding'),
-('set_active_gw', 'active_payment_gateway', 'flutterwave', 'payment', 'Primary active automated payment gateway')
+('set_active_gw', 'active_payment_gateway', 'paystack', 'payment', 'Primary active automated payment gateway')
 ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value);
 
 SET FOREIGN_KEY_CHECKS = 1;

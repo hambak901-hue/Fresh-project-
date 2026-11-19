@@ -3,8 +3,8 @@
  * HAMBakTECH Stage 7: Complete Customer Wallet Top-Up & Payment Modal.
  * Supports:
  * 1. Paystack Automated Merchant Checkout & Instant Verification
- * 2. Flutterwave Activated Hosted Checkout & Verification
- * 3. Moniepoint MFB Manual Transfer Instructions (Bank: Moniepoint MFB, Acc: 5210471634, Name: Hambaktech_Services)
+ * 2. Moniepoint MFB Manual Transfer Instructions (Bank: Moniepoint MFB, Acc: 5210741634, Name: Hambaktech_Services)
+ * 3. Flutterwave Gateway (Dynamically enabled/disabled from Payment Gateway settings)
  * 4. Dedicated Manual Funding Form with File Receipt Upload & Verification Workflow
  */
 
@@ -42,7 +42,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
   const { user, updateBalance, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'online' | 'manual_form'>('online');
   const [amount, setAmount] = useState<string>('5000');
-  const [gateway, setGateway] = useState<'paystack' | 'flutterwave' | 'manual'>('flutterwave');
+  const [gateway, setGateway] = useState<'paystack' | 'flutterwave' | 'manual'>('paystack');
   const [loading, setLoading] = useState<boolean>(false);
   const [verifyingOnline, setVerifyingOnline] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
@@ -94,6 +94,18 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
     try {
       const data = await api.getWalletSummary();
       setSummary(data);
+      const gateways: Array<{ id: string; status: string }> = data?.availableGateways || [];
+      const flwGw = gateways.find(g => g.id === 'flutterwave');
+      const psGw = gateways.find(g => g.id === 'paystack');
+      const manGw = gateways.find(g => g.id === 'manual');
+      const activeGw = String(data?.activeGateway || 'paystack').toLowerCase();
+      if (activeGw === 'flutterwave' && flwGw?.status === 'active') {
+        setGateway('flutterwave');
+      } else if (psGw?.status === 'active') {
+        setGateway('paystack');
+      } else if (manGw?.status === 'active') {
+        setGateway('manual');
+      }
     } catch (err) {
       console.error('Failed to load wallet summary:', err);
     }
@@ -276,8 +288,8 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
       formData.append('amount', String(amt));
       formData.append('depositor_name', depositorName.trim());
       formData.append('sender_name', depositorName.trim());
-      formData.append('bank_name', 'Moniepoint MFB');
-      formData.append('account_number', '5210471634');
+      formData.append('bank_name', summary?.bankDetails?.bank || 'Moniepoint MFB');
+      formData.append('account_number', summary?.bankDetails?.accountNumber || '5210741634');
       formData.append('reference', paymentReference.trim());
       formData.append('payment_reference', paymentReference.trim());
       formData.append('payment_date', paymentDate);
@@ -305,20 +317,27 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
   };
 
   const copyBank = (text: string) => {
-    navigator.clipboard.writeText(text);
+    navigator.clipboard?.writeText?.(text).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const bankDetails = {
     bank: summary?.bankDetails?.bank || 'Moniepoint MFB',
-    accountNumber: summary?.bankDetails?.accountNumber || '5210471634',
+    accountNumber: summary?.bankDetails?.accountNumber || '5210741634',
     accountName: summary?.bankDetails?.accountName || 'Hambaktech_Services',
   };
 
+  const gatewayMap = new Map<string, { id: string; name: string; status: string; is_active: boolean }>(
+    ((summary?.availableGateways as any[]) || []).map(g => [g.id, g])
+  );
+  const paystackActive = gatewayMap.has('paystack') ? gatewayMap.get('paystack')?.status === 'active' : true;
+  const manualActive = gatewayMap.has('manual') ? gatewayMap.get('manual')?.status === 'active' : true;
+  const flutterwaveActive = gatewayMap.get('flutterwave')?.status === 'active';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-fade-in font-sans">
-      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden text-slate-100 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-sm animate-fade-in font-sans">
+      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden text-slate-100 flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-3">
@@ -328,7 +347,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
             <div>
               <h3 className="text-base font-bold text-white tracking-tight">Fund Wallet</h3>
               <p className="text-xs text-slate-400">
-                Available: <span className="text-emerald-400 font-mono font-bold">₦{user?.wallet_balance.toLocaleString('en-NG', { minimumFractionDigits: 2 }) || '0.00'}</span>
+                Available: <span className="text-emerald-400 font-mono font-bold">₦{Number(user?.wallet_balance ?? 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
               </p>
             </div>
           </div>
@@ -430,7 +449,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
                           <button
                             type="button"
                             onClick={() => {
-                              navigator.clipboard.writeText(pendingCheckout.transferDetails!.account_number);
+                              navigator.clipboard?.writeText?.(pendingCheckout.transferDetails!.account_number).catch(() => {});
                               setCopiedDynAcc(true);
                               setTimeout(() => setCopiedDynAcc(false), 2000);
                             }}
@@ -521,52 +540,45 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
 
               {/* Payment Gateway Options */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">Select Payment Gateway</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-2">Select Payment Method</label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {/* Flutterwave (Active) */}
+                  {/* 1. Paystack */}
                   <button
                     type="button"
-                    onClick={() => setGateway('flutterwave')}
+                    disabled={!paystackActive}
+                    onClick={() => paystackActive && setGateway('paystack')}
                     className={`p-3.5 rounded-2xl border text-left transition relative ${
-                      gateway === 'flutterwave'
-                        ? 'bg-emerald-950/30 border-emerald-500 text-white shadow-sm ring-1 ring-emerald-500/40'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-amber-400">Flutterwave</span>
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                        ACTIVE
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-slate-400">Cards, USSD, Bank Account &amp; Barter</p>
-                  </button>
-
-                  {/* Paystack (Active) */}
-                  <button
-                    type="button"
-                    onClick={() => setGateway('paystack')}
-                    className={`p-3.5 rounded-2xl border text-left transition relative ${
-                      gateway === 'paystack'
+                      !paystackActive
+                        ? 'bg-slate-950/60 border-slate-800/80 text-slate-500 opacity-60 cursor-not-allowed'
+                        : gateway === 'paystack'
                         ? 'bg-emerald-950/30 border-emerald-500 text-white shadow-sm ring-1 ring-emerald-500/40'
                         : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-bold text-emerald-400">Paystack</span>
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                        ACTIVE
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                          paystackActive
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        {paystackActive ? 'ACTIVE' : 'OFFLINE'}
                       </span>
                     </div>
-                    <p className="text-[10px] text-slate-400">Instant Card, NIP Transfer &amp; USSD</p>
+                    <p className="text-[10px] text-slate-400">Instant Card, Bank Transfer &amp; USSD</p>
                   </button>
 
-                  {/* Manual Bank Transfer */}
+                  {/* 2. Official Manual Bank Transfer */}
                   <button
                     type="button"
-                    onClick={() => setGateway('manual')}
+                    disabled={!manualActive}
+                    onClick={() => manualActive && setGateway('manual')}
                     className={`p-3.5 rounded-2xl border text-left transition relative ${
-                      gateway === 'manual'
+                      !manualActive
+                        ? 'bg-slate-950/60 border-slate-800/80 text-slate-500 opacity-60 cursor-not-allowed'
+                        : gateway === 'manual'
                         ? 'bg-emerald-950/30 border-emerald-500 text-white shadow-sm ring-1 ring-emerald-500/40'
                         : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
                     }`}
@@ -578,6 +590,38 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
                       </span>
                     </div>
                     <p className="text-[10px] text-slate-400">Moniepoint Dedicated Account</p>
+                  </button>
+
+                  {/* 3. Flutterwave (Dynamic Availability) */}
+                  <button
+                    type="button"
+                    disabled={!flutterwaveActive}
+                    onClick={() => flutterwaveActive && setGateway('flutterwave')}
+                    className={`p-3.5 rounded-2xl border text-left transition relative ${
+                      !flutterwaveActive
+                        ? 'bg-slate-950/60 border-slate-800/80 text-slate-500 opacity-65 cursor-not-allowed'
+                        : gateway === 'flutterwave'
+                        ? 'bg-emerald-950/30 border-emerald-500 text-white shadow-sm ring-1 ring-emerald-500/40'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`font-bold ${flutterwaveActive ? 'text-amber-400' : 'text-slate-400'}`}>Flutterwave</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                          flutterwaveActive
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        }`}
+                      >
+                        {flutterwaveActive ? 'ACTIVE' : 'UNAVAILABLE'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400">
+                      {flutterwaveActive
+                        ? 'Cards, USSD & Bank Transfer'
+                        : 'Temporarily disabled pending credential sync'}
+                    </p>
                   </button>
                 </div>
               </div>

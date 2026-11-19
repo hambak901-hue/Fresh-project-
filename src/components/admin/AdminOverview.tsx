@@ -25,6 +25,7 @@ import {
   LifeBuoy,
   Store,
   Scale,
+  FileText,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api, getStoredToken } from '../../lib/api';
@@ -45,6 +46,10 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('Bank deposit could not be verified on statement');
+  const [inspectProofUrl, setInspectProofUrl] = useState<string | null>(null);
+  const [proofBlob, setProofBlob] = useState<{ blobUrl: string; contentType: string } | null>(null);
+  const [proofLoading, setProofLoading] = useState(false);
+  const [proofError, setProofError] = useState<string | null>(null);
 
   const fetchOverview = async () => {
     if (!user || !isConsoleRole(user.role)) {
@@ -76,18 +81,61 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
     fetchOverview();
   }, [user]);
 
+  useEffect(() => {
+    if (!inspectProofUrl) return;
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    setProofLoading(true);
+    setProofError(null);
+    setProofBlob(null);
+    api.fetchProtectedBlobUrl(inspectProofUrl)
+      .then(res => {
+        if (cancelled) {
+          URL.revokeObjectURL(res.blobUrl);
+          return;
+        }
+        createdUrl = res.blobUrl;
+        setProofBlob(res);
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          setProofError(err?.message || 'Unable to load payment receipt.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setProofLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (createdUrl) {
+        URL.revokeObjectURL(createdUrl);
+      }
+    };
+  }, [inspectProofUrl]);
+
+  const closeProofModal = () => {
+    if (proofBlob?.blobUrl) {
+      URL.revokeObjectURL(proofBlob.blobUrl);
+    }
+    setProofBlob(null);
+    setProofError(null);
+    setInspectProofUrl(null);
+  };
+
   const handleApproveFunding = async (id: string) => {
     setActionLoading(id);
     setActionSuccess(null);
+    setActionError(null);
     try {
       const res = await api.approveFunding(id);
       setActionSuccess(res.message);
       await fetchOverview();
     } catch (err: any) {
-      console.error(err);
+      setActionError(err?.message || 'Failed to approve manual funding request.');
+      setTimeout(() => setActionError(null), 5000);
     } finally {
       setActionLoading(null);
-      setTimeout(() => setActionSuccess(null), 3000);
+      setTimeout(() => setActionSuccess(null), 3500);
     }
   };
 
@@ -482,7 +530,13 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
             <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3.5 space-y-1">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-white">Flutterwave Payment</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    String(data.providerStatus.flutterwave?.status || '').toLowerCase() === 'operational'
+                      ? 'bg-emerald-400'
+                      : 'bg-amber-400'
+                  }`}
+                />
               </div>
               <p className="text-slate-400 text-[11px] font-mono">{data.providerStatus.flutterwave.status}</p>
               <p className="text-[10px] text-slate-500 font-mono">{data.providerStatus.flutterwave.clientIdMasked}</p>
@@ -551,13 +605,23 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
                             {item.reference}
                           </span>
                         </div>
-                        <p className="text-slate-300">{item.description}</p>
+                        <p className="text-slate-300">{item.description || item.remarks || 'Manual bank transfer deposit'}</p>
                         <p className="text-[11px] text-slate-500 font-mono">
-                          Sender: {item.metadata?.sender_name || 'N/A'} &bull; {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          Sender: {item.metadata?.sender_name || item.depositor_name || 'N/A'} &bull; {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {(item.metadata?.payment_proof_url || item.teller_proof_url) && (
+                          <button
+                            type="button"
+                            onClick={() => setInspectProofUrl(item.metadata?.payment_proof_url || item.teller_proof_url)}
+                            className="px-2.5 py-1.5 bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-500/30 rounded-lg font-semibold flex items-center gap-1 transition"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>Receipt</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           disabled={actionLoading === item.id}
@@ -697,6 +761,56 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Receipt Proof Modal */}
+      {inspectProofUrl && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-white">Bank Transfer Receipt Preview</h3>
+              <div className="flex items-center gap-2">
+                {proofBlob && (
+                  <a
+                    href={proofBlob.blobUrl}
+                    download="transfer-receipt"
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
+                  >
+                    Download
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={closeProofModal}
+                  className="p-1 text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center p-2 min-h-[260px]">
+              {proofLoading ? (
+                <div className="flex items-center gap-2 text-slate-400 text-xs">
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                  <span>Loading authenticated receipt...</span>
+                </div>
+              ) : proofError ? (
+                <div className="text-rose-400 text-xs p-4 text-center">{proofError}</div>
+              ) : proofBlob?.contentType?.includes('pdf') ? (
+                <iframe
+                  src={proofBlob.blobUrl}
+                  title="Transfer receipt PDF"
+                  className="w-full h-[65vh] rounded-lg bg-white"
+                />
+              ) : proofBlob ? (
+                <img
+                  src={proofBlob.blobUrl}
+                  alt="Transfer receipt"
+                  className="max-h-[65vh] object-contain rounded-lg"
+                />
+              ) : null}
+            </div>
           </div>
         </div>
       )}

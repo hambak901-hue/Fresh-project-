@@ -64,6 +64,11 @@ class Request
         return $this->body;
     }
 
+    public function setBody(array $body): void
+    {
+        $this->body = $body;
+    }
+
     public function input(string $key, mixed $default = null): mixed
     {
         return $this->body[$key] ?? $default;

@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { CmsProvider } from './context/CmsContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { PwaInstallProvider } from './components/pwa/InstallPromptSystem';
+import { RootErrorBoundary } from './components/RootErrorBoundary';
 import { PublicNavbar } from './components/public/PublicNavbar';
 import { LandingPage } from './components/public/LandingPage';
 import { AboutPage } from './components/public/AboutPage';
@@ -821,33 +822,35 @@ function MainAppContent() {
             }}
           />
         ) : (
-          <CustomerDashboard
-            onOpenFundModal={() => setWalletModalOpen(true)}
-            onSwitchToPublic={switchToPublicHome}
-            onSwitchToAdmin={() => {
-              manualPublicBrowseRef.current = false;
-              setActivePhase(user && !shouldRouteToConsole(user) ? '03' : '04');
-            }}
-            onLogout={handleCustomerLogout}
-            previewConfig={
-              previewSession && !isConsoleDashboard(previewSession.targetDashboard)
-                ? previewSession.config
-                : null
-            }
-            previewRole={
-              previewSession && !isConsoleDashboard(previewSession.targetDashboard)
-                ? previewSession.targetRole
-                : undefined
-            }
-            previewAcademyData={
-              previewSession && !isConsoleDashboard(previewSession.targetDashboard)
-                ? previewSession.academy_preview
-                : undefined
-            }
-            isPreviewMode={Boolean(
-              previewSession && !isConsoleDashboard(previewSession.targetDashboard)
-            )}
-          />
+          <RootErrorBoundary scopeLabel="Customer Portal">
+            <CustomerDashboard
+              onOpenFundModal={() => setWalletModalOpen(true)}
+              onSwitchToPublic={switchToPublicHome}
+              onSwitchToAdmin={() => {
+                manualPublicBrowseRef.current = false;
+                setActivePhase(user && !shouldRouteToConsole(user) ? '03' : '04');
+              }}
+              onLogout={handleCustomerLogout}
+              previewConfig={
+                previewSession && !isConsoleDashboard(previewSession.targetDashboard)
+                  ? previewSession.config
+                  : null
+              }
+              previewRole={
+                previewSession && !isConsoleDashboard(previewSession.targetDashboard)
+                  ? previewSession.targetRole
+                  : undefined
+              }
+              previewAcademyData={
+                previewSession && !isConsoleDashboard(previewSession.targetDashboard)
+                  ? previewSession.academy_preview
+                  : undefined
+              }
+              isPreviewMode={Boolean(
+                previewSession && !isConsoleDashboard(previewSession.targetDashboard)
+              )}
+            />
+          </RootErrorBoundary>
         )
       )}
 
@@ -984,14 +987,16 @@ function MainAppContent() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <CmsProvider>
-          <PwaInstallProvider>
-            <MainAppContent />
-          </PwaInstallProvider>
-        </CmsProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <RootErrorBoundary scopeLabel="Application">
+      <ThemeProvider>
+        <AuthProvider>
+          <CmsProvider>
+            <PwaInstallProvider>
+              <MainAppContent />
+            </PwaInstallProvider>
+          </CmsProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </RootErrorBoundary>
   );
 }

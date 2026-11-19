@@ -10,16 +10,9 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       VitePWA({
-        registerType: 'prompt',
+        registerType: 'autoUpdate',
         injectRegister: false,
-        includeAssets: [
-          'logo.png',
-          'offline.html',
-          'apple-touch-icon.png',
-          'pwa-192x192.png',
-          'pwa-512x512.png',
-          'pwa-maskable-512x512.png',
-        ],
+        includeManifestIcons: false,
         manifest: {
           id: '/',
           name: 'HAMBAK TECH & SERVICES',
@@ -59,7 +52,9 @@ export default defineConfig(() => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           globIgnores: ['**/downloads/**', '**/*.apk', '**/backups*/**'],
           navigateFallback: '/index.html',
-          navigateFallbackDenylist: [/^\/api\//, /^\/downloads\//, /\.apk$/i],
+          navigateFallbackDenylist: [/^\/api\//, /^\/downloads\//, /^\/assets\//, /\.apk$/i],
+          skipWaiting: true,
+          clientsClaim: true,
           cleanupOutdatedCaches: true,
           runtimeCaching: [
             {
@@ -96,8 +91,18 @@ export default defineConfig(() => {
             },
           ],
         },
+        integration: {
+          configureOptions(viteConfig, options) {
+            if (viteConfig.server?.hmr === false || process.env.DISABLE_HMR === 'true') {
+              options.devOptions = {
+                ...options.devOptions,
+                enabled: false,
+              };
+            }
+          },
+        },
         devOptions: {
-          enabled: true,
+          enabled: process.env.DISABLE_HMR !== 'true',
           type: 'module',
         },
       }),

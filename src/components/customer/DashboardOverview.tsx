@@ -532,17 +532,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
           )}
 
-          {/* Virtual Account Glance */}
+          {/* Bank Transfer Account Glance */}
           {showSection('virtual_account_card', true) && (
           <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-3 text-xs">
-            <span className="text-[10px] uppercase font-bold text-slate-400">Automated Funding Account</span>
+            <span className="text-[10px] uppercase font-bold text-slate-400">Official Funding Account</span>
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
               <div className="text-[10px] text-slate-500 font-mono">ACCOUNT NUMBER</div>
               <div className="text-lg font-bold text-emerald-400 font-mono">
-                {summary?.bank_details?.accountNumber || '8210492817'}
+                {summary?.bank_details?.accountNumber || '5210741634'}
               </div>
               <div className="text-[11px] text-slate-400">
-                {summary?.bank_details?.bank || 'Moniepoint MFB'} &bull; {summary?.bank_details?.accountName || 'HambakTech'}
+                {summary?.bank_details?.bank || 'Moniepoint MFB'} &bull; {summary?.bank_details?.accountName || 'Hambaktech_Services'}
               </div>
             </div>
           </div>

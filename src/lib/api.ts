@@ -691,6 +691,32 @@ export const api = {
     return request('/api/wallet/admin/pending-fundings');
   },
 
+  async fetchProtectedBlobUrl(url: string): Promise<{ blobUrl: string; contentType: string }> {
+    const token = getStoredToken();
+    const headers: Record<string, string> = {
+      'X-Requested-With': 'XMLHttpRequest',
+    };
+    if (token && token !== 'undefined' && token !== 'null') {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const response = await fetch(url, { method: 'GET', headers });
+    if (!response.ok) {
+      let msg = `Failed to load protected file (${response.status})`;
+      try {
+        const errJson = await response.json();
+        if (errJson?.message) msg = errJson.message;
+      } catch {
+      }
+      throw new ApiError(msg, { statusCode: response.status });
+    }
+    const blob = await response.blob();
+    const contentType = response.headers.get('Content-Type') || blob.type || 'application/octet-stream';
+    return {
+      blobUrl: URL.createObjectURL(blob),
+      contentType,
+    };
+  },
+
   async approveAdminFunding(id: string): Promise<{ success: boolean; message: string; transaction: Transaction; userBalance: number }> {
     return request(`/api/wallet/admin/approve-funding/${id}`, {
       method: 'POST',

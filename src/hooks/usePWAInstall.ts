@@ -138,10 +138,33 @@ export function usePWAInstall() {
     reg.update().catch(() => {});
   }, []);
 
-  // Register Service Worker cleanly with controlled update callback + resume/online sync
+  // Register Service Worker cleanly with auto-healing update sync + resume/online checks
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
     let intervalId: number | undefined;
+    const bootTimestamp = Date.now();
+    const hadControllerAtBoot = Boolean(navigator.serviceWorker.controller);
+
+    const onControllerChange = () => {
+      if (!hadControllerAtBoot) return;
+      // If an older installed PWA receives a new SW within 6s of opening, reload once cleanly so stale bundles are replaced immediately
+      if (Date.now() - bootTimestamp < 6000) {
+        try {
+          const lastSwReload = Number(sessionStorage.getItem('hambak_sw_reloaded_at') || '0');
+          if (!lastSwReload || Date.now() - lastSwReload > 30000) {
+            sessionStorage.setItem('hambak_sw_reloaded_at', String(Date.now()));
+            window.location.reload();
+            return;
+          }
+        } catch {
+          // Fallback to non-disruptive prompt if sessionStorage is unavailable
+        }
+      }
+      setNeedRefresh(true);
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+
     try {
       const updateSW = registerSW({
         immediate: true,
@@ -152,6 +175,8 @@ export function usePWAInstall() {
           if (registration) {
             swRegistrationRef.current = registration;
             lastUpdateCheckRef.current = Date.now();
+            // Trigger immediate background check so existing PWAs pick up new SW builds right away
+            registration.update().catch(() => {});
             intervalId = window.setInterval(() => {
               checkServiceWorkerUpdate();
             }, 15 * 60 * 1000);
@@ -181,6 +206,7 @@ export function usePWAInstall() {
 
     return () => {
       if (intervalId) window.clearInterval(intervalId);
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
       document.removeEventListener('visibilitychange', onVisibilityOrFocus);
       window.removeEventListener('focus', onVisibilityOrFocus);
       window.removeEventListener('online', onOnlineSync);

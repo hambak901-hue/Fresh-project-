@@ -62,7 +62,7 @@ class PrintingController
         // Fetch bank transfer details cleanly from wallet settings if available
         $bankDetails = [
             'bank' => 'Moniepoint MFB',
-            'accountNumber' => '5210471634',
+            'accountNumber' => '5210741634',
             'accountName' => 'Hambaktech_Services',
         ];
         try {
@@ -84,6 +84,7 @@ class PrintingController
             if (!empty($kv['bank_transfer_bank'])) $bankDetails['bank'] = (string)$kv['bank_transfer_bank'];
             if (!empty($kv['bank_transfer_account_number'])) $bankDetails['accountNumber'] = (string)$kv['bank_transfer_account_number'];
             if (!empty($kv['bank_transfer_account_name'])) $bankDetails['accountName'] = (string)$kv['bank_transfer_account_name'];
+            $bankDetails['accountNumber'] = preg_replace('/\s+/', '', trim($bankDetails['accountNumber'])) ?: '5210741634';
         } catch (Throwable) {
         }
 
@@ -240,6 +241,9 @@ class PrintingController
         header('Content-Type: ' . ($doc['mime_type'] ?: 'application/octet-stream'));
         header('Content-Length: ' . filesize($path));
         header('Content-Disposition: inline; filename="' . basename((string)$doc['original_name']) . '"');
+        header('Cache-Control: private, no-store, no-cache, must-revalidate');
+        header('Pragma: no-cache');
+        header('X-Content-Type-Options: nosniff');
         readfile($path);
         exit;
     }
@@ -755,7 +759,27 @@ class PrintingController
             return;
         }
 
-        // Paystack / Flutterwave checkout initialization
+        // Paystack / Flutterwave checkout initialization — respect admin gateway enablement
+        $gwCfg = ['enable_paystack' => true, 'enable_flutterwave' => false];
+        try {
+            $gwRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "payment_gateways_settings" LIMIT 1');
+            if ($gwRow && !empty($gwRow['setting_value'])) {
+                $decGw = json_decode((string)$gwRow['setting_value'], true);
+                if (is_array($decGw)) {
+                    $gwCfg = array_merge($gwCfg, $decGw);
+                }
+            }
+        } catch (Throwable) {
+        }
+        if ($gateway === 'flutterwave' && empty($gwCfg['enable_flutterwave'])) {
+            Response::error('Flutterwave payment gateway is currently disabled by administrators. Please use Paystack, Wallet, or Bank Transfer.', 403);
+            return;
+        }
+        if ($gateway === 'paystack' && array_key_exists('enable_paystack', $gwCfg) && empty($gwCfg['enable_paystack'])) {
+            Response::error('Paystack payment gateway is currently disabled by administrators.', 403);
+            return;
+        }
+
         $callbackUrl = (string)($body['callback_url'] ?? 'https://hambaktech.com.ng/#printing');
         $sep = str_contains($callbackUrl, '?') ? '&' : '?';
 

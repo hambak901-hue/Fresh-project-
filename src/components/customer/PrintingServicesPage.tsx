@@ -196,6 +196,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
   const [actionBusy, setActionBusy] = useState<boolean>(false);
   const [payScope, setPayScope] = useState<'full' | 'deposit' | 'balance' | 'delivery'>('full');
   const [payGateway, setPayGateway] = useState<'wallet' | 'manual_transfer' | 'paystack' | 'flutterwave'>('wallet');
+  const [flwEnabled, setFlwEnabled] = useState<boolean>(false);
   const [txPin, setTxPin] = useState<string>('');
   const [payerName, setPayerName] = useState<string>(user?.full_name || '');
   const [bankReference, setBankReference] = useState<string>('');
@@ -217,7 +218,14 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
   const loadCatalog = useCallback(async () => {
     try {
       setCatalogLoading(true);
-      const res = await api.getPrintingCatalog();
+      const [res, gwRes] = await Promise.all([
+        api.getPrintingCatalog(),
+        api.getPaymentGateways().catch(() => null),
+      ]);
+      if (gwRes?.gateways) {
+        const flwGw = gwRes.gateways.find(g => g.id === 'flutterwave');
+        setFlwEnabled(flwGw?.status === 'active');
+      }
       if (res.success) {
         setCategories(res.categories || []);
         setZones(res.delivery_zones || []);
@@ -2100,9 +2108,11 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
                             className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800"
                           >
                             <option value="wallet">HambakTech Wallet (Instant)</option>
-                            <option value="manual_transfer">Manual Bank Transfer (Admin Confirmed)</option>
                             <option value="paystack">Paystack Online Checkout</option>
-                            <option value="flutterwave">Flutterwave Online Checkout</option>
+                            <option value="manual_transfer">Manual Bank Transfer (Admin Confirmed)</option>
+                            <option value="flutterwave" disabled={!flwEnabled}>
+                              {flwEnabled ? 'Flutterwave Online Checkout' : 'Flutterwave (Temporarily Unavailable)'}
+                            </option>
                           </select>
                         </div>
                       </div>
@@ -2140,7 +2150,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
                         <div className="space-y-2 p-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
                           <div className="font-bold text-slate-900 dark:text-white">
                             Transfer to: {bankDetails?.bank || 'Moniepoint MFB'} &bull;{' '}
-                            <span className="font-mono">{bankDetails?.accountNumber || '5210471634'}</span> ({bankDetails?.accountName || 'Hambaktech_Services'})
+                            <span className="font-mono">{bankDetails?.accountNumber || '5210741634'}</span> ({bankDetails?.accountName || 'Hambaktech_Services'})
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                             <input

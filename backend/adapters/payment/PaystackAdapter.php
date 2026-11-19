@@ -167,11 +167,28 @@ class PaystackAdapter implements PaymentGatewayInterface
             throw new RuntimeException("Paystack verification communication failure: {$curlError}");
         }
 
-        if ($statusCode !== 200 || empty($parsed['status']) || empty($parsed['data'])) {
-            $msg = $parsed['message'] ?? "Paystack verification error (HTTP {$statusCode})";
+        if ($statusCode === 429 || $statusCode >= 500 || $statusCode === 0) {
+            $msg = is_array($parsed) ? ($parsed['message'] ?? "Temporary Paystack gateway issue (HTTP {$statusCode})") : "Temporary Paystack gateway issue (HTTP {$statusCode})";
             return [
-                'status' => 'failed',
+                'status' => 'pending',
                 'amount' => 0.00,
+                'fee' => 0.00,
+                'reference' => $reference,
+                'gateway_response' => $msg,
+                'raw' => $parsed,
+            ];
+        }
+
+        if ($statusCode !== 200 || empty($parsed['status']) || empty($parsed['data'])) {
+            $msg = is_array($parsed) ? ($parsed['message'] ?? "Paystack verification error (HTTP {$statusCode})") : "Paystack verification error (HTTP {$statusCode})";
+            $isUninitiatedOrPending = $statusCode === 400 && (
+                stripos((string)$msg, 'not found') !== false ||
+                stripos((string)$msg, 'does not exist') !== false
+            );
+            return [
+                'status' => $isUninitiatedOrPending ? 'abandoned' : 'failed',
+                'amount' => 0.00,
+                'fee' => 0.00,
                 'reference' => $reference,
                 'gateway_response' => $msg,
                 'raw' => $parsed,
@@ -180,11 +197,13 @@ class PaystackAdapter implements PaymentGatewayInterface
 
         $data = $parsed['data'];
         $nairaAmount = (float)($data['amount'] / 100);
+        $feeNaira = isset($data['fees']) ? round(((float)$data['fees']) / 100, 2) : 0.00;
         $isSuccess = ($data['status'] === 'success');
 
         return [
             'status' => $isSuccess ? 'successful' : ($data['status'] ?? 'failed'),
             'amount' => $nairaAmount,
+            'fee' => $feeNaira,
             'currency' => $data['currency'] ?? 'NGN',
             'reference' => $data['reference'] ?? $reference,
             'paid_at' => $data['paid_at'] ?? null,

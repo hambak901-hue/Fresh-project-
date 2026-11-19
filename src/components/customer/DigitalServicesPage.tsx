@@ -99,9 +99,10 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
     const pkg = pkgs.find(p => p.id === selectedPackageId);
     if (!pkg) return;
 
-    const pkgPrice = pkg?.price ?? 0;
-    if (user.wallet_balance < pkgPrice) {
-      setCableError(`Insufficient funds. Your balance is ₦${user.wallet_balance.toLocaleString()}, but ₦${pkgPrice.toLocaleString()} is required.`);
+    const pkgPrice = Number(pkg?.price ?? 0);
+    const bal = Number(user?.wallet_balance ?? 0);
+    if (bal < pkgPrice) {
+      setCableError(`Insufficient funds. Your balance is ₦${bal.toLocaleString()}, but ₦${pkgPrice.toLocaleString()} is required.`);
       return;
     }
     if (!user?.has_transaction_pin || user?.requires_pin_setup) {
@@ -155,8 +156,9 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
   };
 
   const promptElectricityPurchase = () => {
-    if (user.wallet_balance < electricityAmount) {
-      setElectricityError(`Insufficient funds. Your balance is ₦${user.wallet_balance.toLocaleString()}, but ₦${electricityAmount.toLocaleString()} is required.`);
+    const bal = Number(user?.wallet_balance ?? 0);
+    if (bal < electricityAmount) {
+      setElectricityError(`Insufficient funds. Your balance is ₦${bal.toLocaleString()}, but ₦${electricityAmount.toLocaleString()} is required.`);
       return;
     }
     if (!user?.has_transaction_pin || user?.requires_pin_setup) {
@@ -190,7 +192,7 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
   };
 
   const handleCopyToken = (token: string) => {
-    navigator.clipboard.writeText(token);
+    navigator.clipboard?.writeText?.(token).catch(() => {});
     setCopiedToken(true);
     setTimeout(() => setCopiedToken(false), 2000);
   };
@@ -218,7 +220,7 @@ export function DigitalServicesPage({ user, onRefreshBalance }: DigitalServicesP
           <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 text-right sm:min-w-[180px]">
             <p className="text-xs text-slate-400">Available Balance</p>
             <p className="text-xl font-bold font-mono text-emerald-400 tabular-nums">
-              ₦{user.wallet_balance.toLocaleString()}
+              ₦{Number(user?.wallet_balance ?? 0).toLocaleString()}
             </p>
           </div>
         </div>

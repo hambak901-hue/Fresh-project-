@@ -49,8 +49,8 @@ class SchemaSync
                 password_hash VARCHAR(255) NOT NULL,
                 full_name VARCHAR(191) NOT NULL,
                 phone_number VARCHAR(30) NOT NULL,
-                role ENUM("customer", "student", "agent", "support", "staff", "manager", "admin", "superadmin") NOT NULL DEFAULT "customer",
-                assigned_dashboard VARCHAR(64) NULL,
+                role VARCHAR(32) NOT NULL DEFAULT "customer",
+                assigned_dashboard VARCHAR(32) NULL,
                 wallet_balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 kyc_status ENUM("unverified", "pending", "verified", "rejected") NOT NULL DEFAULT "unverified",
                 tier INT NOT NULL DEFAULT 1,
@@ -1029,6 +1029,7 @@ class SchemaSync
         // Column checks via INFORMATION_SCHEMA
         $columnAlterations = [
             'users' => [
+                'assigned_dashboard' => 'ADD COLUMN assigned_dashboard VARCHAR(32) NULL AFTER role',
                 'kyc_level' => 'ADD COLUMN kyc_level INT NOT NULL DEFAULT 1',
                 'phone_normalized' => 'ADD COLUMN phone_normalized VARCHAR(32) NULL',
                 'token_version' => 'ADD COLUMN token_version INT NOT NULL DEFAULT 1',
@@ -1180,6 +1181,7 @@ class SchemaSync
 
         // Enum updates
         $enumUpdates = [
+            'users.role' => 'ALTER TABLE users MODIFY COLUMN role VARCHAR(32) NOT NULL DEFAULT "customer"',
             'kyc_submissions.status' => 'ALTER TABLE kyc_submissions MODIFY COLUMN status ENUM("pending", "verified", "approved", "rejected", "info_requested") NOT NULL DEFAULT "pending"',
             'support_tickets.status' => 'ALTER TABLE support_tickets MODIFY COLUMN status ENUM("open", "pending", "in_progress", "waiting_customer", "resolved", "closed") NOT NULL DEFAULT "open"',
             'providers.last_ping_status' => 'ALTER TABLE providers MODIFY COLUMN last_ping_status ENUM("operational", "error", "untested", "unconfigured") NOT NULL DEFAULT "untested"',
@@ -1230,7 +1232,12 @@ class SchemaSync
                 'INSERT IGNORE INTO roles (id, name, slug, description) VALUES
                  ("rol_superadmin", "Super Administrator", "superadmin", "Global system authority with unrestricted access"),
                  ("rol_admin", "Administrator", "admin", "Management authority over services, customers, and transactions"),
-                 ("rol_customer", "Customer / Agent", "customer", "Standard portal customer with digital wallet and API access")'
+                 ("rol_manager", "Operations Manager", "manager", "Operations management console across customers, wallets, KYC, and reports"),
+                 ("rol_staff", "Internal Staff", "staff", "Operational staff console access with scoped permissions"),
+                 ("rol_support", "Support Specialist", "support", "Customer Support Centre and KYC desk specialist"),
+                 ("rol_agent", "Commercial Agent / Reseller", "agent", "High-volume VTU, identity, and reseller portal workspace"),
+                 ("rol_student", "Academy Student", "student", "HAMBAKTECH Digital Training Academy student portal workspace"),
+                 ("rol_customer", "Customer", "customer", "Standard portal customer with digital wallet and identity access")'
             );
             $db->execute(
                 'INSERT IGNORE INTO service_categories (id, code, name, icon, display_order, is_active) VALUES
@@ -1318,7 +1325,7 @@ class SchemaSync
             $db->execute(
                 'INSERT IGNORE INTO system_settings (id, setting_key, setting_value, category, description) VALUES
                  ("set_bank_name", "bank_transfer_bank", "Moniepoint MFB", "payment", "Official receiving bank name for customer manual funding"),
-                 ("set_bank_acc", "bank_transfer_account_number", "5210471634", "payment", "Official Moniepoint account number for bank transfer deposits"),
+                 ("set_bank_acc", "bank_transfer_account_number", "5210741634", "payment", "Official Moniepoint account number for bank transfer deposits"),
                  ("set_bank_title", "bank_transfer_account_name", "HAMBAKTECH_SERVICES", "payment", "Official beneficiary account name for bank transfer deposits"),
                  ("set_active_gateway", "active_payment_gateway", "paystack", "payment", "Active default online payment gateway"),
                  ("set_act_verif", "active_verification_provider", "2sureverify", "providers", "Active Primary Identity Verification Provider"),
@@ -1360,7 +1367,7 @@ class SchemaSync
             $errors[] = 'syncSecurityAndReferralSchema => ' . $e->getMessage();
         }
 
-        // Ensure Phase 2 Printing & Document Services tables and default catalog exist
+        // Ensure Phase 2 Printing & Document Services tables and default catalog exist (idempotent)
         try {
             $printSync = self::syncPrintingModuleSchema($db, true);
             $applied = array_merge($applied, $printSync['applied'] ?? []);
@@ -2318,12 +2325,22 @@ class SchemaSync
         $applied = [];
         $errors = [];
 
+        try {
+            $roleCol = $db->fetchOne('SHOW COLUMNS FROM users LIKE "role"');
+            if ($roleCol && stripos((string)($roleCol['Type'] ?? ''), 'enum') !== false) {
+                $db->execute('ALTER TABLE users MODIFY COLUMN role VARCHAR(32) NOT NULL DEFAULT "customer"');
+                $applied[] = 'col:users.role_varchar';
+            }
+        } catch (Throwable $e) {
+            $errors[] = 'col:users.role => ' . $e->getMessage();
+        }
+
         $userCols = [
+            'assigned_dashboard' => 'ADD COLUMN assigned_dashboard VARCHAR(32) NULL AFTER role',
             'kyc_level' => 'ADD COLUMN kyc_level INT NOT NULL DEFAULT 1',
             'phone_normalized' => 'ADD COLUMN phone_normalized VARCHAR(32) NULL',
             'token_version' => 'ADD COLUMN token_version INT NOT NULL DEFAULT 1',
             'assigned_permissions' => 'ADD COLUMN assigned_permissions TEXT NULL',
-            'assigned_dashboard' => 'ADD COLUMN assigned_dashboard VARCHAR(64) NULL',
             'referred_by_user_id' => 'ADD COLUMN referred_by_user_id VARCHAR(36) NULL',
             'referral_source' => 'ADD COLUMN referral_source VARCHAR(64) NULL',
             'referral_campaign_code' => 'ADD COLUMN referral_campaign_code VARCHAR(64) NULL',
@@ -2350,36 +2367,6 @@ class SchemaSync
             } catch (Throwable $e) {
                 $errors[] = "col:users.{$col} => " . $e->getMessage();
             }
-        }
-
-        try {
-            $roleCol = $db->fetchOne(
-                'SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "users" AND COLUMN_NAME = "role"'
-            );
-            $colType = strtolower((string)($roleCol['COLUMN_TYPE'] ?? ''));
-            if (
-                $colType !== '' && (
-                    !str_contains($colType, "'student'") ||
-                    !str_contains($colType, "'agent'") ||
-                    !str_contains($colType, "'support'") ||
-                    !str_contains($colType, "'staff'") ||
-                    !str_contains($colType, "'manager'")
-                )
-            ) {
-                $db->execute('ALTER TABLE users MODIFY COLUMN role ENUM("customer", "student", "agent", "support", "staff", "manager", "admin", "superadmin") NOT NULL DEFAULT "customer"');
-                $applied[] = 'col:users.role_enum';
-            }
-        } catch (Throwable $e) {
-            $errors[] = 'col:users.role_enum => ' . $e->getMessage();
-        }
-
-        // Safe non-destructive backfill for assigned_dashboard
-        try {
-            $db->execute(
-                'UPDATE users SET assigned_dashboard = CASE WHEN role = "superadmin" THEN "admin" ELSE role END
-                 WHERE assigned_dashboard IS NULL OR assigned_dashboard = ""'
-            );
-        } catch (Throwable) {
         }
 
         // Safe backfill for phone_normalized (canonical 2348XXXXXXXXX / digits)
@@ -3057,7 +3044,7 @@ class SchemaSync
         $defaultAccounts = [
             ['acc_cash_drawer', 'CASH_DRAWER', 'Physical Office Cash Drawer', 'cash', 'Office Safe / Till', 'CASH-01'],
             ['acc_pos_terminal', 'POS_TERMINAL', 'Office POS Terminal', 'pos', 'Moniepoint / OPay POS', 'POS-01'],
-            ['acc_bank_main', 'BANK_MAIN', 'HambakTech Business Bank Account', 'bank', 'Moniepoint MFB', '8147837664'],
+            ['acc_bank_main', 'BANK_MAIN', 'HambakTech Business Bank Account', 'bank', 'Moniepoint MFB', '5210741634'],
             ['acc_paystack', 'GATEWAY_PAYSTACK', 'Paystack Online Settlement', 'gateway', 'Paystack', 'PAYSTACK'],
             ['acc_flutterwave', 'GATEWAY_FLUTTERWAVE', 'Flutterwave Online Settlement', 'gateway', 'Flutterwave', 'FLUTTERWAVE'],
             ['acc_wallet_liab', 'LIABILITY_CUSTOMER_WALLETS', 'Customer Wallet Liabilities Pool', 'liability', 'Platform Wallets', 'LIAB-WALLET'],
@@ -3348,6 +3335,21 @@ class SchemaSync
             } catch (Throwable $e) {
                 $errors[] = "table:{$name} => " . $e->getMessage();
             }
+        }
+
+        try {
+            $hasCol = $db->fetchOne('SHOW COLUMNS FROM role_dashboard_configs LIKE "has_unpublished_changes"');
+            if (!$hasCol) {
+                $db->execute('ALTER TABLE role_dashboard_configs ADD COLUMN has_unpublished_changes TINYINT(1) NOT NULL DEFAULT 0 AFTER published_config');
+                $applied[] = 'col:role_dashboard_configs.has_unpublished_changes';
+            }
+            $hasCreated = $db->fetchOne('SHOW COLUMNS FROM role_dashboard_configs LIKE "created_at"');
+            if (!$hasCreated) {
+                $db->execute('ALTER TABLE role_dashboard_configs ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER published_at');
+                $applied[] = 'col:role_dashboard_configs.created_at';
+            }
+        } catch (Throwable $e) {
+            $errors[] = 'col:role_dashboard_configs => ' . $e->getMessage();
         }
 
         // Register module in dashboard_modules idempotently

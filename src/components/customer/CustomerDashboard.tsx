@@ -411,7 +411,7 @@ export function CustomerDashboard({
             </div>
             <div className="flex items-baseline justify-between mt-1.5">
               <span className="text-xl font-extrabold font-mono text-blue-800 dark:text-emerald-400 tabular-nums">
-                ₦{user.wallet_balance.toLocaleString()}
+                ₦{Number(user.wallet_balance ?? 0).toLocaleString()}
               </span>
               <button
                 type="button"
@@ -557,7 +557,7 @@ export function CustomerDashboard({
               >
                 <Wallet className="w-3.5 h-3.5 text-blue-700 dark:text-emerald-400" />
                 <span className="text-xs font-mono font-bold text-blue-800 dark:text-emerald-400 tabular-nums">
-                  ₦{user.wallet_balance.toLocaleString()}
+                  ₦{Number(user.wallet_balance ?? 0).toLocaleString()}
                 </span>
               </div>
             )}

@@ -84,8 +84,8 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
   };
 
   const handleCopyAccount = () => {
-    const acc = walletSummary?.bankDetails?.accountNumber || '5210471634';
-    navigator.clipboard.writeText(acc);
+    const acc = walletSummary?.bankDetails?.accountNumber || '5210741634';
+    navigator.clipboard?.writeText?.(acc).catch(() => {});
     setCopiedBank(true);
     setTimeout(() => setCopiedBank(false), 2000);
   };
@@ -104,6 +104,10 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
       setManualError('Please provide sender account name and payment reference.');
       return;
     }
+    if (!receiptFile) {
+      setManualError('Please attach an official bank transfer receipt (JPG, PNG, or PDF).');
+      return;
+    }
 
     try {
       setManualSubmitting(true);
@@ -111,16 +115,14 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
       formData.append('amount', String(amt));
       formData.append('depositor_name', senderName.trim());
       formData.append('sender_name', senderName.trim());
-      formData.append('bank_name', 'Moniepoint MFB');
-      formData.append('account_number', '5210471634');
+      formData.append('bank_name', walletSummary?.bankDetails?.bank || 'Moniepoint MFB');
+      formData.append('account_number', walletSummary?.bankDetails?.accountNumber || '5210741634');
       formData.append('reference', transferRef.trim());
       formData.append('payment_reference', transferRef.trim());
       formData.append('payment_date', paymentDate);
       formData.append('payment_method', paymentMethod);
       formData.append('remarks', remarks.trim() || 'Manual bank transfer deposit');
-      if (receiptFile) {
-        formData.append('receipt', receiptFile);
-      }
+      formData.append('receipt', receiptFile);
 
       const res = await api.submitManualFunding(formData as any);
 
@@ -219,7 +221,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
 
           <div>
             <div className="text-4xl font-extrabold text-white font-mono tracking-tight">
-              ₦{user?.wallet_balance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+              ₦{Number(user?.wallet_balance ?? 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
             </div>
             <div className="text-xs text-slate-400 mt-1">
               Active ledger balance for instant NIN, BVN, and data purchases.
@@ -261,7 +263,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
               <div>
                 <div className="text-[10px] text-slate-500">ACCOUNT NUMBER</div>
                 <div className="text-2xl font-extrabold text-emerald-400 font-mono tracking-widest mt-0.5">
-                  {walletSummary?.bankDetails?.accountNumber || '8210492817'}
+                  {walletSummary?.bankDetails?.accountNumber || '5210741634'}
                 </div>
               </div>
 
@@ -282,7 +284,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
               <div>
                 <span className="text-slate-500 text-[10px] block">BENEFICIARY</span>
                 <span className="text-slate-200 font-semibold truncate block">
-                  {walletSummary?.bankDetails?.accountName || 'HambakTech Enterprise'}
+                  {walletSummary?.bankDetails?.accountName || 'Hambaktech_Services'}
                 </span>
               </div>
             </div>
@@ -450,15 +452,15 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
             <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Beneficiary Bank:</span>
-                <span className="font-bold text-emerald-300">Moniepoint MFB</span>
+                <span className="font-bold text-emerald-300">{walletSummary?.bankDetails?.bank || 'Moniepoint MFB'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Account Number:</span>
-                <span className="font-mono font-bold text-white tracking-wider">5210471634</span>
+                <span className="font-mono font-bold text-white tracking-wider">{walletSummary?.bankDetails?.accountNumber || '5210741634'}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Account Name:</span>
-                <span className="font-semibold text-slate-200">Hambaktech_Services</span>
+                <span className="font-semibold text-slate-200">{walletSummary?.bankDetails?.accountName || 'Hambaktech_Services'}</span>
               </div>
             </div>
 

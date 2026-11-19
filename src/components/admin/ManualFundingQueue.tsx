@@ -57,10 +57,54 @@ export function ManualFundingQueue() {
   const [adjustReason, setAdjustReason] = useState<string>('');
   const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
-  // Proof image inspection modal
+  // Proof image / PDF authenticated inspection modal
   const [inspectProofUrl, setInspectProofUrl] = useState<string | null>(null);
+  const [proofBlob, setProofBlob] = useState<{ blobUrl: string; contentType: string } | null>(null);
+  const [proofLoading, setProofLoading] = useState(false);
+  const [proofError, setProofError] = useState<string | null>(null);
   const [rejectModalTxn, setRejectModalTxn] = useState<any | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string>('Deposit reference could not be matched with our verified bank account statement.');
+
+  const closeProofModal = () => {
+    if (proofBlob?.blobUrl) {
+      URL.revokeObjectURL(proofBlob.blobUrl);
+    }
+    setProofBlob(null);
+    setProofError(null);
+    setInspectProofUrl(null);
+  };
+
+  useEffect(() => {
+    if (!inspectProofUrl) return;
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    setProofLoading(true);
+    setProofError(null);
+    setProofBlob(null);
+    api.fetchProtectedBlobUrl(inspectProofUrl)
+      .then(res => {
+        if (cancelled) {
+          URL.revokeObjectURL(res.blobUrl);
+          return;
+        }
+        createdUrl = res.blobUrl;
+        setProofBlob(res);
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          setProofError(err?.message || 'Unable to load payment receipt file.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setProofLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (createdUrl) {
+        URL.revokeObjectURL(createdUrl);
+      }
+    };
+  }, [inspectProofUrl]);
 
   useEffect(() => {
     fetchPending();
@@ -299,44 +343,48 @@ export function ManualFundingQueue() {
                 <div className="space-y-2 flex-1">
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-xl font-black font-mono text-emerald-400">
-                      ₦{txn.amount.toLocaleString()}
+                      ₦{(Number(txn.amount) || 0).toLocaleString()}
                     </span>
                     <span className="px-2 py-0.5 rounded font-mono text-[10px] bg-slate-800 text-slate-300">
-                      Ref: {txn.reference}
+                      Ref: {txn.reference || txn.payment_reference}
                     </span>
                     <span className="px-2 py-0.5 rounded font-mono text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
                       PENDING VERIFICATION
                     </span>
                   </div>
 
-                  {txn.customer && (
-                    <div className="flex items-center gap-2 text-slate-300 font-medium">
-                      <span>Customer: <strong className="text-white">{txn.customer.full_name}</strong></span>
+                  {(txn.customer || txn.full_name) && (
+                    <div className="flex flex-wrap items-center gap-2 text-slate-300 font-medium">
+                      <span>Customer: <strong className="text-white">{txn.customer?.full_name || txn.full_name}</strong></span>
                       <span className="text-slate-600">&bull;</span>
-                      <span className="text-slate-400 font-mono text-[11px]">{txn.customer.email}</span>
+                      <span className="text-slate-400 font-mono text-[11px]">{txn.customer?.email || txn.email}</span>
                       <span className="text-slate-600">&bull;</span>
-                      <span className="text-emerald-400 font-mono text-[11px]">Bal: ₦{txn.customer.current_balance?.toLocaleString()}</span>
+                      <span className="text-emerald-400 font-mono text-[11px]">
+                        Bal: ₦{Number(txn.customer?.current_balance ?? txn.current_balance ?? 0).toLocaleString()}
+                      </span>
                     </div>
                   )}
 
-                  <p className="font-semibold text-white">{txn.description}</p>
+                  <p className="font-semibold text-white">{txn.description || txn.remarks || 'Manual bank transfer deposit'}</p>
 
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-slate-400 text-[11px] font-mono">
-                    <span>Sender: <strong className="text-slate-200">{txn.metadata?.sender_name || 'N/A'}</strong></span>
-                    <span>Bank: <strong className="text-slate-200">{txn.metadata?.bank_name || 'Bank Transfer'}</strong></span>
+                    <span>Sender: <strong className="text-slate-200">{txn.metadata?.sender_name || txn.depositor_name || 'N/A'}</strong></span>
+                    <span>Bank: <strong className="text-slate-200">{txn.metadata?.bank_name || txn.bank_name || 'Moniepoint MFB'}</strong></span>
+                    <span>Acc: <strong className="text-slate-200">{txn.metadata?.account_number || txn.account_number || '5210741634'}</strong></span>
                     <span>Submitted: {new Date(txn.created_at).toLocaleString()}</span>
                   </div>
 
-                  {txn.metadata?.customer_remarks && (
+                  {(txn.metadata?.customer_remarks || txn.remarks) && (
                     <div className="text-[11px] text-slate-400 italic bg-slate-950 p-2 rounded-lg border border-slate-800">
-                      Customer Note: &quot;{txn.metadata.customer_remarks}&quot;
+                      Customer Note: &quot;{txn.metadata?.customer_remarks || txn.remarks}&quot;
                     </div>
                   )}
 
-                  {txn.metadata?.payment_proof_url && (
+                  {(txn.metadata?.payment_proof_url || txn.teller_proof_url) && (
                     <div className="pt-1">
                       <button
-                        onClick={() => setInspectProofUrl(txn.metadata.payment_proof_url)}
+                        type="button"
+                        onClick={() => setInspectProofUrl(txn.metadata?.payment_proof_url || txn.teller_proof_url)}
                         className="text-indigo-400 hover:text-indigo-300 font-bold inline-flex items-center gap-1.5 text-[11px] bg-indigo-950/40 px-2.5 py-1 rounded-lg border border-indigo-500/30"
                       >
                         <FileText className="w-3.5 h-3.5" />
@@ -593,13 +641,19 @@ export function ManualFundingQueue() {
                     <div className="flex justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
                       <span className="text-slate-400">Paystack Online (Card/USSD):</span>
                       <span className="font-mono text-emerald-400 font-bold">
-                        ₦{financialReports.funding.paystackFunding.toLocaleString()}
+                        ₦{(financialReports.funding.paystackFunding || 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+                      <span className="text-slate-400">Flutterwave Online:</span>
+                      <span className="font-mono text-amber-400 font-bold">
+                        ₦{(financialReports.funding.flutterwaveFunding || 0).toLocaleString()}
                       </span>
                     </div>
                     <div className="flex justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
                       <span className="text-slate-400">Manual Bank Transfers (Moniepoint):</span>
                       <span className="font-mono text-sky-400 font-bold">
-                        ₦{financialReports.funding.manualFunding.toLocaleString()}
+                        ₦{(financialReports.funding.manualFunding || 0).toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -655,29 +709,35 @@ export function ManualFundingQueue() {
                         : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                     }`}
                   >
-                    {g.status === 'active' ? 'Operational' : 'Coming Soon'}
+                    {g.status === 'active' ? 'Operational' : g.status === 'disabled' ? 'Disabled / Unavailable' : 'Coming Soon'}
                   </span>
                 </div>
 
                 <div className="py-4 space-y-2 text-xs text-slate-400">
                   {g.id === 'paystack' ? (
                     <p>
-                      Official checkout engine. Supports Mastercard, Visa, Verve, USSD banking, and direct bank account transfers with instant webhook callback.
+                      Official checkout engine. Supports Mastercard, Visa, Verve, USSD banking, and direct bank account transfers with instant webhook verification.
+                    </p>
+                  ) : g.id === 'manual' ? (
+                    <p>
+                      Direct Moniepoint transfer desk. Customers submit transfer proof for administrative verification and ledger settlement.
                     </p>
                   ) : (
                     <p>
-                      Fully activated payment gateway. Supports Nigerian debit/credit cards, bank transfers, USSD, Barter, mobile money, and instant webhook verification via secret hash.
+                      {g.status === 'active'
+                        ? 'Flutterwave checkout gateway is active and ready for live online payments and webhook verification.'
+                        : 'Flutterwave is currently disabled pending valid live v4 OAuth client credentials and secret hash configuration.'}
                     </p>
                   )}
                 </div>
 
                 <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
                   <span className="text-xs text-slate-500 font-mono">
-                    Status: {g.is_active ? 'Primary Gateway' : 'Standby'}
+                    Status: {g.is_active ? 'Primary Gateway' : g.status === 'active' ? 'Standby' : 'Disabled'}
                   </span>
-                  {g.status === 'coming_soon' ? (
+                  {g.status !== 'active' ? (
                     <span className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 font-bold text-xs cursor-not-allowed">
-                      Coming Soon
+                      Unavailable
                     </span>
                   ) : (
                     <button
@@ -702,22 +762,49 @@ export function ManualFundingQueue() {
       {/* Proof Inspection Modal */}
       {inspectProofUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-4">
-            <div className="flex justify-between items-center">
+          <div className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-4">
+            <div className="flex justify-between items-center gap-3">
               <h3 className="font-bold text-white text-sm">Customer Bank Payment Proof</h3>
-              <button
-                onClick={() => setInspectProofUrl(null)}
-                className="text-slate-400 hover:text-white text-xs"
-              >
-                ✕ Close
-              </button>
+              <div className="flex items-center gap-2">
+                {proofBlob && (
+                  <a
+                    href={proofBlob.blobUrl}
+                    download="bank-transfer-receipt"
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
+                  >
+                    Download
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={closeProofModal}
+                  className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded-lg hover:bg-slate-800"
+                >
+                  ✕ Close
+                </button>
+              </div>
             </div>
-            <div className="rounded-xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center p-2">
-              <img
-                src={inspectProofUrl}
-                alt="Payment proof"
-                className="max-h-[60vh] object-contain rounded-lg"
-              />
+            <div className="rounded-xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center p-2 min-h-[260px]">
+              {proofLoading ? (
+                <div className="flex items-center gap-2 text-slate-400 text-xs">
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                  <span>Loading authenticated receipt...</span>
+                </div>
+              ) : proofError ? (
+                <div className="text-rose-400 text-xs p-4 text-center">{proofError}</div>
+              ) : proofBlob?.contentType?.includes('pdf') ? (
+                <iframe
+                  src={proofBlob.blobUrl}
+                  title="Payment proof PDF"
+                  className="w-full h-[65vh] rounded-lg bg-white"
+                />
+              ) : proofBlob ? (
+                <img
+                  src={proofBlob.blobUrl}
+                  alt="Payment proof"
+                  className="max-h-[65vh] object-contain rounded-lg"
+                />
+              ) : null}
             </div>
           </div>
         </div>

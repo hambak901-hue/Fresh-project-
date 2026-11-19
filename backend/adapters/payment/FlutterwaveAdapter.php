@@ -23,7 +23,7 @@ use HambakTech\Core\Security;
 class FlutterwaveAdapter implements PaymentGatewayInterface
 {
     private const V4_TOKEN_URL = 'https://idp.flutterwave.com/realms/flutterwave/protocol/openid-connect/token';
-    private const V4_BASE_URL = 'https://f4bexperience.flutterwave.com';
+    private const V4_BASE_URL = 'https://api.flutterwave.com/v4';
     private const V3_BASE_URL = 'https://api.flutterwave.com/v3';
 
     private string $secretKey;
@@ -60,8 +60,13 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
         $this->timeout = $timeout ?: ((int)($dbProvider['timeout_seconds'] ?? 30));
 
         $rawBase = $baseUrl ?: (getenv('FLUTTERWAVE_BASE_URL') ?: (!empty($dbProvider['base_url']) ? (string)$dbProvider['base_url'] : (string)($providerConfig['base_url'] ?? '')));
+        $flwEnv = strtolower((string)(getenv('FLUTTERWAVE_ENV') ?: ($config['app']['env'] ?? 'production')));
         if ($this->isV4Credentials()) {
-            if ($rawBase === '' || str_contains($rawBase, 'api.flutterwave.com/v3')) {
+            if (
+                $rawBase === '' ||
+                str_contains($rawBase, 'api.flutterwave.com/v3') ||
+                (str_contains($rawBase, 'f4bexperience.flutterwave.com') && $flwEnv !== 'sandbox')
+            ) {
                 $this->baseUrl = self::V4_BASE_URL;
             } else {
                 $this->baseUrl = rtrim($rawBase, '/');
@@ -244,56 +249,160 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
     private function initializePaymentV4(string $email, float $amount, string $reference, string $callbackUrl, array $metadata = []): array
     {
         $fullName = trim((string)($metadata['customer_name'] ?? 'HambakTech Customer'));
-        $parts = preg_split('/\s+/', $fullName, 2) ?: ['HambakTech', 'Customer'];
-        $firstName = $parts[0] ?: 'HambakTech';
-        $lastName = $parts[1] ?? 'Customer';
+        $sanitizedName = preg_replace('/[^A-Za-z \'-]/', ' ', $fullName) ?: 'HambakTech Customer';
+        $sanitizedName = preg_replace('/\s+/', ' ', trim($sanitizedName)) ?: 'HambakTech Customer';
+        $parts = preg_split('/\s+/', $sanitizedName, 2) ?: ['HambakTech', 'Customer'];
+        $firstName = trim($parts[0] ?? 'HambakTech');
+        $lastName = trim($parts[1] ?? 'Customer');
+        if (strlen($firstName) < 2) {
+            $firstName = 'Customer';
+        }
+        if (strlen($lastName) < 2) {
+            $lastName = 'HambakTech';
+        }
         $phone = preg_replace('/\D/', '', (string)($metadata['phone_number'] ?? '08000000000'));
         if (str_starts_with($phone, '0') && strlen($phone) === 11) {
             $phone = substr($phone, 1);
         } elseif (str_starts_with($phone, '234')) {
             $phone = substr($phone, 3);
         }
+        $cleanPhone = $phone ?: '8000000000';
+        $alphaRef = preg_replace('/[^A-Za-z0-9]/', '', $reference) ?: ('FLWFUND' . strtoupper(bin2hex(random_bytes(5))));
 
-        $payload = [
+        // Step 1: Lookup or create Flutterwave v4 customer
+        $customerId = $this->findOrCreateV4Customer($email, $firstName, $lastName, $cleanPhone);
+
+        // Step 2: Create dynamic Virtual Account (/virtual-accounts) for seamless NGN bank transfer
+        $vaPayload = [
+            'reference' => $alphaRef,
+            'customer_id' => $customerId,
+            'expiry' => 3600,
             'amount' => $amount,
             'currency' => 'NGN',
-            'reference' => $reference,
-            'redirect_url' => $callbackUrl,
-            'customer' => [
-                'email' => $email,
-                'name' => [
-                    'first' => $firstName,
-                    'last' => $lastName,
-                ],
-                'phone' => [
-                    'country_code' => '234',
-                    'number' => $phone ?: '8000000000',
-                ],
-            ],
-            'payment_method' => [
-                'type' => 'bank_transfer',
-                'bank_transfer' => [
-                    'account_type' => 'static',
-                ],
-            ],
+            'account_type' => 'dynamic',
             'meta' => array_merge($metadata, [
                 'platform' => 'HambakTech Enterprise',
                 'service' => 'Wallet Funding',
+                'wallet_reference' => $reference,
             ]),
         ];
 
-        $headers = $this->getAuthHeaders($reference);
-        $ch = curl_init("{$this->baseUrl}/orchestration/direct-charges");
+        $vaRes = $this->requestV4('/virtual-accounts', 'POST', $vaPayload, $alphaRef);
+        if ($vaRes['ok'] && is_array($vaRes['data'])) {
+            $va = $vaRes['data'];
+            $accNum = (string)($va['account_number'] ?? ($va['virtual_account']['account_number'] ?? ''));
+            if ($accNum !== '') {
+                $transferDetails = [
+                    'account_number' => $accNum,
+                    'bank_name' => (string)($va['account_bank_name'] ?? ($va['bank_name'] ?? 'Wema Bank')),
+                    'account_name' => (string)($va['account_name'] ?? ($fullName . ' / HAMBAKTECH')),
+                    'amount' => (float)($va['amount'] ?? $amount),
+                    'currency' => (string)($va['currency'] ?? 'NGN'),
+                    'expires_at' => (string)($va['account_expiration_datetime'] ?? ($va['expiry_datetime'] ?? '')),
+                    'note' => (string)($va['note'] ?? 'Transfer the exact amount to this temporary account to fund your wallet automatically.'),
+                    'reference' => $reference,
+                    'flw_reference' => (string)($va['reference'] ?? $alphaRef),
+                    'flw_va_id' => (string)($va['id'] ?? ''),
+                ];
+                return [
+                    'authorization_url' => '',
+                    'link' => '',
+                    'reference' => $reference,
+                    'tx_ref' => $reference,
+                    'flw_charge_id' => (string)($va['id'] ?? ''),
+                    'flw_va_id' => (string)($va['id'] ?? ''),
+                    'transfer_details' => $transferDetails,
+                    'amount' => $amount,
+                ];
+            }
+        }
+
+        $parsed = $vaRes['parsed'] ?? [];
+        $statusCode = (int)($vaRes['status_code'] ?? 0);
+        $errDetail = '';
+        if (is_array($parsed)) {
+            $errDetail = (string)($parsed['error']['message'] ?? $parsed['message'] ?? '');
+            if (!empty($parsed['error']['validation_errors']) && is_array($parsed['error']['validation_errors'])) {
+                $parts = [];
+                foreach ($parsed['error']['validation_errors'] as $ve) {
+                    if (is_array($ve) && (!empty($ve['field_name']) || !empty($ve['message']))) {
+                        $parts[] = trim(($ve['field_name'] ?? '') . ' ' . ($ve['message'] ?? ''));
+                    }
+                }
+                if (!empty($parts)) {
+                    $errDetail .= ($errDetail !== '' ? ' — ' : '') . implode('; ', $parts);
+                }
+            }
+        }
+        if ($errDetail === '') {
+            $errDetail = "Flutterwave v4 virtual account creation failed (HTTP {$statusCode})";
+        }
+        throw new RuntimeException("Flutterwave v4 Bank Transfer Error: {$errDetail}");
+    }
+
+    private function findOrCreateV4Customer(string $email, string $firstName, string $lastName, string $phone): string
+    {
+        $lookup = $this->requestV4('/customers?email=' . rawurlencode($email), 'GET', null, '');
+        if ($lookup['ok'] && is_array($lookup['data'])) {
+            $rows = isset($lookup['data'][0]) ? $lookup['data'] : (isset($lookup['data']['id']) ? [$lookup['data']] : []);
+            foreach ($rows as $cust) {
+                if (is_array($cust) && !empty($cust['id']) && strtolower((string)($cust['email'] ?? '')) === strtolower($email)) {
+                    return (string)$cust['id'];
+                }
+            }
+        }
+
+        $phoneClean = preg_replace('/\D/', '', $phone) ?: '8000000000';
+        if (strlen($phoneClean) < 7) {
+            $phoneClean = '8000000000';
+        }
+
+        $create = $this->requestV4('/customers', 'POST', [
+            'email' => $email,
+            'name' => ['first' => $firstName, 'last' => $lastName],
+            'phone' => ['country_code' => '234', 'number' => $phoneClean],
+        ], 'cust_' . md5(strtolower($email) . '_' . $phoneClean));
+
+        if ($create['ok'] && !empty($create['data']['id'])) {
+            return (string)$create['data']['id'];
+        }
+
+        // Re-check customer lookup in case of concurrent creation or existing record
+        $reLookup = $this->requestV4('/customers?email=' . rawurlencode($email), 'GET', null, '');
+        if ($reLookup['ok'] && is_array($reLookup['data'])) {
+            $rows = isset($reLookup['data'][0]) ? $reLookup['data'] : (isset($reLookup['data']['id']) ? [$reLookup['data']] : []);
+            foreach ($rows as $cust) {
+                if (is_array($cust) && !empty($cust['id']) && strtolower((string)($cust['email'] ?? '')) === strtolower($email)) {
+                    return (string)$cust['id'];
+                }
+            }
+        }
+
+        $parsed = $create['parsed'] ?? [];
+        $code = (int)($create['status_code'] ?? 0);
+        $msg = is_array($parsed)
+            ? (string)($parsed['error']['message'] ?? $parsed['message'] ?? "Unable to register Flutterwave v4 customer (HTTP {$code})")
+            : "Unable to register Flutterwave v4 customer (HTTP {$code})";
+        throw new RuntimeException("Flutterwave v4 Customer Error: {$msg}");
+    }
+
+    private function requestV4(string $endpoint, string $method, ?array $payload, string $idempotencyKey): array
+    {
+        $headers = $this->getAuthHeaders($idempotencyKey);
+        $ch = curl_init("{$this->baseUrl}{$endpoint}");
         $startTime = microtime(true);
 
-        curl_setopt_array($ch, [
+        $opts = [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($payload),
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_SSL_VERIFYPEER => true,
-        ]);
+        ];
+        if (strtoupper($method) === 'POST') {
+            $opts[CURLOPT_POST] = true;
+            $opts[CURLOPT_POSTFIELDS] = json_encode($payload ?? []);
+        }
+        curl_setopt_array($ch, $opts);
 
         $rawResponse = curl_exec($ch);
         $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
@@ -301,49 +410,33 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
         $curlError = curl_error($ch);
         curl_close($ch);
 
-        $parsed = json_decode((string)$rawResponse, true);
-        $this->logCall('/orchestration/direct-charges', 'POST', $statusCode, $payload, $parsed ?: $rawResponse, $latencyMs, $reference);
-
         if ($rawResponse === false) {
             throw new RuntimeException("Flutterwave v4 communication error: {$curlError}");
         }
 
-        if ($statusCode >= 200 && $statusCode < 300 && is_array($parsed) && ($parsed['status'] ?? '') === 'success') {
-            $data = $parsed['data'] ?? [];
-            $nextAction = $data['next_action'] ?? [];
-            $link = $nextAction['redirect_url']['url'] ?? ($data['link'] ?? '');
-            $transferDetails = $nextAction['payment_instruction'] ?? ($nextAction['bank_transfer'] ?? null);
-            if ($link === '' && $transferDetails === null) {
-                throw new RuntimeException('Flutterwave v4 direct charge initialized without redirect link or bank transfer instruction.');
-            }
-            return [
-                'authorization_url' => $link,
-                'link' => $link,
-                'reference' => $data['reference'] ?? $reference,
-                'tx_ref' => $reference,
-                'flw_charge_id' => $data['id'] ?? null,
-                'transfer_details' => $transferDetails,
-                'amount' => $amount,
-            ];
-        }
+        $parsed = json_decode((string)$rawResponse, true);
+        $this->logCall($endpoint, $method, $statusCode, $payload, $parsed ?: $rawResponse, $latencyMs, $idempotencyKey ?: null);
 
-        $msg = is_array($parsed)
-            ? ($parsed['error']['message'] ?? $parsed['message'] ?? "Flutterwave v4 charge failed (HTTP {$statusCode})")
-            : "Flutterwave v4 charge failed (HTTP {$statusCode})";
-        throw new RuntimeException("Flutterwave v4 Checkout Error: {$msg}");
+        $ok = ($statusCode >= 200 && $statusCode < 300 && is_array($parsed) && (($parsed['status'] ?? '') === 'success'));
+        return [
+            'ok' => $ok,
+            'status_code' => $statusCode,
+            'data' => $parsed['data'] ?? null,
+            'parsed' => $parsed,
+        ];
     }
 
     /**
      * 2. Verify Flutterwave Transaction
      */
-    public function verifyPayment(string $reference, ?string $transactionId = null): array
+    public function verifyPayment(string $reference, ?string $transactionId = null, ?string $savedVaId = null): array
     {
         if (empty($this->secretKey)) {
             throw new RuntimeException('Flutterwave Secret Key is not configured.');
         }
 
         if ($this->isV4Credentials()) {
-            return $this->verifyPaymentV4($reference, $transactionId);
+            return $this->verifyPaymentV4($reference, $transactionId, $savedVaId);
         }
 
         if (!empty($transactionId)) {
@@ -375,11 +468,25 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
             throw new RuntimeException("Flutterwave verification network error: {$curlError}");
         }
 
+        if ($statusCode === 429 || $statusCode >= 500 || $statusCode === 0) {
+            $msg = is_array($parsed) ? ($parsed['message'] ?? "Temporary Flutterwave verification issue (HTTP {$statusCode})") : "Temporary Flutterwave verification issue (HTTP {$statusCode})";
+            return [
+                'status' => 'pending',
+                'amount' => 0.00,
+                'fee' => 0.00,
+                'reference' => $reference,
+                'gateway_response' => $msg,
+                'raw' => $parsed,
+            ];
+        }
+
         if ($statusCode !== 200 || empty($parsed['status']) || empty($parsed['data'])) {
             $msg = $parsed['message'] ?? "Flutterwave verification error (HTTP {$statusCode})";
+            $isUnfinished = $statusCode === 400 && stripos((string)$msg, 'no transaction was found') !== false;
             return [
-                'status' => 'failed',
+                'status' => $isUnfinished ? 'pending' : 'failed',
                 'amount' => 0.00,
+                'fee' => 0.00,
                 'reference' => $reference,
                 'gateway_response' => $msg,
                 'raw' => $parsed,
@@ -388,11 +495,13 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
 
         $data = $parsed['data'];
         $nairaAmount = (float)($data['amount'] ?? 0.00);
+        $feeNaira = (float)($data['app_fee'] ?? 0.00);
         $isSuccess = (($data['status'] ?? '') === 'successful');
 
         return [
             'status' => $isSuccess ? 'successful' : ($data['status'] ?? 'failed'),
             'amount' => $nairaAmount,
+            'fee' => $feeNaira,
             'currency' => $data['currency'] ?? 'NGN',
             'reference' => $data['tx_ref'] ?? $reference,
             'flw_id' => $data['id'] ?? null,
@@ -404,73 +513,98 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
         ];
     }
 
-    private function verifyPaymentV4(string $reference, ?string $transactionId = null): array
+    private function verifyPaymentV4(string $reference, ?string $transactionId = null, ?string $savedVaId = null): array
     {
-        $headers = $this->getAuthHeaders();
+        $alphaRef = preg_replace('/[^A-Za-z0-9]/', '', $reference) ?: $reference;
+        $chargeCandidates = [];
         if (!empty($transactionId)) {
-            $url = "{$this->baseUrl}/charges/" . rawurlencode($transactionId);
-        } else {
-            $url = "{$this->baseUrl}/charges?reference=" . rawurlencode($reference);
+            $chargeCandidates[] = '/charges/' . rawurlencode($transactionId);
+        }
+        $chargeCandidates[] = '/charges?reference=' . rawurlencode($reference);
+        if ($alphaRef !== $reference) {
+            $chargeCandidates[] = '/charges?reference=' . rawurlencode($alphaRef);
+        }
+        if (!empty($savedVaId)) {
+            $chargeCandidates[] = '/charges?virtual_account_id=' . rawurlencode($savedVaId);
         }
 
-        $ch = curl_init($url);
-        $startTime = microtime(true);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_TIMEOUT => $this->timeout,
-            CURLOPT_SSL_VERIFYPEER => true,
-        ]);
+        $data = null;
+        $lastParsed = null;
+        $lastCode = 0;
 
-        $rawResponse = curl_exec($ch);
-        $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
-        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-
-        $parsed = json_decode((string)$rawResponse, true);
-        $this->logCall($url, 'GET', $statusCode, ['reference' => $reference, 'id' => $transactionId], $parsed ?: $rawResponse, $latencyMs, $reference);
-
-        if ($rawResponse === false) {
-            throw new RuntimeException("Flutterwave v4 verification error: {$curlError}");
+        foreach ($chargeCandidates as $ep) {
+            $res = $this->requestV4($ep, 'GET', null, '');
+            $lastCode = $res['status_code'];
+            $lastParsed = $res['parsed'];
+            if (!$res['ok'] || empty($res['data'])) {
+                continue;
+            }
+            $rowSet = $res['data'];
+            if (is_array($rowSet) && isset($rowSet[0]) && is_array($rowSet[0])) {
+                foreach ($rowSet as $row) {
+                    if (
+                        ($row['reference'] ?? '') === $reference ||
+                        ($row['reference'] ?? '') === $alphaRef ||
+                        (!empty($transactionId) && ($row['id'] ?? '') === $transactionId)
+                    ) {
+                        $data = $row;
+                        break 2;
+                    }
+                }
+                $data = $rowSet[0];
+                break;
+            } elseif (is_array($rowSet) && isset($rowSet['status'])) {
+                $data = $rowSet;
+                break;
+            }
         }
 
-        $data = $parsed['data'] ?? null;
-        if (is_array($data) && isset($data[0]) && is_array($data[0])) {
-            $matched = null;
-            foreach ($data as $row) {
-                if (($row['reference'] ?? '') === $reference || ($row['id'] ?? '') === $transactionId) {
-                    $matched = $row;
-                    break;
+        // Only confirmed /charges responses may mark a transaction as successful.
+        if (!is_array($data) || empty($data)) {
+            $vaEndpoint = !empty($savedVaId)
+                ? '/virtual-accounts/' . rawurlencode($savedVaId)
+                : '/virtual-accounts?reference=' . rawurlencode($alphaRef);
+            $vaRes = $this->requestV4($vaEndpoint, 'GET', null, '');
+            $vaState = 'pending';
+            $vaMsg = is_array($lastParsed)
+                ? ($lastParsed['message'] ?? "Awaiting bank transfer confirmation (HTTP {$lastCode})")
+                : "Awaiting bank transfer confirmation";
+            if ($vaRes['ok'] && is_array($vaRes['data'])) {
+                $vaRows = isset($vaRes['data'][0]) ? $vaRes['data'] : [$vaRes['data']];
+                $vaRow = is_array($vaRows[0] ?? null) ? $vaRows[0] : [];
+                $vaStatusLower = strtolower((string)($vaRow['status'] ?? ''));
+                if ($vaStatusLower === 'active') {
+                    $vaMsg = 'Virtual account active — awaiting incoming bank transfer settlement.';
+                } elseif ($vaStatusLower === 'inactive') {
+                    $vaState = 'pending';
+                    $vaMsg = 'Temporary transfer window closed or awaiting settlement confirmation.';
                 }
             }
-            $data = $matched ?? ($data[0] ?? null);
-        }
-
-        if ($statusCode !== 200 || !is_array($data) || empty($data)) {
-            $msg = is_array($parsed) ? ($parsed['message'] ?? "Flutterwave v4 charge not found (HTTP {$statusCode})") : "HTTP {$statusCode}";
             return [
-                'status' => 'failed',
+                'status' => $vaState,
                 'amount' => 0.00,
+                'fee' => 0.00,
                 'reference' => $reference,
-                'gateway_response' => $msg,
-                'raw' => $parsed,
+                'gateway_response' => $vaMsg,
+                'raw' => $lastParsed,
             ];
         }
 
         $chargeStatus = strtolower((string)($data['status'] ?? ''));
-        $isSuccess = in_array($chargeStatus, ['succeeded', 'successful', 'completed'], true);
+        $isSuccess = in_array($chargeStatus, ['succeeded', 'successful', 'completed', 'paid'], true);
+        $isPending = in_array($chargeStatus, ['pending', 'awaiting_payment', 'ongoing', 'processing', ''], true);
 
         return [
-            'status' => $isSuccess ? 'successful' : ($chargeStatus ?: 'failed'),
+            'status' => $isSuccess ? 'successful' : ($isPending ? 'pending' : $chargeStatus),
             'amount' => (float)($data['amount'] ?? 0.00),
+            'fee' => (float)($data['fees'][0]['amount'] ?? ($data['app_fee'] ?? 0.00)),
             'currency' => strtoupper((string)($data['currency'] ?? 'NGN')),
-            'reference' => (string)($data['reference'] ?? $reference),
+            'reference' => (string)($data['meta']['wallet_reference'] ?? ($data['reference'] ?? $reference)),
             'flw_id' => $data['id'] ?? null,
             'paid_at' => $data['created_datetime'] ?? ($data['created_at'] ?? null),
             'channel' => $data['payment_method']['type'] ?? 'bank_transfer',
             'customer_email' => $data['customer']['email'] ?? '',
-            'gateway_response' => (string)($data['processor_response']['message'] ?? ($data['status'] ?? 'Verified')),
+            'gateway_response' => (string)($data['processor_response']['message'] ?? ($data['status'] ?? 'Pending')),
             'raw' => $data,
         ];
     }
@@ -485,10 +619,10 @@ class FlutterwaveAdapter implements PaymentGatewayInterface
             return false;
         }
 
-        $candidateSecrets = array_values(array_filter([
-            $this->secretHash,
-            $this->secretKey,
-        ], static fn($s) => $s !== ''));
+        // Prefer dedicated webhook secret hash when configured; only fall back to secretKey if secretHash is unset
+        $candidateSecrets = $this->secretHash !== ''
+            ? [$this->secretHash]
+            : array_values(array_filter([$this->secretKey], static fn($s) => $s !== ''));
 
         foreach ($candidateSecrets as $secret) {
             if (hash_equals($secret, $signatureHeader)) {

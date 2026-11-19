@@ -12,7 +12,7 @@ Options -Indexes +FollowSymLinks
         Header always set X-Frame-Options "SAMEORIGIN"
         Header always set X-XSS-Protection "1; mode=block"
         Header always set Referrer-Policy "strict-origin-when-cross-origin"
-        <FilesMatch "\.(html|htm)$">
+        <FilesMatch "^(.*\.(html|htm)|sw\.js|manifest\.webmanifest)$">
             Header set Cache-Control "no-cache, no-store, must-revalidate"
             Header set Pragma "no-cache"
             Header set Expires 0
@@ -44,7 +44,9 @@ Options -Indexes +FollowSymLinks
     RewriteRule ^portal/?$ /#portal [NE,R=302,L]
     RewriteRule ^customer/?$ /#portal [NE,R=302,L]
 
-    # 4. SPA Client Fallback: Any non-existing file or folder routes to index.html
+    # 4. SPA Client Fallback: Any non-existing file or folder routes to index.html (never mask missing /assets/ or /downloads/)
+    RewriteCond %{REQUEST_URI} !^/assets/
+    RewriteCond %{REQUEST_URI} !^/downloads/
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^ index.html [L]

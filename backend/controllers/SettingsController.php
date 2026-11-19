@@ -144,7 +144,7 @@ class SettingsController
                 'max_funding_amount' => 500000,
                 'manual_funding_enabled' => true,
                 'bank_name' => 'Moniepoint MFB',
-                'bank_account_number' => '5210471634',
+                'bank_account_number' => '5210741634',
                 'bank_account_name' => 'Hambaktech_Services',
             ], is_array($settingsMap['wallet_settings'] ?? null) ? $settingsMap['wallet_settings'] : []),
 
@@ -360,6 +360,10 @@ class SettingsController
             $settingsData['min_withdrawal_naira'] = max(500.0, (float)($settingsData['min_withdrawal_naira'] ?? 2000));
             $settingsData['max_withdrawal_naira'] = max((float)$settingsData['min_withdrawal_naira'], (float)($settingsData['max_withdrawal_naira'] ?? 100000));
             $settingsData['max_rewards_per_referee'] = max(1, min(100, (int)($settingsData['max_rewards_per_referee'] ?? 1)));
+        } elseif ($category === 'wallet') {
+            if (isset($settingsData['bank_account_number'])) {
+                $settingsData['bank_account_number'] = preg_replace('/\s+/', '', trim((string)$settingsData['bank_account_number'])) ?: '5210741634';
+            }
         }
 
         $settingKey = $category . '_settings';
@@ -384,9 +388,17 @@ class SettingsController
 
         // Mirror key settings to top-level keys for direct runtime lookup
         if ($category === 'wallet' && isset($settingsData['bank_name'])) {
+            $cleanAcc = preg_replace('/\s+/', '', trim((string)($settingsData['bank_account_number'] ?? '5210741634'))) ?: '5210741634';
             $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_bank", :v, "wallet", NOW())', ['v' => (string)$settingsData['bank_name']]);
-            $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_account_number", :v, "wallet", NOW())', ['v' => (string)($settingsData['bank_account_number'] ?? '5210471634')]);
+            $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_account_number", :v, "wallet", NOW())', ['v' => $cleanAcc]);
             $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_account_name", :v, "wallet", NOW())', ['v' => (string)($settingsData['bank_account_name'] ?? 'Hambaktech_Services')]);
+            try {
+                $this->db->execute(
+                    'UPDATE accounting_accounts SET bank_name = :b, account_number = :a WHERE account_code = "BANK_MAIN"',
+                    ['b' => (string)$settingsData['bank_name'], 'a' => $cleanAcc]
+                );
+            } catch (\Throwable) {
+            }
         }
         if ($category === 'payment_gateways' && isset($settingsData['active_gateway'])) {
             $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "active_payment_gateway", :v, "payments", NOW())', ['v' => (string)$settingsData['active_gateway']]);

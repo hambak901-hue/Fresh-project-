@@ -60,10 +60,126 @@
           e.stopImmediatePropagation();
         }
       }, true);
+
+      // Boot Watchdog & Stale-Cache Self-Recovery (prevents blank white screen on chunk mismatch or stalled boot)
+      (function() {
+        window.__HAMBAK_APP_MOUNTED__ = false;
+        var RECOVER_KEY = 'hambak_boot_recover_at';
+
+        window.__hambakClearCacheAndReload = function() {
+          try {
+            var p1 = ('caches' in window && caches.keys)
+              ? caches.keys().then(function(keys) {
+                  return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+                }).catch(function() {})
+              : Promise.resolve();
+            var p2 = ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations)
+              ? navigator.serviceWorker.getRegistrations().then(function(regs) {
+                  return Promise.all(regs.map(function(r) { return r.unregister().catch(function() {}); }));
+                }).catch(function() {})
+              : Promise.resolve();
+            Promise.all([p1, p2]).finally(function() {
+              try {
+                var url = new URL(window.location.href);
+                url.searchParams.set('_cb', String(Date.now()));
+                window.location.replace(url.toString());
+              } catch (err) {
+                window.location.reload();
+              }
+            });
+          } catch (err) {
+            window.location.reload();
+          }
+        };
+
+        window.__hambakShowBootRecovery = function(reasonText) {
+          var root = document.getElementById('root');
+          if (!root || window.__HAMBAK_APP_MOUNTED__) return;
+          var isDark = document.documentElement.classList.contains('dark');
+          var bg = isDark ? '#020617' : '#f8fafc';
+          var card = isDark ? '#0f172a' : '#ffffff';
+          var border = isDark ? '#1e293b' : '#e2e8f0';
+          var text = isDark ? '#f8fafc' : '#0f172a';
+          var muted = isDark ? '#94a3b8' : '#475569';
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:' + bg + ';color:' + text + ';font-family:system-ui,-apple-system,sans-serif;">' +
+              '<div style="width:100%;max-width:420px;background:' + card + ';border:1px solid ' + border + ';border-radius:20px;padding:28px 24px;text-align:center;box-shadow:0 20px 45px rgba(0,0,0,0.18);">' +
+                '<img src="/logo.png" alt="HAMBAKTECH" style="width:52px;height:52px;object-fit:contain;margin:0 auto 14px;border-radius:12px;" onerror="this.style.display=\'none\'" />' +
+                '<h2 style="margin:0 0 8px;font-size:18px;font-weight:800;">HAMBAKTECH App Refresh Needed</h2>' +
+                '<p style="margin:0 0 18px;font-size:13px;line-height:1.55;color:' + muted + ';">' +
+                  (reasonText || 'A recent app update or cached file prevented the portal from finishing startup. Tap Repair Cache & Reload below — your account and wallet remain untouched.') +
+                '</p>' +
+                '<button type="button" onclick="window.__hambakClearCacheAndReload()" style="width:100%;padding:12px 16px;border:0;border-radius:12px;background:#1d4ed8;color:#fff;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:10px;">Repair Cache &amp; Reload App</button>' +
+                '<button type="button" onclick="window.location.reload()" style="width:100%;padding:10px 16px;border:1px solid ' + border + ';border-radius:12px;background:transparent;color:' + text + ';font-size:12px;font-weight:600;cursor:pointer;">Reload Only</button>' +
+              '</div>' +
+            '</div>';
+        };
+
+        function tryAutoRecoverOnce(reasonText) {
+          if (window.__HAMBAK_APP_MOUNTED__) return;
+          try {
+            var last = Number(sessionStorage.getItem(RECOVER_KEY) || '0');
+            if (!last || Date.now() - last > 30000) {
+              sessionStorage.setItem(RECOVER_KEY, String(Date.now()));
+              window.__hambakClearCacheAndReload();
+              return;
+            }
+          } catch (e) {}
+          window.__hambakShowBootRecovery(reasonText);
+        }
+
+        function isAssetOrChunkFailure(msg, target) {
+          if (target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK')) {
+            var src = target.src || target.href || '';
+            if (src.indexOf('@vite/client') !== -1) return false;
+            if (src.indexOf('/assets/') !== -1 || src.indexOf('index-') !== -1) return true;
+          }
+          if (!msg) return false;
+          var lower = String(msg).toLowerCase();
+          return (
+            lower.indexOf('failed to fetch dynamically imported module') !== -1 ||
+            lower.indexOf('importing a module script failed') !== -1 ||
+            lower.indexOf('error loading dynamically imported module') !== -1 ||
+            lower.indexOf('loading chunk') !== -1 ||
+            lower.indexOf('expected a javascript module script') !== -1
+          );
+        }
+
+        window.addEventListener('error', function(e) {
+          var target = e && e.target;
+          var msg = e && (e.message || '');
+          if (isAssetOrChunkFailure(msg, target)) {
+            tryAutoRecoverOnce('An outdated cached asset was detected. Tap Repair Cache & Reload to load the latest HAMBAKTECH build.');
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(e) {
+          var reason = e && e.reason;
+          var msg = reason && (reason.message || String(reason));
+          if (isAssetOrChunkFailure(msg, null)) {
+            tryAutoRecoverOnce('A stale app module failed to load. Tap Repair Cache & Reload to restore access.');
+          }
+        });
+
+        window.setTimeout(function() {
+          if (!window.__HAMBAK_APP_MOUNTED__) {
+            var root = document.getElementById('root');
+            if (root && (!root.innerHTML || root.getAttribute('data-boot-shell') === 'true')) {
+              window.__hambakShowBootRecovery('The app is taking longer than expected to start. Tap Repair Cache & Reload to clear stale offline files and retry.');
+            }
+          }
+        }, 12000);
+      })();
     </script>
   </head>
   <body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased selection:bg-blue-600 selection:text-white transition-colors duration-200">
-    <div id="root"></div>
+    <div id="root" data-boot-shell="true">
+      <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;font-family:system-ui,-apple-system,sans-serif;text-align:center;">
+        <img src="/logo.png" alt="HAMBAKTECH" style="width:48px;height:48px;object-fit:contain;margin-bottom:12px;border-radius:12px;" onerror="this.style.display='none'" />
+        <div style="font-size:14px;font-weight:800;letter-spacing:-0.01em;">HAMBAK TECH &amp; SERVICES</div>
+        <div style="font-size:12px;opacity:0.65;margin-top:4px;">Loading portal...</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
