@@ -33,7 +33,9 @@ class SystemController
             $row = $this->db->fetchOne('SELECT VERSION() as ver');
             $dbVersion = $row['ver'] ?? 'connected';
         } catch (Throwable $e) {
-            $dbStatus = 'error: ' . $e->getMessage();
+            \HambakTech\Core\Security::logPrivateError('HealthCheckDB', $e);
+            $dbStatus = 'unavailable';
+            $dbVersion = 'unavailable';
         }
 
         Response::success([
@@ -127,10 +129,6 @@ class SystemController
 
     public function settings(Request $request): void
     {
-        $bankRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_bank"');
-        $accNumRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_number"');
-        $accNameRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_name"');
-
         $settings = [
             'nin_fee' => 200,
             'bvn_fee' => 250,
@@ -148,9 +146,9 @@ class SystemController
             ],
             'airtime_swap_enabled' => \HambakTech\Controllers\TelecomController::readAirtimeSwapEnabled($this->db),
             'maintenance_mode' => false,
-            'bank_transfer_account_name' => $accNameRow['setting_value'] ?? 'Hambaktech_Services',
-            'bank_transfer_bank' => $bankRow['setting_value'] ?? 'Moniepoint MFB',
-            'bank_transfer_account_number' => preg_replace('/\s+/', '', (string)($accNumRow['setting_value'] ?? '5210741634')) ?: '5210741634',
+            'bank_transfer_account_name' => null,
+            'bank_transfer_bank' => null,
+            'bank_transfer_account_number' => null,
             'company_name' => 'HAMBAK TECH & SERVICES',
             'brand_name' => 'HAMBAKTECH',
             'business_reg_number' => 'BN 9284726',

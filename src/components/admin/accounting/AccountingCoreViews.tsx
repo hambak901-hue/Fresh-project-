@@ -551,7 +551,7 @@ export const WebsiteAccountingView: React.FC<{
             <p className="text-lg font-extrabold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
               {formatNaira(summary.gateway_pos_fees)}
             </p>
-            <p className="text-[10px] text-slate-500 font-mono">Paystack &amp; Bank Transfer</p>
+            <p className="text-[10px] text-slate-500 font-mono">Paystack Online Gateway</p>
           </div>
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5">
             <p className="text-slate-500 dark:text-slate-400">Wallet Deposits (Liability)</p>
@@ -561,12 +561,12 @@ export const WebsiteAccountingView: React.FC<{
             <p className="text-[10px] text-slate-500 font-mono">Not counted as revenue</p>
           </div>
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5">
-            <p className="text-slate-500 dark:text-slate-400">Pending Approvals</p>
+            <p className="text-slate-500 dark:text-slate-400">Pending Gateway Checkouts</p>
             <p className="text-lg font-extrabold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
-              {formatNaira(data?.pending_manual_funding?.amount || 0)}
+              {formatNaira(data?.pending_gateway_payments?.amount || 0)}
             </p>
             <p className="text-[10px] text-slate-500 font-mono">
-              {data?.pending_manual_funding?.count || 0} manual · {data?.pending_gateway_payments?.count || 0} gateway
+              {data?.pending_gateway_payments?.count || 0} awaiting Paystack confirmation
             </p>
           </div>
         </div>

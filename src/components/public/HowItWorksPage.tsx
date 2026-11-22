@@ -23,7 +23,7 @@ export const HowItWorksPage: React.FC<HowItWorksPageProps> = ({ onNavigate, onOp
     {
       step: '02',
       title: 'Fund Your NGN Wallet',
-      description: 'Add funds conveniently via approved payment gateways or verified bank transfer.',
+      description: 'Add funds instantly via Paystack using Card, Bank Transfer via Paystack, or USSD.',
     },
     {
       step: '03',

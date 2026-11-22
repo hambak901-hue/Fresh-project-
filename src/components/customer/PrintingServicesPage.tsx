@@ -139,7 +139,6 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
   const [categories, setCategories] = useState<PrintingCategory[]>([]);
   const [zones, setZones] = useState<PrintingDeliveryZone[]>([]);
   const [settings, setSettings] = useState<PrintingSettings | null>(null);
-  const [bankDetails, setBankDetails] = useState<{ bank: string; accountNumber: string; accountName: string } | null>(null);
   const [catalogLoading, setCatalogLoading] = useState<boolean>(true);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [globalSuccess, setGlobalSuccess] = useState<string | null>(null);
@@ -195,12 +194,8 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
   const [showDeclineBox, setShowDeclineBox] = useState<boolean>(false);
   const [actionBusy, setActionBusy] = useState<boolean>(false);
   const [payScope, setPayScope] = useState<'full' | 'deposit' | 'balance' | 'delivery'>('full');
-  const [payGateway, setPayGateway] = useState<'wallet' | 'manual_transfer' | 'paystack'>('wallet');
+  const [payGateway, setPayGateway] = useState<'wallet' | 'paystack'>('wallet');
   const [txPin, setTxPin] = useState<string>('');
-  const [payerName, setPayerName] = useState<string>(user?.full_name || '');
-  const [bankReference, setBankReference] = useState<string>('');
-  const [proofUrl, setProofUrl] = useState<string>('');
-  const [payRemarks, setPayRemarks] = useState<string>('');
   const [pendingVerifyRef, setPendingVerifyRef] = useState<string | null>(null);
   const [pendingCheckoutUrl, setPendingCheckoutUrl] = useState<string | null>(null);
   const [chatMessage, setChatMessage] = useState<string>('');
@@ -222,7 +217,6 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
         setCategories(res.categories || []);
         setZones(res.delivery_zones || []);
         setSettings(res.settings || null);
-        setBankDetails(res.bank_details || null);
         if (res.categories?.length > 0) {
           const def = res.categories.find(c => c.category_key === selectedCategoryKey) || res.categories[0];
           setSelectedCategoryKey(def.category_key);
@@ -547,10 +541,6 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
         gateway: payGateway,
         payment_scope: payScope,
         transaction_pin: payGateway === 'wallet' ? txPin : undefined,
-        payer_name: payGateway === 'manual_transfer' ? payerName : undefined,
-        bank_reference: payGateway === 'manual_transfer' ? bankReference : undefined,
-        proof_url: payGateway === 'manual_transfer' ? proofUrl : undefined,
-        remarks: payGateway === 'manual_transfer' ? payRemarks : undefined,
         callback_url: typeof window !== 'undefined' ? `${window.location.origin}/#printing` : undefined,
       });
       if (res.success) {
@@ -680,7 +670,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
               Commercial, Academic, Large-Format &amp; ID Printing Desk
             </h1>
             <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-              Upload your documents or artwork, receive a manually verified official quotation, approve and pay securely via Wallet, Card, or Bank Transfer, and choose free Office Collection or tracked Lagos Delivery.
+              Upload your documents or artwork, receive a manually verified official quotation, approve and pay securely via Wallet or Paystack Online Checkout, and choose free Office Collection or tracked Lagos Delivery.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -2101,7 +2091,6 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
                           >
                             <option value="wallet">HambakTech Wallet (Instant)</option>
                             <option value="paystack">Paystack Online Checkout</option>
-                            <option value="manual_transfer">Manual Bank Transfer (Admin Confirmed)</option>
                           </select>
                         </div>
                       </div>
@@ -2135,66 +2124,6 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
                         </div>
                       )}
 
-                      {payGateway === 'manual_transfer' && (
-                        <div className="space-y-2 p-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs">
-                          <div className="font-bold text-slate-900 dark:text-white">
-                            Transfer to: {bankDetails?.bank || 'Moniepoint MFB'} &bull;{' '}
-                            <span className="font-mono">{bankDetails?.accountNumber || '5210741634'}</span> ({bankDetails?.accountName || 'Hambaktech_Services'})
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            <input
-                              type="text"
-                              required
-                              placeholder="Sender / Payer Name"
-                              value={payerName}
-                              onChange={e => setPayerName(e.target.value)}
-                              className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
-                            />
-                            <input
-                              type="text"
-                              required
-                              placeholder="Bank Session / Transfer Ref"
-                              value={bankReference}
-                              onChange={e => setBankReference(e.target.value)}
-                              className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Remarks / Narration (Optional)"
-                              value={payRemarks}
-                              onChange={e => setPayRemarks(e.target.value)}
-                              className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
-                            />
-                          </div>
-                          <div className="flex items-center gap-2 pt-1">
-                            <input
-                              type="text"
-                              placeholder="Receipt / Proof URL (or upload below)"
-                              value={proofUrl}
-                              onChange={e => setProofUrl(e.target.value)}
-                              className="flex-1 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
-                            />
-                            <label className="px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-[11px] font-semibold cursor-pointer">
-                              Upload Proof
-                              <input
-                                type="file"
-                                className="hidden"
-                                onChange={async e => {
-                                  const f = e.target.files?.[0];
-                                  if (!f) return;
-                                  try {
-                                    const up = await api.uploadPrintingFile(f);
-                                    if (up.file_url) setProofUrl(up.file_url);
-                                  } catch (err: any) {
-                                    setGlobalError(err.message || 'Proof upload failed.');
-                                  }
-                                }}
-                              />
-                            </label>
-                          </div>
-                        </div>
-                      )}
-
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="submit"
@@ -2205,9 +2134,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
                           <span>
                             {payGateway === 'wallet'
                               ? 'Pay Immediately with Wallet'
-                              : payGateway === 'manual_transfer'
-                                ? 'Submit Bank Transfer Proof'
-                                : `Proceed with ${payGateway}`}
+                              : 'Pay Now via Paystack'}
                           </span>
                         </button>
 

@@ -216,12 +216,13 @@ class NotificationController
                     'source' => 'broadcast',
                 ]);
             } catch (Throwable $e) {
+                Security::logPrivateError('NotificationBroadcastEmail', $e);
                 $emailDelivery = [
                     'triggered' => true,
                     'sent' => 0,
                     'failed' => count($recipients),
                     'skipped_duplicates' => 0,
-                    'errors' => [$e->getMessage()],
+                    'errors' => ['Email delivery service temporarily unavailable.'],
                 ];
             }
         }
@@ -412,12 +413,13 @@ class NotificationController
                     'source' => 'announcement',
                 ]);
             } catch (Throwable $e) {
+                Security::logPrivateError('AnnouncementEmailDispatch', $e);
                 $emailDelivery = [
                     'triggered' => true,
                     'sent' => 0,
                     'failed' => 0,
                     'skipped_duplicates' => 0,
-                    'errors' => [$e->getMessage()],
+                    'errors' => ['Email delivery service temporarily unavailable.'],
                 ];
             }
         }

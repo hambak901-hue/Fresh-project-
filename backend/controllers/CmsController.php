@@ -798,7 +798,8 @@ class CmsController
                     'source' => 'announcement',
                 ]);
             } catch (Throwable $e) {
-                $emailDelivery = ['triggered' => true, 'sent' => 0, 'failed' => 0, 'skipped_duplicates' => 0, 'errors' => [$e->getMessage()]];
+                Security::logPrivateError('CmsAnnouncementCreateEmail', $e);
+                $emailDelivery = ['triggered' => true, 'sent' => 0, 'failed' => 0, 'skipped_duplicates' => 0, 'errors' => ['Email delivery service temporarily unavailable.']];
             }
         }
         if ($saved) {
@@ -872,7 +873,8 @@ class CmsController
                     'source' => 'announcement',
                 ]);
             } catch (Throwable $e) {
-                $emailDelivery = ['triggered' => true, 'sent' => 0, 'failed' => 0, 'skipped_duplicates' => 0, 'errors' => [$e->getMessage()]];
+                Security::logPrivateError('CmsAnnouncementUpdateEmail', $e);
+                $emailDelivery = ['triggered' => true, 'sent' => 0, 'failed' => 0, 'skipped_duplicates' => 0, 'errors' => ['Email delivery service temporarily unavailable.']];
             }
         }
         if ($saved) {

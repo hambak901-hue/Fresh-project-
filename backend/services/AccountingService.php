@@ -1110,11 +1110,7 @@ class AccountingService
 
         $summary = $this->computePeriodSummary($win['start_utc'], $win['end_utc'], $win['date_from'], $win['date_to']);
 
-        // Pending manual funding queue & referral withdrawal liability metrics
-        $pendingManual = $this->db->fetchOne(
-            'SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total_amt FROM manual_funding_requests WHERE status = "pending"'
-        ) ?: ['cnt' => 0, 'total_amt' => 0];
-
+        // Manual funding queue discontinued; keep zeroed field for response shape compatibility
         $pendingGateway = $this->db->fetchOne(
             'SELECT COUNT(*) AS cnt, COALESCE(SUM(amount), 0) AS total_amt FROM payment_records WHERE status = "pending"'
         ) ?: ['cnt' => 0, 'total_amt' => 0];
@@ -1124,8 +1120,8 @@ class AccountingService
             'summary' => $summary,
             'entries' => $entries,
             'pending_manual_funding' => [
-                'count' => (int)($pendingManual['cnt'] ?? 0),
-                'amount' => round((float)($pendingManual['total_amt'] ?? 0), 2),
+                'count' => 0,
+                'amount' => 0.0,
             ],
             'pending_gateway_payments' => [
                 'count' => (int)($pendingGateway['cnt'] ?? 0),

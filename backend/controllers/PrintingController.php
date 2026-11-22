@@ -58,34 +58,7 @@ class PrintingController
 
         $settings = $this->printing->getSettings();
 
-        // Fetch bank transfer details cleanly from wallet settings if available
-        $bankDetails = [
-            'bank' => 'Moniepoint MFB',
-            'accountNumber' => '5210741634',
-            'accountName' => 'Hambaktech_Services',
-        ];
-        try {
-            $kvRows = $this->db->fetchAll(
-                'SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("wallet_settings","bank_transfer_bank","bank_transfer_account_number","bank_transfer_account_name","payment_gateways_settings")'
-            );
-            $kv = [];
-            foreach ($kvRows as $kr) {
-                $kv[$kr['setting_key']] = $kr['setting_value'];
-            }
-            if (!empty($kv['wallet_settings'])) {
-                $w = json_decode((string)$kv['wallet_settings'], true);
-                if (is_array($w)) {
-                    $bankDetails['bank'] = (string)($w['bank_name'] ?? $bankDetails['bank']);
-                    $bankDetails['accountNumber'] = (string)($w['bank_account_number'] ?? $bankDetails['accountNumber']);
-                    $bankDetails['accountName'] = (string)($w['bank_account_name'] ?? $bankDetails['accountName']);
-                }
-            }
-            if (!empty($kv['bank_transfer_bank'])) $bankDetails['bank'] = (string)$kv['bank_transfer_bank'];
-            if (!empty($kv['bank_transfer_account_number'])) $bankDetails['accountNumber'] = (string)$kv['bank_transfer_account_number'];
-            if (!empty($kv['bank_transfer_account_name'])) $bankDetails['accountName'] = (string)$kv['bank_transfer_account_name'];
-            $bankDetails['accountNumber'] = preg_replace('/\s+/', '', trim($bankDetails['accountNumber'])) ?: '5210741634';
-        } catch (Throwable) {
-        }
+        $bankDetails = null;
 
         Response::success([
             'categories' => $categories,
@@ -132,7 +105,7 @@ class PrintingController
             $est = $this->printing->calculateEstimate($category, $body, $zone);
             Response::success($est);
         } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), Security::ERR_PROVIDER_UNAVAILABLE), 422);
         }
     }
 
@@ -310,6 +283,9 @@ class PrintingController
         );
         foreach ($payments as &$p) {
             $p['amount'] = (float)$p['amount'];
+            if (!empty($p['remarks']) && is_string($p['remarks'])) {
+                $p['remarks'] = Security::sanitizeCustomerError($p['remarks'], Security::ERR_PROVIDER_UNAVAILABLE);
+            }
         }
 
         Response::success([
@@ -377,7 +353,7 @@ class PrintingController
         try {
             $est = $this->printing->calculateEstimate($catDecoded, $body, $zone);
         } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), Security::ERR_PROVIDER_UNAVAILABLE), 422);
         }
 
         $serviceTitle = trim((string)($body['service_title'] ?? ''));
@@ -653,8 +629,13 @@ class PrintingController
         }
 
         $gateway = strtolower(trim((string)($body['gateway'] ?? 'wallet')));
-        if (!in_array($gateway, ['wallet', 'paystack', 'manual_transfer'], true)) {
-            Response::error('Unsupported payment method. Use wallet, paystack, or manual_transfer.', 422);
+        if ($gateway === 'manual_transfer') {
+            Response::error('Manual bank transfer for customer printing payments has been discontinued. Please pay using Wallet or Paystack.', 410);
+            return;
+        }
+        if (!in_array($gateway, ['wallet', 'paystack'], true)) {
+            Response::error('Unsupported payment method. Use wallet or paystack.', 422);
+            return;
         }
 
         $payRef = 'PRTPAY_' . strtoupper(bin2hex(random_bytes(5)));
@@ -675,8 +656,10 @@ class PrintingController
                     'internal',
                     ['order_id' => $order['id'], 'order_reference' => $order['order_reference'], 'scope' => $scope]
                 );
-            } catch (RuntimeException $e) {
-                Response::error($e->getMessage(), 400);
+            } catch (Throwable $e) {
+                $errMsg = Security::sanitizeWalletDebitError($e);
+                $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+                Response::error($errMsg, $status);
                 return;
             }
 
@@ -710,53 +693,6 @@ class PrintingController
             return;
         }
 
-        if ($gateway === 'manual_transfer') {
-            $payerName = trim((string)($body['payer_name'] ?? $user['full_name'] ?? 'Customer'));
-            $bankRef = trim((string)($body['bank_reference'] ?? $body['reference'] ?? ''));
-            $proofUrl = trim((string)($body['proof_url'] ?? ''));
-            $remarks = trim((string)($body['remarks'] ?? 'Manual bank transfer for printing order'));
-
-            $this->db->execute(
-                'INSERT INTO printing_payments
-                 (id, order_id, user_id, reference, payment_scope, gateway, amount, status, proof_url, payer_name, bank_reference, remarks, created_at)
-                 VALUES (:id, :oid, :uid, :ref, :scope, "manual_transfer", :amt, "pending", :purl, :pname, :bref, :rem, NOW())',
-                [
-                    'id' => $paymentId,
-                    'oid' => $order['id'],
-                    'uid' => $user['id'],
-                    'ref' => $payRef,
-                    'scope' => $scope,
-                    'amt' => $amountToPay,
-                    'purl' => $proofUrl ?: null,
-                    'pname' => $payerName,
-                    'bref' => $bankRef ?: $payRef,
-                    'rem' => $remarks,
-                ]
-            );
-
-            // Ensure quote decision becomes approved if customer paid directly from Quotation Sent
-            if ($order['status'] === 'Quotation Sent') {
-                $this->db->execute(
-                    'UPDATE printing_orders SET status = "Awaiting Payment", quote_decision = "approved", quote_responded_at = NOW() WHERE id = :id',
-                    ['id' => $order['id']]
-                );
-                $this->printing->recordStatusHistory($order['id'], 'Quotation Sent', 'Awaiting Payment', $user, 'Manual transfer proof submitted by customer.');
-            }
-
-            $this->printing->notifyPrintingAdmins(
-                "Printing Transfer Proof: {$order['order_reference']}",
-                "{$payerName} submitted ₦" . number_format($amountToPay, 2) . " bank transfer proof ({$payRef}) awaiting confirmation.",
-                $order['order_reference']
-            );
-
-            Response::success([
-                'payment_id' => $paymentId,
-                'reference' => $payRef,
-                'status' => 'pending',
-                'amount' => $amountToPay,
-            ], 'Bank transfer proof submitted! Our finance/printing team will confirm shortly.');
-            return;
-        }
 
         // Paystack checkout initialization — respect admin gateway enablement
         $gwCfg = ['enable_paystack' => true];
@@ -813,8 +749,20 @@ class PrintingController
                 'link' => $initRes['link'] ?? ($initRes['authorization_url'] ?? ''),
             ], 'Payment gateway checkout initialized.');
         } catch (Throwable $e) {
-            $this->db->execute('UPDATE printing_payments SET status = "rejected", remarks = :rem WHERE id = :id', ['rem' => $e->getMessage(), 'id' => $paymentId]);
-            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Payment service is temporarily unavailable. Please try again later or use Wallet/Bank Transfer.'), 502);
+            Security::logPrivateError('PrintingPaystackInit', $e, [
+                'user_id' => $user['id'],
+                'order_id' => $order['id'],
+                'payment_id' => $paymentId,
+                'reference' => $payRef,
+            ]);
+            $this->db->execute('UPDATE printing_payments SET status = "rejected", remarks = :rem WHERE id = :id', ['rem' => 'Payment gateway initialization failed', 'id' => $paymentId]);
+            $classified = Security::classifyProviderError($e);
+            $clientMsg = match ($classified['category']) {
+                'provider_auth' => Security::ERR_PROVIDER_AUTH,
+                'provider_wallet' => Security::ERR_PROVIDER_WALLET,
+                default => Security::ERR_PROVIDER_UNAVAILABLE,
+            };
+            Response::error($clientMsg, (int)$classified['http_status']);
         }
     }
 
@@ -882,7 +830,19 @@ class PrintingController
             $updated = $this->applyConfirmedPayment($order, (float)$payment['amount'], (string)$payment['payment_scope'], $user, "Paystack payment verified ({$reference})");
             Response::success(['order' => $this->printing->sanitizeOrderForCustomer($updated)], 'Payment verified and confirmed!');
         } catch (Throwable $e) {
-            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Payment verification is temporarily unavailable. Please try again shortly.'), 502);
+            Security::logPrivateError('PrintingPaystackVerify', $e, [
+                'user_id' => $user['id'],
+                'order_id' => $order['id'],
+                'reference' => $reference,
+            ]);
+            $classified = Security::classifyProviderError($e);
+            $clientMsg = match ($classified['category']) {
+                'customer_validation' => $classified['message'],
+                'provider_auth' => Security::ERR_PROVIDER_AUTH,
+                'provider_wallet' => Security::ERR_PROVIDER_WALLET,
+                default => Security::ERR_PROVIDER_UNAVAILABLE,
+            };
+            Response::error($clientMsg, (int)$classified['http_status']);
         }
     }
 

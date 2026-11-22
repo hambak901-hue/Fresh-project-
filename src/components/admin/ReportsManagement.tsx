@@ -8,7 +8,6 @@ import {
   Tv,
   Cpu,
   TrendingUp,
-  Clock,
   UserCheck,
   FileText,
   Download,
@@ -31,7 +30,6 @@ type ReportKey =
   | 'telecom'
   | 'provider'
   | 'profit'
-  | 'funding'
   | 'kyc'
   | 'staff'
   | 'referral_growth';
@@ -80,11 +78,11 @@ export const ReportsManagement: React.FC = () => {
     const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`;
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', jsonString);
-    downloadAnchor.setAttribute('download', `hambaktech_12_reports_${new Date().toISOString().slice(0, 10)}.json`);
+    downloadAnchor.setAttribute('download', `hambaktech_11_reports_${new Date().toISOString().slice(0, 10)}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
-    setFeedback({ type: 'success', message: 'All 12 reports exported to JSON successfully.' });
+    setFeedback({ type: 'success', message: 'All 11 reports exported to JSON successfully.' });
   };
 
   const handleExportCSV = () => {
@@ -118,7 +116,7 @@ export const ReportsManagement: React.FC = () => {
       ['Gross Operating Profit', `₦${reportsData.profit_report?.gross_profit ?? 0}`],
       ['Gross Operating Margin', `${reportsData.profit_report?.margin_percent ?? 0}%`],
       [],
-      ['12. REFERRAL & GROWTH ROI REPORT'],
+      ['11. REFERRAL & GROWTH ROI REPORT'],
       ['Total Referrals', String(referralReport?.summary?.total_referrals ?? 0)],
       ['Qualified Referrals', String(referralReport?.summary?.qualified_referrals ?? 0)],
       ['Referred Revenue', `₦${referralReport?.summary?.referred_revenue ?? 0}`],
@@ -147,10 +145,9 @@ export const ReportsManagement: React.FC = () => {
     { key: 'telecom' as ReportKey, label: '6. Telecom Report', icon: Tv },
     { key: 'provider' as ReportKey, label: '7. Provider Expenditure', icon: Cpu },
     { key: 'profit' as ReportKey, label: '8. Profit Report', icon: TrendingUp },
-    { key: 'funding' as ReportKey, label: '9. Manual Funding Report', icon: Clock },
-    { key: 'kyc' as ReportKey, label: '10. KYC Report', icon: UserCheck },
-    { key: 'staff' as ReportKey, label: '11. Staff Activity Report', icon: FileText },
-    { key: 'referral_growth' as ReportKey, label: '12. Referral & Growth ROI', icon: ArrowUpRight },
+    { key: 'kyc' as ReportKey, label: '9. KYC Report', icon: UserCheck },
+    { key: 'staff' as ReportKey, label: '10. Staff Activity Report', icon: FileText },
+    { key: 'referral_growth' as ReportKey, label: '11. Referral & Growth ROI', icon: ArrowUpRight },
   ];
 
   return (
@@ -160,11 +157,11 @@ export const ReportsManagement: React.FC = () => {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-semibold uppercase tracking-wider mb-2">
             <BarChart3 className="w-3.5 h-3.5" />
-            Executive Telemetry &bull; 12 Standard Reports
+            Executive Telemetry &bull; 11 Standard Reports
           </div>
           <h2 className="text-2xl font-bold text-white tracking-tight">Enterprise Financial &amp; Service Reports</h2>
           <p className="text-slate-400 text-xs sm:text-sm mt-1">
-            Reconcile all 12 core operational &amp; referral domains using real MySQL database records. Export full sets to JSON or CSV.
+            Reconcile all 11 core operational &amp; referral domains using live database records. Export full sets to JSON or CSV.
           </p>
         </div>
 
@@ -174,7 +171,7 @@ export const ReportsManagement: React.FC = () => {
             className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition shadow-sm"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export JSON (All 12)</span>
+            <span>Export JSON (All 11)</span>
           </button>
           <button
             onClick={handleExportCSV}
@@ -591,31 +588,7 @@ export const ReportsManagement: React.FC = () => {
             </div>
           )}
 
-          {/* Report 9: Manual Funding Report */}
-          {activeReport === 'funding' && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                <p className="text-xs text-slate-400 font-medium">Total Submitted</p>
-                <p className="text-2xl font-bold text-white mt-1">{reportsData.manual_funding_report?.total_requests ?? 0}</p>
-              </div>
-              <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                <p className="text-xs text-emerald-400 font-medium">Approved Requests</p>
-                <p className="text-2xl font-bold text-emerald-400 mt-1">{reportsData.manual_funding_report?.approved_count ?? 0}</p>
-              </div>
-              <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                <p className="text-xs text-amber-400 font-medium">Pending Queue</p>
-                <p className="text-2xl font-bold text-amber-400 mt-1">{reportsData.manual_funding_report?.pending_count ?? 0}</p>
-              </div>
-              <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
-                <p className="text-xs text-emerald-400 font-medium">Approved Amount</p>
-                <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">
-                  ₦{parseFloat(reportsData.manual_funding_report?.approved_amount || 0).toLocaleString()}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Report 10: KYC Report */}
+          {/* Report 9: KYC Report */}
           {activeReport === 'kyc' && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
@@ -643,7 +616,7 @@ export const ReportsManagement: React.FC = () => {
               <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold text-white">Staff Activity & Compliance Audit Trail</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Chronological record of root actions and manual funding overrides.</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Chronological record of root actions and administrative wallet adjustments.</p>
                 </div>
                 <div className="text-right">
                   <span className="text-xs text-slate-400">Total Audit Events</span>

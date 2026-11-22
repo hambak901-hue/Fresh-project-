@@ -1326,9 +1326,9 @@ class SchemaSync
             );
             $db->execute(
                 'INSERT IGNORE INTO system_settings (id, setting_key, setting_value, category, description) VALUES
-                 ("set_bank_name", "bank_transfer_bank", "Moniepoint MFB", "payment", "Official receiving bank name for customer manual funding"),
-                 ("set_bank_acc", "bank_transfer_account_number", "5210741634", "payment", "Official Moniepoint account number for bank transfer deposits"),
-                 ("set_bank_title", "bank_transfer_account_name", "HAMBAKTECH_SERVICES", "payment", "Official beneficiary account name for bank transfer deposits"),
+                 ("set_bank_name", "bank_transfer_bank", "", "payment", "Discontinued manual receiving bank name (Paystack Only)"),
+                 ("set_bank_acc", "bank_transfer_account_number", "", "payment", "Discontinued manual receiving account number (Paystack Only)"),
+                 ("set_bank_title", "bank_transfer_account_name", "", "payment", "Discontinued manual beneficiary account name (Paystack Only)"),
                  ("set_active_gateway", "active_payment_gateway", "paystack", "payment", "Active default online payment gateway"),
                  ("set_act_verif", "active_verification_provider", "2sureverify", "providers", "Active Primary Identity Verification Provider"),
                  ("set_bvn_primary", "bvn_primary_provider", "2sureverify", "providers", "Primary BVN Verification Provider"),

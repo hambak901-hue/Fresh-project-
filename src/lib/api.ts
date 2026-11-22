@@ -62,7 +62,12 @@ function sanitizeClientFacingError(rawMessage: string, endpoint: string, payload
   if (
     payload?.code === 'EMAIL_VERIFICATION_REQUIRED' ||
     payload?.code === 'PIN_SETUP_REQUIRED' ||
-    /insufficient wallet balance|transaction pin|verify your email/i.test(msg)
+    payload?.code === 'VERIFICATION_COOLDOWN' ||
+    payload?.code === 'VERIFICATION_EXPIRED' ||
+    payload?.code === 'VERIFICATION_ATTEMPTS_EXCEEDED' ||
+    payload?.code === 'INVALID_VERIFICATION_CODE' ||
+    payload?.code === 'EMAIL_DELIVERY_FAILED' ||
+    /insufficient wallet balance|transaction pin|verify your email|verification (?:code|link)|attempt\(s\) remaining/i.test(msg)
   ) {
     return msg;
   }
@@ -291,6 +296,11 @@ export const api = {
     user: User;
     dashboard_config?: import('../types').RoleDashboardConfig;
     pin_policy?: import('../types').PinPolicy;
+    email_verification_required?: boolean;
+    verification_sent?: boolean;
+    verification_expires_in_minutes?: number;
+    cooldown_seconds?: number;
+    message?: string;
   }> {
     const res = await request<any>('/api/auth/register', {
       method: 'POST',
@@ -302,12 +312,17 @@ export const api = {
     if (token && token !== 'undefined') {
       setStoredToken(token);
     }
-      return {
+    return {
       success: true,
       token,
       user: user && dashboardConfig ? { ...user, dashboard_config: dashboardConfig } : user,
       dashboard_config: dashboardConfig,
       pin_policy: res.pin_policy || res.data?.pin_policy,
+      email_verification_required: Boolean(res.email_verification_required ?? res.data?.email_verification_required ?? user?.email_verification_required),
+      verification_sent: Boolean(res.verification_sent ?? res.data?.verification_sent),
+      verification_expires_in_minutes: Number(res.verification_expires_in_minutes ?? res.data?.verification_expires_in_minutes ?? 60),
+      cooldown_seconds: Number(res.cooldown_seconds ?? res.data?.cooldown_seconds ?? 0),
+      message: res.message || res.data?.message,
     };
   },
 
@@ -706,32 +721,6 @@ export const api = {
     });
   },
 
-  async updateBankSettings(bank: string, accountNumber: string, accountName: string): Promise<{
-    success: boolean;
-    message: string;
-  }> {
-    return request('/api/admin/bank-settings', {
-      method: 'POST',
-      body: JSON.stringify({ bank, account_number: accountNumber, account_name: accountName }),
-    });
-  },
-
-  async submitManualFunding(data: FormData | {
-    amount: number;
-    sender_name: string;
-    bank_name: string;
-    reference: string;
-    payment_date?: string;
-    payment_method?: string;
-    remarks?: string;
-    payment_proof_url?: string;
-  }): Promise<{ success: boolean; message: string; transaction?: Transaction; id?: number }> {
-    return request('/api/wallet/manual-funding', {
-      method: 'POST',
-      body: data instanceof FormData ? data : JSON.stringify(data),
-    });
-  },
-
   async getPaymentGateways(): Promise<{
     activeGateway: string;
     gateways: Array<{ id: string; name: string; status: 'active' | 'coming_soon' | 'disabled'; is_active: boolean }>;
@@ -744,10 +733,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ gatewayId }),
     });
-  },
-
-  async getAdminPendingFundings(): Promise<{ success: boolean; count: number; pending: any[] }> {
-    return request('/api/wallet/admin/pending-fundings');
   },
 
   async fetchProtectedBlobUrl(url: string): Promise<{ blobUrl: string; contentType: string }> {
@@ -774,19 +759,6 @@ export const api = {
       blobUrl: URL.createObjectURL(blob),
       contentType,
     };
-  },
-
-  async approveAdminFunding(id: string): Promise<{ success: boolean; message: string; transaction: Transaction; userBalance: number }> {
-    return request(`/api/wallet/admin/approve-funding/${id}`, {
-      method: 'POST',
-    });
-  },
-
-  async rejectAdminFunding(id: string, reason?: string): Promise<{ success: boolean; message: string; transaction: Transaction }> {
-    return request(`/api/wallet/admin/reject-funding/${id}`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    });
   },
 
   async adminAdjustWalletBalance(data: {
@@ -2020,21 +1992,6 @@ export const api = {
 
   async deleteAcademyCourse(id: string): Promise<{ success: boolean; message: string }> {
     return request(`/api/admin/academy/course/${id}`, { method: 'DELETE' });
-  },
-
-  async getPendingFundingApprovals(): Promise<{ success: boolean; pending: Transaction[] }> {
-    return request('/api/admin/funding/pending');
-  },
-
-  async approveFunding(id: string): Promise<{ success: boolean; message: string; transaction: Transaction; userBalance: number }> {
-    return request(`/api/admin/funding/${id}/approve`, { method: 'POST' });
-  },
-
-  async rejectFunding(id: string, reason?: string): Promise<{ success: boolean; message: string; transaction: Transaction }> {
-    return request(`/api/admin/funding/${id}/reject`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    });
   },
 
   async getAdminAuditLogs(params?: { action?: string; search?: string }): Promise<{ success: boolean; count: number; logs: import('../types').AuditLogItem[] }> {
@@ -4353,13 +4310,9 @@ export const api = {
   async payPrintingOrder(
     id: string,
     payload: {
-      gateway: 'wallet' | 'paystack' | 'manual_transfer';
+      gateway: 'wallet' | 'paystack';
       payment_scope?: 'full' | 'deposit' | 'balance' | 'delivery';
       transaction_pin?: string;
-      payer_name?: string;
-      bank_reference?: string;
-      proof_url?: string;
-      remarks?: string;
       callback_url?: string;
     }
   ): Promise<{

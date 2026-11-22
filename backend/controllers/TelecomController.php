@@ -645,7 +645,9 @@ class TelecomController
                 ['plan_id' => $plan['id'], 'phone' => $phone]
             );
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 400);
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $status);
             return;
         }
 
@@ -731,14 +733,32 @@ class TelecomController
                 'order' => $order,
             ], $msg);
         } catch (Throwable $e) {
-            // Immediate automated wallet refund on provider failure
-            $this->walletService->credit($user['id'], $price, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed data order {$reference}");
+            // Immediate automated wallet refund on provider failure with ledger verification
+            $refundRef = 'REFUND_' . $reference;
+            $refundRes = $this->walletService->attemptConfirmedRefund(
+                (string)$user['id'],
+                $price,
+                'manual_adjustment',
+                $refundRef,
+                "Refund for failed data order {$reference}",
+                ['order_id' => $orderId, 'original_reference' => $reference]
+            );
+            $refundConfirmed = !empty($refundRes['confirmed']);
+            $finalOrderStatus = $refundConfirmed ? 'refunded' : 'failed';
+
+            Security::logPrivateError('TelecomDataPurchase', $e, [
+                'user_id' => $user['id'],
+                'order_id' => $orderId,
+                'reference' => $reference,
+                'provider' => $this->activeProviderId,
+                'refund_confirmed' => $refundConfirmed,
+            ]);
 
             $this->db->execute(
                 'INSERT INTO telecom_orders
                  (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
                  VALUES
-                 (:id, :uid, "data", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, "failed", :meta, NOW())',
+                 (:id, :uid, "data", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, :st, :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -750,20 +770,30 @@ class TelecomController
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
                     'ikey' => $idempotencyKey !== '' ? mb_substr($idempotencyKey, 0, 95) : null,
-                    'meta' => json_encode(['internal_reference' => $reference, 'error' => $e->getMessage()]),
+                    'st' => $finalOrderStatus,
+                    'meta' => json_encode([
+                        'internal_reference' => $reference,
+                        'refund_confirmed' => $refundConfirmed,
+                        'refund_reference' => $refundConfirmed ? $refundRef : null,
+                    ]),
                 ]
             );
 
-            $this->logFootprint($user, 'data', 'DATA_PURCHASE_FAILED', $reference, $price, 'failed', $this->activeProviderId, $e->getMessage(), [
+            $this->logFootprint($user, 'data', 'DATA_PURCHASE_FAILED', $reference, $price, $finalOrderStatus, $this->activeProviderId, $e->getMessage(), [
                 'network' => $plan['network'],
                 'phone' => $phone,
+                'refund_confirmed' => $refundConfirmed,
             ]);
 
-            $safeErr = Security::sanitizeCustomerError($e->getMessage());
-            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
-                ? $safeErr . ' Your wallet balance has been refunded.'
-                : 'Failed to dispatch data: ' . $safeErr . ' Your wallet balance has been refunded.';
-            Response::error($clientMsg, 502);
+            $customerSafeRef = 'HT-' . strtoupper(substr(str_replace('-', '', $orderId), 0, 10));
+            $clientMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
+            Response::error($clientMsg, 502, [
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
+                'refund_reference' => $refundRef,
+                'reference' => $customerSafeRef,
+                'balance_after' => $refundRes['balance_after'],
+            ]);
         }
     }
 
@@ -802,7 +832,9 @@ class TelecomController
                 ['network' => $network, 'phone' => $phone, 'face_value' => $amount, 'discount_percent' => $discountPercent]
             );
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 400);
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $status);
             return;
         }
 
@@ -864,13 +896,31 @@ class TelecomController
                 'order' => $order,
             ], "₦{$amount} Airtime successfully credited to {$phone}!");
         } catch (Throwable $e) {
-            $this->walletService->credit($user['id'], $discountedPrice, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed airtime {$reference}");
+            $refundRef = 'REFUND_' . $reference;
+            $refundRes = $this->walletService->attemptConfirmedRefund(
+                (string)$user['id'],
+                $discountedPrice,
+                'manual_adjustment',
+                $refundRef,
+                "Refund for failed airtime {$reference}",
+                ['order_id' => $orderId, 'original_reference' => $reference]
+            );
+            $refundConfirmed = !empty($refundRes['confirmed']);
+            $finalOrderStatus = $refundConfirmed ? 'refunded' : 'failed';
+
+            Security::logPrivateError('TelecomAirtimeTopup', $e, [
+                'user_id' => $user['id'],
+                'order_id' => $orderId,
+                'reference' => $reference,
+                'provider' => $this->activeProviderId,
+                'refund_confirmed' => $refundConfirmed,
+            ]);
 
             $this->db->execute(
                 'INSERT INTO telecom_orders 
                  (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
                  VALUES 
-                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                 (:id, :uid, "airtime", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :st, :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -881,20 +931,29 @@ class TelecomController
                     'cost' => $wholesaleCost,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'meta' => json_encode(['error' => $e->getMessage()]),
+                    'st' => $finalOrderStatus,
+                    'meta' => json_encode([
+                        'internal_reference' => $reference,
+                        'refund_confirmed' => $refundConfirmed,
+                        'refund_reference' => $refundConfirmed ? $refundRef : null,
+                    ]),
                 ]
             );
 
-            $this->logFootprint($user, 'airtime', 'AIRTIME_TOPUP_FAILED', $reference, $discountedPrice, 'failed', $this->activeProviderId, $e->getMessage(), [
+            $this->logFootprint($user, 'airtime', 'AIRTIME_TOPUP_FAILED', $reference, $discountedPrice, $finalOrderStatus, $this->activeProviderId, $e->getMessage(), [
                 'network' => $network,
                 'phone' => $phone,
+                'refund_confirmed' => $refundConfirmed,
             ]);
 
-            $safeErr = Security::sanitizeCustomerError($e->getMessage());
-            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
-                ? $safeErr . ' Your wallet balance has been refunded.'
-                : 'Failed to recharge airtime: ' . $safeErr . ' Your wallet balance has been refunded.';
-            Response::error($clientMsg, 502);
+            $clientMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
+            Response::error($clientMsg, 502, [
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
+                'refund_reference' => $refundRef,
+                'reference' => $reference,
+                'balance_after' => $refundRes['balance_after'],
+            ]);
         }
     }
 
@@ -1231,7 +1290,9 @@ class TelecomController
                 ['denomination_id' => $denom['id'], 'quantity' => $quantity, 'card_name' => $cardName]
             );
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 400);
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $status);
             return;
         }
 
@@ -1317,7 +1378,7 @@ class TelecomController
                     'newBalance' => $debitResult['balance_after'],
                     'order' => $order,
                 ], $incomplete
-                    ? 'Provider returned incomplete voucher data. Order marked Pending for verification — please click Verify/Requery in Orders.'
+                    ? 'Airtime PIN order is currently processing and marked Pending for verification — please click Verify in Orders shortly.'
                     : 'Airtime PIN order is currently processing. Click Verify in Orders to retrieve vouchers once settled.');
                 return;
             }
@@ -1420,15 +1481,30 @@ class TelecomController
             ], count($savedVouchers) . " {$network} ₦" . number_format($faceValue) . " Recharge PIN(s) generated successfully!");
         } catch (Throwable $e) {
             $refundRef = 'REFUND_' . $reference;
-            $alreadyRefunded = $this->db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
-            if (!$alreadyRefunded) {
-                $this->walletService->credit($user['id'], $totalPrice, 'manual_adjustment', $refundRef, "Refund for failed Airtime PIN order {$reference}");
-            }
+            $refundRes = $this->walletService->attemptConfirmedRefund(
+                (string)$user['id'],
+                $totalPrice,
+                'manual_adjustment',
+                $refundRef,
+                "Refund for failed Airtime PIN order {$reference}",
+                ['order_id' => $orderId, 'original_reference' => $reference]
+            );
+            $refundConfirmed = !empty($refundRes['confirmed']);
+            $finalOrderStatus = $refundConfirmed ? 'refunded' : 'failed';
+
+            Security::logPrivateError('TelecomAirtimePin', $e, [
+                'user_id' => $user['id'],
+                'order_id' => $orderId,
+                'reference' => $reference,
+                'provider' => $this->activeProviderId,
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+
             $existingFailed = $this->db->fetchOne('SELECT id FROM telecom_orders WHERE id = :id LIMIT 1', ['id' => $orderId]);
             if (!$existingFailed) {
                 $this->db->execute(
                     'INSERT INTO telecom_orders (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                     VALUES (:id, :uid, "airtime_pin", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, "failed", :meta, NOW())',
+                     VALUES (:id, :uid, "airtime_pin", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, :st, :meta, NOW())',
                     [
                         'id' => $orderId,
                         'uid' => $user['id'],
@@ -1440,18 +1516,28 @@ class TelecomController
                         'prov' => $this->activeProviderId,
                         'pref' => $reference,
                         'ikey' => $idempotencyKey !== '' ? mb_substr($idempotencyKey, 0, 95) : null,
-                        'meta' => json_encode(['internal_reference' => $reference, 'error' => $e->getMessage()]),
+                        'st' => $finalOrderStatus,
+                        'meta' => json_encode([
+                            'internal_reference' => $reference,
+                            'refund_confirmed' => $refundConfirmed,
+                            'refund_reference' => $refundConfirmed ? $refundRef : null,
+                        ]),
                     ]
                 );
             } else {
-                $this->db->execute('UPDATE telecom_orders SET status = "failed", profit = 0.00 WHERE id = :id', ['id' => $orderId]);
+                $this->db->execute('UPDATE telecom_orders SET status = :st, profit = 0.00 WHERE id = :id', ['st' => $finalOrderStatus, 'id' => $orderId]);
             }
-            $this->logFootprint($user, 'airtime_pin', 'AIRTIME_PIN_FAILED', $reference, $totalPrice, 'failed', $this->activeProviderId, $e->getMessage());
-            $safeErr = Security::sanitizeCustomerError($e->getMessage());
-            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
-                ? $safeErr . ' Your wallet balance has been refunded.'
-                : 'Failed to generate Airtime PINs: ' . $safeErr . ' Your wallet balance has been refunded.';
-            Response::error($clientMsg, 502);
+            $this->logFootprint($user, 'airtime_pin', 'AIRTIME_PIN_FAILED', $reference, $totalPrice, $finalOrderStatus, $this->activeProviderId, $e->getMessage(), [
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+            $clientMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
+            Response::error($clientMsg, 502, [
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
+                'refund_reference' => $refundRef,
+                'reference' => $customerSafeRef,
+                'balance_after' => $refundRes['balance_after'],
+            ]);
         }
     }
 
@@ -1601,7 +1687,9 @@ class TelecomController
                 ['data_pin_id' => $plan['id'], 'quantity' => $quantity, 'card_name' => $cardName]
             );
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 400);
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $status);
             return;
         }
 
@@ -1679,7 +1767,7 @@ class TelecomController
                         'created_at' => date('Y-m-d H:i:s'),
                     ],
                 ], $incomplete
-                    ? 'Provider returned incomplete Data PIN vouchers. Order marked Pending for verification.'
+                    ? 'Data PIN order is currently processing and marked Pending for verification — please check Orders & Receipts shortly.'
                     : 'Data PIN order is processing. Check Orders & Receipts to verify completion.');
                 return;
             }
@@ -1770,15 +1858,30 @@ class TelecomController
             ], count($savedVouchers) . " Data PIN(s) generated successfully!");
         } catch (Throwable $e) {
             $refundRef = 'REFUND_' . $reference;
-            $alreadyRefunded = $this->db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
-            if (!$alreadyRefunded) {
-                $this->walletService->credit($user['id'], $totalPrice, 'manual_adjustment', $refundRef, "Refund for failed Data PIN order {$reference}");
-            }
+            $refundRes = $this->walletService->attemptConfirmedRefund(
+                (string)$user['id'],
+                $totalPrice,
+                'manual_adjustment',
+                $refundRef,
+                "Refund for failed Data PIN order {$reference}",
+                ['order_id' => $orderId, 'original_reference' => $reference]
+            );
+            $refundConfirmed = !empty($refundRes['confirmed']);
+            $finalOrderStatus = $refundConfirmed ? 'refunded' : 'failed';
+
+            Security::logPrivateError('TelecomDataPin', $e, [
+                'user_id' => $user['id'],
+                'order_id' => $orderId,
+                'reference' => $reference,
+                'provider' => $this->activeProviderId,
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+
             $existingFailed = $this->db->fetchOne('SELECT id FROM telecom_orders WHERE id = :id LIMIT 1', ['id' => $orderId]);
             if (!$existingFailed) {
                 $this->db->execute(
                     'INSERT INTO telecom_orders (id, user_id, service_type, network, phone, plan, amount, cost_price, profit, provider_id, provider_ref, idempotency_key, status, metadata, created_at)
-                     VALUES (:id, :uid, "data_pin", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, "failed", :meta, NOW())',
+                     VALUES (:id, :uid, "data_pin", :net, :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :ikey, :st, :meta, NOW())',
                     [
                         'id' => $orderId,
                         'uid' => $user['id'],
@@ -1790,18 +1893,28 @@ class TelecomController
                         'prov' => $this->activeProviderId,
                         'pref' => $reference,
                         'ikey' => $idempotencyKey !== '' ? mb_substr($idempotencyKey, 0, 95) : null,
-                        'meta' => json_encode(['internal_reference' => $reference, 'error' => $e->getMessage()]),
+                        'st' => $finalOrderStatus,
+                        'meta' => json_encode([
+                            'internal_reference' => $reference,
+                            'refund_confirmed' => $refundConfirmed,
+                            'refund_reference' => $refundConfirmed ? $refundRef : null,
+                        ]),
                     ]
                 );
             } else {
-                $this->db->execute('UPDATE telecom_orders SET status = "failed", profit = 0.00 WHERE id = :id', ['id' => $orderId]);
+                $this->db->execute('UPDATE telecom_orders SET status = :st, profit = 0.00 WHERE id = :id', ['st' => $finalOrderStatus, 'id' => $orderId]);
             }
-            $this->logFootprint($user, 'data_pin', 'DATA_PIN_FAILED', $reference, $totalPrice, 'failed', $this->activeProviderId, $e->getMessage());
-            $safeErr = Security::sanitizeCustomerError($e->getMessage());
-            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
-                ? $safeErr . ' Your wallet balance has been refunded.'
-                : 'Failed to generate Data PINs: ' . $safeErr . ' Your wallet balance has been refunded.';
-            Response::error($clientMsg, 502);
+            $this->logFootprint($user, 'data_pin', 'DATA_PIN_FAILED', $reference, $totalPrice, $finalOrderStatus, $this->activeProviderId, $e->getMessage(), [
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+            $clientMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
+            Response::error($clientMsg, 502, [
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
+                'refund_reference' => $refundRef,
+                'reference' => $customerSafeRef,
+                'balance_after' => $refundRes['balance_after'],
+            ]);
         }
     }
 
@@ -1868,11 +1981,15 @@ class TelecomController
                 'swapDetails' => $dispatch,
             ], 'Airtime swap initiated! Please transfer airtime to complete.');
         } catch (Throwable $e) {
-            $safeErr = Security::sanitizeCustomerError($e->getMessage());
-            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
-                ? $safeErr
-                : 'Failed to initiate airtime swap: ' . $safeErr;
-            Response::error($clientMsg, 502);
+            Security::logPrivateError('TelecomAirtimeSwap', $e, [
+                'user_id' => $user['id'],
+                'network' => $network,
+                'phone' => $phone,
+                'amount' => $amount,
+                'provider' => $this->activeProviderId,
+            ]);
+            $classified = Security::classifyProviderError($e);
+            Response::error($classified['message'], (int)$classified['http_status']);
         }
     }
 
@@ -1902,7 +2019,16 @@ class TelecomController
                 'data' => $res,
             ]);
         } catch (Throwable $e) {
-            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to verify smartcard number right now. Please check and try again.'), 404);
+            Security::logPrivateError('TelecomValidateSmartcard', $e, [
+                'provider' => $provider,
+                'smartcard' => $smartcard,
+                'active_provider' => $this->activeProviderId,
+            ]);
+            $classified = Security::classifyProviderError($e);
+            if ($classified['category'] === 'customer_validation') {
+                Response::error('Unable to verify smartcard number right now. Please check and try again.', 404);
+            }
+            Response::error($classified['message'], (int)$classified['http_status']);
         }
     }
 
@@ -1942,7 +2068,9 @@ class TelecomController
                 'internal'
             );
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 400);
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $status);
             return;
         }
 
@@ -1992,10 +2120,29 @@ class TelecomController
                 'order' => $order,
             ], 'Cable TV subscription renewed successfully!');
         } catch (Throwable $e) {
-            $this->walletService->credit($user['id'], $amount, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed cable subscription {$reference}");
+            $refundRef = 'REFUND_' . $reference;
+            $refundRes = $this->walletService->attemptConfirmedRefund(
+                (string)$user['id'],
+                $amount,
+                'manual_adjustment',
+                $refundRef,
+                "Refund for failed cable subscription {$reference}",
+                ['order_id' => $orderId, 'original_reference' => $reference]
+            );
+            $refundConfirmed = !empty($refundRes['confirmed']);
+            $finalOrderStatus = $refundConfirmed ? 'refunded' : 'failed';
+
+            Security::logPrivateError('TelecomCableRenew', $e, [
+                'user_id' => $user['id'],
+                'order_id' => $orderId,
+                'reference' => $reference,
+                'provider' => $this->activeProviderId,
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+
             $this->db->execute(
                 'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
-                 VALUES (:id, :uid, "cable", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                 VALUES (:id, :uid, "cable", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :st, :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -2005,15 +2152,25 @@ class TelecomController
                     'cost' => $amount,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'meta' => json_encode(['error' => $e->getMessage()]),
+                    'st' => $finalOrderStatus,
+                    'meta' => json_encode([
+                        'internal_reference' => $reference,
+                        'refund_confirmed' => $refundConfirmed,
+                        'refund_reference' => $refundConfirmed ? $refundRef : null,
+                    ]),
                 ]
             );
-            $this->logFootprint($user, 'cable', 'CABLE_FAILED', $reference, $amount, 'failed', $this->activeProviderId, $e->getMessage());
-            $safeErr = Security::sanitizeCustomerError($e->getMessage());
-            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
-                ? $safeErr . ' Your wallet balance has been refunded.'
-                : 'Failed to renew cable subscription: ' . $safeErr . ' Your wallet balance has been refunded.';
-            Response::error($clientMsg, 502);
+            $this->logFootprint($user, 'cable', 'CABLE_FAILED', $reference, $amount, $finalOrderStatus, $this->activeProviderId, $e->getMessage(), [
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+            $clientMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
+            Response::error($clientMsg, 502, [
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
+                'refund_reference' => $refundRef,
+                'reference' => $reference,
+                'balance_after' => $refundRes['balance_after'],
+            ]);
         }
     }
 
@@ -2045,7 +2202,16 @@ class TelecomController
                 'data' => $res,
             ]);
         } catch (Throwable $e) {
-            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to verify meter number right now. Please check and try again.'), 404);
+            Security::logPrivateError('TelecomValidateMeter', $e, [
+                'disco' => $disco,
+                'meter' => $meterNumber,
+                'active_provider' => $this->activeProviderId,
+            ]);
+            $classified = Security::classifyProviderError($e);
+            if ($classified['category'] === 'customer_validation') {
+                Response::error('Unable to verify meter number right now. Please check and try again.', 404);
+            }
+            Response::error($classified['message'], (int)$classified['http_status']);
         }
     }
 
@@ -2079,7 +2245,9 @@ class TelecomController
                 'internal'
             );
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 400);
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $status);
             return;
         }
 
@@ -2136,10 +2304,29 @@ class TelecomController
                 'order' => $order,
             ], 'Prepaid token generated successfully!');
         } catch (Throwable $e) {
-            $this->walletService->credit($user['id'], $amount, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed electricity token {$reference}");
+            $refundRef = 'REFUND_' . $reference;
+            $refundRes = $this->walletService->attemptConfirmedRefund(
+                (string)$user['id'],
+                $amount,
+                'manual_adjustment',
+                $refundRef,
+                "Refund for failed electricity token {$reference}",
+                ['order_id' => $orderId, 'original_reference' => $reference]
+            );
+            $refundConfirmed = !empty($refundRes['confirmed']);
+            $finalOrderStatus = $refundConfirmed ? 'refunded' : 'failed';
+
+            Security::logPrivateError('TelecomElectricity', $e, [
+                'user_id' => $user['id'],
+                'order_id' => $orderId,
+                'reference' => $reference,
+                'provider' => $this->activeProviderId,
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+
             $this->db->execute(
                 'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
-                 VALUES (:id, :uid, "electricity", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                 VALUES (:id, :uid, "electricity", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :st, :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -2149,15 +2336,25 @@ class TelecomController
                     'cost' => $amount,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'meta' => json_encode(['error' => $e->getMessage()]),
+                    'st' => $finalOrderStatus,
+                    'meta' => json_encode([
+                        'internal_reference' => $reference,
+                        'refund_confirmed' => $refundConfirmed,
+                        'refund_reference' => $refundConfirmed ? $refundRef : null,
+                    ]),
                 ]
             );
-            $this->logFootprint($user, 'electricity', 'ELECTRICITY_FAILED', $reference, $amount, 'failed', $this->activeProviderId, $e->getMessage());
-            $safeErr = Security::sanitizeCustomerError($e->getMessage());
-            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
-                ? $safeErr . ' Your wallet balance has been refunded.'
-                : 'Failed to vend electricity token: ' . $safeErr . ' Your wallet balance has been refunded.';
-            Response::error($clientMsg, 502);
+            $this->logFootprint($user, 'electricity', 'ELECTRICITY_FAILED', $reference, $amount, $finalOrderStatus, $this->activeProviderId, $e->getMessage(), [
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+            $clientMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
+            Response::error($clientMsg, 502, [
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
+                'refund_reference' => $refundRef,
+                'reference' => $reference,
+                'balance_after' => $refundRes['balance_after'],
+            ]);
         }
     }
 
@@ -2195,7 +2392,9 @@ class TelecomController
                 'internal'
             );
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 400);
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $status);
             return;
         }
 
@@ -2246,10 +2445,29 @@ class TelecomController
                 'order' => $order,
             ], "{$quantity} {$exam['exam_name']} PINs generated successfully!");
         } catch (Throwable $e) {
-            $this->walletService->credit($user['id'], $totalPrice, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed exam PIN {$reference}");
+            $refundRef = 'REFUND_' . $reference;
+            $refundRes = $this->walletService->attemptConfirmedRefund(
+                (string)$user['id'],
+                $totalPrice,
+                'manual_adjustment',
+                $refundRef,
+                "Refund for failed exam PIN {$reference}",
+                ['order_id' => $orderId, 'original_reference' => $reference]
+            );
+            $refundConfirmed = !empty($refundRes['confirmed']);
+            $finalOrderStatus = $refundConfirmed ? 'refunded' : 'failed';
+
+            Security::logPrivateError('TelecomExamPin', $e, [
+                'user_id' => $user['id'],
+                'order_id' => $orderId,
+                'reference' => $reference,
+                'provider' => $this->activeProviderId,
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+
             $this->db->execute(
                 'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
-                 VALUES (:id, :uid, "exam", "CARD_PRINT", :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                 VALUES (:id, :uid, "exam", "CARD_PRINT", :plan, :amt, :cost, 0.00, :prov, :pref, :st, :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -2258,15 +2476,25 @@ class TelecomController
                     'cost' => (float)$exam['wholesale_cost'] * $quantity,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'meta' => json_encode(['error' => $e->getMessage()]),
+                    'st' => $finalOrderStatus,
+                    'meta' => json_encode([
+                        'internal_reference' => $reference,
+                        'refund_confirmed' => $refundConfirmed,
+                        'refund_reference' => $refundConfirmed ? $refundRef : null,
+                    ]),
                 ]
             );
-            $this->logFootprint($user, 'exam', 'EXAM_PIN_FAILED', $reference, $totalPrice, 'failed', $this->activeProviderId, $e->getMessage());
-            $safeErr = Security::sanitizeCustomerError($e->getMessage());
-            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
-                ? $safeErr . ' Your wallet balance has been refunded.'
-                : 'Failed to purchase exam PINs: ' . $safeErr . ' Your wallet balance has been refunded.';
-            Response::error($clientMsg, 502);
+            $this->logFootprint($user, 'exam', 'EXAM_PIN_FAILED', $reference, $totalPrice, $finalOrderStatus, $this->activeProviderId, $e->getMessage(), [
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+            $clientMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
+            Response::error($clientMsg, 502, [
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
+                'refund_reference' => $refundRef,
+                'reference' => $reference,
+                'balance_after' => $refundRes['balance_after'],
+            ]);
         }
     }
 
@@ -2303,7 +2531,9 @@ class TelecomController
                 'internal'
             );
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 400);
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $status);
             return;
         }
 
@@ -2357,10 +2587,29 @@ class TelecomController
                 'order' => $order,
             ], 'Bulk SMS dispatched successfully!');
         } catch (Throwable $e) {
-            $this->walletService->credit($user['id'], $totalCost, 'manual_adjustment', 'REFUND_' . $reference, "Refund for failed Bulk SMS {$reference}");
+            $refundRef = 'REFUND_' . $reference;
+            $refundRes = $this->walletService->attemptConfirmedRefund(
+                (string)$user['id'],
+                $totalCost,
+                'manual_adjustment',
+                $refundRef,
+                "Refund for failed Bulk SMS {$reference}",
+                ['order_id' => $orderId, 'original_reference' => $reference]
+            );
+            $refundConfirmed = !empty($refundRes['confirmed']);
+            $finalOrderStatus = $refundConfirmed ? 'refunded' : 'failed';
+
+            Security::logPrivateError('TelecomBulkSms', $e, [
+                'user_id' => $user['id'],
+                'order_id' => $orderId,
+                'reference' => $reference,
+                'provider' => $this->activeProviderId,
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+
             $this->db->execute(
                 'INSERT INTO telecom_orders (id, user_id, service_type, phone, plan, amount, cost_price, profit, provider_id, provider_ref, status, metadata, created_at)
-                 VALUES (:id, :uid, "bulksms", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, "failed", :meta, NOW())',
+                 VALUES (:id, :uid, "bulksms", :phone, :plan, :amt, :cost, 0.00, :prov, :pref, :st, :meta, NOW())',
                 [
                     'id' => $orderId,
                     'uid' => $user['id'],
@@ -2370,15 +2619,25 @@ class TelecomController
                     'cost' => $units * 2.50,
                     'prov' => $this->activeProviderId,
                     'pref' => $reference,
-                    'meta' => json_encode(['error' => $e->getMessage()]),
+                    'st' => $finalOrderStatus,
+                    'meta' => json_encode([
+                        'internal_reference' => $reference,
+                        'refund_confirmed' => $refundConfirmed,
+                        'refund_reference' => $refundConfirmed ? $refundRef : null,
+                    ]),
                 ]
             );
-            $this->logFootprint($user, 'bulksms', 'BULKSMS_FAILED', $reference, $totalCost, 'failed', $this->activeProviderId, $e->getMessage());
-            $safeErr = Security::sanitizeCustomerError($e->getMessage());
-            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
-                ? $safeErr . ' Your wallet balance has been refunded.'
-                : 'Failed to send Bulk SMS: ' . $safeErr . ' Your wallet balance has been refunded.';
-            Response::error($clientMsg, 502);
+            $this->logFootprint($user, 'bulksms', 'BULKSMS_FAILED', $reference, $totalCost, $finalOrderStatus, $this->activeProviderId, $e->getMessage(), [
+                'refund_confirmed' => $refundConfirmed,
+            ]);
+            $clientMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
+            Response::error($clientMsg, 502, [
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
+                'refund_reference' => $refundRef,
+                'reference' => $reference,
+                'balance_after' => $refundRes['balance_after'],
+            ]);
         }
     }
 
@@ -2471,22 +2730,24 @@ class TelecomController
                 $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
             }
         } elseif ($isFailed && !in_array($order['status'], ['failed', 'refunded'], true)) {
-            $this->db->execute(
-                'UPDATE telecom_orders SET status = "failed", profit = 0.00, metadata = :meta, updated_at = NOW() WHERE id = :id',
-                ['id' => $order['id'], 'meta' => json_encode($existingMeta)]
-            );
-
             $refundRef = 'REFUND_WH_' . $order['provider_ref'];
-            $alreadyRefunded = $this->db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
-            if (!$alreadyRefunded) {
-                $this->walletService->credit(
-                    $order['user_id'],
-                    (float)$order['amount'],
-                    'manual_adjustment',
-                    $refundRef,
-                    "Automated refund for failed telecom order {$order['id']}"
-                );
+            $refundRes = $this->walletService->attemptConfirmedRefund(
+                (string)$order['user_id'],
+                (float)$order['amount'],
+                'manual_adjustment',
+                $refundRef,
+                "Automated refund for failed telecom order {$order['id']}",
+                ['order_id' => $order['id']]
+            );
+            $refundConfirmed = !empty($refundRes['confirmed']);
+            $existingMeta['refund_confirmed'] = $refundConfirmed;
+            if ($refundConfirmed) {
+                $existingMeta['refund_reference'] = $refundRef;
             }
+            $this->db->execute(
+                'UPDATE telecom_orders SET status = :st, profit = 0.00, metadata = :meta, updated_at = NOW() WHERE id = :id',
+                ['st' => $refundConfirmed ? 'refunded' : 'failed', 'id' => $order['id'], 'meta' => json_encode($existingMeta)]
+            );
             try {
                 (new ReferralEngineService($this->db))->reverseRewardsForSource('TEL_' . $order['id'], 'Telecom webhook failure refund');
             } catch (Throwable) {
@@ -2541,18 +2802,11 @@ class TelecomController
                 $r['provider_ref'] = $safeRef;
                 if (is_array($meta)) {
                     unset(
-                        $meta['raw'],
-                        $meta['raw_response'],
-                        $meta['provider'],
-                        $meta['provider_id'],
                         $meta['provider_reference'],
                         $meta['provider_ref'],
-                        $meta['wholesale_cost'],
-                        $meta['cost_price'],
-                        $meta['endpoint'],
-                        $meta['api_url'],
-                        $meta['webhook_payload']
+                        $meta['cost_price']
                     );
+                    $meta = Security::sanitizeCustomerMetadata($meta);
                 }
             }
             $r['metadata'] = $meta;
@@ -2755,7 +3009,7 @@ class TelecomController
             'denominations' => $out,
             'has_in_stock' => $hasInStock,
             'catalogue_status' => count($out) === 0
-                ? 'Awaiting live Ulamadata Airtime PIN catalogue sync.'
+                ? ($isAdmin ? 'Awaiting live Ulamadata Airtime PIN catalogue sync.' : 'Airtime PIN denominations are currently being updated.')
                 : ($hasInStock ? 'available' : 'out_of_stock'),
         ]);
     }
@@ -2812,7 +3066,7 @@ class TelecomController
             'denominations' => $out,
             'available_for_purchase' => count($out) > 0 && $hasInStock,
             'catalogue_status' => count($out) === 0
-                ? 'Awaiting confirmed Ulamadata Data PIN plan IDs and pricing — Data PIN purchases are temporarily disabled.'
+                ? ($isAdmin ? 'Awaiting confirmed Ulamadata Data PIN plan IDs and pricing — Data PIN purchases are temporarily disabled.' : 'Data PIN packages are currently being updated and purchases are temporarily unavailable.')
                 : ($hasInStock ? 'available' : 'out_of_stock'),
         ]);
     }
@@ -2902,17 +3156,23 @@ class TelecomController
                         $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
                     }
                 } elseif (in_array($upStatus, ['failed', 'fail', 'error', 'reversed'], true)) {
-                    $this->db->execute('UPDATE telecom_orders SET status = "failed", profit = 0.00, updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
                     $refundRef = 'REFUND_VQ_' . $order['provider_ref'];
-                    $alreadyRefunded = $this->db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $refundRef]);
-                    if (!$alreadyRefunded) {
-                        $this->walletService->credit($order['user_id'], (float)$order['amount'], 'manual_adjustment', $refundRef, "Refund for failed telecom order {$order['id']}");
-                    }
+                    $refundRes = $this->walletService->attemptConfirmedRefund(
+                        (string)$order['user_id'],
+                        (float)$order['amount'],
+                        'manual_adjustment',
+                        $refundRef,
+                        "Refund for failed telecom order {$order['id']}",
+                        ['order_id' => $order['id']]
+                    );
+                    $refundConfirmed = !empty($refundRes['confirmed']);
+                    $finalStatus = $refundConfirmed ? 'refunded' : 'failed';
+                    $this->db->execute('UPDATE telecom_orders SET status = :st, profit = 0.00, updated_at = NOW() WHERE id = :id', ['st' => $finalStatus, 'id' => $order['id']]);
                     try {
                         (new ReferralEngineService($this->db))->reverseRewardsForSource('TEL_' . $order['id'], 'Telecom transaction verify refund');
                     } catch (Throwable) {
                     }
-                    $order['status'] = 'failed';
+                    $order['status'] = $finalStatus;
                 }
             }
 
@@ -2927,9 +3187,10 @@ class TelecomController
                 unset($order['provider_id'], $order['cost_price'], $order['profit'], $order['metadata'], $order['provider_ref']);
             }
             if (!$isAdmin && is_array($res)) {
+                $rawMsg = (string)($res['api_response'] ?? ($res['response'] ?? ($res['message'] ?? 'Status verified')));
                 $res = [
                     'status' => $order['status'] ?? ($res['status'] ?? 'unknown'),
-                    'message' => $res['api_response'] ?? ($res['response'] ?? ($res['message'] ?? 'Status verified')),
+                    'message' => Security::sanitizeCustomerError($rawMsg, 'Status verified.'),
                 ];
             }
 
@@ -2940,12 +3201,21 @@ class TelecomController
                 'vouchers' => $vouchers,
             ]);
         } catch (Throwable $e) {
+            Security::logPrivateError('TelecomVerifyTransaction', $e, [
+                'user_id' => $user['id'],
+                'reference' => $ref,
+                'provider' => $this->activeProviderId,
+            ]);
             if (!$isAdmin && $order) {
                 unset($order['provider_id'], $order['cost_price'], $order['profit'], $order['metadata'], $order['provider_ref']);
             }
+            $classified = Security::classifyProviderError($e);
             Response::success([
                 'success' => true,
-                'result' => ['status' => $order['status'] ?? 'unknown', 'message' => $e->getMessage()],
+                'result' => [
+                    'status' => $order['status'] ?? 'unknown',
+                    'message' => $isAdmin ? $e->getMessage() : $classified['message'],
+                ],
                 'order' => $order,
             ]);
         }
@@ -3919,9 +4189,18 @@ class TelecomController
         if (in_array($st, ['delivered', 'successful', 'success'], true)) {
             $this->db->execute('UPDATE telecom_orders SET status = "successful", updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
             $this->triggerReferralReward((string)$order['user_id'], $this->mapTelecomReferralCategory((string)$order['service_type']), (string)$order['service_type'], 'TEL_' . $order['id'], (float)$order['amount'], (float)$order['cost_price']);
-        } elseif (in_array($st, ['failed', 'reversed'], true) && $order['status'] !== 'failed') {
-            $this->db->execute('UPDATE telecom_orders SET status = "failed", updated_at = NOW() WHERE id = :id', ['id' => $order['id']]);
-            $this->walletService->credit($order['user_id'], (float)$order['amount'], 'manual_adjustment', 'REFUND_VT_' . $order['provider_ref'], "Automated VTpass refund for {$order['provider_ref']}");
+        } elseif (in_array($st, ['failed', 'reversed'], true) && !in_array($order['status'], ['failed', 'refunded'], true)) {
+            $refundRef = 'REFUND_VT_' . $order['provider_ref'];
+            $refundRes = $this->walletService->attemptConfirmedRefund(
+                (string)$order['user_id'],
+                (float)$order['amount'],
+                'manual_adjustment',
+                $refundRef,
+                "Automated refund for {$order['provider_ref']}",
+                ['order_id' => $order['id']]
+            );
+            $finalStatus = !empty($refundRes['confirmed']) ? 'refunded' : 'failed';
+            $this->db->execute('UPDATE telecom_orders SET status = :st, profit = 0.00, updated_at = NOW() WHERE id = :id', ['st' => $finalStatus, 'id' => $order['id']]);
             try {
                 (new ReferralEngineService($this->db))->reverseRewardsForSource('TEL_' . $order['id'], 'VTpass webhook failure refund');
             } catch (Throwable) {

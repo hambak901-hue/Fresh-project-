@@ -79,8 +79,8 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ onNavigate, onOpenAu
       description:
         'Manage all service payments from a unified Nigerian Naira (NGN) wallet with transparent ledger entries.',
       features: [
-        'Secure online card & bank payment funding in NGN',
-        'Manual bank transfer proof submission with admin verification',
+        'Instant online wallet funding via Paystack (Card, Bank Transfer via Paystack & USSD)',
+        'Automatic payment verification & duplicate-payment protection',
         'Transaction history & balance breakdown for every debit and credit',
         'Transaction PIN security controls',
       ],

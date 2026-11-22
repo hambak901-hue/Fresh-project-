@@ -1,8 +1,8 @@
 /**
  * @file WalletPage.tsx
  * Customer Wallet management page for HambakTech Enterprise.
- * Features available balance, Paystack funding, dedicated virtual accounts, manual payment proof submission,
- * transaction ledger, and exportable financial statement.
+ * Features available balance, Paystack instant wallet funding,
+ * immutable transaction ledger, and exportable financial statement.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -13,18 +13,12 @@ import {
   Wallet,
   ArrowUpRight,
   ArrowDownLeft,
-  Copy,
-  CheckCircle2,
-  AlertCircle,
   FileText,
-  Calendar,
   Search,
   RefreshCw,
   Plus,
   ShieldCheck,
   CreditCard,
-  Building,
-  Upload,
 } from 'lucide-react';
 
 interface WalletPageProps {
@@ -32,25 +26,10 @@ interface WalletPageProps {
 }
 
 export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const [walletSummary, setWalletSummary] = useState<any>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-
-  // Manual payment proof form
-  const [manualModalOpen, setManualModalOpen] = useState<boolean>(false);
-  const [manualAmount, setManualAmount] = useState<string>('');
-  const [senderName, setSenderName] = useState<string>(user?.full_name || '');
-  const [bankName, setBankName] = useState<string>('Moniepoint MFB');
-  const [transferRef, setTransferRef] = useState<string>('');
-  const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [paymentMethod, setPaymentMethod] = useState<string>('Mobile App Transfer');
-  const [remarks, setRemarks] = useState<string>('');
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [receiptFileName, setReceiptFileName] = useState<string>('');
-  const [manualSubmitting, setManualSubmitting] = useState<boolean>(false);
-  const [manualSuccess, setManualSuccess] = useState<string | null>(null);
-  const [manualError, setManualError] = useState<string | null>(null);
 
   // Statement generator
   const [statementModalOpen, setStatementModalOpen] = useState<boolean>(false);
@@ -62,13 +41,9 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
   // Filtering
   const [filterType, setFilterType] = useState<'all' | 'credit' | 'debit'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [copiedBank, setCopiedBank] = useState<boolean>(false);
 
   useEffect(() => {
     loadData();
-    if (user?.full_name && !senderName) {
-      setSenderName(user.full_name);
-    }
   }, [user]);
 
   const loadData = async () => {
@@ -80,68 +55,6 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
     } catch (err) {
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleCopyAccount = () => {
-    const acc = walletSummary?.bankDetails?.accountNumber || '5210741634';
-    navigator.clipboard?.writeText?.(acc).catch(() => {});
-    setCopiedBank(true);
-    setTimeout(() => setCopiedBank(false), 2000);
-  };
-
-  const handleManualProofSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setManualError(null);
-    setManualSuccess(null);
-
-    const amt = Number(manualAmount);
-    if (!amt || amt < 500) {
-      setManualError('Minimum manual funding amount is ₦500.00.');
-      return;
-    }
-    if (!senderName.trim() || !transferRef.trim()) {
-      setManualError('Please provide sender account name and payment reference.');
-      return;
-    }
-    if (!receiptFile) {
-      setManualError('Please attach an official bank transfer receipt (JPG, PNG, or PDF).');
-      return;
-    }
-
-    try {
-      setManualSubmitting(true);
-      const formData = new FormData();
-      formData.append('amount', String(amt));
-      formData.append('depositor_name', senderName.trim());
-      formData.append('sender_name', senderName.trim());
-      formData.append('bank_name', walletSummary?.bankDetails?.bank || 'Moniepoint MFB');
-      formData.append('account_number', walletSummary?.bankDetails?.accountNumber || '5210741634');
-      formData.append('reference', transferRef.trim());
-      formData.append('payment_reference', transferRef.trim());
-      formData.append('payment_date', paymentDate);
-      formData.append('payment_method', paymentMethod);
-      formData.append('remarks', remarks.trim() || 'Manual bank transfer deposit');
-      formData.append('receipt', receiptFile);
-
-      const res = await api.submitManualFunding(formData as any);
-
-      if (res.success) {
-        setManualSuccess(res.message || 'Payment proof submitted successfully! Review pending.');
-        setManualAmount('');
-        setTransferRef('');
-        setReceiptFile(null);
-        setReceiptFileName('');
-        await loadData();
-        setTimeout(() => {
-          setManualModalOpen(false);
-          setManualSuccess(null);
-        }, 2000);
-      }
-    } catch (err: any) {
-      setManualError(err.message || 'Failed to submit payment proof');
-    } finally {
-      setManualSubmitting(false);
     }
   };
 
@@ -244,58 +157,43 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
           </div>
         </div>
 
-        {/* Dedicated Virtual Bank Account Card */}
-        <div className="lg:col-span-6 rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 space-y-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Building className="w-4 h-4 text-emerald-400" />
-              <h2 className="text-sm font-bold text-white">Dedicated Virtual Bank Account</h2>
-            </div>
-            <span className="text-[10px] font-mono text-emerald-400">Instant Auto-Credit</span>
-          </div>
-
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Transfer directly to this dedicated account number from any Nigerian bank app or USSD to credit your HambakTech wallet automatically.
-          </p>
-
-          <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+        {/* Paystack Instant Wallet Funding Card */}
+        <div className="lg:col-span-6 rounded-2xl bg-slate-900 border border-slate-800 p-6 sm:p-8 flex flex-col justify-between space-y-5">
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[10px] text-slate-500">ACCOUNT NUMBER</div>
-                <div className="text-2xl font-extrabold text-emerald-400 font-mono tracking-widest mt-0.5">
-                  {walletSummary?.bankDetails?.accountNumber || '5210741634'}
-                </div>
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-emerald-400" />
+                <h2 className="text-sm font-bold text-white">Paystack Instant Wallet Funding</h2>
               </div>
-
-              <button
-                onClick={handleCopyAccount}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition-colors"
-              >
-                {copiedBank ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedBank ? 'Copied!' : 'Copy'}</span>
-              </button>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                Active Gateway
+              </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800/80">
-              <div>
-                <span className="text-slate-500 text-[10px] block">BANK NAME</span>
-                <span className="text-slate-200 font-semibold">{walletSummary?.bankDetails?.bank || 'Moniepoint MFB'}</span>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Top up your HambakTech NGN wallet securely through Paystack using your Debit Card, Paystack Bank Transfer, USSD, or QR code with automatic instant ledger crediting.
+            </p>
+
+            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5 text-xs">
+              <div className="flex items-center gap-2 text-emerald-400 font-semibold">
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>Verified Paystack Automated Settlement</span>
               </div>
-              <div>
-                <span className="text-slate-500 text-[10px] block">BENEFICIARY</span>
-                <span className="text-slate-200 font-semibold truncate block">
-                  {walletSummary?.bankDetails?.accountName || 'Hambaktech_Services'}
-                </span>
-              </div>
+              <ul className="space-y-1 text-slate-400 text-[11px] pl-6 list-disc">
+                <li>Mastercard, Visa &amp; Verve instant checkout</li>
+                <li>Instant Bank Transfer &amp; USSD via Paystack</li>
+                <li>Duplicate-payment protection &amp; automatic balance update</li>
+              </ul>
             </div>
           </div>
 
           <button
-            onClick={() => setManualModalOpen(true)}
-            className="w-full py-2 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-xs text-slate-300 font-medium text-center flex items-center justify-center gap-2 transition-colors"
+            type="button"
+            onClick={onOpenFundModal}
+            className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs text-center flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all"
           >
-            <Upload className="w-3.5 h-3.5 text-sky-400" />
-            <span>Submit Manual Transfer Proof</span>
+            <CreditCard className="w-4 h-4" />
+            <span>Fund Wallet via Paystack</span>
           </button>
         </div>
       </div>
@@ -424,197 +322,6 @@ export const WalletPage: React.FC<WalletPageProps> = ({ onOpenFundModal }) => {
           </table>
         </div>
       </div>
-
-      {/* Sub-modal: Manual Payment Proof Submission */}
-      {manualModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in overflow-y-auto">
-          <div className="relative w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4 my-8 shadow-2xl">
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Building className="w-4 h-4 text-emerald-400" />
-                  Submit Proof of Bank Transfer
-                </h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Transferred directly to our Moniepoint account? Enter details below and attach your receipt for immediate manual reconciliation.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setManualModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Moniepoint MFB official bank info box */}
-            <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400">Beneficiary Bank:</span>
-                <span className="font-bold text-emerald-300">{walletSummary?.bankDetails?.bank || 'Moniepoint MFB'}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400">Account Number:</span>
-                <span className="font-mono font-bold text-white tracking-wider">{walletSummary?.bankDetails?.accountNumber || '5210741634'}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-400">Account Name:</span>
-                <span className="font-semibold text-slate-200">{walletSummary?.bankDetails?.accountName || 'Hambaktech_Services'}</span>
-              </div>
-            </div>
-
-            {manualError && (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
-                {manualError}
-              </div>
-            )}
-            {manualSuccess && (
-              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
-                {manualSuccess}
-              </div>
-            )}
-
-            <form onSubmit={handleManualProofSubmit} className="space-y-3.5 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Transferred Amount (₦) *</label>
-                  <input
-                    type="number"
-                    min="500"
-                    step="100"
-                    value={manualAmount}
-                    onChange={e => setManualAmount(e.target.value)}
-                    placeholder="e.g. 15000"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono focus:border-emerald-500 focus:outline-none"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Payment Date *</label>
-                  <input
-                    type="date"
-                    value={paymentDate}
-                    onChange={e => setPaymentDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Depositor / Sender Full Name *</label>
-                <input
-                  type="text"
-                  value={senderName}
-                  onChange={e => setSenderName(e.target.value)}
-                  placeholder="e.g. Babatunde Adeleke"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Payment Method</label>
-                  <select
-                    value={paymentMethod}
-                    onChange={e => setPaymentMethod(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
-                  >
-                    <option value="Mobile App Transfer">Mobile App Transfer</option>
-                    <option value="USSD Transfer">USSD Transfer</option>
-                    <option value="Internet Banking">Internet Banking</option>
-                    <option value="ATM Transfer">ATM Transfer</option>
-                    <option value="Bank Branch Deposit">Bank Branch Deposit</option>
-                    <option value="POS Transfer">POS Transfer</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Session ID / Bank Ref *</label>
-                  <input
-                    type="text"
-                    value={transferRef}
-                    onChange={e => setTransferRef(e.target.value)}
-                    placeholder="e.g. 09029381729012"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono uppercase focus:border-emerald-500 focus:outline-none"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Transaction Remarks / Narration</label>
-                <input
-                  type="text"
-                  value={remarks}
-                  onChange={e => setRemarks(e.target.value)}
-                  placeholder="e.g. Wallet funding via Moniepoint"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:border-emerald-500 focus:outline-none"
-                />
-              </div>
-
-              {/* Receipt File Upload */}
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Payment Receipt / Screenshot (JPG, PNG, PDF ≤ 5MB)</label>
-                <div className="flex items-center gap-3">
-                  <label className="flex-1 cursor-pointer flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-slate-700 hover:border-emerald-500/50 bg-slate-950/60 hover:bg-slate-950 transition-all text-slate-400 hover:text-white">
-                    <Upload className="w-4 h-4 text-emerald-400" />
-                    <span className="truncate">{receiptFileName || 'Choose receipt file...'}</span>
-                    <input
-                      type="file"
-                      accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
-                      className="hidden"
-                      onChange={e => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          if (file.size > 5 * 1024 * 1024) {
-                            setManualError('File exceeds maximum size of 5MB');
-                            return;
-                          }
-                          setReceiptFile(file);
-                          setReceiptFileName(file.name);
-                          setManualError(null);
-                        }
-                      }}
-                    />
-                  </label>
-                  {receiptFile && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setReceiptFile(null);
-                        setReceiptFileName('');
-                      }}
-                      className="px-2 py-2 text-rose-400 hover:text-rose-300 rounded-lg hover:bg-rose-500/10 text-xs"
-                      title="Remove file"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setManualModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={manualSubmitting}
-                  className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50"
-                >
-                  {manualSubmitting ? 'Submitting Proof...' : 'Submit Payment Proof'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Sub-modal: Account Financial Statement */}
       {statementModalOpen && statementData && (

@@ -978,7 +978,7 @@ function getDefaultData(): DatabaseSchema {
         {
           step: '02',
           title: 'Fund Your Balance',
-          description: 'Top up seamlessly via instant Paystack checkout or direct bank transfer.',
+          description: 'Top up seamlessly via instant Paystack checkout (Card, Bank Transfer via Paystack, and USSD).',
         },
         {
           step: '03',
@@ -1386,24 +1386,24 @@ function getDefaultData(): DatabaseSchema {
       {
         id: 'tpl_pay_appr',
         key: 'payment_approval',
-        name: 'Payment Approval',
+        name: 'Payment Approval (Historical Archive)',
         category: 'Wallet',
         subject: 'Payment Approved: ₦{{amount}} Credited to Wallet',
-        description: 'Notification to customer when admin approves a manual bank transfer proof.',
+        description: 'Historical archive template for discontinued manual bank transfer approvals.',
         variables: ['user_name', 'amount', 'reference', 'approved_by', 'new_balance', 'date'],
-        is_active: true,
+        is_active: false,
         updated_at: new Date().toISOString(),
         html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #ffffff;"><h3>Bank Transfer Approved</h3><p>₦{{amount}} credited by {{approved_by}}. Ref: {{reference}}.</p></div>',
       },
       {
         id: 'tpl_pay_rej',
         key: 'payment_rejection',
-        name: 'Payment Rejection',
+        name: 'Payment Rejection (Historical Archive)',
         category: 'Wallet',
         subject: 'Action Required: Payment Verification Unsuccessful [Ref: {{reference}}]',
-        description: 'Sent when manual bank transfer proof is declined by administrative compliance.',
+        description: 'Historical archive template for discontinued manual bank transfer rejections.',
         variables: ['user_name', 'amount', 'reference', 'rejection_reason', 'support_email'],
-        is_active: true,
+        is_active: false,
         updated_at: new Date().toISOString(),
         html_body: '<div style="font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #fca5a5;"><h3>Payment Proof Declined</h3><p>Reason: {{rejection_reason}}</p></div>',
       },
@@ -2196,8 +2196,8 @@ export function initDatabase(): void {
           walMod.description = 'Real-time ledger & Paystack instant funding';
         }
       }
-      if (dbData.dashboard_configs && typeof dbData.dashboard_configs === 'object') {
-        for (const cfg of Object.values(dbData.dashboard_configs as Record<string, any>)) {
+      if (dbData.role_dashboard_configs && typeof dbData.role_dashboard_configs === 'object') {
+        for (const cfg of Object.values(dbData.role_dashboard_configs as Record<string, any>)) {
           for (const branch of ['draft_config', 'published_config']) {
             const mods = cfg?.[branch]?.modules;
             if (Array.isArray(mods)) {
@@ -2207,6 +2207,12 @@ export function initDatabase(): void {
               }
             }
           }
+        }
+      }
+      if (Array.isArray(dbData.cms_sections?.howItWorks)) {
+        const step2 = dbData.cms_sections.howItWorks.find((s: any) => s.step === '02');
+        if (step2 && /direct bank transfer|manual|flutterwave|virtual bank/i.test(String(step2.description || ''))) {
+          step2.description = 'Top up seamlessly via instant Paystack checkout (Card, Bank Transfer via Paystack, and USSD).';
         }
       }
       if (!dbData.store_items) dbData.store_items = defaults.store_items;
@@ -2224,7 +2230,15 @@ export function initDatabase(): void {
       if (!dbData.bulk_sms_records) dbData.bulk_sms_records = [];
       if (!dbData.telecom_provider_configs) dbData.telecom_provider_configs = defaults.telecom_provider_configs;
       if (!dbData.smtp_config) dbData.smtp_config = defaults.smtp_config;
-      if (!dbData.email_templates) dbData.email_templates = defaults.email_templates;
+      if (!dbData.email_templates) {
+        dbData.email_templates = defaults.email_templates;
+      } else {
+        for (const tpl of dbData.email_templates) {
+          if (tpl.key === 'payment_approval' || tpl.key === 'payment_rejection') {
+            tpl.is_active = false;
+          }
+        }
+      }
       if (!dbData.sms_config) dbData.sms_config = defaults.sms_config;
       if (!dbData.store_settings) dbData.store_settings = defaults.store_settings;
       if (!dbData.academy_settings) dbData.academy_settings = defaults.academy_settings;

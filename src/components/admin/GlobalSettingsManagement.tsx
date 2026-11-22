@@ -226,14 +226,10 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     name: '11. Wallet & Ledger Controls',
     group: 'Financial',
     icon: Wallet,
-    description: 'Minimum/maximum funding bounds, manual transfer option, and official bank deposit details.',
+    description: 'Minimum and maximum customer wallet deposit bounds via Paystack.',
     fields: [
-      { key: 'min_funding_amount', label: 'Minimum Wallet Funding (₦)', type: 'number', helper: 'Minimum deposit allowed per funding request' },
+      { key: 'min_funding_amount', label: 'Minimum Wallet Funding (₦)', type: 'number', helper: 'Minimum deposit allowed per Paystack funding request' },
       { key: 'max_funding_amount', label: 'Maximum Single Funding (₦)', type: 'number', helper: 'Maximum allowed single deposit transaction' },
-      { key: 'manual_funding_enabled', label: 'Enable Manual Bank Transfer Funding', type: 'boolean', helper: 'Allow customers to submit manual bank transfer proofs' },
-      { key: 'bank_name', label: 'Manual Funding Bank Name', type: 'text', helper: 'e.g. Moniepoint MFB' },
-      { key: 'bank_account_number', label: 'Manual Funding Account Number', type: 'text', helper: '10-digit NUBAN account number' },
-      { key: 'bank_account_name', label: 'Manual Funding Account Name', type: 'text', helper: 'Beneficiary business account name' },
     ],
   },
   // 12. Payment Gateways
@@ -243,7 +239,7 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     group: 'Financial',
     icon: CreditCard,
     superAdminOnly: true,
-    description: 'Active payment gateway selection, gateway toggles, and processor percentage fees.',
+    description: 'Paystack payment gateway configuration and settlement percentage fee.',
     fields: [
       {
         key: 'active_gateway',
@@ -251,12 +247,10 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
         type: 'select',
         options: [
           { label: 'Paystack', value: 'paystack' },
-          { label: 'Manual Bank Transfer', value: 'bank_transfer' },
         ],
-        helper: 'Default payment gateway selected in customer funding modal',
+        helper: 'Paystack is the sole active customer funding gateway',
       },
-      { key: 'enable_paystack', label: 'Enable Paystack Gateway', type: 'boolean', helper: 'Process cards, USSD, and instant bank transfers' },
-      { key: 'enable_bank_transfer', label: 'Enable Direct Bank Transfer', type: 'boolean', helper: 'Allow direct manual bank transfer submissions' },
+      { key: 'enable_paystack', label: 'Enable Paystack Gateway', type: 'boolean', helper: 'Process cards, USSD, and instant Paystack bank transfers' },
       { key: 'paystack_charge_percent', label: 'Paystack Fee Rate (%)', type: 'number', helper: 'Configured settlement fee percentage' },
     ],
   },

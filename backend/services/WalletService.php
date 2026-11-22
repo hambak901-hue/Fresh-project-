@@ -278,6 +278,92 @@ class WalletService
     }
 
     /**
+     * Attempts a wallet refund and verifies via the transactions ledger that the credit persisted.
+     * Never reports confirmed=true unless a successful credit transaction row exists for the reference.
+     */
+    public function attemptConfirmedRefund(
+        string $userId,
+        float $amount,
+        string $category,
+        string $refundReference,
+        string $description,
+        ?array $metadata = null
+    ): array {
+        if ($amount <= 0) {
+            return [
+                'confirmed' => false,
+                'already_refunded' => false,
+                'refund_reference' => $refundReference,
+                'balance_after' => null,
+            ];
+        }
+
+        try {
+            $existing = $this->db->fetchOne(
+                'SELECT id, balance_after, status FROM transactions WHERE reference = :ref AND user_id = :uid AND type = "credit" AND status = "successful" LIMIT 1',
+                ['ref' => $refundReference, 'uid' => $userId]
+            );
+            if ($existing) {
+                return [
+                    'confirmed' => true,
+                    'already_refunded' => true,
+                    'refund_reference' => $refundReference,
+                    'balance_after' => (float)$existing['balance_after'],
+                ];
+            }
+
+            $this->credit(
+                $userId,
+                $amount,
+                $category,
+                $refundReference,
+                $description,
+                'internal',
+                $metadata
+            );
+
+            $verified = $this->db->fetchOne(
+                'SELECT id, balance_after, status FROM transactions WHERE reference = :ref AND user_id = :uid AND type = "credit" AND status = "successful" LIMIT 1',
+                ['ref' => $refundReference, 'uid' => $userId]
+            );
+
+            if ($verified) {
+                return [
+                    'confirmed' => true,
+                    'already_refunded' => false,
+                    'refund_reference' => $refundReference,
+                    'balance_after' => (float)$verified['balance_after'],
+                ];
+            }
+
+            Security::logPrivateError('WalletRefundVerification', 'Credit returned without confirmed ledger row', [
+                'user_id' => $userId,
+                'refund_ref' => $refundReference,
+                'amount' => $amount,
+            ]);
+            return [
+                'confirmed' => false,
+                'already_refunded' => false,
+                'refund_reference' => $refundReference,
+                'balance_after' => null,
+            ];
+        } catch (\Throwable $e) {
+            Security::logPrivateError('WalletRefund', $e, [
+                'user_id' => $userId,
+                'refund_ref' => $refundReference,
+                'amount' => $amount,
+                'category' => $category,
+            ]);
+            return [
+                'confirmed' => false,
+                'already_refunded' => false,
+                'refund_reference' => $refundReference,
+                'balance_after' => null,
+            ];
+        }
+    }
+
+    /**
      * Fetch user wallet summary with real-time totals from DB.
      */
     public function getSummary(string $userId): array

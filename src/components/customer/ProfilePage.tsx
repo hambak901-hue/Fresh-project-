@@ -329,7 +329,7 @@ export function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
                 <span className="font-mono text-white">Unlimited</span>
               </li>
               <li className="flex items-center justify-between">
-                <span>Dedicated Moniepoint VA:</span>
+                <span>Paystack Wallet Funding:</span>
                 <span className="text-emerald-400 font-semibold">Active</span>
               </li>
               <li className="flex items-center justify-between">

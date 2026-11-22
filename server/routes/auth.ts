@@ -283,11 +283,20 @@ export function sanitizeUser(user: any, includeDashboardConfig: boolean = false)
 // AUTHENTICATION ENDPOINTS
 // -------------------------------------------------------------------
 
-function issueExpressEmailVerification(user: User, enforceCooldown: boolean = false): {
+function escapeHtml(input: string): string {
+  return String(input || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function issueExpressEmailVerification(user: User, enforceCooldown: boolean = false): Promise<{
   sent: boolean;
   cooldownSeconds?: number;
   expiresInMinutes: number;
-} {
+}> {
   if (!Array.isArray(db.data.email_verifications)) {
     db.data.email_verifications = [];
   }
@@ -303,20 +312,15 @@ function issueExpressEmailVerification(user: User, enforceCooldown: boolean = fa
     }
   }
 
-  for (const v of db.data.email_verifications) {
-    if (v.user_id === user.id && !v.is_used) {
-      v.is_used = true;
-    }
-  }
-
+  const recordId = `ev_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
   const rawToken = crypto.randomBytes(32).toString('hex');
   const otpCode = String(crypto.randomInt(100000, 999999));
   const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
   const codeHash = crypto.createHash('sha256').update(otpCode).digest('hex');
   const expiresAt = new Date(nowMs + 60 * 60 * 1000).toISOString();
 
-  db.data.email_verifications.unshift({
-    id: `ev_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+  const newRecord = {
+    id: recordId,
     user_id: user.id,
     email: user.email.toLowerCase(),
     token_hash: tokenHash,
@@ -326,30 +330,71 @@ function issueExpressEmailVerification(user: User, enforceCooldown: boolean = fa
     is_used: false,
     expires_at: expiresAt,
     created_at: new Date(nowMs).toISOString(),
-  });
+  };
+
+  db.data.email_verifications.unshift(newRecord);
   if (db.data.email_verifications.length > 2000) {
     db.data.email_verifications = db.data.email_verifications.slice(0, 2000);
   }
   db.saveDatabase();
 
-  const verifyUrl = `${CREDENTIALS.app.appUrl}/?verify_email=1&token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(user.email)}`;
-  sendEmail(
-    user.email,
-    `Verify Your HAMBAKTECH Email Address: ${otpCode}`,
-    `<div style="font-family: Arial, sans-serif; padding: 24px; max-width: 560px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">
-      <h2 style="margin-top: 0; color: #065f46;">Confirm Your Email Address</h2>
-      <p>Hello <strong>${user.full_name}</strong>,</p>
-      <p>Please verify your email address to activate wallet funding, NIN/BVN verification, and VTU services on HAMBAK TECH &amp; SERVICES.</p>
-      <p style="margin: 24px 0; text-align: center;">
-        <a href="${verifyUrl}" style="display: inline-block; background: #059669; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: bold;">Verify Email Address</a>
-      </p>
-      <p style="text-align: center; font-size: 13px; color: #475569;">Or enter this 6-digit verification code (valid for 60 minutes):</p>
-      <div style="text-align: center; font-family: monospace; font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #065f46; background: #ecfdf5; border: 1px solid #10b981; border-radius: 8px; padding: 12px;">${otpCode}</div>
-    </div>`
-  ).catch(() => {});
+  const baseAppUrl = String(CREDENTIALS.app.appUrl || 'https://hambaktech.com.ng').replace(/\/+$/, '');
+  const verifyUrl = `${baseAppUrl}/?verify_email=1&token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(user.email)}`;
+  const safeName = escapeHtml(user.full_name || 'Valued Customer');
+  const textBody = [
+    'HAMBAK TECH & SERVICES',
+    '',
+    `Hello ${user.full_name || 'Valued Customer'},`,
+    '',
+    'Thank you for registering on HAMBAK TECH & SERVICES. To activate wallet funding, identity verification, VTU services, and order submissions, verify your email address using either option below:',
+    '',
+    `6-Digit Verification Code: ${otpCode}`,
+    `Verification Link: ${verifyUrl}`,
+    '',
+    'This code and link expire in 60 minutes. Never share your verification code with anyone.',
+    '',
+    'Need assistance? Email support@hambaktech.com.ng or call 09127469686.',
+  ].join('\n');
 
-  db.logAudit('EMAIL_VERIFICATION_DISPATCHED', { email: user.email }, user.id, user.email);
-  return { sent: true, expiresInMinutes: 60 };
+  const mailRes = await sendEmail(
+    user.email,
+    'Verify Your HAMBAKTECH Email Address',
+    `<div style="font-family: Arial, sans-serif; padding: 24px; max-width: 560px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #0f172a;">
+      <div style="padding: 20px 24px; background: linear-gradient(135deg, #065f46 0%, #0284c7 100%); border-radius: 10px 10px 0 0; margin: -24px -24px 24px -24px;">
+        <div style="font-size: 16px; font-weight: 800; color: #ffffff;">HAMBAK TECH &amp; SERVICES</div>
+        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #d1fae5; margin-top: 4px;">Email Verification &bull; Account Activation</div>
+      </div>
+      <h2 style="margin-top: 0; color: #0f172a; font-size: 18px;">Confirm Your Email Address</h2>
+      <p style="font-size: 14px; color: #334155;">Hello <strong>${safeName}</strong>,</p>
+      <p style="font-size: 13px; color: #475569; line-height: 1.6;">Please verify your email address to activate wallet funding, NIN/BVN verification, and VTU services on HAMBAK TECH &amp; SERVICES.</p>
+      <p style="margin: 24px 0; text-align: center;">
+        <a href="${escapeHtml(verifyUrl)}" style="display: inline-block; background: #059669; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: bold;">Verify Email Address</a>
+      </p>
+      <p style="text-align: center; font-size: 12px; color: #475569; font-weight: 600;">Or enter this 6-digit verification code (valid for 60 minutes):</p>
+      <div style="text-align: center; font-family: monospace; font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #065f46; background: #ecfdf5; border: 1px solid #10b981; border-radius: 8px; padding: 12px;">${otpCode}</div>
+      <p style="font-size: 11px; color: #64748b; margin-top: 20px;">Never share this code with anyone. Need help? Email <a href="mailto:support@hambaktech.com.ng" style="color: #059669;">support@hambaktech.com.ng</a>.</p>
+    </div>`,
+    { text: textBody }
+  );
+
+  const delivered = Boolean(mailRes.success && !mailRes.simulated && !mailRes.error);
+  if (delivered) {
+    for (const v of db.data.email_verifications) {
+      if (v.user_id === user.id && v.id !== recordId && !v.is_used) {
+        v.is_used = true;
+      }
+    }
+    db.saveDatabase();
+    db.logAudit('EMAIL_VERIFICATION_DISPATCHED', { email: user.email, messageId: mailRes.messageId }, user.id, user.email);
+  } else {
+    // Delete undelivered record so failed SMTP attempts do not block retry with a 60s cooldown
+    db.data.email_verifications = db.data.email_verifications.filter((v) => v.id !== recordId);
+    db.saveDatabase();
+    console.error('[EmailVerificationDispatchFailed]', { email: user.email, error: mailRes.error || 'Delivery not completed' });
+    db.logAudit('EMAIL_VERIFICATION_DISPATCH_FAILED', { email: user.email, simulated: Boolean(mailRes.simulated) }, user.id, user.email);
+  }
+
+  return { sent: delivered, expiresInMinutes: 60 };
 }
 
 // POST /api/auth/register
@@ -401,9 +446,13 @@ authRouter.post('/register', async (req, res) => {
     const clientIp = getClientIp(req);
     db.logAudit('USER_REGISTERED', { email: newUser.email, phone: newUser.phone_number }, newUser.id, newUser.email, clientIp);
 
-    const verificationDispatch = issueExpressEmailVerification(newUser, false);
+    const verificationDispatch = await issueExpressEmailVerification(newUser, false);
     const token = generateToken(newUser.id, newUser.role, 86400 * 7, newUser.token_version ?? 1);
     const safeUser = sanitizeUser(newUser, true);
+    const verificationSent = Boolean(verificationDispatch.sent);
+    const registerMessage = verificationSent
+      ? 'Account created! Please enter the 6-digit verification code or click the link sent to your email to verify your account.'
+      : 'Account created! We could not send your verification email right now. Please tap Resend Verification Code to try again.';
 
     return res.status(201).json({
       success: true,
@@ -411,12 +460,14 @@ authRouter.post('/register', async (req, res) => {
       user: safeUser,
       dashboard_config: safeUser.dashboard_config,
       email_verification_required: true,
-      verification_sent: verificationDispatch.sent,
+      verification_sent: verificationSent,
       verification_expires_in_minutes: verificationDispatch.expiresInMinutes,
-      message: 'Account created! Please enter the 6-digit verification code or click the link sent to your email to verify your account.',
+      cooldown_seconds: verificationSent ? 60 : 0,
+      message: registerMessage,
     });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || 'Registration failed' });
+    console.error('[Register Error]', error?.message || error);
+    return res.status(500).json({ error: 'Unable to create your account right now. Please try again later.' });
   }
 });
 
@@ -476,24 +527,58 @@ function handleVerifyEmailRequest(req: any, res: any) {
     }
 
     if (record.is_used) {
-      return res.status(400).json({ success: false, error: 'This verification link or code has already been used.' });
+      return res.status(400).json({
+        success: false,
+        code: 'VERIFICATION_ALREADY_USED',
+        error: 'This verification link or code has already been used. Please request a new one if needed.',
+        errors: { can_resend: true },
+      });
     }
 
     if (new Date(record.expires_at).getTime() < Date.now()) {
-      return res.status(400).json({ success: false, code: 'VERIFICATION_EXPIRED', error: 'Verification link/code has expired. Please request a new one.' });
+      record.is_used = true;
+      db.saveDatabase();
+      return res.status(400).json({
+        success: false,
+        code: 'VERIFICATION_EXPIRED',
+        error: 'Verification link/code has expired. Please request a new one.',
+        errors: { expired: true, can_resend: true },
+      });
     }
 
     if ((record.attempts || 0) >= (record.max_attempts || 5)) {
-      return res.status(429).json({ success: false, code: 'VERIFICATION_ATTEMPTS_EXCEEDED', error: 'Maximum verification attempts exceeded. Please request a new code.' });
+      record.is_used = true;
+      db.saveDatabase();
+      return res.status(429).json({
+        success: false,
+        code: 'VERIFICATION_ATTEMPTS_EXCEEDED',
+        error: 'Maximum verification attempts exceeded. Please request a new code.',
+        errors: { attempts_remaining: 0, can_resend: true },
+      });
     }
 
     const candidateHash = crypto.createHash('sha256').update(token || otp).digest('hex');
     const expectedHash = token ? record.token_hash : record.code_hash;
     if (candidateHash !== expectedHash) {
       record.attempts = (record.attempts || 0) + 1;
-      db.saveDatabase();
       const remaining = Math.max(0, (record.max_attempts || 5) - record.attempts);
-      return res.status(400).json({ success: false, error: `Invalid verification code. ${remaining} attempt(s) remaining.` });
+      if (remaining <= 0) {
+        record.is_used = true;
+        db.saveDatabase();
+        return res.status(429).json({
+          success: false,
+          code: 'VERIFICATION_ATTEMPTS_EXCEEDED',
+          error: 'Maximum verification attempts exceeded. Please request a new verification code.',
+          errors: { attempts_remaining: 0, can_resend: true },
+        });
+      }
+      db.saveDatabase();
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_VERIFICATION_CODE',
+        error: `Invalid verification code. ${remaining} attempt(s) remaining.`,
+        errors: { attempts_remaining: remaining },
+      });
     }
 
     for (const r of records) {
@@ -531,7 +616,7 @@ function handleVerifyEmailRequest(req: any, res: any) {
 authRouter.get('/verify-email', handleVerifyEmailRequest);
 authRouter.post('/verify-email', handleVerifyEmailRequest);
 
-authRouter.post('/resend-verification', (req, res) => {
+authRouter.post('/resend-verification', async (req, res) => {
   try {
     const session = parseToken(req.headers.authorization);
     const sessionUser = session ? db.findUserById(session.userId) : undefined;
@@ -564,13 +649,22 @@ authRouter.post('/resend-verification', (req, res) => {
       });
     }
 
-    const dispatch = issueExpressEmailVerification(targetUser, true);
+    const dispatch = await issueExpressEmailVerification(targetUser, true);
     if (dispatch.cooldownSeconds) {
       return res.status(429).json({
         success: false,
         code: 'VERIFICATION_COOLDOWN',
         error: `Please wait ${dispatch.cooldownSeconds} second(s) before requesting another verification email.`,
         errors: { retry_after_seconds: dispatch.cooldownSeconds },
+      });
+    }
+
+    if (!dispatch.sent) {
+      return res.status(503).json({
+        success: false,
+        code: 'EMAIL_DELIVERY_FAILED',
+        error: 'We could not send your verification email at this time. Please try again shortly, or contact support if the issue persists.',
+        errors: { sent: false, can_retry: true },
       });
     }
 
@@ -581,8 +675,9 @@ authRouter.post('/resend-verification', (req, res) => {
       cooldown_seconds: 60,
       message: 'A fresh verification code and link have been sent to your email address.',
     });
-  } catch {
-    return res.status(500).json({ success: false, error: 'Failed to resend verification email.' });
+  } catch (err: any) {
+    console.error('[ResendVerification Error]', err?.message || err);
+    return res.status(500).json({ success: false, error: 'Unable to send verification email right now. Please try again later.' });
   }
 });
 
@@ -658,7 +753,8 @@ authRouter.post('/login', async (req, res) => {
       message: 'Logged in successfully',
     });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || 'Login failed' });
+    console.error('[Login Error]', error?.message || error);
+    return res.status(500).json({ error: 'Unable to sign in right now. Please try again later.' });
   }
 });
 

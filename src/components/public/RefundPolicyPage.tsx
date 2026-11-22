@@ -21,7 +21,7 @@ export const RefundPolicyPage: React.FC = () => {
       },
       {
         heading: '2. Wallet Funding Discrepancies',
-        body: 'Duplicate payment gateway debits or uncredited bank transfers supported by valid session references are investigated by our reconciliation desk within 24 to 48 business hours.',
+        body: 'Duplicate Paystack gateway debits or uncredited online payments supported by valid Paystack transaction references are investigated by our reconciliation desk within 24 to 48 business hours.',
       },
       {
         heading: '3. Non-Refundable Fulfilled Services',

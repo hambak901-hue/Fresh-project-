@@ -115,12 +115,10 @@ class WalletController
             if (!empty($t['metadata'])) {
                 $meta = is_string($t['metadata']) ? json_decode($t['metadata'], true) : $t['metadata'];
                 if (!$isAdmin && is_array($meta)) {
-                    unset($meta['provider'], $meta['provider_id'], $meta['provider_cost'], $meta['wholesale_cost'], $meta['cost'], $meta['cost_price'], $meta['provider_ref'], $meta['raw_response'], $meta['endpoint'], $meta['api_url']);
+                    unset($meta['provider'], $meta['provider_id'], $meta['provider_cost'], $meta['wholesale_cost'], $meta['cost'], $meta['cost_price'], $meta['provider_ref'], $meta['raw_response'], $meta['provider_response'], $meta['endpoint'], $meta['api_url']);
+                    $meta = Security::sanitizeCustomerMetadata($meta);
                 }
                 $t['metadata'] = $meta;
-            }
-            if (!$isAdmin && is_array($t['metadata'])) {
-                unset($t['metadata']['provider_response'], $t['metadata']['raw_response'], $t['metadata']['provider_cost'], $t['metadata']['wholesale_cost']);
             }
         }
 
@@ -245,7 +243,7 @@ class WalletController
         $gCfg = $policy['gateways'];
 
         if ($gateway !== 'paystack') {
-            Response::error('Unsupported payment gateway. Please use Paystack or Direct Bank Transfer.', 422);
+            Response::error('Unsupported payment gateway. Paystack is the sole active wallet funding gateway.', 422);
             return;
         }
         if (array_key_exists('enable_paystack', $gCfg) && empty($gCfg['enable_paystack'])) {
@@ -348,7 +346,18 @@ class WalletController
                 'error_message' => $e->getMessage(),
             ]);
 
-            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Payment service is temporarily unavailable. Please try again later or use Direct Bank Transfer.'), 502);
+            Security::logPrivateError('PaystackFundInit', $e, [
+                'user_id' => $user['id'],
+                'reference' => $reference,
+                'amount' => $amount,
+            ]);
+            $classified = Security::classifyProviderError($e);
+            $clientMsg = match ($classified['category']) {
+                'provider_auth' => Security::ERR_PROVIDER_AUTH,
+                'provider_wallet' => Security::ERR_PROVIDER_WALLET,
+                default => Security::ERR_PROVIDER_UNAVAILABLE,
+            };
+            Response::error($clientMsg, (int)$classified['http_status']);
         }
     }
 
@@ -627,7 +636,19 @@ class WalletController
                 'amount' => $amount,
                 'error_message' => $e->getMessage(),
             ]);
-            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Payment verification is temporarily unavailable. Please try again shortly.'), 502);
+            Security::logPrivateError('PaystackFundVerify', $e, [
+                'user_id' => $targetUserId,
+                'reference' => $reference,
+                'amount' => $amount,
+            ]);
+            $classified = Security::classifyProviderError($e);
+            $clientMsg = match ($classified['category']) {
+                'customer_validation' => $classified['message'],
+                'provider_auth' => Security::ERR_PROVIDER_AUTH,
+                'provider_wallet' => Security::ERR_PROVIDER_WALLET,
+                default => Security::ERR_PROVIDER_UNAVAILABLE,
+            };
+            Response::error($clientMsg, (int)$classified['http_status']);
         }
     }
 
@@ -743,255 +764,6 @@ class WalletController
         Auth::requireAuth($request);
         Response::error('Direct Bank Transfer and Bank Transfer Proof submission have been discontinued. Please fund your wallet via Paystack.', 410);
         return;
-    }
-
-    /** @phpstan-ignore-next-line legacy archive kept unreachable below */
-    private function manualFundingLegacyDisabled(Request $request): void
-    {
-        $user = Auth::requireVerifiedEmail($request);
-        $policy = $this->getWalletPolicy();
-        $wCfg = $policy['wallet'];
-        $gCfg = $policy['gateways'];
-        if (empty($wCfg['manual_funding_enabled']) || (array_key_exists('enable_bank_transfer', $gCfg) && empty($gCfg['enable_bank_transfer']))) {
-            Response::error('Manual bank transfer deposits are currently disabled by administrators.', 403);
-        }
-
-        $amount = (float)$request->input('amount', 0);
-        $depositorName = trim((string)($request->input('depositor_name') ?? $request->input('sender_name', $user['full_name'])));
-        // Always enforce authoritative receiving bank details from server wallet_settings (prevents client-side spoofing)
-        $bankName = trim((string)($wCfg['bank_name'] ?? 'Moniepoint MFB')) ?: 'Moniepoint MFB';
-        $accountNumber = preg_replace('/\s+/', '', trim((string)($wCfg['bank_account_number'] ?? '5210741634'))) ?: '5210741634';
-        $paymentRef = trim((string)($request->input('reference') ?? $request->input('payment_reference', '')));
-        $paymentDate = (string)($request->input('payment_date', date('Y-m-d')));
-        $paymentMethod = (string)($request->input('payment_method', 'Bank Transfer'));
-        $remarks = trim((string)($request->input('remarks', 'Manual bank deposit')));
-
-        $minManual = max(500.0, (float)$wCfg['min_funding_amount']);
-        $maxManual = (float)$wCfg['max_funding_amount'];
-        if ($amount < $minManual) {
-            Response::error('Minimum manual funding amount is ₦' . number_format($minManual, 2) . '.', 422);
-            return;
-        }
-        if ($amount > $maxManual) {
-            Response::error('Maximum manual funding amount is ₦' . number_format($maxManual, 2) . '.', 422);
-            return;
-        }
-
-        if (empty($paymentRef)) {
-            $paymentRef = 'MAN_REF_' . strtoupper(bin2hex(random_bytes(5)));
-        }
-
-        // Prevent duplicate submissions with identical reference
-        $existingReq = $this->db->fetchOne(
-            'SELECT id, status FROM manual_funding_requests WHERE payment_reference = :ref OR (user_id = :uid AND amount = :amt AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE))',
-            ['ref' => $paymentRef, 'uid' => $user['id'], 'amt' => $amount]
-        );
-        if ($existingReq) {
-            Response::error("A manual funding request with this reference or recent amount is already {$existingReq['status']}.", 409);
-            return;
-        }
-
-        // Handle required receipt file upload (ignore untrusted external payment_proof_url strings)
-        if (!isset($_FILES['receipt']) || !is_array($_FILES['receipt'])) {
-            Response::error('Bank transfer receipt upload (JPG, PNG, or PDF) is required.', 422);
-            return;
-        }
-        if ($_FILES['receipt']['error'] !== UPLOAD_ERR_OK) {
-            Response::error('Receipt upload failed (code ' . (int)$_FILES['receipt']['error'] . '). Ensure file is JPG, PNG, or PDF and under 5MB.', 422);
-            return;
-        }
-
-        $storageDir = dirname(__DIR__) . '/storage/receipts';
-        if (!is_dir($storageDir)) {
-            @mkdir($storageDir, 0755, true);
-            @file_put_contents($storageDir . '/.htaccess', "Deny from all\n");
-        }
-
-        $file = $_FILES['receipt'];
-        $maxBytes = 5 * 1024 * 1024; // 5MB
-        if ($file['size'] <= 0 || $file['size'] > $maxBytes) {
-            Response::error('Uploaded receipt must be valid and not exceed 5MB.', 422);
-            return;
-        }
-
-        $allowedExts = ['jpg', 'jpeg', 'png', 'pdf'];
-        $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowedExts, true)) {
-            Response::error('Invalid receipt format. Allowed formats: JPG, PNG, PDF.', 422);
-            return;
-        }
-
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime = $finfo ? finfo_file($finfo, $file['tmp_name']) : '';
-        if ($finfo) {
-            finfo_close($finfo);
-        }
-        $allowedMimes = ['image/jpeg', 'image/png', 'application/pdf'];
-        if (!in_array($mime, $allowedMimes, true)) {
-            Response::error('File content validation failed. Please upload a valid JPG, PNG, or PDF receipt.', 422);
-            return;
-        }
-
-        $proofFilename = 'receipt_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
-        $destination = $storageDir . '/' . $proofFilename;
-
-        if (!move_uploaded_file($file['tmp_name'], $destination)) {
-            Response::error('Failed to securely store receipt file on server.', 500);
-            return;
-        }
-
-        $receiptUrl = '/api/wallet/receipt/' . $proofFilename;
-        $requestId = Security::generateUuid();
-
-        $this->db->execute(
-            'INSERT INTO manual_funding_requests 
-             (id, user_id, amount, bank_name, account_number, payment_reference, payment_date, payment_method, depositor_name, remarks, teller_proof_url, proof_filename, status, created_at)
-             VALUES 
-             (:id, :uid, :amt, :bank, :acc, :ref, :pdate, :pmeth, :name, :rem, :url, :fname, "pending", NOW())',
-            [
-                'id' => $requestId,
-                'uid' => $user['id'],
-                'amt' => $amount,
-                'bank' => $bankName,
-                'acc' => $accountNumber,
-                'ref' => $paymentRef,
-                'pdate' => $paymentDate,
-                'pmeth' => $paymentMethod,
-                'name' => $depositorName,
-                'rem' => $remarks,
-                'url' => $receiptUrl,
-                'fname' => $proofFilename,
-            ]
-        );
-
-        // 1. Notify ALL active console admins/superadmins/managers authorized for wallet approvals
-        $amtFmt = '₦' . number_format($amount, 2);
-        $adminTitle = "New Manual Funding: {$amtFmt}";
-        $adminMsg = "Customer {$depositorName} submitted transfer proof for {$amtFmt} to {$bankName} ({$accountNumber}, Ref: {$paymentRef}). Review required.";
-        $notifiedEmails = [];
-        try {
-            $consoleAdmins = $this->db->fetchAll(
-                'SELECT u.id, u.email, u.full_name, u.role, u.assigned_permissions, p.assigned_permissions AS profile_permissions
-                 FROM users u
-                 LEFT JOIN user_profiles p ON p.user_id = u.id
-                 WHERE u.status = "active" AND u.role IN ("superadmin", "admin", "manager", "staff", "support")'
-            );
-            foreach ($consoleAdmins as $adm) {
-                $admRole = DashboardConfigService::normalizeRole((string)($adm['role'] ?? ''));
-                $admPerms = [];
-                $hasExplicit = false;
-                foreach ([$adm['assigned_permissions'] ?? null, $adm['profile_permissions'] ?? null] as $rawPerm) {
-                    if (is_string($rawPerm) && trim($rawPerm) !== '') {
-                        $dec = json_decode($rawPerm, true);
-                        if (is_array($dec)) {
-                            $admPerms = $dec;
-                            $hasExplicit = true;
-                            break;
-                        }
-                    } elseif (is_array($rawPerm)) {
-                        $admPerms = $rawPerm;
-                        $hasExplicit = true;
-                        break;
-                    }
-                }
-                if ($admRole === 'superadmin') {
-                    $admPerms = ['*'];
-                } elseif (!$hasExplicit && Auth::isConsoleRole($admRole)) {
-                    $admPerms = DashboardConfigService::getDefaultPermissionsForRole($admRole);
-                }
-                if (!Auth::hasPermission(['role' => $admRole, 'permissions' => $admPerms], 'wallet')) {
-                    continue;
-                }
-                $this->db->execute(
-                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                     VALUES (:id, :uid, :title, :msg, "alert", 0, NOW())',
-                    [
-                        'id' => Security::generateUuid(),
-                        'uid' => $adm['id'],
-                        'title' => $adminTitle,
-                        'msg' => $adminMsg,
-                    ]
-                );
-                if (!empty($adm['email'])) {
-                    $notifiedEmails[] = ['email' => (string)$adm['email'], 'name' => (string)($adm['full_name'] ?? 'Admin')];
-                }
-            }
-        } catch (Throwable) {
-            // Fallback single notification if schema query fails
-            $this->db->execute(
-                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-                 VALUES (:id, "usr_superadmin", :title, :msg, "alert", 0, NOW())',
-                [
-                    'id' => Security::generateUuid(),
-                    'title' => $adminTitle,
-                    'msg' => $adminMsg,
-                ]
-            );
-        }
-
-        // Best-effort email alert to finance/superadmin team
-        if (!empty($notifiedEmails)) {
-            try {
-                $mailer = new MailService();
-                $safeDep = htmlspecialchars($depositorName, ENT_QUOTES, 'UTF-8');
-                $safeRef = htmlspecialchars($paymentRef, ENT_QUOTES, 'UTF-8');
-                $safeCustEmail = htmlspecialchars((string)($user['email'] ?? ''), ENT_QUOTES, 'UTF-8');
-                $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                    . "<h2 style='margin:0 0 12px;color:#0284c7;'>New Manual Funding Proof: {$amtFmt}</h2>"
-                    . "<p style='color:#334155;'>A customer submitted a manual bank transfer deposit awaiting Admin approval:</p>"
-                    . "<div style='background:#f8fafc;border:1px solid #e2e8f0;padding:12px;border-radius:8px;margin:14px 0;font-size:13px;color:#334155;'>"
-                    . "<div><strong>Depositor:</strong> {$safeDep} ({$safeCustEmail})</div>"
-                    . "<div><strong>Amount:</strong> {$amtFmt}</div>"
-                    . "<div><strong>Receiving Account:</strong> {$bankName} ({$accountNumber})</div>"
-                    . "<div><strong>Reference:</strong> <code>{$safeRef}</code></div></div>"
-                    . "<p style='color:#64748b;font-size:12px;'>Log into the Admin Funding Queue to inspect the uploaded receipt and Approve or Reject.</p></div>";
-                foreach ($notifiedEmails as $rec) {
-                    $mailer->send($rec['email'], $rec['name'], "Pending Manual Funding ({$amtFmt}) — HAMBAKTECH Admin", $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'ADMIN_MANUAL_FUNDING_ALERT_EMAIL']);
-                }
-            } catch (Throwable) {
-            }
-        }
-
-        // 2. Send Acknowledgement notification to customer
-        $this->db->execute(
-            'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
-             VALUES (:id, :uid, "Funding Request Received", :msg, "info", 0, NOW())',
-            [
-                'id' => Security::generateUuid(),
-                'uid' => $user['id'],
-                'msg' => "Your manual transfer proof for {$amtFmt} (Ref: {$paymentRef}) has been received and is pending verification.",
-            ]
-        );
-
-        FootprintService::record([
-            'user_id' => $user['id'],
-            'user_email' => $user['email'] ?? null,
-            'user_name' => $user['full_name'] ?? null,
-            'category' => 'wallet',
-            'action' => 'WALLET_MANUAL_FUND_SUBMITTED',
-            'service_type' => 'manual_transfer',
-            'reference' => $paymentRef,
-            'provider' => 'bank_transfer',
-            'status' => 'pending',
-            'amount' => $amount,
-            'metadata' => [
-                'bank_name' => $bankName,
-                'account_number' => $accountNumber,
-                'depositor_name' => $depositorName,
-                'proof_filename' => $proofFilename,
-            ],
-        ]);
-
-        Response::success([
-            'request_id' => $requestId,
-            'reference' => $paymentRef,
-            'amount' => $amount,
-            'bank_name' => $bankName,
-            'account_number' => $accountNumber,
-            'status' => 'pending',
-            'proof_url' => $receiptUrl,
-            'message' => 'Manual funding submitted! Finance team will verify and credit your wallet.',
-        ], 'Payment proof submitted successfully. You will be notified upon verification.', 201);
     }
 
     /**
@@ -1118,7 +890,8 @@ class WalletController
             if (!empty($r['metadata'])) {
                 $meta = is_string($r['metadata']) ? json_decode($r['metadata'], true) : $r['metadata'];
                 if (!$isAdmin && is_array($meta)) {
-                    unset($meta['provider'], $meta['provider_id'], $meta['provider_cost'], $meta['wholesale_cost'], $meta['cost'], $meta['cost_price'], $meta['provider_ref'], $meta['raw_response'], $meta['endpoint'], $meta['api_url']);
+                    unset($meta['provider'], $meta['provider_id'], $meta['provider_cost'], $meta['wholesale_cost'], $meta['cost'], $meta['cost_price'], $meta['provider_ref'], $meta['raw_response'], $meta['provider_response'], $meta['endpoint'], $meta['api_url']);
+                    $meta = Security::sanitizeCustomerMetadata($meta);
                 }
                 $r['metadata'] = $meta;
             }

@@ -409,27 +409,51 @@ class EnrolmentController
             );
 
             $balanceAfter = null;
+            $refundConfirmed = false;
             if ($existingTx) {
                 $balanceAfter = (float)$existingTx['balance_after'];
+                $refundConfirmed = true;
             } elseif ($amount > 0) {
-                $creditRes = $this->walletService->credit(
-                    (string)$order['user_id'],
-                    $amount,
-                    'enrolment_refund',
-                    $refundRef,
-                    "Refund for {$order['service_name']} ({$order['order_number']}): {$reason}",
-                    'internal',
-                    [
+                try {
+                    $creditRes = $this->walletService->credit(
+                        (string)$order['user_id'],
+                        $amount,
+                        'enrolment_refund',
+                        $refundRef,
+                        "Refund for {$order['service_name']} ({$order['order_number']})",
+                        'internal',
+                        [
+                            'enrolment_order_id' => $order['id'],
+                            'order_number' => $order['order_number'],
+                            'payment_reference' => $order['payment_reference'],
+                            'actor_id' => $actorId,
+                        ]
+                    );
+                    $verifiedTx = $db->fetchOne(
+                        'SELECT id, balance_after FROM transactions WHERE reference = :ref AND user_id = :uid AND type = "credit" AND status = "successful" LIMIT 1',
+                        ['ref' => $refundRef, 'uid' => (string)$order['user_id']]
+                    );
+                    if ($verifiedTx) {
+                        $balanceAfter = (float)$verifiedTx['balance_after'];
+                        $refundConfirmed = true;
+                    } elseif (isset($creditRes['balance_after'])) {
+                        $balanceAfter = (float)$creditRes['balance_after'];
+                        $refundConfirmed = true;
+                    }
+                } catch (Throwable $refundEx) {
+                    Security::logPrivateError('EnrolmentRefund', $refundEx, [
                         'enrolment_order_id' => $order['id'],
-                        'order_number' => $order['order_number'],
-                        'payment_reference' => $order['payment_reference'],
-                        'actor_id' => $actorId,
-                    ]
-                );
-                $balanceAfter = $creditRes['balance_after'] ?? null;
+                        'refund_reference' => $refundRef,
+                        'user_id' => $order['user_id'],
+                    ]);
+                    $refundConfirmed = false;
+                }
             }
 
-            $finalStatus = in_array($targetStatus, ['failed', 'rejected', 'refunded'], true) ? $targetStatus : 'refunded';
+            $finalStatus = $refundConfirmed
+                ? (in_array($targetStatus, ['failed', 'rejected', 'refunded'], true) ? $targetStatus : 'refunded')
+                : 'failed';
+            $safeRem = Security::sanitizeCustomerError($reason, '');
             $db->execute(
                 'UPDATE enrolment_orders
                  SET status = :st,
@@ -443,8 +467,8 @@ class EnrolmentController
                  WHERE id = :id',
                 [
                     'st' => $finalStatus,
-                    'rref' => $refundRef,
-                    'rem' => $reason,
+                    'rref' => $refundConfirmed ? $refundRef : null,
+                    'rem' => $safeRem,
                     'rby' => $actorId,
                     'rby2' => $actorId,
                     'id' => $order['id'],
@@ -452,7 +476,8 @@ class EnrolmentController
             );
 
             return [
-                'refunded' => true,
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
                 'already_refunded' => false,
                 'refund_reference' => $refundRef,
                 'balance_after' => $balanceAfter,
@@ -735,7 +760,8 @@ class EnrolmentController
         }
         $endpoint = trim((string)($serviceRow['endpoint'] ?? ''));
         if ($endpoint === '') {
-            Response::error('This enrolment service does not have a verified provider endpoint configured.', 503);
+            Security::logPrivateError('EnrolmentSubmitConfig', 'Enrolment service has no verified endpoint configured', ['service_key' => $serviceKey]);
+            Response::error(Security::ERR_PROVIDER_AUTH, 503);
         }
 
         // 3. Validate all fields against service schema
@@ -999,8 +1025,10 @@ class EnrolmentController
 
                 return $debitRes;
             });
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 400);
+        } catch (Throwable $e) {
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $status);
         }
 
         // 8. Dispatch to 2SureVerify via X-Api-Key and explicit NIN Enrolment field/file mapping
@@ -1098,40 +1126,52 @@ class EnrolmentController
             null,
             'refunded'
         );
+        $refundConfirmed = !empty($refundRes['refunded']);
+
+        Security::logPrivateError('EnrolmentSubmitFailed', $provMsg ?: 'Provider rejected enrolment order', [
+            'user_id' => $user['id'],
+            'service_key' => $serviceKey,
+            'order_number' => $orderNumber,
+            'provider' => $providerId,
+            'refund_confirmed' => $refundConfirmed,
+        ]);
 
         FootprintService::record([
             'user_id' => $user['id'],
             'user_email' => $user['email'] ?? null,
             'user_name' => $user['full_name'] ?? null,
             'category' => 'service',
-            'action' => 'NIN_ENROLMENT_FAILED_REFUNDED',
+            'action' => $refundConfirmed ? 'NIN_ENROLMENT_FAILED_REFUNDED' : 'NIN_ENROLMENT_FAILED',
             'service_type' => $serviceKey,
             'reference' => $orderNumber,
             'provider' => $providerId,
-            'status' => 'failed',
+            'status' => $refundConfirmed ? 'refunded' : 'failed',
             'amount' => $customerPrice,
             'error_message' => $provMsg,
-            'metadata' => ['refund_reference' => $refundRes['refund_reference'] ?? null],
+            'metadata' => [
+                'refund_reference' => $refundRes['refund_reference'] ?? null,
+                'refund_confirmed' => $refundConfirmed,
+            ],
         ]);
 
         $this->notifyCustomer(
             (string)$user['id'],
-            "{$displayServiceName} Failed & Refunded",
-            "Your {$displayServiceName} order ({$orderNumber}) could not be accepted. ₦" . number_format($customerPrice, 2) . " has been automatically refunded to your wallet.",
+            $refundConfirmed ? "{$displayServiceName} Failed & Refunded" : "{$displayServiceName} Failed",
+            $refundConfirmed
+                ? "Your {$displayServiceName} order ({$orderNumber}) could not be accepted. Your wallet has been refunded."
+                : "Your {$displayServiceName} order ({$orderNumber}) could not be accepted. Your refund is being processed.",
             'warning',
             $orderNumber,
-            ['order_number' => $orderNumber, 'status' => 'refunded', 'service_name' => $displayServiceName]
+            ['order_number' => $orderNumber, 'status' => $refundConfirmed ? 'refunded' : 'failed', 'service_name' => $displayServiceName]
         );
 
-        $displayErr = $isAdmin ? $provMsg : $this->sanitizeCustomerError($provMsg);
-        $errMsg = (!$isAdmin && str_starts_with($displayErr, 'This service is temporarily unavailable'))
-            ? $displayErr . ' Your wallet has been automatically refunded.'
-            : 'NIN Enrolment order could not be accepted: ' . $displayErr . '. Your wallet has been automatically refunded.';
+        $errMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
         Response::error(
             $errMsg,
             502,
             [
-                'refunded' => true,
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
                 'refund_reference' => $refundRes['refund_reference'] ?? null,
                 'balance_after' => $refundRes['balance_after'] ?? null,
                 'newBalance' => $refundRes['balance_after'] ?? null,
@@ -1236,7 +1276,10 @@ class EnrolmentController
 
         $adapter = new TwoSureVerifyAdapter();
         if (!$adapter->hasCredentials()) {
-            return ['updated' => false, 'message' => 'Live provider credentials are not configured on this host.', 'row' => $row];
+            Security::logPrivateError('EnrolmentPollStatus', 'Live provider credentials not configured on host', [
+                'order_id' => $row['id'] ?? null,
+            ]);
+            return ['updated' => false, 'message' => Security::ERR_PROVIDER_AUTH, 'row' => $row];
         }
 
         $res = $adapter->checkStatus($lookupRef);
@@ -1254,9 +1297,13 @@ class EnrolmentController
         );
 
         if ($isLookupError || ($rawStatus === '' && empty($res['success']))) {
+            Security::logPrivateError('EnrolmentPollStatus', $remarks ?: 'Invalid/empty status response', [
+                'order_id' => $row['id'] ?? null,
+                'raw_status' => $rawStatus,
+            ]);
             return [
                 'updated' => false,
-                'message' => $remarks !== '' ? ($remarks . ' Order remains ' . strtoupper((string)$row['status']) . '.') : 'Status check did not return a valid order status.',
+                'message' => Security::ERR_PROVIDER_UNAVAILABLE,
                 'row' => $row,
             ];
         }
@@ -1284,7 +1331,7 @@ class EnrolmentController
                 $actorId,
                 'refunded'
             );
-            $newStatus = 'refunded';
+            $newStatus = !empty($refundInfo['refunded']) ? 'refunded' : 'failed';
         } else {
             $this->db->execute(
                 'UPDATE enrolment_orders
@@ -1309,23 +1356,26 @@ class EnrolmentController
         $updatedRow = $this->db->fetchOne('SELECT * FROM enrolment_orders WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
 
         if ($newStatus !== $prevStatus) {
+            $safeRemarks = $remarks !== '' ? Security::sanitizeCustomerError($remarks, '') : '';
             $titleMap = [
                 'processing' => "{$row['service_name']} In Processing",
                 'query_required' => "{$row['service_name']}: Additional Info Required",
                 'completed' => "{$row['service_name']} Completed",
                 'refunded' => "{$row['service_name']} Rejected & Refunded",
+                'failed' => "{$row['service_name']} Failed",
             ];
             $msgMap = [
-                'processing' => "Your {$row['service_name']} order ({$row['order_number']}) is now actively processing." . ($remarks ? " Note: {$remarks}" : ''),
-                'query_required' => "Action required for {$row['order_number']}: " . ($remarks ?: 'Please contact support with requested details/documents.'),
-                'completed' => "Great news! Your {$row['service_name']} order ({$row['order_number']}) has been completed." . ($remarks ? " Details: {$remarks}" : ''),
+                'processing' => "Your {$row['service_name']} order ({$row['order_number']}) is now actively processing." . ($safeRemarks ? " Note: {$safeRemarks}" : ''),
+                'query_required' => "Action required for {$row['order_number']}: " . ($safeRemarks ?: 'Please contact support with requested details/documents.'),
+                'completed' => "Great news! Your {$row['service_name']} order ({$row['order_number']}) has been completed." . ($safeRemarks ? " Details: {$safeRemarks}" : ''),
                 'refunded' => "Your {$row['service_name']} order ({$row['order_number']}) was not approved and ₦" . number_format((float)$row['customer_price'], 2) . " has been refunded to your wallet.",
+                'failed' => "Your {$row['service_name']} order ({$row['order_number']}) could not be completed. Your refund is being processed.",
             ];
             $this->notifyCustomer(
                 (string)$row['user_id'],
                 $titleMap[$newStatus] ?? 'Enrolment Order Status Updated',
                 $msgMap[$newStatus] ?? "Status changed to {$newStatus}.",
-                $newStatus === 'completed' ? 'success' : ($newStatus === 'query_required' || $newStatus === 'refunded' ? 'warning' : 'info'),
+                $newStatus === 'completed' ? 'success' : (in_array($newStatus, ['query_required', 'refunded', 'failed'], true) ? 'warning' : 'info'),
                 (string)$row['order_number'],
                 ['order_number' => $row['order_number'], 'status' => $newStatus, 'service_name' => $row['service_name']]
             );

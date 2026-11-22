@@ -645,7 +645,7 @@ class AuthController
         try {
             $verificationDispatch = $this->issueEmailVerification($userId, $email, $fullName, false);
         } catch (Throwable $e) {
-            error_log('[Registration Verification Email Error] ' . $e->getMessage());
+            Security::logPrivateError('EmailVerificationRegister', $e, ['user_id' => $userId, 'email' => $email]);
         }
 
         try {
@@ -677,15 +677,21 @@ class AuthController
         $user['dashboard_config'] = DashboardConfigService::getConfig($this->db, 'customer', 'published');
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
 
+        $verificationSent = !empty($verificationDispatch['sent']);
+        $registerMessage = $verificationSent
+            ? 'Account created! Please enter the 6-digit verification code or click the link sent to your email to verify your account.'
+            : 'Account created! We could not send your verification email right now. Please tap Resend Verification Code to try again.';
+
         Response::success([
             'user' => $user,
             'token' => $token,
             'pin_policy' => $pinService->getPublicPolicy(),
             'referral_bound' => $referralBinding !== null,
             'email_verification_required' => true,
-            'verification_sent' => (bool)($verificationDispatch['sent'] ?? false),
+            'verification_sent' => $verificationSent,
             'verification_expires_in_minutes' => (int)($verificationDispatch['expires_in_minutes'] ?? 60),
-        ], 'Account created! Please enter the 6-digit verification code or click the link sent to your email to verify your account.', 201);
+            'cooldown_seconds' => $verificationSent ? 60 : 0,
+        ], $registerMessage, 201);
     }
 
     public function me(Request $request): void
@@ -812,8 +818,9 @@ class AuthController
             );
             FootprintService::record('security', 'TRANSACTION_PIN_UPDATED', $currentUser, null, null, null, 'successful', null, null, [], $request->getIp());
             Response::success($res, 'Transaction PIN activated successfully');
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            Security::logPrivateError('AuthSetPin', $e, ['user_id' => $currentUser['id'] ?? null]);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to update your transaction PIN right now.'), 422);
         }
     }
 
@@ -1067,12 +1074,7 @@ class AuthController
             }
         }
 
-        // Invalidate previous active tokens before issuing a fresh pair
-        $this->db->execute(
-            'UPDATE email_verifications SET is_used = 1 WHERE user_id = :uid AND is_used = 0',
-            ['uid' => $userId]
-        );
-
+        $recordId = Security::generateUuid();
         $rawToken = bin2hex(random_bytes(32));
         $otpCode = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
         $tokenHash = hash('sha256', $rawToken);
@@ -1083,7 +1085,7 @@ class AuthController
              (id, user_id, email, token_hash, code_hash, attempts, max_attempts, is_used, expires_at, created_at)
              VALUES (:id, :uid, :email, :th, :ch, 0, 5, 0, DATE_ADD(NOW(), INTERVAL 60 MINUTE), NOW())',
             [
-                'id' => Security::generateUuid(),
+                'id' => $recordId,
                 'uid' => $userId,
                 'email' => $cleanEmail,
                 'th' => $tokenHash,
@@ -1092,12 +1094,32 @@ class AuthController
         );
 
         $sent = false;
+        $mailRes = [];
         try {
             $mailService = new MailService();
-            $res = $mailService->sendEmailVerification($cleanEmail, $fullName, $otpCode, $rawToken, $expiryMinutes);
-            $sent = !empty($res['sent']);
+            $mailRes = $mailService->sendEmailVerification($cleanEmail, $fullName, $otpCode, $rawToken, $expiryMinutes);
+            $sent = !empty($mailRes['sent']);
         } catch (Throwable $e) {
-            error_log('[EmailVerification Mail Error] ' . $e->getMessage());
+            Security::logPrivateError('EmailVerificationMail', $e, ['user_id' => $userId, 'email' => $cleanEmail]);
+        }
+
+        if ($sent) {
+            // Invalidate prior unused tokens only once the fresh email was dispatched
+            $this->db->execute(
+                'UPDATE email_verifications SET is_used = 1 WHERE user_id = :uid AND is_used = 0 AND id != :rid',
+                ['uid' => $userId, 'rid' => $recordId]
+            );
+        } else {
+            // Remove undelivered record so customer is not locked out for 60s and prior active codes remain intact
+            try {
+                $this->db->execute('DELETE FROM email_verifications WHERE id = :id', ['id' => $recordId]);
+            } catch (Throwable) {
+            }
+            Security::logPrivateError(
+                'EmailVerificationDispatchFailed',
+                (string)($mailRes['error'] ?? 'SMTP delivery failed'),
+                ['user_id' => $userId, 'email' => $cleanEmail]
+            );
         }
 
         return [
@@ -1172,17 +1194,19 @@ class AuthController
         }
 
         if ((int)($record['is_used'] ?? 0) === 1) {
-            Response::error('This verification link or code has already been used. Please request a new one if needed.', 400);
+            Response::error('This verification link or code has already been used. Please request a new one if needed.', 400, ['can_resend' => true], 'VERIFICATION_ALREADY_USED');
         }
 
         if (strtotime((string)$record['expires_at']) < time()) {
-            Response::error('Verification link/code has expired. Please request a new verification email.', 400, null, 'VERIFICATION_EXPIRED');
+            $this->db->execute('UPDATE email_verifications SET is_used = 1 WHERE id = :id', ['id' => $record['id']]);
+            Response::error('Verification link/code has expired. Please request a new verification email.', 400, ['expired' => true, 'can_resend' => true], 'VERIFICATION_EXPIRED');
         }
 
         $attempts = (int)($record['attempts'] ?? 0);
         $maxAttempts = max(1, (int)($record['max_attempts'] ?? 5));
         if ($attempts >= $maxAttempts) {
-            Response::error('Maximum verification attempts exceeded. Please request a new verification code.', 429, null, 'VERIFICATION_ATTEMPTS_EXCEEDED');
+            $this->db->execute('UPDATE email_verifications SET is_used = 1 WHERE id = :id', ['id' => $record['id']]);
+            Response::error('Maximum verification attempts exceeded. Please request a new verification code.', 429, ['attempts_remaining' => 0, 'can_resend' => true], 'VERIFICATION_ATTEMPTS_EXCEEDED');
         }
 
         $matched = false;
@@ -1193,9 +1217,14 @@ class AuthController
         }
 
         if (!$matched) {
-            $this->db->execute('UPDATE email_verifications SET attempts = attempts + 1 WHERE id = :id', ['id' => $record['id']]);
-            $remaining = max(0, $maxAttempts - ($attempts + 1));
-            Response::error("Invalid verification code. {$remaining} attempt(s) remaining.", 400);
+            $nextAttempts = $attempts + 1;
+            $remaining = max(0, $maxAttempts - $nextAttempts);
+            if ($remaining <= 0) {
+                $this->db->execute('UPDATE email_verifications SET attempts = :cnt, is_used = 1 WHERE id = :id', ['cnt' => $nextAttempts, 'id' => $record['id']]);
+                Response::error('Maximum verification attempts exceeded. Please request a new verification code.', 429, ['attempts_remaining' => 0, 'can_resend' => true], 'VERIFICATION_ATTEMPTS_EXCEEDED');
+            }
+            $this->db->execute('UPDATE email_verifications SET attempts = :cnt WHERE id = :id', ['cnt' => $nextAttempts, 'id' => $record['id']]);
+            Response::error("Invalid verification code. {$remaining} attempt(s) remaining.", 400, ['attempts_remaining' => $remaining], 'INVALID_VERIFICATION_CODE');
         }
 
         $this->db->execute(
@@ -1295,8 +1324,17 @@ class AuthController
             true
         );
 
+        if (empty($dispatch['sent'])) {
+            Response::error(
+                'We could not send your verification email at this time. Please try again shortly, or contact support if the issue persists.',
+                503,
+                ['sent' => false, 'can_retry' => true],
+                'EMAIL_DELIVERY_FAILED'
+            );
+        }
+
         Response::success([
-            'sent' => (bool)($dispatch['sent'] ?? false),
+            'sent' => true,
             'expires_in_minutes' => (int)($dispatch['expires_in_minutes'] ?? 60),
             'cooldown_seconds' => 60,
         ], 'A fresh verification code and link have been sent to your email address.');

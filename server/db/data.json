@@ -1668,6 +1668,64 @@
   },
   "audit_logs": [
     {
+      "id": "audit_1795342774054",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin",
+        "assigned_dashboard": "admin"
+      },
+      "ip": "197.211.52.177",
+      "created_at": "2026-11-22T10:19:34.054Z"
+    },
+    {
+      "id": "audit_1795342355454",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DASHBOARD_PREVIEW",
+      "details": {
+        "target_role": "customer",
+        "target_dashboard": "customer",
+        "mode": "published"
+      },
+      "created_at": "2026-11-22T10:12:35.454Z"
+    },
+    {
+      "id": "audit_1795342351370",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DASHBOARD_PREVIEW",
+      "details": {
+        "target_role": "customer",
+        "target_dashboard": "customer",
+        "mode": "published"
+      },
+      "created_at": "2026-11-22T10:12:31.370Z"
+    },
+    {
+      "id": "audit_1795342343576",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin",
+        "assigned_dashboard": "admin"
+      },
+      "ip": "197.211.52.177",
+      "created_at": "2026-11-22T10:12:23.576Z"
+    },
+    {
+      "id": "audit_1795342332828",
+      "user_email": "demo@hambakai.com",
+      "action": "LOGIN_FAILED",
+      "details": {
+        "reason": "User not found"
+      },
+      "ip": "197.211.52.177",
+      "created_at": "2026-11-22T10:12:12.828Z"
+    },
+    {
       "id": "audit_1795336358314",
       "user_id": "usr_superadmin",
       "action": "USER_LOGOUT",
@@ -3417,7 +3475,7 @@
       {
         "step": "02",
         "title": "Fund Your Balance",
-        "description": "Top up seamlessly via instant Flutterwave checkout or dedicated virtual bank accounts."
+        "description": "Top up seamlessly via instant Paystack checkout (Card, Bank Transfer via Paystack, and USSD)."
       },
       {
         "step": "03",
@@ -5579,7 +5637,7 @@
         "new_balance",
         "date"
       ],
-      "is_active": true,
+      "is_active": false,
       "updated_at": "2026-11-12T11:56:50.110Z",
       "html_body": "<div style=\"font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #ffffff;\"><h3>Bank Transfer Approved</h3><p>₦{{amount}} credited by {{approved_by}}. Ref: {{reference}}.</p></div>"
     },
@@ -5597,7 +5655,7 @@
         "rejection_reason",
         "support_email"
       ],
-      "is_active": true,
+      "is_active": false,
       "updated_at": "2026-11-12T11:56:50.110Z",
       "html_body": "<div style=\"font-family: Arial, sans-serif; padding: 24px; background: #0f172a; color: #fca5a5;\"><h3>Payment Proof Declined</h3><p>Reason: {{rejection_reason}}</p></div>"
     },

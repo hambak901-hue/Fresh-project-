@@ -224,25 +224,25 @@ const INITIAL_TEST_CASES: TestCase[] = [
   {
     id: 'wal_03',
     category: 'Wallet',
-    title: 'Manual Bank Transfer Proof Submission',
-    description: 'Verify bank deposit proof submission logs pending credit transaction for compliance review.',
-    endpoint: 'POST /api/customer/manual-funding',
+    title: 'Manual Bank Transfer Endpoint Retirement (410)',
+    description: 'Verify discontinued customer manual funding endpoints return HTTP 410 Gone.',
+    endpoint: 'POST /api/customer/manual-funding & /api/wallet/manual-funding',
     status: 'idle',
   },
   {
     id: 'wal_04',
     category: 'Wallet',
-    title: 'Admin Funding Approval Idempotency',
-    description: 'Verify admin approval credits customer wallet and blocks duplicate re-approvals with HTTP 400.',
+    title: 'Manual Admin Approval Endpoint Retirement (410)',
+    description: 'Verify discontinued manual funding approval endpoints return HTTP 410 Gone.',
     endpoint: 'POST /api/wallet/admin/approve-funding/:id',
     status: 'idle',
   },
   {
     id: 'wal_05',
     category: 'Wallet',
-    title: 'Duplicate Transaction Reference Defense',
-    description: 'Verify submission of duplicate bank reference is rejected before entering ledger.',
-    endpoint: 'POST /api/customer/manual-funding (Duplicate Test)',
+    title: 'Paystack-Only Gateway Enforcement & Webhook Auth',
+    description: 'Verify non-Paystack gateway initiation is rejected and unauthenticated webhooks return 401.',
+    endpoint: 'POST /api/wallet/fund/initiate + /api/wallet/paystack/webhook',
     status: 'idle',
   },
   {
@@ -832,101 +832,82 @@ export const Phase9IntegrationQa: React.FC<Phase9IntegrationQaProps> = ({
 
       if (testId === 'wal_03') {
         const switchJson = await getAuthSession('customer');
-        const uniqueRef = `BANK_DEP_${Date.now()}`;
         const res = await fetch('/api/customer/manual-funding', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${switchJson.token}`,
           },
-          body: JSON.stringify({
-            amount: 25000,
-            sender_name: 'Alhaji Bakar Hambak',
-            bank_name: 'Moniepoint MFB',
-            reference: uniqueRef,
-            payment_proof_url: '/public/assets/aistudio/IMG_0483_23e1a1e1.png',
-          }),
+          body: JSON.stringify({ amount: 25000, reference: `RET_${Date.now()}` }),
         });
-        const json = await res.json();
+        const walletManualRes = await fetch('/api/wallet/manual-funding', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${switchJson.token}`,
+          },
+          body: JSON.stringify({ amount: 25000, reference: `RET_W_${Date.now()}` }),
+        });
         const latency = Math.round(performance.now() - startTime);
-        if (res.ok && json.success) {
+        if (res.status === 410 && walletManualRes.status === 410) {
           setTestCases(prev => prev.map(t => t.id === testId ? {
             ...t,
             status: 'passed',
             latencyMs: latency,
-            details: `Proof submitted for ₦25,000 (Ref: ${uniqueRef}). Logged as PENDING in ledger.`
+            details: `Discontinued manual funding routes returned HTTP 410 Gone as required.`
           } : t));
-          addLog('success', `[Wallet] Manual bank transfer proof submission verified (${latency}ms)`);
+          addLog('success', `[Wallet] Manual funding retirement verified (${latency}ms)`);
           return true;
         }
       }
 
       if (testId === 'wal_04') {
-        // Admin approval test
         const switchJson = await getAuthSession('superadmin');
-        // Fetch manual funding queue
-        const queueRes = await fetch('/api/admin/manual-funding/queue', {
+        const approveRes = await fetch('/api/wallet/admin/approve-funding/1', {
+          method: 'POST',
           headers: { Authorization: `Bearer ${switchJson.token}` },
         });
-        const queueJson = await queueRes.json();
-        const pendingItem = queueJson.pendingRequests?.[0];
+        const rejectRes = await fetch('/api/wallet/admin/reject-funding/1', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${switchJson.token}` },
+        });
         const latency = Math.round(performance.now() - startTime);
-
-        if (pendingItem) {
-          const approveRes = await fetch(`/api/wallet/admin/approve-funding/${pendingItem.id}`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${switchJson.token}` },
-          });
-          const approveJson = await approveRes.json();
-          // Test duplicate re-approval immediately to test idempotency
-          const dupRes = await fetch(`/api/wallet/admin/approve-funding/${pendingItem.id}`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${switchJson.token}` },
-          });
+        if (approveRes.status === 410 && rejectRes.status === 410) {
           setTestCases(prev => prev.map(t => t.id === testId ? {
             ...t,
             status: 'passed',
             latencyMs: latency,
-            details: `Approved txn ${pendingItem.id}. Duplicate approval blocked with ${dupRes.status}.`
+            details: `Manual approval & rejection workflows cleanly retired with HTTP 410 Gone.`
           } : t));
-          addLog('success', `[Wallet] Admin manual funding approval & idempotency verified (${latency}ms)`);
-          return true;
-        } else {
-          setTestCases(prev => prev.map(t => t.id === testId ? {
-            ...t,
-            status: 'passed',
-            latencyMs: latency,
-            details: `Approval endpoint operational (Tested route handlers and double-credit guards).`
-          } : t));
+          addLog('success', `[Wallet] Manual approval workflow retirement verified (${latency}ms)`);
           return true;
         }
       }
 
       if (testId === 'wal_05') {
         const switchJson = await getAuthSession('customer');
-        // Try submitting existing reference
-        const res = await fetch('/api/customer/manual-funding', {
+        const nonPaystackRes = await fetch('/api/wallet/fund/initiate', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${switchJson.token}`,
           },
-          body: JSON.stringify({
-            amount: 10000,
-            sender_name: 'Test Duplicate',
-            reference: 'FLW_MOCK_INIT_001',
-          }),
+          body: JSON.stringify({ gateway: 'manual', amount: 10000 }),
         });
-        const json = await res.json();
+        const badWebhookRes = await fetch('/api/wallet/paystack/webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event: 'charge.success' }),
+        });
         const latency = Math.round(performance.now() - startTime);
-        if (res.status === 400 && json.error?.toLowerCase().includes('already')) {
+        if (nonPaystackRes.status === 410 && badWebhookRes.status === 401) {
           setTestCases(prev => prev.map(t => t.id === testId ? {
             ...t,
             status: 'passed',
             latencyMs: latency,
-            details: `Duplicate reference rejected with 400: "${json.error}"`
+            details: `Non-Paystack gateway blocked (410) and unsigned webhook rejected (401).`
           } : t));
-          addLog('success', `[Wallet] Duplicate payment reference defense verified (${latency}ms)`);
+          addLog('success', `[Wallet] Paystack-only gateway & webhook HMAC enforcement verified (${latency}ms)`);
           return true;
         }
       }
@@ -1533,7 +1514,7 @@ export const Phase9IntegrationQa: React.FC<Phase9IntegrationQaProps> = ({
                   <p>1. Application Integration: Public web, 10 CMS pages, customer authentication, customer dashboard (14 pages), and super admin (8 consoles) connected.</p>
                   <p>2. NIN Verification: 2SureVerify adapter tested with all 42 services. NDPR consent enforced. Automatic refund verified on upstream failure.</p>
                   <p>3. Telecom Vending: Ulamadata adapter tested. MTN SME 1GB @ ₦270, 2.5% airtime discount, printable PIN vouchers, cable TV renewal, STS tokens.</p>
-                  <p>4. Wallet &amp; Ledger: Double-entry accounting verified. Paystack checkout initialized. Duplicate bank transfer reference rejected. Overdraft locked.</p>
+                  <p>4. Wallet &amp; Ledger: Double-entry accounting verified. Paystack checkout initialized. Discontinued manual funding endpoints locked with 410. Overdraft locked.</p>
                   <p>5. Pricing Security: Wholesale costs completely stripped from customer APIs. Disabled services blocked.</p>
                 </div>
               )}
@@ -1602,7 +1583,7 @@ export const Phase9IntegrationQa: React.FC<Phase9IntegrationQaProps> = ({
                   <h4 className="text-sm font-bold text-emerald-400 mb-2"># KNOWN LIMITATIONS &amp; PHASE 10 ROADMAP</h4>
                   <hr className="border-slate-800 my-3" />
                   <p className="font-bold text-white">ENVIRONMENTAL CONSTRAINTS:</p>
-                  <p>1. Payment Gateway Policy: Paystack online checkout and Moniepoint Direct Bank Transfer are active and operational.</p>
+                  <p>1. Payment Gateway Policy: Paystack online checkout is the sole active customer wallet funding gateway.</p>
                   <p>2. Hardware Store &amp; Academy: Customer pages staged as Coming Soon with waitlist subscription; backend catalog and admin management fully built.</p>
                   <p>3. Enterprise Outbound SMTP: In preview container environment, outbound port is simulated with full delivery logging; live on server.</p>
                   <p className="font-bold text-white mt-3">PHASE 10 PRODUCTION STAGING DELIVERABLES:</p>

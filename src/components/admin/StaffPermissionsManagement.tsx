@@ -28,7 +28,7 @@ import { DashboardKey, User, UserRole } from '../../types';
 
 const PERMISSION_OPTIONS = [
   { id: 'customers', label: 'Customer Management (Edit, Suspend, Notify)' },
-  { id: 'wallet', label: 'Wallet Adjustments & Funding Approvals' },
+  { id: 'wallet', label: 'Wallet Adjustments & Paystack Gateway Controls' },
   { id: 'kyc', label: 'KYC Compliance Reviews (Verify Documents & Tiers)' },
   { id: 'services', label: 'Service Pricing & Catalogs (NIN, BVN, Telecom, Store)' },
   { id: 'academy', label: 'Digital Training Academy (Courses, Admissions, Student IDs)' },
@@ -38,7 +38,7 @@ const PERMISSION_OPTIONS = [
   { id: 'withdrawals', label: 'Referral Bank Cash Withdrawal Desk' },
   { id: 'security', label: 'Customer PIN Support & Security Overview' },
   { id: 'pin_security', label: 'Customer PIN Reset & Unlock Authorization' },
-  { id: 'reports', label: 'Enterprise Financial & Growth Reports (12 Reports)' },
+  { id: 'reports', label: 'Enterprise Financial & Growth Reports (11 Reports)' },
   { id: 'support', label: 'Support Centre & Help Desk Tickets' },
   { id: 'notifications', label: 'Broadcasts & System Announcements' },
   { id: 'cms', label: 'Global CMS & Branding (Landing Page, Banners, FAQs)' },

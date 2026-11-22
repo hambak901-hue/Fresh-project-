@@ -27,10 +27,10 @@ INSERT INTO providers (id, name, provider_type, base_url, api_key, is_active, is
 ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 INSERT INTO system_settings (id, setting_key, setting_value, category, description) VALUES
-('set_bank_name', 'bank_transfer_bank', 'Moniepoint MFB', 'payment', 'Official receiving bank name for customer manual funding'),
-('set_bank_acc', 'bank_transfer_account_number', '5210741634', 'payment', 'Official Moniepoint account number for bank transfer deposits'),
-('set_bank_title', 'bank_transfer_account_name', 'Hambaktech_Services', 'payment', 'Official beneficiary account name for bank transfer deposits'),
-('set_active_gateway', 'active_payment_gateway', 'paystack', 'payment', 'Active default online payment gateway (paystack / flutterwave)')
+('set_bank_name', 'bank_transfer_bank', '', 'payment', 'Discontinued manual receiving bank name (Paystack Only)'),
+('set_bank_acc', 'bank_transfer_account_number', '', 'payment', 'Discontinued manual receiving account number (Paystack Only)'),
+('set_bank_title', 'bank_transfer_account_name', '', 'payment', 'Discontinued manual beneficiary account name (Paystack Only)'),
+('set_active_gateway', 'active_payment_gateway', 'paystack', 'payment', 'Active default online payment gateway (paystack)')
 ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value);
 
 
@@ -163,9 +163,9 @@ INSERT INTO wallets (id, user_id, balance, currency, ledger_version, status) VAL
 ON DUPLICATE KEY UPDATE balance=GREATEST(wallets.balance, VALUES(balance));
 
 INSERT INTO system_settings (id, setting_key, setting_value, category, description) VALUES
-('set_bank_name', 'bank_transfer_bank', 'Moniepoint MFB', 'payment', 'Receiving bank name for manual customer funding'),
-('set_bank_acc_num', 'bank_transfer_account_number', '5210741634', 'payment', 'Receiving bank account number for manual customer funding'),
-('set_bank_acc_name', 'bank_transfer_account_name', 'Hambaktech_Services', 'payment', 'Receiving account name for manual customer funding'),
+('set_bank_name', 'bank_transfer_bank', '', 'payment', 'Discontinued manual receiving bank name (Paystack Only)'),
+('set_bank_acc_num', 'bank_transfer_account_number', '', 'payment', 'Discontinued manual receiving account number (Paystack Only)'),
+('set_bank_acc_name', 'bank_transfer_account_name', '', 'payment', 'Discontinued manual beneficiary account name (Paystack Only)'),
 ('set_active_gw', 'active_payment_gateway', 'paystack', 'payment', 'Primary active automated payment gateway')
 ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value);
 

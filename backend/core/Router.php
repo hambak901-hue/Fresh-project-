@@ -88,10 +88,7 @@ class Router
                     }
                 } catch (Throwable $e) {
                     error_log('[HambakTech Router Error]: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-                    Response::error('Server error: ' . $e->getMessage(), 500, [
-                        'file' => basename($e->getFile()),
-                        'line' => $e->getLine(),
-                    ]);
+                    Response::error(Security::ERR_PROVIDER_UNAVAILABLE, 500);
                     return;
                 }
             }

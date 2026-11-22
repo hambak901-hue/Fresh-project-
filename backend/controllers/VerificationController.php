@@ -584,6 +584,10 @@ class VerificationController
             $data['provider_cost'],
             $data['wholesale_cost'],
             $data['raw_error'],
+            $data['raw'],
+            $data['raw_response'],
+            $data['provider_response'],
+            $data['integrity_error'],
             $data['endpoint'],
             $data['api_url'],
             $data['api_key'],
@@ -593,8 +597,13 @@ class VerificationController
             $data['wallet_balance'],
             $data['provider_balance'],
             $data['commission'],
-            $data['charge']
+            $data['charge'],
+            $data['trace'],
+            $data['stack']
         );
+        if (!empty($data['error']) && is_string($data['error'])) {
+            $data['error'] = Security::sanitizeCustomerError($data['error'], Security::ERR_PROVIDER_UNAVAILABLE);
+        }
         [$isBvn, $isNin] = $this->detectRecordDomain($serviceKey, $type);
         $data = $this->stripCrossTypeFields($data, $isBvn, $isNin);
         if (!empty($data['photo']) && is_string($data['photo'])) {
@@ -1036,10 +1045,11 @@ class VerificationController
         $adapters = $routing['adapters'];
 
         if (empty($providerChain)) {
-            Response::error(
-                'Verification service is temporarily unavailable because gateway credentials are not configured.',
-                503
-            );
+            Security::logPrivateError('VerificationRouting', 'No verification provider credentials configured', [
+                'category' => $categoryKey,
+                'service_key' => $serviceKey,
+            ]);
+            Response::error(Security::ERR_PROVIDER_AUTH, 503);
         }
         $usedProvider = $providerChain[0];
 
@@ -1071,8 +1081,10 @@ class VerificationController
                     'slip_type' => $resolvedSlipCode,
                 ]
             );
-        } catch (Exception $e) {
-            Response::error($e->getMessage(), 400);
+        } catch (Throwable $e) {
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $httpStatus = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $httpStatus);
             return;
         }
 
@@ -1231,23 +1243,36 @@ class VerificationController
                     'category' => $categoryKey,
                 ],
             ], 'Verification completed successfully!');
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             $refundRef = 'REFUND_' . $reference;
-            $refundResult = $this->walletService->credit(
-                $user['id'],
+            $refundResult = $this->walletService->attemptConfirmedRefund(
+                (string)$user['id'],
                 $cost,
                 'manual_adjustment',
                 $refundRef,
                 "Automatic refund for failed verification {$reference}",
-                'internal'
+                ['verification_id' => $recordId, 'original_reference' => $reference]
             );
+            $refundConfirmed = !empty($refundResult['confirmed']);
+
+            Security::logPrivateError('VerificationDispatch', $e, [
+                'user_id' => $user['id'],
+                'service_key' => $serviceKey,
+                'provider' => $usedProvider,
+                'reference' => $reference,
+                'refund_confirmed' => $refundConfirmed,
+            ]);
 
             $this->db->execute(
                 'UPDATE verification_records
                  SET type = "FAILED", provider_cost = 0.00, status = "failed", has_slip = 0, result_data = :result
                  WHERE id = :id',
                 [
-                    'result' => json_encode(['error' => $e->getMessage()]),
+                    'result' => json_encode([
+                        'error' => 'Verification could not be completed.',
+                        'refund_confirmed' => $refundConfirmed,
+                        'refund_reference' => $refundConfirmed ? $refundRef : null,
+                    ]),
                     'id' => $recordId,
                 ]
             );
@@ -1264,19 +1289,22 @@ class VerificationController
                 'status' => 'failed',
                 'amount' => $cost,
                 'error_message' => $e->getMessage(),
-                'metadata' => ['slip_type' => $resolvedSlipCode, 'refund_reference' => $refundRef],
+                'metadata' => [
+                    'slip_type' => $resolvedSlipCode,
+                    'refund_reference' => $refundRef,
+                    'refund_confirmed' => $refundConfirmed,
+                ],
             ]);
 
-            $displayError = $isAdmin ? $e->getMessage() : $this->sanitizeCustomerError($e->getMessage());
-            $errMsg = (!$isAdmin && str_starts_with($displayError, 'This service is temporarily unavailable'))
-                ? $displayError . ' Your wallet has been automatically refunded.'
-                : 'Verification could not be completed: ' . $displayError . '. Your wallet has been automatically refunded.';
+            $errMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
             Response::error(
                 $errMsg,
                 502,
                 [
-                    'refunded' => true,
+                    'refunded' => $refundConfirmed,
+                    'refund_pending' => !$refundConfirmed,
                     'refund_reference' => $refundRef,
+                    'reference' => $reference,
                     'balance_after' => $refundResult['balance_after'] ?? null,
                 ]
             );

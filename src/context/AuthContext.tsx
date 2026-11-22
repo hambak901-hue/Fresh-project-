@@ -48,11 +48,20 @@ export class MfaChallengeRequiredError extends Error {
   }
 }
 
+export interface VerificationDispatchState {
+  sent: boolean;
+  expires_in_minutes?: number;
+  cooldown_seconds?: number;
+  message?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   token: string | null;
   pinPolicy: PinPolicy;
+  lastVerificationDispatch: VerificationDispatchState | null;
+  clearVerificationDispatch: () => void;
   login: (email: string, pass: string) => Promise<User | null>;
   completeMfaLogin: (challengeToken: string, code: string) => Promise<User | null>;
   register: (data: Record<string, any>) => Promise<User | null>;
@@ -79,6 +88,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState<boolean>(true);
   const [token, setToken] = useState<string | null>(getStoredToken());
   const [pinPolicy, setPinPolicy] = useState<PinPolicy>(DEFAULT_PIN_POLICY);
+  const [lastVerificationDispatch, setLastVerificationDispatch] = useState<VerificationDispatchState | null>(null);
+
+  const clearVerificationDispatch = () => setLastVerificationDispatch(null);
 
   const applyPinPolicy = (incoming?: PinPolicy | null) => {
     if (incoming && typeof incoming === 'object') {
@@ -130,6 +142,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(mergeUserConfig(res.user, res.dashboard_config));
         setToken(getStoredToken());
         applyPinPolicy(res.pin_policy);
+        if (res.user.email_verified) {
+          setLastVerificationDispatch(null);
+        }
       } else {
         setUser(null);
         setToken(null);
@@ -194,6 +209,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     try {
       const res = await api.register(data as any);
+      if (res.email_verification_required) {
+        setLastVerificationDispatch({
+          sent: Boolean(res.verification_sent),
+          expires_in_minutes: res.verification_expires_in_minutes,
+          cooldown_seconds: res.cooldown_seconds,
+          message: res.message,
+        });
+      } else {
+        setLastVerificationDispatch(null);
+      }
       if (res.user) {
         const merged = mergeUserConfig(res.user, res.dashboard_config);
         setUser(merged);
@@ -210,6 +235,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     setUser(null);
     setToken(null);
+    setLastVerificationDispatch(null);
     await api.logout();
   };
 
@@ -228,6 +254,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         token,
         pinPolicy,
+        lastVerificationDispatch,
+        clearVerificationDispatch,
         login,
         completeMfaLogin,
         register,

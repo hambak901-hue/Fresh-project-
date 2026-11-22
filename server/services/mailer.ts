@@ -92,21 +92,24 @@ export async function testSmtpConnection(): Promise<{ success: boolean; message:
 export async function sendEmail(
   to: string,
   subject: string,
-  htmlContent: string
+  htmlContent: string,
+  options?: { text?: string; replyTo?: string }
 ): Promise<{ success: boolean; messageId?: string; simulated?: boolean; error?: string }> {
   if (!transporter) {
     reloadTransporter();
   }
 
   const config = db.data?.smtp_config;
-  const fromName = config?.sender_name || 'HambakTech Enterprise Mailer';
-  const fromEmail = config?.sender_email || CREDENTIALS.mail.from;
-  const replyTo = config?.reply_to_email || CREDENTIALS.mail.supportEmail;
+  const fromName = String(config?.sender_name || 'HambakTech Support').replace(/[\r\n"]/g, '');
+  const rawFrom = String(config?.sender_email || CREDENTIALS.mail.from || 'support@hambaktech.com.ng').trim();
+  const angleMatch = rawFrom.match(/<([^>]+)>/);
+  const fromEmail = (angleMatch ? angleMatch[1] : rawFrom).trim() || 'support@hambaktech.com.ng';
+  const replyTo = options?.replyTo || config?.reply_to_email || CREDENTIALS.mail.supportEmail;
   const formattedFrom = `"${fromName}" <${fromEmail}>`;
 
   if (!transporter) {
-    db.logSmtpEmail(to, subject, 'simulated');
-    return { success: true, simulated: true };
+    db.logSmtpEmail(to, subject, 'simulated', 'SMTP password not configured');
+    return { success: false, simulated: true, error: 'SMTP credentials not configured' };
   }
 
   try {
@@ -115,12 +118,13 @@ export async function sendEmail(
       to,
       replyTo,
       subject,
+      text: options?.text,
       html: htmlContent,
     });
     db.logSmtpEmail(to, subject, 'sent');
-    return { success: true, messageId: info.messageId };
+    return { success: true, simulated: false, messageId: info.messageId };
   } catch (err: any) {
-    db.logSmtpEmail(to, subject, 'simulated', err.message);
-    return { success: true, simulated: true, error: err.message };
+    db.logSmtpEmail(to, subject, 'failed', err.message);
+    return { success: false, simulated: false, error: err.message };
   }
 }

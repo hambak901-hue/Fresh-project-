@@ -2,35 +2,23 @@ import React, { useState, useEffect } from 'react';
 import {
   Users,
   Wallet,
-  TrendingUp,
-  TrendingDown,
   Activity,
-  CheckCircle2,
-  Clock,
-  XCircle,
   AlertCircle,
   Shield,
   Server,
   RefreshCw,
-  ArrowUpRight,
-  ArrowDownLeft,
-  DollarSign,
   ChevronRight,
-  Check,
-  X,
   Loader2,
-  Smartphone,
   ShieldCheck,
   Printer,
   LifeBuoy,
   Store,
   Scale,
-  FileText,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api, getStoredToken } from '../../lib/api';
 import { isConsoleRole } from '../../lib/roles';
-import { AdminOverviewData, Transaction } from '../../types';
+import { AdminOverviewData } from '../../types';
 
 interface AdminOverviewProps {
   onNavigateToTab: (tab: string) => void;
@@ -41,15 +29,6 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   const [data, setData] = useState<AdminOverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState('Bank deposit could not be verified on statement');
-  const [inspectProofUrl, setInspectProofUrl] = useState<string | null>(null);
-  const [proofBlob, setProofBlob] = useState<{ blobUrl: string; contentType: string } | null>(null);
-  const [proofLoading, setProofLoading] = useState(false);
-  const [proofError, setProofError] = useState<string | null>(null);
 
   const fetchOverview = async () => {
     if (!user || !isConsoleRole(user.role)) {
@@ -80,90 +59,6 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   useEffect(() => {
     fetchOverview();
   }, [user]);
-
-  useEffect(() => {
-    if (!inspectProofUrl) return;
-    let cancelled = false;
-    let createdUrl: string | null = null;
-    setProofLoading(true);
-    setProofError(null);
-    setProofBlob(null);
-    api.fetchProtectedBlobUrl(inspectProofUrl)
-      .then(res => {
-        if (cancelled) {
-          URL.revokeObjectURL(res.blobUrl);
-          return;
-        }
-        createdUrl = res.blobUrl;
-        setProofBlob(res);
-      })
-      .catch((err: any) => {
-        if (!cancelled) {
-          setProofError(err?.message || 'Unable to load payment receipt.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setProofLoading(false);
-      });
-    return () => {
-      cancelled = true;
-      if (createdUrl) {
-        URL.revokeObjectURL(createdUrl);
-      }
-    };
-  }, [inspectProofUrl]);
-
-  const closeProofModal = () => {
-    if (proofBlob?.blobUrl) {
-      URL.revokeObjectURL(proofBlob.blobUrl);
-    }
-    setProofBlob(null);
-    setProofError(null);
-    setInspectProofUrl(null);
-  };
-
-  const handleApproveFunding = async (id: string) => {
-    setActionLoading(id);
-    setActionSuccess(null);
-    setActionError(null);
-    try {
-      const res = await api.approveFunding(id);
-      setActionSuccess(res.message);
-      await fetchOverview();
-    } catch (err: any) {
-      setActionError(err?.message || 'Failed to approve manual funding request.');
-      setTimeout(() => setActionError(null), 5000);
-    } finally {
-      setActionLoading(null);
-      setTimeout(() => setActionSuccess(null), 3500);
-    }
-  };
-
-  const openRejectModal = (id: string) => {
-    setRejectTargetId(id);
-    setRejectReason('Bank deposit could not be verified on statement');
-    setActionError(null);
-  };
-
-  const handleConfirmRejectFunding = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!rejectTargetId) return;
-    const id = rejectTargetId;
-    setActionLoading(id);
-    setActionSuccess(null);
-    setActionError(null);
-    try {
-      const res = await api.rejectFunding(id, rejectReason.trim() || 'Bank deposit could not be verified on statement');
-      setActionSuccess(res.message);
-      setRejectTargetId(null);
-      await fetchOverview();
-    } catch (err: any) {
-      setActionError(err?.message || 'Failed to reject funding request.');
-    } finally {
-      setActionLoading(null);
-      setTimeout(() => setActionSuccess(null), 3500);
-    }
-  };
 
   if (loading && !data) {
     return (
@@ -209,12 +104,10 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
     successfulTransactions: Number(rawMetrics.successfulTransactions ?? rawMetrics.successful_transactions ?? 0),
     pendingTransactions: Number(rawMetrics.pendingTransactions ?? rawMetrics.pending_transactions ?? 0),
     failedTransactions: Number(rawMetrics.failedTransactions ?? rawMetrics.failed_transactions ?? 0),
-    pendingFundingApprovals: Number(rawMetrics.pendingFundingApprovals ?? rawMetrics.pending_funding_approvals ?? 0),
     pendingKycCount: Number(rawMetrics.pendingKycCount ?? rawMetrics.pending_kyc_count ?? 0),
   };
 
   const recentRegistrations: any[] = data?.recentRegistrations || (data as any)?.recent_registrations || [];
-  const pendingFundings: any[] = data?.pendingFundings || (data as any)?.pending_funding || [];
   const printingSummary = (data as any)?.printing_summary || (data as any)?.printingSummary || null;
 
   const perms = Array.isArray(user?.permissions) ? user.permissions : [];
@@ -236,7 +129,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   const deskShortcuts: Array<{ id: string; label: string; desc: string; icon: React.FC<{ className?: string }> }> = [];
   if (canPrinting) deskShortcuts.push({ id: 'printing', label: 'Printing Desk', desc: 'Quotes, Orders, Pricing & Dispatch', icon: Printer });
   if (canCustomers) deskShortcuts.push({ id: 'customers', label: 'Customers', desc: 'Profiles, Agents & Alerts', icon: Users });
-  if (canWallet) deskShortcuts.push({ id: 'funding', label: 'Funding Approvals', desc: 'Verify Bank Transfers', icon: Clock });
+  if (canWallet) deskShortcuts.push({ id: 'funding', label: 'Wallet & Paystack', desc: 'Adjustments & Paystack Gateway', icon: Wallet });
   if (canKyc) deskShortcuts.push({ id: 'kyc_admin', label: 'KYC Reviews', desc: 'Compliance & Tier Upgrades', icon: ShieldCheck });
   if (canAccountingPhysical) deskShortcuts.push({ id: 'acc_physical_sales', label: 'Physical Counter', desc: 'Walk-in POS & Receipts', icon: Store });
   if (canAccountingReconcile) deskShortcuts.push({ id: 'acc_reconciliation', label: 'Reconciliation', desc: 'Cash / POS / Bank Recon', icon: Scale });
@@ -304,20 +197,6 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
           </div>
         )}
       </div>
-
-      {actionSuccess && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-xs text-emerald-300 flex items-center gap-2">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-          <span>{actionSuccess}</span>
-        </div>
-      )}
-
-      {actionError && (
-        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 text-xs text-rose-300 flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
-          <span>{actionError}</span>
-        </div>
-      )}
 
       {/* Appointed Role Desk Shortcuts */}
       {deskShortcuts.length > 0 && (
@@ -402,13 +281,13 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
               className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-5 cursor-pointer transition space-y-2"
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400 font-medium">Pending Bank Approvals</span>
-                <Clock className="w-4 h-4 text-sky-400" />
+                <span className="text-xs text-slate-400 font-medium">Active Funding Gateway</span>
+                <Wallet className="w-4 h-4 text-emerald-400" />
               </div>
-              <p className="text-2xl font-bold font-mono text-sky-400 tabular-nums">
-                {metrics.pendingFundingApprovals}
+              <p className="text-2xl font-bold font-mono text-emerald-400 tabular-nums">
+                Paystack
               </p>
-              <p className="text-[11px] text-slate-400">Manual transfer proofs</p>
+              <p className="text-[11px] text-slate-400">Sole automated customer funding</p>
             </div>
           )}
 
@@ -567,98 +446,9 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
         </div>
       )}
 
-      {/* Dual Column: Pending Funding Approvals & Recent Registrations */}
-      {(canWallet || canCustomers) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Pending Manual Funding Queue */}
-          {canWallet && (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-amber-400" />
-                  <span>Pending Bank Transfer Proofs ({pendingFundings.length})</span>
-                </h2>
-                <button
-                  onClick={() => onNavigateToTab('funding')}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1"
-                >
-                  <span>View All</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {pendingFundings.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-xs bg-slate-950/40 rounded-xl border border-slate-800/60">
-                  <CheckCircle2 className="w-6 h-6 text-emerald-400 mx-auto mb-2" />
-                  <p className="font-semibold text-slate-300">All payment proofs processed</p>
-                  <p className="text-slate-500">No manual bank deposits awaiting administrative confirmation.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {pendingFundings.map((item: any) => (
-                    <div
-                      key={item.id}
-                      className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-white font-mono text-sm">
-                            ₦{(Number(item.amount) || 0).toLocaleString()}
-                          </span>
-                          <span className="font-mono text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded">
-                            {item.reference}
-                          </span>
-                        </div>
-                        <p className="text-slate-300">{item.description || item.remarks || 'Manual bank transfer deposit'}</p>
-                        <p className="text-[11px] text-slate-500 font-mono">
-                          Sender: {item.metadata?.sender_name || item.depositor_name || 'N/A'} &bull; {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        {(item.metadata?.payment_proof_url || item.teller_proof_url) && (
-                          <button
-                            type="button"
-                            onClick={() => setInspectProofUrl(item.metadata?.payment_proof_url || item.teller_proof_url)}
-                            className="px-2.5 py-1.5 bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-500/30 rounded-lg font-semibold flex items-center gap-1 transition"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span>Receipt</span>
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          disabled={actionLoading === item.id}
-                          onClick={() => handleApproveFunding(item.id)}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold flex items-center gap-1 transition"
-                        >
-                          {actionLoading === item.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Check className="w-3.5 h-3.5" />
-                          )}
-                          <span>Approve</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={actionLoading === item.id}
-                          onClick={() => openRejectModal(item.id)}
-                          className="px-3 py-1.5 bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-400 rounded-lg font-semibold flex items-center gap-1 transition"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                          <span>Reject</span>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Recent Customer Registrations */}
-          {canCustomers && (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+      {/* Recent Customer Registrations */}
+      {canCustomers && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-bold text-white flex items-center gap-2">
                   <Users className="w-4 h-4 text-indigo-400" />
@@ -719,105 +509,6 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Reject Manual Funding Reason Modal */}
-      {rejectTargetId && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white">Decline Manual Transfer Proof</h3>
-              <button
-                type="button"
-                onClick={() => setRejectTargetId(null)}
-                className="p-1 text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <form onSubmit={handleConfirmRejectFunding} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-400 mb-1">Reason for Rejection (Sent to Customer)</label>
-                <textarea
-                  rows={3}
-                  required
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white focus:outline-none focus:border-rose-500"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setRejectTargetId(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading === rejectTargetId}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-semibold flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  {actionLoading === rejectTargetId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-                  <span>Confirm Reject</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-      {/* Receipt Proof Modal */}
-      {inspectProofUrl && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-5 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-white">Bank Transfer Receipt Preview</h3>
-              <div className="flex items-center gap-2">
-                {proofBlob && (
-                  <a
-                    href={proofBlob.blobUrl}
-                    download="transfer-receipt"
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
-                  >
-                    Download
-                  </a>
-                )}
-                <button
-                  type="button"
-                  onClick={closeProofModal}
-                  className="p-1 text-slate-400 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <div className="rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center p-2 min-h-[260px]">
-              {proofLoading ? (
-                <div className="flex items-center gap-2 text-slate-400 text-xs">
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-                  <span>Loading authenticated receipt...</span>
-                </div>
-              ) : proofError ? (
-                <div className="text-rose-400 text-xs p-4 text-center">{proofError}</div>
-              ) : proofBlob?.contentType?.includes('pdf') ? (
-                <iframe
-                  src={proofBlob.blobUrl}
-                  title="Transfer receipt PDF"
-                  className="w-full h-[65vh] rounded-lg bg-white"
-                />
-              ) : proofBlob ? (
-                <img
-                  src={proofBlob.blobUrl}
-                  alt="Transfer receipt"
-                  className="max-h-[65vh] object-contain rounded-lg"
-                />
-              ) : null}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

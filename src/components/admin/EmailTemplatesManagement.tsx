@@ -124,9 +124,9 @@ export const EmailTemplatesManagement: React.FC = () => {
       details: 'Slip rendered in 1080p high resolution with official watermark QR code',
       device_info: 'Chrome on macOS (Lagos, Nigeria)',
       ip_address: '102.89.23.14',
-      alert_title: 'Manual Funding Approval Required',
-      message: 'Agent has submitted proof of payment for ₦500,000.00 manual bank transfer',
-      action_url: 'https://hambaktech.com/admin/fundings'
+      alert_title: 'Paystack Settlement Alert',
+      message: 'Paystack wallet funding checkout settled automatically for ₦25,000.00.',
+      action_url: 'https://hambaktech.com/admin/wallet'
     };
 
     for (const [key, val] of Object.entries(sampleData)) {

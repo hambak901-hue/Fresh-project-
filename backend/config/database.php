@@ -48,7 +48,7 @@ class DatabaseConfig
             return self::$connection;
         } catch (PDOException $e) {
             error_log('[HambakTech DB Connection Failed]: ' . $e->getMessage());
-            throw new RuntimeException('Database service temporarily unavailable. Please verify MariaDB/MySQL credentials.', 500, $e);
+            throw new RuntimeException('Service temporarily unavailable. Please contact support if the issue persists.', 500, $e);
         }
     }
 }

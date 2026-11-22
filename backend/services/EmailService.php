@@ -693,8 +693,8 @@ class EmailService
         $channelMap = [
             'WALLET'          => 'HambakTech Digital Wallet',
             'CARD'            => 'Debit Card (Paystack)',
-            'BANK_TRANSFER'   => 'Bank Transfer (Moniepoint MFB)',
-            'DIRECT_TRANSFER' => 'Bank Transfer (Moniepoint MFB)',
+            'BANK_TRANSFER'   => 'Bank Transfer (Paystack)',
+            'DIRECT_TRANSFER' => 'Bank Transfer (Historical Archive)',
             'PAYSTACK'        => 'Paystack Instant Gateway',
             'FLUTTERWAVE'     => 'Flutterwave Gateway',
         ];
@@ -1305,7 +1305,7 @@ class EmailService
             // 6. MANUAL_FUNDING_APPROVED
             'MANUAL_FUNDING_APPROVED' => [
                 'code' => 'MANUAL_FUNDING_APPROVED',
-                'name' => 'Manual Bank Deposit Approved',
+                'name' => 'Manual Bank Deposit Approved (Historical Archive)',
                 'category' => 'WALLET',
                 'subject' => 'Manual Bank Deposit Verified: ₦{{amountNaira}} Credited',
                 'availableVariables' => ['firstName', 'amountNaira', 'newBalanceNaira', 'reference', 'walletUrl'],
@@ -1315,7 +1315,7 @@ class EmailService
                     'badgeType' => 'SUCCESS',
                     'headline' => 'Bank Transfer Verified &amp; Credited',
                     'bodyHtml' => '<p style="margin: 0 0 16px 0; font-size: 15px; color: #1e293b;">Hello <strong>{{firstName}}</strong>,</p>
-<p style="margin: 0 0 20px 0; font-size: 14px; color: #475569; line-height: 1.6;">Your manual bank transfer deposit of <strong>₦{{amountNaira}}</strong> has been verified against Moniepoint MFB records and approved by our finance desk.</p>
+<p style="margin: 0 0 20px 0; font-size: 14px; color: #475569; line-height: 1.6;">Your manual bank transfer deposit of <strong>₦{{amountNaira}}</strong> has been verified against historical bank records and approved by our finance desk.</p>
 <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #059669; border-radius: 10px; padding: 20px; margin: 24px 0;">
   <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
     <tr>
@@ -1342,7 +1342,7 @@ class EmailService
             // 7. MANUAL_FUNDING_REJECTED
             'MANUAL_FUNDING_REJECTED' => [
                 'code' => 'MANUAL_FUNDING_REJECTED',
-                'name' => 'Manual Deposit Rejected',
+                'name' => 'Manual Deposit Rejected (Historical Archive)',
                 'category' => 'WALLET',
                 'subject' => 'Notice: Manual Bank Deposit Proof Requires Attention',
                 'availableVariables' => ['firstName', 'amountNaira', 'reference', 'rejectionReason', 'supportUrl'],

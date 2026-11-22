@@ -171,11 +171,19 @@ walletRouter.get('/transactions', requireAuth, (req: any, res) => {
 // 2. PAYSTACK GATEWAY INTEGRATION
 // -------------------------------------------------------------
 
-// POST /api/wallet/paystack/initialize
+// POST /api/wallet/paystack/initialize & /api/wallet/fund/initiate
 // Initializes transaction with Paystack and returns checkout URL
-walletRouter.post('/paystack/initialize', requireAuth, async (req: any, res) => {
+async function handlePaystackInitialize(req: any, res: any) {
   if (!requireVerifiedEmail(req, res)) return;
   try {
+    const requestedGateway = String(req.body?.gateway || 'paystack').trim().toLowerCase();
+    if (requestedGateway && requestedGateway !== 'paystack') {
+      return res.status(410).json({
+        success: false,
+        error: 'Only Paystack is supported for wallet funding. Manual bank transfer and other gateways have been discontinued.',
+      });
+    }
+
     const { amount, callback_url } = req.body;
     const numAmount = Number(amount);
 
@@ -226,6 +234,13 @@ walletRouter.post('/paystack/initialize', requireAuth, async (req: any, res) => 
     });
 
     if (!result.success) {
+      pendingTxn.status = 'failed';
+      pendingTxn.metadata = {
+        ...pendingTxn.metadata,
+        init_failed_at: new Date().toISOString(),
+        init_error: result.message,
+      };
+      db.saveDatabase();
       return res.status(400).json({
         success: false,
         error: sanitizeCustomerError(result.message),
@@ -241,26 +256,38 @@ walletRouter.post('/paystack/initialize', requireAuth, async (req: any, res) => 
       reference,
       tx_ref: reference,
       amount: numAmount,
+      gateway: 'paystack',
       is_simulated: result.is_simulated,
     });
   } catch (error: any) {
     res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
-});
+}
+
+walletRouter.post('/paystack/initialize', requireAuth, handlePaystackInitialize);
+walletRouter.post('/fund/initiate', requireAuth, handlePaystackInitialize);
 
 // POST /api/wallet/flutterwave/initialize (Discontinued)
 walletRouter.post('/flutterwave/initialize', requireAuth, (_req: any, res) => {
   return res.status(410).json({
     success: false,
-    error: 'Flutterwave checkout has been discontinued. Please use Paystack or Direct Bank Transfer.',
+    error: 'Flutterwave checkout has been discontinued. Please use Paystack.',
   });
 });
 
-// POST /api/wallet/paystack/verify
+// POST /api/wallet/paystack/verify & /api/wallet/fund/verify
 // Verifies transaction server-side. NEVER credits based solely on customer returning.
-walletRouter.post('/paystack/verify', requireAuth, async (req: any, res) => {
+async function handlePaystackVerify(req: any, res: any) {
   try {
-    const { reference } = req.body;
+    const requestedGateway = String(req.body?.gateway || req.query?.gateway || 'paystack').trim().toLowerCase();
+    if (requestedGateway && requestedGateway !== 'paystack') {
+      return res.status(410).json({
+        success: false,
+        error: 'Only Paystack payment verification is supported.',
+      });
+    }
+
+    const reference = String(req.body?.reference || req.query?.reference || '').trim();
     if (!reference) {
       return res.status(400).json({ error: 'Transaction reference is required' });
     }
@@ -271,23 +298,49 @@ walletRouter.post('/paystack/verify', requireAuth, async (req: any, res) => {
       return res.status(404).json({ error: 'Transaction reference not found in ledger' });
     }
 
-    // 2. Prevent duplicate credit / double-spending
+    // 2. Ownership / IDOR protection
+    const isAdminOrSuper = ['admin', 'superadmin'].includes(String(req.user.role || '').toLowerCase());
+    if (txn.user_id !== req.user.id && !isAdminOrSuper) {
+      return res.status(403).json({ error: 'Unauthorized: This payment reference belongs to a different account.' });
+    }
+
+    if (txn.gateway !== 'paystack') {
+      return res.status(400).json({ error: 'This transaction reference does not belong to Paystack.' });
+    }
+
+    // 3. Prevent duplicate credit / double-spending (Idempotent)
     if (txn.status === 'successful') {
       const user = db.findUserById(txn.user_id);
       return res.json({
         success: true,
+        settled: true,
         already_credited: true,
+        status: 'successful',
+        amount: txn.amount,
         message: 'Transaction already verified and credited to wallet (Idempotent)',
         balance: user?.wallet_balance || 0,
         transaction: txn,
       });
     }
 
-    // 3. Query Paystack server-side for verification
+    // 4. Query Paystack server-side for verification
     const paystack = new PaystackAdapter();
     const verifyResult = await paystack.verifyPayment(reference);
+    const upstreamStatus = String(verifyResult.raw_response?.status || '').trim().toLowerCase();
 
     if (!verifyResult.verified) {
+      if (['pending', 'ongoing', 'processing', 'queued', 'abandoned'].includes(upstreamStatus)) {
+        return res.json({
+          success: true,
+          settled: false,
+          pending: true,
+          status: 'pending',
+          amount: txn.amount,
+          reference,
+          message: 'Payment is still awaiting confirmation from Paystack. Complete checkout and click Verify Payment.',
+        });
+      }
+
       txn.status = 'failed';
       if (!txn.metadata) txn.metadata = {};
       txn.metadata.verification_failed_at = new Date().toISOString();
@@ -298,7 +351,7 @@ walletRouter.post('/paystack/verify', requireAuth, async (req: any, res) => {
       });
     }
 
-    // 4. Amount and currency check
+    // 5. Amount and currency check
     if (Math.abs(verifyResult.amount - txn.amount) > 1) {
       txn.status = 'failed';
       txn.metadata = { ...txn.metadata, amount_mismatch: true, paystack_amount: verifyResult.amount, expected: txn.amount };
@@ -306,14 +359,14 @@ walletRouter.post('/paystack/verify', requireAuth, async (req: any, res) => {
       return res.status(400).json({ error: 'Amount mismatch detected. Cannot credit wallet.' });
     }
 
-    if (verifyResult.currency && verifyResult.currency !== 'NGN') {
+    if (verifyResult.currency && verifyResult.currency.toUpperCase() !== 'NGN') {
       txn.status = 'failed';
       txn.metadata = { ...txn.metadata, currency_mismatch: true, paystack_currency: verifyResult.currency };
       db.saveDatabase();
       return res.status(400).json({ error: 'Invalid transaction currency' });
     }
 
-    // 5. Atomic balance credit & ledger update
+    // 6. Atomic balance credit & ledger update
     const user = db.findUserById(txn.user_id);
     if (!user) {
       return res.status(404).json({ error: 'Customer account not found' });
@@ -352,6 +405,9 @@ walletRouter.post('/paystack/verify', requireAuth, async (req: any, res) => {
 
     res.json({
       success: true,
+      settled: true,
+      status: 'successful',
+      amount: txn.amount,
       message: `Wallet credited with ₦${txn.amount.toLocaleString()} successfully!`,
       balance: user.wallet_balance,
       transaction: txn,
@@ -359,39 +415,59 @@ walletRouter.post('/paystack/verify', requireAuth, async (req: any, res) => {
   } catch (error: any) {
     res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
-});
+}
+
+walletRouter.post('/paystack/verify', requireAuth, handlePaystackVerify);
+walletRouter.post('/fund/verify', requireAuth, handlePaystackVerify);
 
 // POST /api/wallet/paystack/webhook
-// Webhook endpoint with HMAC SHA512 signature validation & duplicate event protection
+// Webhook endpoint with strict HMAC SHA512 signature validation & duplicate event protection
 walletRouter.post('/paystack/webhook', (req: any, res) => {
   try {
     const signature = req.headers['x-paystack-signature'] as string;
     const paystack = new PaystackAdapter();
+    const rawPayload = req.rawBody || JSON.stringify(req.body);
 
-    // In production verify rawBody HMAC; in test/preview accept authenticated event
-    if (signature && !paystack.validateWebhookSignature(JSON.stringify(req.body), signature)) {
+    if (!signature || !paystack.validateWebhookSignature(rawPayload, signature)) {
       console.warn('[Paystack Webhook] Signature verification failed');
-      return res.status(400).json({ error: 'Invalid Paystack webhook signature' });
+      return res.status(401).json({ error: 'Invalid Paystack webhook signature' });
     }
 
     const event = req.body;
     if (event?.event === 'charge.success' && event?.data) {
       const data = event.data;
-      const reference = data.reference;
-      const amountInNaira = data.amount ? data.amount / 100 : 0;
+      const reference = String(data.reference || '').trim();
+      const amountInNaira = data.amount ? Number(data.amount) / 100 : 0;
+      const currency = String(data.currency || 'NGN').toUpperCase();
+
+      if (!reference || amountInNaira <= 0 || currency !== 'NGN') {
+        return res.status(200).json({ status: 'ignored_invalid_payload' });
+      }
 
       // Find ledger entry
       const txn = db.data.transactions.find(t => t.reference === reference);
       if (txn) {
+        if (txn.gateway !== 'paystack') {
+          return res.status(200).json({ status: 'ignored_gateway_mismatch' });
+        }
+
         // Idempotency check: if already successful, do not credit twice
         if (txn.status === 'successful') {
           return res.status(200).json({ status: 'success', message: 'Transaction already processed (Idempotent)' });
         }
 
+        if (amountInNaira + 1 < txn.amount) {
+          txn.status = 'failed';
+          txn.metadata = { ...txn.metadata, underpayment_webhook: true, paystack_amount: amountInNaira };
+          db.saveDatabase();
+          return res.status(400).json({ error: 'Paystack webhook underpayment rejected' });
+        }
+
         const user = db.findUserById(txn.user_id);
         if (user) {
           const oldBalance = user.wallet_balance;
-          user.wallet_balance += amountInNaira;
+          const creditAmount = txn.amount;
+          user.wallet_balance = oldBalance + creditAmount;
           user.updated_at = new Date().toISOString();
 
           txn.status = 'successful';
@@ -407,14 +483,14 @@ walletRouter.post('/paystack/webhook', (req: any, res) => {
 
           db.logAudit('PAYSTACK_WEBHOOK_CREDIT', {
             reference,
-            amount: amountInNaira,
+            amount: creditAmount,
             userId: user.id,
           }, user.id, user.email);
 
           db.addNotification(
             user.id,
-            'Wallet Credited via Webhook',
-            `₦${amountInNaira.toLocaleString()} received via Paystack webhook. New balance: ₦${user.wallet_balance.toLocaleString()}.`,
+            'Wallet Credited via Paystack',
+            `₦${creditAmount.toLocaleString()} received via Paystack webhook. New balance: ₦${user.wallet_balance.toLocaleString()}.`,
             'success'
           );
         }
@@ -439,7 +515,7 @@ walletRouter.post('/manual-funding', requireAuth, (_req: any, res) => {
 });
 
 // -------------------------------------------------------------
-// 4. ADMIN MANUAL PAYMENT APPROVAL & REJECTION
+// 4. ADMIN MANUAL PAYMENT APPROVAL & REJECTION (DISCONTINUED)
 // -------------------------------------------------------------
 
 // GET /api/wallet/admin/pending-fundings
@@ -451,109 +527,19 @@ walletRouter.get('/admin/pending-fundings', requireAdmin, (_req, res) => {
   });
 });
 
-// POST /api/wallet/admin/approve-funding/:id
-walletRouter.post('/admin/approve-funding/:id', requireAdmin, (req: any, res) => {
-  const txn = db.data.transactions.find(t => t.id === req.params.id);
-  if (!txn) {
-    return res.status(404).json({ error: 'Funding transaction not found' });
-  }
-
-  // Idempotency: cannot credit the same request twice
-  if (txn.status !== 'pending') {
-    return res.status(400).json({ error: `Transaction is already ${txn.status} and cannot be processed again.` });
-  }
-
-  const user = db.findUserById(txn.user_id);
-  if (!user) {
-    return res.status(404).json({ error: 'Associated customer account not found' });
-  }
-
-  // Atomic Balance Update
-  const oldBalance = user.wallet_balance;
-  const newBalance = oldBalance + txn.amount;
-  user.wallet_balance = newBalance;
-  user.updated_at = new Date().toISOString();
-
-  txn.status = 'successful';
-  txn.balance_before = oldBalance;
-  txn.balance_after = newBalance;
-  if (!txn.metadata) txn.metadata = {};
-  txn.metadata.approved_by = req.user.email;
-  txn.metadata.approved_by_id = req.user.id;
-  txn.metadata.approved_at = new Date().toISOString();
-
-  db.saveDatabase();
-
-  db.logAudit('ADMIN_MANUAL_FUNDING_APPROVED', {
-    transactionId: txn.id,
-    targetUserId: user.id,
-    targetEmail: user.email,
-    amount: txn.amount,
-    reference: txn.reference,
-    senderName: txn.metadata?.sender_name,
-    adminId: req.user.id,
-    adminEmail: req.user.email,
-  }, req.user.id, req.user.email);
-
-  // Send Notification to Customer
-  db.addNotification(
-    user.id,
-    'Bank Transfer Payment Approved',
-    `Your transfer of ₦${txn.amount.toLocaleString()} (Ref: ${txn.reference}) was verified by admin ${req.user.full_name}. Wallet credited. Current balance: ₦${newBalance.toLocaleString()}.`,
-    'success'
-  );
-
-  res.json({
-    success: true,
-    message: `Payment of ₦${txn.amount.toLocaleString()} approved. ${user.full_name}'s balance updated to ₦${newBalance.toLocaleString()}.`,
-    transaction: txn,
-    userBalance: newBalance,
+// POST /api/wallet/admin/approve-funding/:id - Discontinued
+walletRouter.post('/admin/approve-funding/:id', requireAdmin, (_req: any, res) => {
+  return res.status(410).json({
+    success: false,
+    error: 'Manual funding approval workflows have been discontinued. Paystack is the sole active wallet funding method. Historical records remain preserved for audit.',
   });
 });
 
-// POST /api/wallet/admin/reject-funding/:id
-walletRouter.post('/admin/reject-funding/:id', requireAdmin, (req: any, res) => {
-  const txn = db.data.transactions.find(t => t.id === req.params.id);
-  if (!txn) {
-    return res.status(404).json({ error: 'Transaction not found' });
-  }
-
-  if (txn.status !== 'pending') {
-    return res.status(400).json({ error: `Transaction is already ${txn.status}` });
-  }
-
-  const { reason = 'Bank deposit could not be matched against verified statement' } = req.body;
-
-  txn.status = 'failed';
-  if (!txn.metadata) txn.metadata = {};
-  txn.metadata.rejection_reason = reason;
-  txn.metadata.rejected_by = req.user.email;
-  txn.metadata.rejected_by_id = req.user.id;
-  txn.metadata.rejected_at = new Date().toISOString();
-
-  db.saveDatabase();
-
-  db.logAudit('ADMIN_MANUAL_FUNDING_REJECTED', {
-    transactionId: txn.id,
-    targetUserId: txn.user_id,
-    reference: txn.reference,
-    amount: txn.amount,
-    reason,
-    adminId: req.user.id,
-    adminEmail: req.user.email,
-  }, req.user.id, req.user.email);
-
-  db.addNotification(
-    txn.user_id,
-    'Payment Proof Rejected',
-    `Your transfer proof for ₦${txn.amount.toLocaleString()} (Ref: ${txn.reference}) was declined. Reason: ${reason}`,
-    'alert'
-  );
-
-  res.json({
-    success: true,
-    message: 'Manual funding request declined and customer notified.',
-    transaction: txn,
+// POST /api/wallet/admin/reject-funding/:id - Discontinued
+walletRouter.post('/admin/reject-funding/:id', requireAdmin, (_req: any, res) => {
+  return res.status(410).json({
+    success: false,
+    error: 'Manual funding rejection workflows have been discontinued. Paystack is the sole active wallet funding method. Historical records remain preserved for audit.',
   });
 });
 

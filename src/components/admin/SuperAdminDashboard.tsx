@@ -958,9 +958,9 @@ export function SuperAdminDashboard({
       items: [
         { id: 'overview', label: '1. Admin Overview', icon: LayoutDashboard },
         { id: 'customers', label: '2. Customer Management', icon: Users, permission: 'customers' },
-        { id: 'funding', label: '3. Funding Approvals', icon: Clock, badge: 'Manual', permission: 'wallet' },
+        { id: 'funding', label: '3. Wallet & Paystack', icon: Wallet, badge: 'Paystack', permission: 'wallet' },
         { id: 'support_admin', label: 'Support Centre', icon: LifeBuoy, badge: 'Stage 8', permission: 'support' },
-        { id: 'reports_admin', label: 'Reports & Analytics (12)', icon: BarChart3, badge: '12 Reports', permission: 'reports' },
+        { id: 'reports_admin', label: 'Reports & Analytics (11)', icon: BarChart3, badge: '11 Reports', permission: 'reports' },
       ],
     },
     {

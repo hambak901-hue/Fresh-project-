@@ -480,11 +480,12 @@ class CustomerController
                     );
                     $feeCharged = $kycFee;
                 } catch (Throwable $walletErr) {
-                    $safeWalletMsg = Security::sanitizeCustomerError($walletErr->getMessage(), 'Insufficient wallet balance.');
-                    Response::error(
-                        'Instant KYC verification requires a ₦' . number_format($kycFee, 2) . ' verification fee from your wallet (' . $safeWalletMsg . '). Disable Instant Auto-Verify to submit for free manual review.',
-                        402
-                    );
+                    if (Security::isCustomerWalletInsufficient($walletErr)) {
+                        Response::error(Security::ERR_CUSTOMER_WALLET, 400);
+                        return;
+                    }
+                    Security::logPrivateError('KycWalletDebit', $walletErr, ['user_id' => $user['id'], 'kyc_id' => $kycId]);
+                    Response::error(Security::ERR_PROVIDER_UNAVAILABLE, 500);
                     return;
                 }
 
@@ -579,32 +580,34 @@ class CustomerController
                     } else {
                         // Provider lookup failed/unavailable — refund KYC fee immediately and route to manual review
                         if ($feeCharged > 0) {
-                            $walletService->credit(
+                            $refundCheck = $walletService->attemptConfirmedRefund(
                                 (string)$user['id'],
                                 $feeCharged,
                                 'manual_adjustment',
                                 'REFUND_' . $feeRef,
                                 'Refund for unavailable automated KYC lookup'
                             );
-                            $feeCharged = 0.0;
+                            if (!empty($refundCheck['confirmed'])) {
+                                $feeCharged = 0.0;
+                            }
                         }
                         $autoResult = ['error' => 'Automated verification unavailable; routed to manual review'];
                     }
                 } catch (Throwable $e) {
+                    Security::logPrivateError('KycAutoVerify', $e, ['user_id' => $user['id'], 'kyc_id' => $kycId]);
                     if ($feeCharged > 0) {
-                        try {
-                            $walletService->credit(
-                                (string)$user['id'],
-                                $feeCharged,
-                                'manual_adjustment',
-                                'REFUND_' . $feeRef,
-                                'Refund for failed automated KYC lookup'
-                            );
+                        $refundCheck = $walletService->attemptConfirmedRefund(
+                            (string)$user['id'],
+                            $feeCharged,
+                            'manual_adjustment',
+                            'REFUND_' . $feeRef,
+                            'Refund for failed automated KYC lookup'
+                        );
+                        if (!empty($refundCheck['confirmed'])) {
                             $feeCharged = 0.0;
-                        } catch (Throwable) {
                         }
                     }
-                    $autoResult = ['error' => Security::sanitizeCustomerError($e->getMessage(), 'Automated verification unavailable; routed to manual review.')];
+                    $autoResult = ['error' => 'Automated verification unavailable; routed to manual review.'];
                 }
             }
         }
@@ -861,7 +864,7 @@ class CustomerController
         $summary = $this->walletService->getSummary($user['id']);
         $balance = (float)$summary['balance'];
         if ($amount > 0 && $balance < $amount) {
-            Response::error('Insufficient wallet balance. Available: ₦' . number_format($balance, 2), 400);
+            Response::error(Security::ERR_CUSTOMER_WALLET, 400);
         }
 
         Response::success([

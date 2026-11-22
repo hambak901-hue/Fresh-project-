@@ -73,7 +73,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
     {
       step: '02',
       title: 'Fund Your Wallet',
-      description: 'Add funds in Nigerian Naira (₦) using secure checkout or approved bank transfer verification.',
+      description: 'Add funds in Nigerian Naira (₦) instantly using Paystack checkout (Card, Bank Transfer via Paystack, or USSD).',
     },
     {
       step: '03',
@@ -371,7 +371,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
                 Naira Wallet &amp; Funding
               </h3>
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                Manage your NGN balance through secure card checkout, bank transfer verification, and downloadable statements.
+                Manage your NGN balance through instant Paystack checkout (Card, Bank Transfer via Paystack, USSD) and downloadable statements.
               </p>
             </div>
             <div className="pt-2 text-[11px] text-orange-700 dark:text-orange-400 font-semibold">

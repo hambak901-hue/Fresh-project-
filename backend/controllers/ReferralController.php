@@ -100,8 +100,9 @@ class ReferralController
                 $request->getIp()
             );
             Response::success($res, 'Referral earnings converted to main wallet successfully.');
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            Security::logPrivateError('ReferralConvertToWallet', $e, ['user_id' => $user['id'] ?? null]);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to convert referral earnings right now.'), 422);
         }
     }
 
@@ -125,8 +126,9 @@ class ReferralController
                 $request->getIp()
             );
             Response::success($res, 'Loyalty points converted to main wallet successfully.');
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            Security::logPrivateError('ReferralConvertPoints', $e, ['user_id' => $user['id'] ?? null]);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to convert loyalty points right now.'), 422);
         }
     }
 
@@ -162,8 +164,9 @@ class ReferralController
         try {
             $res = $this->referrals->requestWithdrawal((string)$user['id'], $body, $request->getIp());
             Response::success($res, 'Withdrawal request submitted and queued for administrator review.', 201);
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            Security::logPrivateError('ReferralRequestWithdrawal', $e, ['user_id' => $user['id'] ?? null]);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to submit withdrawal request right now.'), 422);
         }
     }
 
@@ -180,8 +183,9 @@ class ReferralController
         try {
             $res = $this->referrals->cancelCustomerWithdrawal((string)$user['id'], $id, $request->getIp());
             Response::success($res, 'Withdrawal request cancelled and funds restored to referral balance.');
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            Security::logPrivateError('ReferralCancelWithdrawal', $e, ['user_id' => $user['id'] ?? null, 'withdrawal_id' => $id]);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to cancel withdrawal request right now.'), 422);
         }
     }
 
@@ -213,8 +217,9 @@ class ReferralController
         try {
             $res = $this->pins->requestOtpReset((string)$user['id'], $request->getIp());
             Response::success($res, 'A 6-digit PIN reset verification code has been dispatched to your registered email.');
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            Security::logPrivateError('PinRequestOtpReset', $e, ['user_id' => $user['id'] ?? null]);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to send PIN reset verification code right now.'), 422);
         }
     }
 
@@ -230,8 +235,9 @@ class ReferralController
         try {
             $res = $this->pins->confirmOtpReset((string)$user['id'], $otp, $newPin);
             Response::success($res, 'Transaction PIN reset successfully.');
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            Security::logPrivateError('PinConfirmOtpReset', $e, ['user_id' => $user['id'] ?? null]);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to reset transaction PIN right now.'), 422);
         }
     }
 
@@ -393,8 +399,9 @@ class ReferralController
                 'token' => $token,
                 'pin_policy' => $this->pins->getPublicPolicy(),
             ], 'Multi-factor authentication verified.');
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 401);
+        } catch (Throwable $e) {
+            Security::logPrivateError('MfaVerifyChallenge', $e);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Invalid or expired verification code.'), 401);
         }
     }
 
@@ -419,8 +426,9 @@ class ReferralController
             $res = $this->mfa->confirmTotpSetup((string)$user['id'], $code);
             FootprintService::record('security', 'MFA_TOTP_ENABLED', $user, null, null, null, 'successful', null, null, [], $request->getIp());
             Response::success($res, 'Authenticator app MFA activated. Store your recovery codes in a safe place.');
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            Security::logPrivateError('MfaConfirmTotp', $e, ['user_id' => $user['id'] ?? null]);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to activate authenticator MFA right now.'), 422);
         }
     }
 
@@ -435,8 +443,9 @@ class ReferralController
             $res = $this->mfa->setEmailOtpEnabled((string)$user['id'], $enabled);
             FootprintService::record('security', $enabled ? 'MFA_EMAIL_ENABLED' : 'MFA_EMAIL_DISABLED', $user, null, null, null, 'successful', null, null, [], $request->getIp());
             Response::success($res, $enabled ? 'Email OTP two-factor authentication enabled.' : 'Email OTP two-factor authentication disabled.');
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            Security::logPrivateError('MfaSetEmail', $e, ['user_id' => $user['id'] ?? null]);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to update email two-factor authentication right now.'), 422);
         }
     }
 
@@ -455,8 +464,9 @@ class ReferralController
             $res = $this->mfa->disableAllMfa((string)$user['id']);
             FootprintService::record('security', 'MFA_DISABLED', $user, null, null, null, 'successful', null, null, [], $request->getIp());
             Response::success($res, 'Two-factor authentication disabled.');
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 403);
+        } catch (Throwable $e) {
+            Security::logPrivateError('MfaDisable', $e, ['user_id' => $user['id'] ?? null]);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to disable two-factor authentication right now.'), 403);
         }
     }
 

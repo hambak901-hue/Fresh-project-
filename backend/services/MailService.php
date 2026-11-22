@@ -24,6 +24,7 @@ class MailService
 
     private Database $db;
     private array $config;
+    private string $appUrl;
 
     public function __construct()
     {
@@ -33,6 +34,8 @@ class MailService
         if (file_exists($cfgFile)) {
             $baseCfg = require $cfgFile;
         }
+        $configuredUrl = trim((string)($baseCfg['app']['url'] ?? getenv('APP_URL') ?: 'https://hambaktech.com.ng'));
+        $this->appUrl = rtrim($configuredUrl !== '' ? $configuredUrl : 'https://hambaktech.com.ng', '/');
         $mailDefaults = $baseCfg['mail'] ?? [
             'host' => 'mail.hambaktech.com.ng',
             'port' => 465,
@@ -90,9 +93,20 @@ class MailService
         string $verifyToken,
         int $expiryMinutes = 60
     ): array {
-        $subject = 'Verify Your HAMBAKTECH Email Address: ' . $otpCode;
-        $html = $this->buildEmailVerificationHtml($recipientEmail, $recipientName, $otpCode, $verifyToken, $expiryMinutes);
+        $subject = 'Verify Your HAMBAKTECH Email Address';
+        $verifyUrl = $this->appUrl . '/?verify_email=1&token=' . rawurlencode($verifyToken) . '&email=' . rawurlencode($recipientEmail);
+        $html = $this->buildEmailVerificationHtml($recipientEmail, $recipientName, $otpCode, $verifyUrl, $expiryMinutes);
+        $safeGreeting = !empty(trim($recipientName)) ? trim($recipientName) : 'Valued Customer';
+        $textBody = "HAMBAK TECH & SERVICES\n\n"
+            . "Hello {$safeGreeting},\n\n"
+            . "Thank you for registering on HAMBAK TECH & SERVICES. To activate wallet funding, identity verification, VTU services, and order submissions, verify your email address using either option below:\n\n"
+            . "6-Digit Verification Code: {$otpCode}\n"
+            . "Verification Link: {$verifyUrl}\n\n"
+            . "This code and link expire in {$expiryMinutes} minutes. Never share your verification code with anyone.\n\n"
+            . "Need assistance? Email support@hambaktech.com.ng or call 09127469686.\n";
+
         return $this->send($recipientEmail, $recipientName, $subject, $html, null, [
+            'text_body' => $textBody,
             'audit_action' => 'EMAIL_VERIFICATION_DISPATCHED',
         ]);
     }
@@ -321,12 +335,11 @@ HTML;
         string $recipientEmail,
         string $recipientName,
         string $otpCode,
-        string $verifyToken,
+        string $verifyUrl,
         int $expiryMinutes = 60
     ): string {
         $name = !empty($recipientName) ? htmlspecialchars($recipientName, ENT_QUOTES, 'UTF-8') : 'Valued Customer';
         $code = htmlspecialchars($otpCode, ENT_QUOTES, 'UTF-8');
-        $verifyUrl = 'https://hambaktech.com.ng/?verify_email=1&token=' . rawurlencode($verifyToken) . '&email=' . rawurlencode($recipientEmail);
         $safeUrl = htmlspecialchars($verifyUrl, ENT_QUOTES, 'UTF-8');
 
         return <<<HTML

@@ -326,6 +326,7 @@ kycRouter.post('/submit', requireAuth, async (req: any, res) => {
 
 // POST /api/kyc/authorize-purchase - Comprehensive step 1-11 purchase authorization check
 kycRouter.post('/authorize-purchase', requireAuth, (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   const { serviceKey, pin, amount } = req.body;
   const user = req.user;
   const numAmount = Number(amount || 0);

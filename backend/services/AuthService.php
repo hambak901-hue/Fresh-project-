@@ -165,7 +165,8 @@ class AuthService
             ];
         } catch (\Throwable $e) {
             $this->db->rollBack();
-            throw new RuntimeException('Failed to create account: ' . $e->getMessage());
+            \HambakTech\Core\Security::logPrivateError('AuthRegister', $e, ['email' => $email]);
+            throw new RuntimeException('We could not complete your registration at this time. Please try again later.');
         }
     }
 

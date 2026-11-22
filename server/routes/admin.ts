@@ -1542,7 +1542,7 @@ adminRouter.delete('/services/academy/:id', requireAdmin, requirePermission('ser
 });
 
 // -------------------------------------------------------------
-// 6. MANUAL FUNDING APPROVALS
+// 6. MANUAL FUNDING APPROVALS (DISCONTINUED — PAYSTACK ONLY)
 // -------------------------------------------------------------
 adminRouter.get('/funding/pending', requireAdmin, requirePermission('wallet'), (_req, res) => {
   res.json({
@@ -1551,89 +1551,17 @@ adminRouter.get('/funding/pending', requireAdmin, requirePermission('wallet'), (
   });
 });
 
-adminRouter.post('/funding/:id/approve', requireAdmin, requirePermission('wallet'), (req: any, res) => {
-  const txn = db.data.transactions.find(t => t.id === req.params.id);
-  if (!txn) {
-    return res.status(404).json({ error: 'Funding transaction not found' });
-  }
-  if (txn.status !== 'pending') {
-    return res.status(400).json({ error: `Transaction is already ${txn.status}` });
-  }
-
-  const user = db.findUserById(txn.user_id);
-  if (!user) {
-    return res.status(404).json({ error: 'Associated customer account not found' });
-  }
-
-  // Credit customer wallet
-  const oldBalance = user.wallet_balance;
-  user.wallet_balance += txn.amount;
-  user.updated_at = new Date().toISOString();
-
-  // Update transaction status
-  txn.status = 'successful';
-  txn.balance_before = oldBalance;
-  txn.balance_after = user.wallet_balance;
-
-  db.saveDatabase();
-
-  db.logAudit('MANUAL_FUNDING_APPROVED', {
-    transactionId: txn.id,
-    targetUserId: user.id,
-    amount: txn.amount,
-    reference: txn.reference,
-    senderName: txn.metadata?.sender_name,
-  }, req.user.id, req.user.email);
-
-  db.addNotification(
-    user.id,
-    'Bank Transfer Payment Approved',
-    `Your transfer of ₦${txn.amount.toLocaleString()} (Ref: ${txn.reference}) was verified. Wallet credited successfully.`,
-    'success'
-  );
-
-  res.json({
-    success: true,
-    message: `Payment of ₦${txn.amount.toLocaleString()} approved. ${user.full_name}'s wallet balance updated to ₦${user.wallet_balance.toLocaleString()}.`,
-    transaction: txn,
-    userBalance: user.wallet_balance,
+adminRouter.post('/funding/:id/approve', requireAdmin, requirePermission('wallet'), (_req: any, res) => {
+  return res.status(410).json({
+    success: false,
+    error: 'Manual funding approval workflows have been discontinued. Paystack is the sole active wallet funding method. Historical records remain preserved for audit.',
   });
 });
 
-adminRouter.post('/funding/:id/reject', requireAdmin, requirePermission('wallet'), (req: any, res) => {
-  const txn = db.data.transactions.find(t => t.id === req.params.id);
-  if (!txn) {
-    return res.status(404).json({ error: 'Transaction not found' });
-  }
-  if (txn.status !== 'pending') {
-    return res.status(400).json({ error: `Transaction is already ${txn.status}` });
-  }
-
-  const { reason = 'Bank deposit could not be verified' } = req.body;
-  txn.status = 'failed';
-  if (!txn.metadata) txn.metadata = {};
-  txn.metadata.rejection_reason = reason;
-
-  db.saveDatabase();
-
-  db.logAudit('MANUAL_FUNDING_REJECTED', {
-    transactionId: txn.id,
-    targetUserId: txn.user_id,
-    reference: txn.reference,
-    reason,
-  }, req.user.id, req.user.email);
-
-  db.addNotification(
-    txn.user_id,
-    'Payment Proof Rejected',
-    `Your manual transfer proof for ₦${txn.amount.toLocaleString()} (Ref: ${txn.reference}) was declined. Reason: ${reason}`,
-    'alert'
-  );
-
-  res.json({
-    success: true,
-    message: 'Manual funding request rejected',
-    transaction: txn,
+adminRouter.post('/funding/:id/reject', requireAdmin, requirePermission('wallet'), (_req: any, res) => {
+  return res.status(410).json({
+    success: false,
+    error: 'Manual funding rejection workflows have been discontinued. Paystack is the sole active wallet funding method. Historical records remain preserved for audit.',
   });
 });
 

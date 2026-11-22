@@ -348,7 +348,8 @@ class ModificationController
                     $syncMessage = (string)($res['message'] ?? 'Provider did not return BVN modification types.');
                 }
             } else {
-                $syncMessage = 'Live 2SureVerify API credentials not configured on this host.';
+                Security::logPrivateError('ModificationBvnTypes', 'Verification gateway credentials not configured on host.');
+                $syncMessage = Security::ERR_PROVIDER_AUTH;
             }
         }
 
@@ -477,27 +478,51 @@ class ModificationController
             );
 
             $balanceAfter = null;
+            $refundConfirmed = false;
             if ($existingTx) {
                 $balanceAfter = (float)$existingTx['balance_after'];
+                $refundConfirmed = true;
             } elseif ($amount > 0) {
-                $creditRes = $this->walletService->credit(
-                    (string)$req['user_id'],
-                    $amount,
-                    'modification_refund',
-                    $refundRef,
-                    "Refund for {$req['identity_type']} modification {$req['request_number']}: {$reason}",
-                    'internal',
-                    [
+                try {
+                    $creditRes = $this->walletService->credit(
+                        (string)$req['user_id'],
+                        $amount,
+                        'modification_refund',
+                        $refundRef,
+                        "Refund for {$req['identity_type']} modification {$req['request_number']}",
+                        'internal',
+                        [
+                            'modification_request_id' => $req['id'],
+                            'request_number' => $req['request_number'],
+                            'payment_reference' => $req['payment_reference'],
+                            'actor_id' => $actorId,
+                        ]
+                    );
+                    $verifiedTx = $db->fetchOne(
+                        'SELECT id, balance_after FROM transactions WHERE reference = :ref AND user_id = :uid AND type = "credit" AND status = "successful" LIMIT 1',
+                        ['ref' => $refundRef, 'uid' => (string)$req['user_id']]
+                    );
+                    if ($verifiedTx) {
+                        $balanceAfter = (float)$verifiedTx['balance_after'];
+                        $refundConfirmed = true;
+                    } elseif (isset($creditRes['balance_after'])) {
+                        $balanceAfter = (float)$creditRes['balance_after'];
+                        $refundConfirmed = true;
+                    }
+                } catch (Throwable $refundEx) {
+                    Security::logPrivateError('ModificationRefund', $refundEx, [
                         'modification_request_id' => $req['id'],
-                        'request_number' => $req['request_number'],
-                        'payment_reference' => $req['payment_reference'],
-                        'actor_id' => $actorId,
-                    ]
-                );
-                $balanceAfter = $creditRes['balance_after'] ?? null;
+                        'refund_reference' => $refundRef,
+                        'user_id' => $req['user_id'],
+                    ]);
+                    $refundConfirmed = false;
+                }
             }
 
-            $finalStatus = in_array($targetStatus, ['failed', 'rejected', 'refunded'], true) ? $targetStatus : 'refunded';
+            $finalStatus = $refundConfirmed
+                ? (in_array($targetStatus, ['failed', 'rejected', 'refunded'], true) ? $targetStatus : 'refunded')
+                : 'failed';
+            $safeRem = Security::sanitizeCustomerError($reason, '');
             $db->execute(
                 'UPDATE modification_requests
                  SET status = :st,
@@ -511,8 +536,8 @@ class ModificationController
                  WHERE id = :id',
                 [
                     'st' => $finalStatus,
-                    'rref' => $refundRef,
-                    'rem' => $reason,
+                    'rref' => $refundConfirmed ? $refundRef : null,
+                    'rem' => $safeRem,
                     'rby' => $actorId,
                     'rby2' => $actorId,
                     'id' => $req['id'],
@@ -520,7 +545,8 @@ class ModificationController
             );
 
             return [
-                'refunded' => true,
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
                 'already_refunded' => false,
                 'refund_reference' => $refundRef,
                 'balance_after' => $balanceAfter,
@@ -1143,8 +1169,10 @@ class ModificationController
 
                 return $debitRes;
             });
-        } catch (RuntimeException $e) {
-            Response::error($e->getMessage(), 400);
+        } catch (Throwable $e) {
+            $errMsg = Security::sanitizeWalletDebitError($e);
+            $status = Security::isCustomerWalletInsufficient($e) ? 400 : 500;
+            Response::error($errMsg, $status);
         }
 
         // 9. Dispatch to 2SureVerify via explicit parameter & file mapping registry (keeps secrets in-memory only)
@@ -1263,40 +1291,52 @@ class ModificationController
             null,
             'refunded'
         );
+        $refundConfirmed = !empty($refundRes['refunded']);
+
+        Security::logPrivateError('ModificationSubmitFailed', $provMsg ?: 'Provider rejected modification request', [
+            'user_id' => $user['id'],
+            'service_key' => $serviceKey,
+            'request_number' => $requestNumber,
+            'provider' => $providerId,
+            'refund_confirmed' => $refundConfirmed,
+        ]);
 
         FootprintService::record([
             'user_id' => $user['id'],
             'user_email' => $user['email'] ?? null,
             'user_name' => $user['full_name'] ?? null,
             'category' => 'service',
-            'action' => 'MODIFICATION_SUBMIT_FAILED_REFUNDED',
+            'action' => $refundConfirmed ? 'MODIFICATION_SUBMIT_FAILED_REFUNDED' : 'MODIFICATION_SUBMIT_FAILED',
             'service_type' => $serviceKey,
             'reference' => $requestNumber,
             'provider' => $providerId,
-            'status' => 'refunded',
+            'status' => $refundConfirmed ? 'refunded' : 'failed',
             'amount' => $customerPrice,
             'error_message' => $provMsg,
-            'metadata' => ['refund_reference' => $refundRes['refund_reference'] ?? null],
+            'metadata' => [
+                'refund_reference' => $refundRes['refund_reference'] ?? null,
+                'refund_confirmed' => $refundConfirmed,
+            ],
         ]);
 
         $this->notifyCustomer(
             (string)$user['id'],
-            "{$serviceDomain} Modification Failed & Refunded",
-            "Your {$serviceRow['name']} request ({$requestNumber}) could not be accepted. ₦" . number_format($customerPrice, 2) . " has been automatically refunded to your wallet.",
+            $refundConfirmed ? "{$serviceDomain} Modification Failed & Refunded" : "{$serviceDomain} Modification Failed",
+            $refundConfirmed
+                ? "Your {$serviceRow['name']} request ({$requestNumber}) could not be accepted. Your wallet has been refunded."
+                : "Your {$serviceRow['name']} request ({$requestNumber}) could not be accepted. Your refund is being processed.",
             'warning',
             $requestNumber,
-            ['request_number' => $requestNumber, 'status' => 'refunded', 'service_name' => $serviceRow['name']]
+            ['request_number' => $requestNumber, 'status' => $refundConfirmed ? 'refunded' : 'failed', 'service_name' => $serviceRow['name']]
         );
 
-        $displayErr = $isAdmin ? $provMsg : $this->sanitizeCustomerError($provMsg);
-        $errMsg = (!$isAdmin && str_starts_with($displayErr, 'This service is temporarily unavailable'))
-            ? $displayErr . ' Your wallet has been automatically refunded.'
-            : 'Modification request could not be accepted: ' . $displayErr . '. Your wallet has been automatically refunded.';
+        $errMsg = $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING;
         Response::error(
             $errMsg,
             502,
             [
-                'refunded' => true,
+                'refunded' => $refundConfirmed,
+                'refund_pending' => !$refundConfirmed,
                 'refund_reference' => $refundRes['refund_reference'] ?? null,
                 'balance_after' => $refundRes['balance_after'] ?? null,
                 'newBalance' => $refundRes['balance_after'] ?? null,
@@ -1408,7 +1448,10 @@ class ModificationController
 
         $adapter = new TwoSureVerifyAdapter();
         if (!$adapter->hasCredentials()) {
-            return ['updated' => false, 'message' => 'Live provider credentials are not configured on this host.', 'row' => $row];
+            Security::logPrivateError('ModificationPollStatus', 'Live provider credentials not configured on host', [
+                'request_id' => $row['id'] ?? null,
+            ]);
+            return ['updated' => false, 'message' => Security::ERR_PROVIDER_AUTH, 'row' => $row];
         }
 
         $res = $adapter->checkStatus($lookupRef);
@@ -1416,7 +1459,10 @@ class ModificationController
         $remarks = trim((string)($res['message'] ?? $res['remarks'] ?? $res['data']['remarks'] ?? $res['data']['message'] ?? ''));
 
         if ($rawStatus === '' && empty($res['success'])) {
-            return ['updated' => false, 'message' => (string)($res['message'] ?? 'Status check did not return a valid status.'), 'row' => $row];
+            Security::logPrivateError('ModificationPollStatus', $remarks ?: 'Empty status response', [
+                'request_id' => $row['id'] ?? null,
+            ]);
+            return ['updated' => false, 'message' => Security::ERR_PROVIDER_UNAVAILABLE, 'row' => $row];
         }
 
         $prevStatus = (string)$row['status'];
@@ -1442,7 +1488,7 @@ class ModificationController
                 $actorId,
                 'refunded'
             );
-            $newStatus = 'refunded';
+            $newStatus = !empty($refundInfo['refunded']) ? 'refunded' : 'failed';
         } else {
             $this->db->execute(
                 'UPDATE modification_requests
@@ -1467,23 +1513,26 @@ class ModificationController
         $updatedRow = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
 
         if ($newStatus !== $prevStatus) {
+            $safeRemarks = $remarks !== '' ? Security::sanitizeCustomerError($remarks, '') : '';
             $titleMap = [
                 'processing' => "{$row['identity_type']} Modification In Processing",
                 'query_required' => "{$row['identity_type']} Modification: Additional Info Requested",
                 'completed' => "{$row['identity_type']} Modification Completed",
                 'refunded' => "{$row['identity_type']} Modification Rejected & Refunded",
+                'failed' => "{$row['identity_type']} Modification Failed",
             ];
             $msgMap = [
-                'processing' => "Your {$row['service_name']} request ({$row['request_number']}) is now actively processing." . ($remarks ? " Note: {$remarks}" : ''),
-                'query_required' => "Action required for {$row['request_number']}: " . ($remarks ?: 'Please submit additional requested details/documents.'),
-                'completed' => "Great news! Your {$row['service_name']} request ({$row['request_number']}) has been completed." . ($remarks ? " Details: {$remarks}" : ''),
+                'processing' => "Your {$row['service_name']} request ({$row['request_number']}) is now actively processing." . ($safeRemarks ? " Note: {$safeRemarks}" : ''),
+                'query_required' => "Action required for {$row['request_number']}: " . ($safeRemarks ?: 'Please submit additional requested details/documents.'),
+                'completed' => "Great news! Your {$row['service_name']} request ({$row['request_number']}) has been completed." . ($safeRemarks ? " Details: {$safeRemarks}" : ''),
                 'refunded' => "Your {$row['service_name']} request ({$row['request_number']}) was not approved and ₦" . number_format((float)$row['customer_price'], 2) . " has been refunded to your wallet.",
+                'failed' => "Your {$row['service_name']} request ({$row['request_number']}) could not be completed. Your refund is being processed.",
             ];
             $this->notifyCustomer(
                 (string)$row['user_id'],
                 $titleMap[$newStatus] ?? 'Modification Status Updated',
                 $msgMap[$newStatus] ?? "Status changed to {$newStatus}.",
-                $newStatus === 'completed' ? 'success' : ($newStatus === 'query_required' || $newStatus === 'refunded' ? 'warning' : 'info'),
+                $newStatus === 'completed' ? 'success' : (in_array($newStatus, ['query_required', 'refunded', 'failed'], true) ? 'warning' : 'info'),
                 (string)$row['request_number'],
                 ['request_number' => $row['request_number'], 'status' => $newStatus, 'service_name' => $row['service_name']]
             );

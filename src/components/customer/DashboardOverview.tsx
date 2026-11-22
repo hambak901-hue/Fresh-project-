@@ -34,6 +34,7 @@ import {
   QrCode,
   Gift,
   BookOpen,
+  Lock,
 } from 'lucide-react';
 import {
   AcademyApplication,
@@ -115,6 +116,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     key in sections ? Boolean(sections[key]) : defaultVal;
 
   const activeEnrollment = academyStudents[0] || null;
+  const needsEmailVerification = Boolean(
+    user && !isPreviewMode && user.email_verification_required && !user.email_verified
+  );
 
   return (
     <div className="space-y-8">
@@ -295,7 +299,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             ₦{Number(metrics.wallet_balance).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
           </div>
           <div className="flex items-center justify-between text-[11px] pt-2 border-t border-slate-800/80">
-            <span className="text-slate-400">Status: Active</span>
+            <span className="text-slate-400">
+              {needsEmailVerification ? 'Status: Email Verification Pending' : 'Status: Active'}
+            </span>
             <button
               onClick={() => onNavigateToPage('wallet')}
               className="text-emerald-400 hover:underline font-semibold flex items-center gap-0.5"
@@ -358,18 +364,31 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       {/* Quick Service Access Grid */}
       {showSection('quick_actions_grid', true) && (
       <div className="space-y-3">
-        <h2 className="text-sm font-bold text-white uppercase tracking-wider">Quick Actions</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-bold text-white uppercase tracking-wider">Quick Actions</h2>
+          {needsEmailVerification && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-semibold">
+              <Lock className="w-3 h-3" />
+              <span>Verify email to unlock services</span>
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <button
             onClick={() => onNavigateToPage('nin')}
             className="p-4 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-emerald-500/40 text-left space-y-2 transition-all group"
           >
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <ShieldCheck className="w-4 h-4" />
+            <div className="flex items-center justify-between">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              {needsEmailVerification && <Lock className="w-3.5 h-3.5 text-amber-400" />}
             </div>
             <div>
               <div className="text-xs font-bold text-white">Verify NIN / BVN</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">Instant sovereign slip generation</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">
+                {needsEmailVerification ? 'Locked until email verified' : 'Instant sovereign slip generation'}
+              </div>
             </div>
           </button>
 
@@ -377,12 +396,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             onClick={() => onNavigateToPage('telecom')}
             className="p-4 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-sky-500/40 text-left space-y-2 transition-all group"
           >
-            <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Smartphone className="w-4 h-4" />
+            <div className="flex items-center justify-between">
+              <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Smartphone className="w-4 h-4" />
+              </div>
+              {needsEmailVerification && <Lock className="w-3.5 h-3.5 text-amber-400" />}
             </div>
             <div>
               <div className="text-xs font-bold text-white">Buy SME Data</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">MTN 1GB from ₦270</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">
+                {needsEmailVerification ? 'Locked until email verified' : 'MTN 1GB from ₦270'}
+              </div>
             </div>
           </button>
 
@@ -390,12 +414,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             onClick={() => onNavigateToPage('telecom')}
             className="p-4 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-amber-500/40 text-left space-y-2 transition-all group"
           >
-            <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Zap className="w-4 h-4" />
+            <div className="flex items-center justify-between">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Zap className="w-4 h-4" />
+              </div>
+              {needsEmailVerification && <Lock className="w-3.5 h-3.5 text-amber-400" />}
             </div>
             <div>
               <div className="text-xs font-bold text-white">Recharge Airtime</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">Instant {airtimeDiscountPercent}% cashback discount</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">
+                {needsEmailVerification ? 'Locked until email verified' : `Instant ${airtimeDiscountPercent}% cashback discount`}
+              </div>
             </div>
           </button>
 
@@ -403,12 +432,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             onClick={onOpenFundModal}
             className="p-4 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-purple-500/40 text-left space-y-2 transition-all group"
           >
-            <div className="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Wallet className="w-4 h-4" />
+            <div className="flex items-center justify-between">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Wallet className="w-4 h-4" />
+              </div>
+              {needsEmailVerification && <Lock className="w-3.5 h-3.5 text-amber-400" />}
             </div>
             <div>
               <div className="text-xs font-bold text-white">Fund Wallet</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">Card &amp; virtual accounts</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">
+                {needsEmailVerification ? 'Verify email to unlock' : 'Card & virtual accounts'}
+              </div>
             </div>
           </button>
 
@@ -422,9 +456,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   <Printer className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-white">Printing &amp; Document Services</div>
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>Printing &amp; Document Services</span>
+                    {needsEmailVerification && <Lock className="w-3.5 h-3.5 text-amber-400" />}
+                  </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
-                    Documents, photocopying, flex banners, plastic ID cards, photos &amp; custom quotes
+                    {needsEmailVerification
+                      ? 'Verify your email address to place printing and document orders'
+                      : 'Documents, photocopying, flex banners, plastic ID cards, photos & custom quotes'}
                   </div>
                 </div>
               </div>
@@ -532,19 +571,26 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
           )}
 
-          {/* Bank Transfer Account Glance */}
+          {/* Paystack Wallet Funding Quick Card */}
           {showSection('virtual_account_card', true) && (
           <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-3 text-xs">
-            <span className="text-[10px] uppercase font-bold text-slate-400">Official Funding Account</span>
-            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-              <div className="text-[10px] text-slate-500 font-mono">ACCOUNT NUMBER</div>
-              <div className="text-lg font-bold text-emerald-400 font-mono">
-                {summary?.bank_details?.accountNumber || '5210741634'}
+            <span className="text-[10px] uppercase font-bold text-slate-400">Paystack Wallet Funding</span>
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+              <div className="text-[10px] text-emerald-400 font-mono font-bold">INSTANT AUTO-CREDIT</div>
+              <div className="text-sm font-bold text-white">
+                Card, Bank Transfer &amp; USSD
               </div>
               <div className="text-[11px] text-slate-400">
-                {summary?.bank_details?.bank || 'Moniepoint MFB'} &bull; {summary?.bank_details?.accountName || 'Hambaktech_Services'}
+                Verified online deposits credit your NGN wallet immediately via Paystack.
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => onNavigateToPage('wallet')}
+              className="w-full py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition"
+            >
+              Fund Wallet via Paystack
+            </button>
           </div>
           )}
         </div>

@@ -47,7 +47,12 @@ async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 
   app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({
+    limit: '10mb',
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // Security Headers & XSS Prevention
@@ -79,7 +84,6 @@ async function startServer() {
   app.use('/api/auth/login', rateLimiter('auth', 30, 60000));
   app.use('/api/auth/register', rateLimiter('auth', 20, 60000));
   app.use('/api/verification/verify', rateLimiter('financial', 50, 60000));
-  app.use('/api/wallet/manual-funding', rateLimiter('financial', 30, 60000));
   app.use('/api/customer/upload', rateLimiter('upload', 20, 60000));
   app.use('/api/printing/upload', rateLimiter('upload', 30, 60000));
 
