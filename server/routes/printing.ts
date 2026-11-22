@@ -12,7 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { db, verifyPin } from '../db/database.js';
-import { parseToken, hasUserPermission, hasAnyUserPermission } from './auth.js';
+import { parseToken, hasUserPermission, hasAnyUserPermission, requireVerifiedEmail } from './auth.js';
 
 export const printingRouter = Router();
 export const adminPrintingRouter = Router();
@@ -506,19 +506,13 @@ printingRouter.get('/catalog', requireAuthUser, (req, res) => {
     .filter((z: any) => z.is_active !== false)
     .sort((a: any, b: any) => Number(a.display_order ?? 1) - Number(b.display_order ?? 1));
 
-  const bankDetails = {
-    bank: (db.data.settings as any)?.bank_name || 'Moniepoint MFB',
-    accountNumber: (db.data.settings as any)?.bank_account_number || '5210471634',
-    accountName: (db.data.settings as any)?.bank_account_name || 'Hambaktech_Services',
-  };
-
   res.json({
     success: true,
     categories,
     delivery_zones: zones,
     settings: getPrintingSettings(),
     statuses: PRINTING_ORDER_STATUSES,
-    bank_details: bankDetails,
+    bank_details: null,
   });
 });
 
@@ -681,6 +675,7 @@ printingRouter.get('/orders/:id', requireAuthUser, (req: any, res) => {
 });
 
 printingRouter.post('/orders', requireAuthUser, (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   const body = req.body || {};
   const catKey = String(body.category_key || '').trim();
   if (!catKey) return res.status(422).json({ error: 'Printing service category is required.' });
@@ -875,7 +870,7 @@ printingRouter.post('/orders/:id/quote-response', requireAuthUser, (req: any, re
     notifyCustomerLifecycle(
       order,
       'Quotation Approved — Awaiting Payment',
-      `You approved the quotation for ₦${Number(order.total_amount).toLocaleString()}. Complete payment via wallet, card, or bank transfer to begin production.`,
+      `You approved the quotation for ₦${Number(order.total_amount).toLocaleString()}. Complete payment via wallet or Paystack to begin production.`,
       'success'
     );
     notifyPrintingAdmins(
@@ -899,6 +894,7 @@ printingRouter.post('/orders/:id/quote-response', requireAuthUser, (req: any, re
 });
 
 printingRouter.post('/orders/:id/pay', requireAuthUser, (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   const id = String(req.params.id || '').trim();
   const body = req.body || {};
 
@@ -951,8 +947,13 @@ printingRouter.post('/orders/:id/pay', requireAuthUser, (req: any, res) => {
   }
 
   const gateway = String(body.gateway || 'wallet').trim().toLowerCase();
-  if (!['wallet', 'paystack', 'flutterwave', 'manual_transfer'].includes(gateway)) {
-    return res.status(422).json({ error: 'Unsupported payment method. Use wallet, paystack, flutterwave, or manual_transfer.' });
+  if (gateway === 'manual_transfer') {
+    return res.status(410).json({
+      error: 'Direct Bank Transfer and Bank Transfer Proof submission have been discontinued. Please pay using your Wallet or Paystack.',
+    });
+  }
+  if (!['wallet', 'paystack'].includes(gateway)) {
+    return res.status(422).json({ error: 'Unsupported payment method. Use wallet or paystack.' });
   }
 
   const payRef = `PRTPAY_${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
@@ -1019,53 +1020,7 @@ printingRouter.post('/orders/:id/pay', requireAuthUser, (req: any, res) => {
     });
   }
 
-  if (gateway === 'manual_transfer') {
-    const payerName = String(body.payer_name || req.user.full_name || 'Customer').trim();
-    const bankRef = String(body.bank_reference || body.reference || payRef).trim();
-    const proofUrl = String(body.proof_url || '').trim();
-    const remarks = String(body.remarks || 'Manual bank transfer for printing order').trim();
-
-    db.data.printing_payments.unshift({
-      id: paymentId,
-      order_id: order.id,
-      user_id: req.user.id,
-      reference: payRef,
-      payment_scope: scope,
-      gateway: 'manual_transfer',
-      amount: amountToPay,
-      status: 'pending',
-      proof_url: proofUrl || null,
-      payer_name: payerName,
-      bank_reference: bankRef,
-      remarks,
-      created_at: nowIso(),
-    });
-
-    if (order.status === 'Quotation Sent') {
-      order.status = 'Awaiting Payment';
-      order.quote_decision = 'approved';
-      order.quote_responded_at = nowIso();
-      recordHistory(order.id, 'Quotation Sent', 'Awaiting Payment', req.user, 'Manual transfer proof submitted by customer.');
-    }
-    db.saveDatabase();
-
-    notifyPrintingAdmins(
-      `Printing Transfer Proof: ${order.order_reference}`,
-      `${payerName} submitted ₦${amountToPay.toLocaleString()} bank transfer proof (${payRef}) awaiting confirmation.`,
-      order.order_reference
-    );
-
-    return res.json({
-      success: true,
-      message: 'Bank transfer proof submitted! Our finance/printing team will confirm shortly.',
-      payment_id: paymentId,
-      reference: payRef,
-      status: 'pending',
-      amount: amountToPay,
-    });
-  }
-
-  // Paystack / Flutterwave dev sandbox checkout initialization
+  // Paystack checkout initialization
   db.data.printing_payments.unshift({
     id: paymentId,
     order_id: order.id,
@@ -1115,6 +1070,10 @@ printingRouter.post('/orders/:id/pay/verify', requireAuthUser, (req: any, res) =
       message: 'Payment already verified.',
       order: sanitizeOrderForCustomer(order),
     });
+  }
+
+  if (String(payment.gateway).toLowerCase() === 'flutterwave') {
+    return res.status(410).json({ error: 'Flutterwave checkout has been discontinued. Please use Paystack or Direct Bank Transfer.' });
   }
 
   payment.status = 'confirmed';

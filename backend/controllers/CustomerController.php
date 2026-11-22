@@ -185,10 +185,6 @@ class CustomerController
             5
         );
 
-        $bankName = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_bank"');
-        $accNum = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_number"');
-        $accName = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "bank_transfer_account_name"');
-
         $dashboardKey = DashboardConfigService::normalizeDashboardKey(
             $user['assigned_dashboard'] ?? null,
             (string)($user['role'] ?? 'customer')
@@ -216,11 +212,7 @@ class CustomerController
             'recent_verifications' => $recentVerifications,
             'notifications' => $notifications,
             'announcements' => $announcements,
-            'bank_details' => [
-                'bank' => $bankName['setting_value'] ?? 'Moniepoint MFB',
-                'accountNumber' => preg_replace('/\s+/', '', (string)($accNum['setting_value'] ?? '5210741634')) ?: '5210741634',
-                'accountName' => $accName['setting_value'] ?? 'Hambaktech_Services',
-            ],
+            'bank_details' => null,
         ]);
     }
 
@@ -386,7 +378,7 @@ class CustomerController
      */
     public function submitKycFull(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $targetLevel = max(2, min(3, (int)$request->input('target_level', 2)));
         $fullLegalName = trim((string)$request->input('full_legal_name', $user['full_name'] ?? ''));
         $dob = trim((string)$request->input('date_of_birth', ''));
@@ -488,8 +480,9 @@ class CustomerController
                     );
                     $feeCharged = $kycFee;
                 } catch (Throwable $walletErr) {
+                    $safeWalletMsg = Security::sanitizeCustomerError($walletErr->getMessage(), 'Insufficient wallet balance.');
                     Response::error(
-                        'Instant KYC verification requires a ₦' . number_format($kycFee, 2) . ' verification fee from your wallet (' . $walletErr->getMessage() . '). Disable Instant Auto-Verify to submit for free manual review.',
+                        'Instant KYC verification requires a ₦' . number_format($kycFee, 2) . ' verification fee from your wallet (' . $safeWalletMsg . '). Disable Instant Auto-Verify to submit for free manual review.',
                         402
                     );
                     return;
@@ -595,7 +588,7 @@ class CustomerController
                             );
                             $feeCharged = 0.0;
                         }
-                        $autoResult = ['error' => $res['message'] ?? 'Automated verification unavailable; routed to manual review'];
+                        $autoResult = ['error' => 'Automated verification unavailable; routed to manual review'];
                     }
                 } catch (Throwable $e) {
                     if ($feeCharged > 0) {
@@ -611,7 +604,7 @@ class CustomerController
                         } catch (Throwable) {
                         }
                     }
-                    $autoResult = ['error' => $e->getMessage()];
+                    $autoResult = ['error' => Security::sanitizeCustomerError($e->getMessage(), 'Automated verification unavailable; routed to manual review.')];
                 }
             }
         }

@@ -1602,7 +1602,7 @@ export const Phase9IntegrationQa: React.FC<Phase9IntegrationQaProps> = ({
                   <h4 className="text-sm font-bold text-emerald-400 mb-2"># KNOWN LIMITATIONS &amp; PHASE 10 ROADMAP</h4>
                   <hr className="border-slate-800 my-3" />
                   <p className="font-bold text-white">ENVIRONMENTAL CONSTRAINTS:</p>
-                  <p>1. Flutterwave Online Gateway: Staged as Coming Soon pending live compliance certification; Paystack is the primary operational gateway.</p>
+                  <p>1. Payment Gateway Policy: Paystack online checkout and Moniepoint Direct Bank Transfer are active and operational.</p>
                   <p>2. Hardware Store &amp; Academy: Customer pages staged as Coming Soon with waitlist subscription; backend catalog and admin management fully built.</p>
                   <p>3. Enterprise Outbound SMTP: In preview container environment, outbound port is simulated with full delivery logging; live on server.</p>
                   <p className="font-bold text-white mt-3">PHASE 10 PRODUCTION STAGING DELIVERABLES:</p>

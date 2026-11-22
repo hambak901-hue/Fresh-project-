@@ -67,13 +67,7 @@ class ModificationController
 
     private function sanitizeCustomerError(string $message): string
     {
-        $clean = preg_replace('/https?:\/\/\S+/i', '', $message) ?? $message;
-        $clean = str_ireplace(
-            ['2sureverify', 'veripine', 'ulamadata', 'api_key', 'twosureverify_api_key', 'secret_key'],
-            'verification gateway',
-            $clean
-        );
-        return trim($clean) ?: 'Request could not be submitted right now. Please verify your details and try again.';
+        return Security::sanitizeCustomerError($message);
     }
 
     private function isFieldConditionMet(array $fDef, array $values): bool
@@ -783,7 +777,7 @@ class ModificationController
     {
         SchemaSync::syncModificationCatalog($this->db);
 
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
         $body = $request->getBody();
 
@@ -1295,8 +1289,11 @@ class ModificationController
         );
 
         $displayErr = $isAdmin ? $provMsg : $this->sanitizeCustomerError($provMsg);
+        $errMsg = (!$isAdmin && str_starts_with($displayErr, 'This service is temporarily unavailable'))
+            ? $displayErr . ' Your wallet has been automatically refunded.'
+            : 'Modification request could not be accepted: ' . $displayErr . '. Your wallet has been automatically refunded.';
         Response::error(
-            'Modification request could not be accepted: ' . $displayErr . '. Your wallet has been automatically refunded.',
+            $errMsg,
             502,
             [
                 'refunded' => true,

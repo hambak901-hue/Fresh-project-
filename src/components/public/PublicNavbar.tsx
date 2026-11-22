@@ -57,8 +57,8 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/80 transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between gap-4 h-16">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between gap-2 sm:gap-4 h-16 min-w-0">
           {/* ZONE 1: Brand Wordmark + Official Logo */}
           <button
             type="button"
@@ -66,17 +66,17 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
               onNavigate('home');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className="text-left text-base sm:text-lg font-extrabold tracking-tight text-blue-900 dark:text-white whitespace-nowrap shrink-0 hover:opacity-90 transition-opacity flex items-center gap-2.5"
+            className="text-left text-sm sm:text-lg font-extrabold tracking-tight text-blue-900 dark:text-white whitespace-nowrap shrink min-w-0 hover:opacity-90 transition-opacity flex items-center gap-1.5 sm:gap-2.5"
           >
             <img
               src={logoSrc}
               alt={branding?.company_name || 'HAMBAK TECH & SERVICES'}
-              className="h-8 w-auto object-contain rounded"
+              className="h-7 w-7 sm:h-8 sm:w-auto object-contain rounded shrink-0"
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
             />
-            <span>{brandName}</span>
+            <span className="truncate">{brandName}</span>
           </button>
 
           {/* ZONE 2: Single-line Navigation Links */}
@@ -104,7 +104,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
           </nav>
 
           {/* ZONE 3: Theme Toggle, Auth & Quick Portal Switch */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <InstallAppButton variant="navbar" />
             <ThemeToggle compact />
 
@@ -115,7 +115,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
                     type="button"
                     onClick={onSwitchToAdminDashboard}
                     title={`Open ${getRoleLabel(user?.role)} Console`}
-                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-500/15 hover:bg-amber-100 dark:hover:bg-amber-500/25 border border-amber-300 dark:border-amber-500/30 text-xs font-semibold text-amber-800 dark:text-amber-300 transition-colors whitespace-nowrap"
+                    className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-500/15 hover:bg-amber-100 dark:hover:bg-amber-500/25 border border-amber-300 dark:border-amber-500/30 text-[11px] sm:text-xs font-semibold text-amber-800 dark:text-amber-300 transition-colors whitespace-nowrap"
                   >
                     <Shield className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                     <span className="hidden sm:inline">
@@ -130,7 +130,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
                     type="button"
                     onClick={onSwitchToCustomerDashboard}
                     title="Open My Portal"
-                    className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-xs font-semibold text-white shadow-sm transition-colors whitespace-nowrap"
+                    className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-[11px] sm:text-xs font-semibold text-white shadow-sm transition-colors whitespace-nowrap"
                   >
                     <ShieldCheck className="w-3.5 h-3.5 text-white shrink-0" />
                     <span className="hidden sm:inline">My Dashboard</span>
@@ -145,7 +145,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
                 <button
                   type="button"
                   onClick={() => setUserDropdown(!userDropdown)}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-400 text-xs text-slate-900 dark:text-white"
+                  className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-400 text-xs text-slate-900 dark:text-white"
                 >
                   <div className="w-5 h-5 rounded-full bg-blue-700 text-white flex items-center justify-center font-bold text-[10px]">
                     {user.full_name.charAt(0).toUpperCase()}
@@ -235,18 +235,18 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2">
                 <button
                   type="button"
                   onClick={() => onOpenAuth('login')}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-white transition-colors"
+                  className="px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-white transition-colors whitespace-nowrap"
                 >
                   Sign In
                 </button>
                 <button
                   type="button"
                   onClick={() => onOpenAuth('register')}
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-600 rounded-xl transition-all shadow-sm whitespace-nowrap shrink-0"
+                  className="px-2.5 sm:px-4 py-1.5 text-[11px] sm:text-xs font-bold text-white bg-blue-700 hover:bg-blue-600 rounded-xl transition-all shadow-sm whitespace-nowrap shrink-0"
                 >
                   Register
                 </button>
@@ -257,7 +257,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
+              className="lg:hidden p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900 shrink-0"
               aria-label="Toggle Navigation Menu"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}

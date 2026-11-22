@@ -46,7 +46,7 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
   const { login, completeMfaLogin, refreshUser } = useAuth();
   const { branding } = useCms();
 
-  const [mode, setMode] = useState<'login' | 'forgot' | 'verify_otp' | 'reset_password' | 'mfa_challenge'>('login');
+  const [mode, setMode] = useState<'login' | 'forgot' | 'verify_otp' | 'reset_password' | 'mfa_challenge' | 'verify_email'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -56,6 +56,8 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const [otpCode, setOtpCode] = useState('');
+  const [emailVerifyCode, setEmailVerifyCode] = useState('');
+  const [pendingVerifyUser, setPendingVerifyUser] = useState<User | null>(null);
   const [resetToken, setResetToken] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
 
@@ -85,6 +87,13 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
     try {
       setLoading(true);
       const loggedUser = await login(email.trim().toLowerCase(), password);
+      if (loggedUser?.email_verification_required && !loggedUser?.email_verified) {
+        setPendingVerifyUser(loggedUser);
+        setEmailVerifyCode('');
+        setMode('verify_email');
+        setSuccessMsg(`Signed in! Enter the 6-digit verification code sent to ${loggedUser.email || email} to unlock full portal features.`);
+        return;
+      }
       onSuccess(loggedUser);
     } catch (err: any) {
       if (err instanceof MfaChallengeRequiredError) {
@@ -96,9 +105,59 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
             ? 'Enter the 6-digit code from your authenticator app or a recovery code.'
             : `We dispatched a 6-digit verification code to ${err.challenge.masked_email}.`
         );
+      } else if (err?.payload?.code === 'EMAIL_VERIFICATION_REQUIRED' || err?.payload?.errors?.email_verification_required) {
+        setPendingVerifyUser(null);
+        setEmailVerifyCode('');
+        setMode('verify_email');
+        setSuccessMsg(err.message || 'Please enter the 6-digit verification code sent to your email.');
       } else {
         setError(err?.message || 'Sign in failed. Please check your credentials and try again.');
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyEmailCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMsg(null);
+    if (emailVerifyCode.trim().length < 6) {
+      setError('Please enter the 6-digit verification code sent to your email.');
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await api.verifyEmail({
+        email: (pendingVerifyUser?.email || email).trim().toLowerCase(),
+        otp_code: emailVerifyCode.trim(),
+      });
+      await refreshUser();
+      onSuccess(res.user || pendingVerifyUser);
+    } catch (err: any) {
+      setError(err?.message || 'Invalid or expired verification code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendEmailVerification = async () => {
+    setError(null);
+    setSuccessMsg(null);
+    const targetEmail = (pendingVerifyUser?.email || email).trim().toLowerCase();
+    if (!targetEmail) {
+      setError('Please provide your email address.');
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await api.resendVerification(targetEmail);
+      setResendCooldown(res.cooldown_seconds || 60);
+      setSuccessMsg(res.message || `Verification code dispatched to ${targetEmail}.`);
+    } catch (err: any) {
+      const waitSec = Number(err?.payload?.errors?.retry_after_seconds || 0);
+      if (waitSec > 0) setResendCooldown(waitSec);
+      setError(err?.message || 'Unable to resend verification email right now.');
     } finally {
       setLoading(false);
     }
@@ -223,12 +282,14 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
             {mode === 'verify_otp' && 'Verify Security Code'}
             {mode === 'reset_password' && 'Set New Password'}
             {mode === 'mfa_challenge' && 'Two-Factor Verification'}
+            {mode === 'verify_email' && 'Verify Email Address'}
           </h1>
           <p className="text-xs text-slate-600 dark:text-slate-400">
             {mode === 'login' && 'Sign in to access your Naira wallet, identity verification, telecom bundles, and Academy services.'}
             {mode === 'forgot' && 'Enter your registered email address to receive a 6-digit recovery code.'}
             {mode === 'verify_otp' && `Enter the 6-digit code sent to ${email || 'your email'}.`}
             {mode === 'reset_password' && 'Choose a strong password of at least 8 characters.'}
+            {mode === 'verify_email' && `Enter the 6-digit verification code sent to ${pendingVerifyUser?.email || email || 'your email'}.`}
             {mode === 'mfa_challenge' && (
               mfaChallenge?.method === 'totp'
                 ? 'Enter the 6-digit authenticator code or a backup recovery code.'
@@ -491,6 +552,58 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Verify &amp; Sign In</span>}
             </button>
+          </form>
+        )}
+
+        {mode === 'verify_email' && (
+          <form onSubmit={handleVerifyEmailCode} className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                6-Digit Email Verification Code
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  required
+                  maxLength={6}
+                  value={emailVerifyCode}
+                  onChange={(e) => setEmailVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-sm font-mono tracking-widest text-blue-700 dark:text-emerald-400 font-bold focus:outline-none focus:border-blue-600"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={loading || emailVerifyCode.trim().length < 6}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Verify Email &amp; Continue</span>}
+            </button>
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>Didn&apos;t receive the code?</span>
+              <button
+                type="button"
+                disabled={loading || resendCooldown > 0}
+                onClick={handleResendEmailVerification}
+                className="text-blue-700 dark:text-blue-400 disabled:text-slate-400 flex items-center gap-1 font-medium"
+              >
+                <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                <span>{resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}</span>
+              </button>
+            </div>
+            {pendingVerifyUser && (
+              <button
+                type="button"
+                onClick={() => onSuccess(pendingVerifyUser)}
+                className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl transition"
+              >
+                Continue to Portal (Limited Access)
+              </button>
+            )}
           </form>
         )}
 

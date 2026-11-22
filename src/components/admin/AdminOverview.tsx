@@ -529,17 +529,21 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
 
             <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3.5 space-y-1">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-white">Flutterwave Payment</span>
+                <span className="font-semibold text-white">Paystack Payment</span>
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    String(data.providerStatus.flutterwave?.status || '').toLowerCase() === 'operational'
+                    data.providerStatus.paystack?.configured !== false
                       ? 'bg-emerald-400'
                       : 'bg-amber-400'
                   }`}
                 />
               </div>
-              <p className="text-slate-400 text-[11px] font-mono">{data.providerStatus.flutterwave.status}</p>
-              <p className="text-[10px] text-slate-500 font-mono">{data.providerStatus.flutterwave.clientIdMasked}</p>
+              <p className="text-slate-400 text-[11px] font-mono">
+                {data.providerStatus.paystack?.status || 'Operational'}
+              </p>
+              <p className="text-[10px] text-slate-500 font-mono">
+                {data.providerStatus.paystack?.keyMasked || (data.providerStatus.paystack as any)?.publicKeyMasked || 'Paystack Live Gateway'}
+              </p>
             </div>
 
             <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3.5 space-y-1">

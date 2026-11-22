@@ -371,7 +371,8 @@ class Auth
                 'SELECT u.id, u.email, u.full_name, u.phone_number, u.phone_normalized, u.role, u.assigned_dashboard, u.wallet_balance, 
                         u.kyc_status, u.kyc_level, u.tier, u.referral_code, u.referred_by_user_id, u.referral_source,
                         u.referral_campaign_code, u.referral_bound_at,
-                        u.status, u.avatar_url, u.email_verified, u.token_version, u.assigned_permissions,
+                        u.status, u.avatar_url, u.email_verified, u.email_verification_required, u.email_verified_at,
+                        u.token_version, u.assigned_permissions,
                         u.pin_failed_attempts, u.pin_locked_until, u.pin_set_at,
                         u.mfa_enabled, u.mfa_method, u.last_login_at, u.created_at, u.updated_at,
                         (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
@@ -410,11 +411,13 @@ class Auth
             return null;
         }
 
-        // Standardize wallet balance, KYC level, PIN flag, and JSON preferences
+        // Standardize wallet balance, KYC level, PIN flag, email verification, and JSON preferences
         $user['wallet_balance'] = (float)($user['live_wallet_balance'] ?? $user['wallet_balance'] ?? 0);
         $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
         $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
         $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        $user['email_verified'] = (bool)($user['email_verified'] ?? false);
+        $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? false);
         $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
         $user['pin_failed_attempts'] = (int)($user['pin_failed_attempts'] ?? 0);
         $user['pin_is_locked'] = !empty($user['pin_locked_until']) && strtotime((string)$user['pin_locked_until']) > time();
@@ -473,11 +476,33 @@ class Auth
         return in_array('*', $perms, true) || in_array($permission, $perms, true);
     }
 
+    public static function isEmailVerificationPending(array $user): bool
+    {
+        if (self::isConsoleRole((string)($user['role'] ?? 'customer'))) {
+            return false;
+        }
+        return !empty($user['email_verification_required']) && empty($user['email_verified']);
+    }
+
     public static function requireAuth(Request $request): array
     {
         $user = self::user($request);
         if (!$user) {
             Response::unauthorized('Authentication required or session expired.');
+        }
+        return $user;
+    }
+
+    public static function requireVerifiedEmail(Request $request): array
+    {
+        $user = self::requireAuth($request);
+        if (self::isEmailVerificationPending($user)) {
+            Response::error(
+                'Please verify your email address before accessing wallet funding, service transactions, or submissions.',
+                403,
+                ['email' => $user['email'] ?? '', 'email_verification_required' => true],
+                'EMAIL_VERIFICATION_REQUIRED'
+            );
         }
         return $user;
     }

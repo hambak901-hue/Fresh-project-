@@ -139,9 +139,7 @@ adminRouter.get('/overview', requireAdmin, (req: any, res) => {
   const pendingTransactions = canFinance ? txns.filter(t => t.status === 'pending').length : 0;
   const failedTransactions = canFinance ? txns.filter(t => t.status === 'failed').length : 0;
 
-  const pendingFundings = canWallet
-    ? txns.filter(t => t.gateway === 'manual_transfer' && t.status === 'pending')
-    : [];
+  const pendingFundings: any[] = [];
 
   const pendingKycUsers = (canKyc || canCustomers)
     ? customers.filter(u => u.kyc_status === 'pending')
@@ -180,11 +178,11 @@ adminRouter.get('/overview', requireAdmin, (req: any, res) => {
         ? `${CREDENTIALS.telecom.vtpass.apiKey.slice(0, 6)}...${CREDENTIALS.telecom.vtpass.apiKey.slice(-4)}`
         : 'Not Set',
     },
-    flutterwave: {
-      configured: Boolean(CREDENTIALS.payments.flutterwave.clientId),
-      status: CREDENTIALS.payments.flutterwave.clientId ? 'Live Gateway' : 'Mock Sandbox',
-      clientIdMasked: CREDENTIALS.payments.flutterwave.clientId
-        ? `${CREDENTIALS.payments.flutterwave.clientId.slice(0, 8)}...`
+    paystack: {
+      configured: Boolean(CREDENTIALS.payments.paystack.secretKey),
+      status: CREDENTIALS.payments.paystack.secretKey ? 'Live Gateway' : 'Test Mode',
+      keyMasked: CREDENTIALS.payments.paystack.secretKey
+        ? `${CREDENTIALS.payments.paystack.secretKey.slice(0, 6)}...${CREDENTIALS.payments.paystack.secretKey.slice(-4)}`
         : 'Not Set',
     },
     smtpMail: {
@@ -1101,7 +1099,9 @@ adminRouter.put('/services/providers', requireAdmin, requirePermission('services
 
   if (active_verification_provider) settings.active_verification_provider = active_verification_provider;
   if (active_telecom_provider) settings.active_telecom_provider = active_telecom_provider;
-  if (active_payment_gateway) settings.active_payment_gateway = active_payment_gateway;
+  if (active_payment_gateway) {
+    settings.active_payment_gateway = active_payment_gateway === 'flutterwave' ? 'paystack' : active_payment_gateway;
+  }
 
   db.saveDatabase();
 
@@ -1544,11 +1544,10 @@ adminRouter.delete('/services/academy/:id', requireAdmin, requirePermission('ser
 // -------------------------------------------------------------
 // 6. MANUAL FUNDING APPROVALS
 // -------------------------------------------------------------
-adminRouter.get('/funding/pending', requireAdmin, requirePermission('wallet'), (req, res) => {
-  const pending = db.data.transactions.filter(t => t.gateway === 'manual_transfer' && t.status === 'pending');
+adminRouter.get('/funding/pending', requireAdmin, requirePermission('wallet'), (_req, res) => {
   res.json({
     success: true,
-    pending,
+    pending: [],
   });
 });
 

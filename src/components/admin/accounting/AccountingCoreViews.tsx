@@ -551,7 +551,7 @@ export const WebsiteAccountingView: React.FC<{
             <p className="text-lg font-extrabold font-mono tabular-nums text-slate-900 dark:text-white mt-1">
               {formatNaira(summary.gateway_pos_fees)}
             </p>
-            <p className="text-[10px] text-slate-500 font-mono">Paystack / Flutterwave</p>
+            <p className="text-[10px] text-slate-500 font-mono">Paystack &amp; Bank Transfer</p>
           </div>
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5">
             <p className="text-slate-500 dark:text-slate-400">Wallet Deposits (Liability)</p>

@@ -227,6 +227,36 @@ export function hasAnyUserPermission(user: any, permissions: string[]): boolean 
   return permissions.some((p) => hasUserPermission(user, p));
 }
 
+export function isEmailVerificationPending(user: any): boolean {
+  if (!user) return false;
+  if (isConsoleRole(normalizeRole(user.role))) return false;
+  return Boolean(user.email_verification_required) && !Boolean(user.email_verified);
+}
+
+export function requireVerifiedEmail(req: any, res: any): { userId: string; role: string; user: User } | null {
+  const session = parseToken(req.headers?.authorization);
+  if (!session) {
+    res.status(401).json({ success: false, error: 'Authentication required or session expired.', code: 'UNAUTHORIZED' });
+    return null;
+  }
+  const user = db.findUserById(session.userId);
+  if (!user) {
+    res.status(401).json({ success: false, error: 'User account not found.', code: 'UNAUTHORIZED' });
+    return null;
+  }
+  if (isEmailVerificationPending(user)) {
+    res.status(403).json({
+      success: false,
+      code: 'EMAIL_VERIFICATION_REQUIRED',
+      error: 'Please verify your email address before accessing wallet funding, service transactions, or submissions.',
+      message: 'Please verify your email address before accessing wallet funding, service transactions, or submissions.',
+      errors: { email: user.email, email_verification_required: true },
+    });
+    return null;
+  }
+  return { userId: session.userId, role: session.role, user };
+}
+
 export function sanitizeUser(user: any, includeDashboardConfig: boolean = false): Partial<User> & { dashboard_config?: any } {
   if (!user) return user;
   const safe: any = { ...user };
@@ -240,6 +270,8 @@ export function sanitizeUser(user: any, includeDashboardConfig: boolean = false)
   safe.assigned_dashboard = normalizeDashboardKey(safe.assigned_dashboard, safe.role);
   safe.has_transaction_pin = hasPin;
   safe.has_pin_set = hasPin;
+  safe.email_verified = Boolean(safe.email_verified);
+  safe.email_verification_required = Boolean(safe.email_verification_required);
   safe.permissions = resolveUserPermissions(safe);
   if (includeDashboardConfig) {
     safe.dashboard_config = getDashboardConfig(safe.assigned_dashboard, 'published');
@@ -250,6 +282,75 @@ export function sanitizeUser(user: any, includeDashboardConfig: boolean = false)
 // -------------------------------------------------------------------
 // AUTHENTICATION ENDPOINTS
 // -------------------------------------------------------------------
+
+function issueExpressEmailVerification(user: User, enforceCooldown: boolean = false): {
+  sent: boolean;
+  cooldownSeconds?: number;
+  expiresInMinutes: number;
+} {
+  if (!Array.isArray(db.data.email_verifications)) {
+    db.data.email_verifications = [];
+  }
+
+  const nowMs = Date.now();
+  if (enforceCooldown) {
+    const recent = db.data.email_verifications.find(
+      (v) => v.user_id === user.id && nowMs - new Date(v.created_at).getTime() < 60000
+    );
+    if (recent) {
+      const waitSeconds = Math.max(1, Math.ceil((60000 - (nowMs - new Date(recent.created_at).getTime())) / 1000));
+      return { sent: false, cooldownSeconds: waitSeconds, expiresInMinutes: 60 };
+    }
+  }
+
+  for (const v of db.data.email_verifications) {
+    if (v.user_id === user.id && !v.is_used) {
+      v.is_used = true;
+    }
+  }
+
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const otpCode = String(crypto.randomInt(100000, 999999));
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const codeHash = crypto.createHash('sha256').update(otpCode).digest('hex');
+  const expiresAt = new Date(nowMs + 60 * 60 * 1000).toISOString();
+
+  db.data.email_verifications.unshift({
+    id: `ev_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    user_id: user.id,
+    email: user.email.toLowerCase(),
+    token_hash: tokenHash,
+    code_hash: codeHash,
+    attempts: 0,
+    max_attempts: 5,
+    is_used: false,
+    expires_at: expiresAt,
+    created_at: new Date(nowMs).toISOString(),
+  });
+  if (db.data.email_verifications.length > 2000) {
+    db.data.email_verifications = db.data.email_verifications.slice(0, 2000);
+  }
+  db.saveDatabase();
+
+  const verifyUrl = `${CREDENTIALS.app.appUrl}/?verify_email=1&token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(user.email)}`;
+  sendEmail(
+    user.email,
+    `Verify Your HAMBAKTECH Email Address: ${otpCode}`,
+    `<div style="font-family: Arial, sans-serif; padding: 24px; max-width: 560px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px;">
+      <h2 style="margin-top: 0; color: #065f46;">Confirm Your Email Address</h2>
+      <p>Hello <strong>${user.full_name}</strong>,</p>
+      <p>Please verify your email address to activate wallet funding, NIN/BVN verification, and VTU services on HAMBAK TECH &amp; SERVICES.</p>
+      <p style="margin: 24px 0; text-align: center;">
+        <a href="${verifyUrl}" style="display: inline-block; background: #059669; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: bold;">Verify Email Address</a>
+      </p>
+      <p style="text-align: center; font-size: 13px; color: #475569;">Or enter this 6-digit verification code (valid for 60 minutes):</p>
+      <div style="text-align: center; font-family: monospace; font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #065f46; background: #ecfdf5; border: 1px solid #10b981; border-radius: 8px; padding: 12px;">${otpCode}</div>
+    </div>`
+  ).catch(() => {});
+
+  db.logAudit('EMAIL_VERIFICATION_DISPATCHED', { email: user.email }, user.id, user.email);
+  return { sent: true, expiresInMinutes: 60 };
+}
 
 // POST /api/auth/register
 authRouter.post('/register', async (req, res) => {
@@ -286,24 +387,21 @@ authRouter.post('/register', async (req, res) => {
       tier: 1,
       referral_code,
       status: 'active',
+      email_verified: false,
+      email_verification_required: true,
     });
 
     db.addNotification(
       newUser.id,
       'Welcome to HambakTech Enterprise!',
-      `Hello ${newUser.full_name}, your account has been successfully created. Fund your wallet or complete KYC to get started.`,
-      'success'
+      `Hello ${newUser.full_name}, please check your inbox and verify your email address to unlock wallet funding and services.`,
+      'info'
     );
 
     const clientIp = getClientIp(req);
     db.logAudit('USER_REGISTERED', { email: newUser.email, phone: newUser.phone_number }, newUser.id, newUser.email, clientIp);
 
-    sendEmail(
-      newUser.email,
-      'Welcome to HambakTech Enterprise Portal',
-      `<h2>Welcome ${newUser.full_name}!</h2><p>Your account is ready at HambakTech. Access instant NIN/BVN verification, VTU airtime & data, and digital services.</p>`
-    ).catch(() => {});
-
+    const verificationDispatch = issueExpressEmailVerification(newUser, false);
     const token = generateToken(newUser.id, newUser.role, 86400 * 7, newUser.token_version ?? 1);
     const safeUser = sanitizeUser(newUser, true);
 
@@ -312,10 +410,179 @@ authRouter.post('/register', async (req, res) => {
       token,
       user: safeUser,
       dashboard_config: safeUser.dashboard_config,
-      message: 'Account created successfully',
+      email_verification_required: true,
+      verification_sent: verificationDispatch.sent,
+      verification_expires_in_minutes: verificationDispatch.expiresInMinutes,
+      message: 'Account created! Please enter the 6-digit verification code or click the link sent to your email to verify your account.',
     });
   } catch (error: any) {
     return res.status(500).json({ error: error.message || 'Registration failed' });
+  }
+});
+
+function handleVerifyEmailRequest(req: any, res: any) {
+  try {
+    const token = String(req.body?.token ?? req.query?.token ?? '').trim();
+    const otp = String(req.body?.otp_code ?? req.body?.otp ?? req.body?.code ?? req.query?.code ?? '').trim();
+    let email = String(req.body?.email ?? req.query?.email ?? '').trim().toLowerCase();
+
+    const session = parseToken(req.headers.authorization);
+    if (!email && session) {
+      const u = db.findUserById(session.userId);
+      if (u) email = u.email.toLowerCase();
+    }
+
+    if (!token && (!otp || !email)) {
+      return res.status(400).json({ success: false, error: 'Please provide a verification token or both email and 6-digit code.' });
+    }
+
+    const records = Array.isArray(db.data.email_verifications) ? db.data.email_verifications : [];
+    let record = token
+      ? records.find((r) => r.token_hash === crypto.createHash('sha256').update(token).digest('hex'))
+      : records.find((r) => r.email.toLowerCase() === email && !r.is_used);
+
+    if (!record && email) {
+      const existingUser = db.findUserByEmail(email);
+      if (existingUser && existingUser.email_verified) {
+        return res.json({
+          success: true,
+          verified: true,
+          already_verified: true,
+          user: sanitizeUser(existingUser, true),
+          message: 'Your email address is already verified.',
+        });
+      }
+    }
+
+    if (!record) {
+      return res.status(400).json({ success: false, error: 'Invalid or expired verification link/code. Please request a new one.' });
+    }
+
+    const targetUser = db.findUserById(record.user_id);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, error: 'Account not found.' });
+    }
+
+    if (targetUser.email_verified) {
+      record.is_used = true;
+      db.saveDatabase();
+      return res.json({
+        success: true,
+        verified: true,
+        already_verified: true,
+        user: sanitizeUser(targetUser, true),
+        message: 'Your email address is already verified.',
+      });
+    }
+
+    if (record.is_used) {
+      return res.status(400).json({ success: false, error: 'This verification link or code has already been used.' });
+    }
+
+    if (new Date(record.expires_at).getTime() < Date.now()) {
+      return res.status(400).json({ success: false, code: 'VERIFICATION_EXPIRED', error: 'Verification link/code has expired. Please request a new one.' });
+    }
+
+    if ((record.attempts || 0) >= (record.max_attempts || 5)) {
+      return res.status(429).json({ success: false, code: 'VERIFICATION_ATTEMPTS_EXCEEDED', error: 'Maximum verification attempts exceeded. Please request a new code.' });
+    }
+
+    const candidateHash = crypto.createHash('sha256').update(token || otp).digest('hex');
+    const expectedHash = token ? record.token_hash : record.code_hash;
+    if (candidateHash !== expectedHash) {
+      record.attempts = (record.attempts || 0) + 1;
+      db.saveDatabase();
+      const remaining = Math.max(0, (record.max_attempts || 5) - record.attempts);
+      return res.status(400).json({ success: false, error: `Invalid verification code. ${remaining} attempt(s) remaining.` });
+    }
+
+    for (const r of records) {
+      if (r.user_id === targetUser.id && !r.is_used) {
+        r.is_used = true;
+        r.used_at = new Date().toISOString();
+      }
+    }
+    targetUser.email_verified = true;
+    targetUser.email_verified_at = new Date().toISOString();
+    targetUser.updated_at = new Date().toISOString();
+    db.saveDatabase();
+
+    db.addNotification(
+      targetUser.id,
+      'Email Verified Successfully',
+      'Your email address has been verified. Wallet funding, identity verification, and VTU services are now unlocked.',
+      'success'
+    );
+    db.logAudit('EMAIL_VERIFIED', { method: token ? 'link_token' : 'otp_code' }, targetUser.id, targetUser.email, getClientIp(req));
+
+    const freshToken = generateToken(targetUser.id, targetUser.role, 86400 * 7, targetUser.token_version ?? 1);
+    return res.json({
+      success: true,
+      verified: true,
+      user: sanitizeUser(targetUser, true),
+      token: freshToken,
+      message: 'Email verified successfully! Full portal access is now active.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: 'Failed to verify email address.' });
+  }
+}
+
+authRouter.get('/verify-email', handleVerifyEmailRequest);
+authRouter.post('/verify-email', handleVerifyEmailRequest);
+
+authRouter.post('/resend-verification', (req, res) => {
+  try {
+    const session = parseToken(req.headers.authorization);
+    const sessionUser = session ? db.findUserById(session.userId) : undefined;
+    const email = String(req.body?.email ?? sessionUser?.email ?? '').trim().toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Email address is required.' });
+    }
+
+    const targetUser = sessionUser || db.findUserByEmail(email);
+    if (!targetUser) {
+      return res.json({
+        success: true,
+        sent: true,
+        expires_in_minutes: 60,
+        message: 'If an unverified account exists for this email address, a verification email has been sent.',
+      });
+    }
+
+    if (targetUser.status === 'suspended') {
+      return res.status(403).json({ success: false, error: 'Your account is suspended. Please contact support.' });
+    }
+
+    if (targetUser.email_verified) {
+      return res.json({
+        success: true,
+        verified: true,
+        already_verified: true,
+        message: 'Your email address is already verified.',
+      });
+    }
+
+    const dispatch = issueExpressEmailVerification(targetUser, true);
+    if (dispatch.cooldownSeconds) {
+      return res.status(429).json({
+        success: false,
+        code: 'VERIFICATION_COOLDOWN',
+        error: `Please wait ${dispatch.cooldownSeconds} second(s) before requesting another verification email.`,
+        errors: { retry_after_seconds: dispatch.cooldownSeconds },
+      });
+    }
+
+    return res.json({
+      success: true,
+      sent: true,
+      expires_in_minutes: dispatch.expiresInMinutes,
+      cooldown_seconds: 60,
+      message: 'A fresh verification code and link have been sent to your email address.',
+    });
+  } catch {
+    return res.status(500).json({ success: false, error: 'Failed to resend verification email.' });
   }
 });
 

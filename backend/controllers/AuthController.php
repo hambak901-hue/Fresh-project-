@@ -217,6 +217,8 @@ class AuthController
         $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
         $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
         $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        $user['email_verified'] = (bool)($user['email_verified'] ?? false);
+        $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? false);
         $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
         $user['pin_is_locked'] = !empty($user['pin_locked_until']) && strtotime((string)$user['pin_locked_until']) > time();
         if (isset($user['notification_preferences']) && is_string($user['notification_preferences'])) {
@@ -402,11 +404,11 @@ class AuthController
             $dateOfBirth, $residentialAddress, $state, $lga, $nin, $bvn, $idType, $idNumber,
             $hasIdentitySubmission, $initialKycStatus
         ) {
-            // 1. Create User at KYC Level 1 (Tier 1 Basic Profile) — always role=customer
+            // 1. Create User at KYC Level 1 (Tier 1 Basic Profile) — always role=customer, email verification required
             try {
                 $db->execute(
-                    'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, assigned_dashboard, kyc_status, tier, referral_code, status, created_at)
-                     VALUES (:id, :email, :pass, :name, :phone, :pnorm, "customer", "customer", :ks, 1, :ref, "active", NOW())',
+                    'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, assigned_dashboard, kyc_status, tier, referral_code, status, email_verified, email_verification_required, created_at)
+                     VALUES (:id, :email, :pass, :name, :phone, :pnorm, "customer", "customer", :ks, 1, :ref, "active", 0, 1, NOW())',
                     [
                         'id' => $userId,
                         'email' => $email,
@@ -420,8 +422,8 @@ class AuthController
                 );
             } catch (Throwable) {
                 $db->execute(
-                    'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, kyc_status, tier, referral_code, status, created_at)
-                     VALUES (:id, :email, :pass, :name, :phone, :pnorm, "customer", :ks, 1, :ref, "active", NOW())',
+                    'INSERT INTO users (id, email, password_hash, full_name, phone_number, phone_normalized, role, kyc_status, tier, referral_code, status, email_verified, created_at)
+                     VALUES (:id, :email, :pass, :name, :phone, :pnorm, "customer", :ks, 1, :ref, "active", 0, NOW())',
                     [
                         'id' => $userId,
                         'email' => $email,
@@ -436,7 +438,7 @@ class AuthController
             }
 
             try {
-                $db->execute('UPDATE users SET kyc_level = 1 WHERE id = :id', ['id' => $userId]);
+                $db->execute('UPDATE users SET kyc_level = 1, email_verified = 0, email_verification_required = 1 WHERE id = :id', ['id' => $userId]);
             } catch (Throwable) {
             }
 
@@ -638,6 +640,14 @@ class AuthController
             $request->getIp()
         );
 
+        // 8B. Generate and dispatch Email Verification Token + 6-digit OTP
+        $verificationDispatch = ['sent' => false, 'expires_in_minutes' => 60];
+        try {
+            $verificationDispatch = $this->issueEmailVerification($userId, $email, $fullName, false);
+        } catch (Throwable $e) {
+            error_log('[Registration Verification Email Error] ' . $e->getMessage());
+        }
+
         try {
             $user = $this->db->fetchOne(
                 'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
@@ -657,6 +667,8 @@ class AuthController
         $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
         $user['tier'] = (int)($user['tier'] ?? 1);
         $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        $user['email_verified'] = (bool)($user['email_verified'] ?? false);
+        $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? true);
         $user['mfa_enabled'] = false;
         $user['pin_is_locked'] = false;
         $user['role'] = 'customer';
@@ -670,7 +682,10 @@ class AuthController
             'token' => $token,
             'pin_policy' => $pinService->getPublicPolicy(),
             'referral_bound' => $referralBinding !== null,
-        ], 'Account created at KYC Level 1. Welcome to HAMBAKTECH!', 201);
+            'email_verification_required' => true,
+            'verification_sent' => (bool)($verificationDispatch['sent'] ?? false),
+            'verification_expires_in_minutes' => (int)($verificationDispatch['expires_in_minutes'] ?? 60),
+        ], 'Account created! Please enter the 6-digit verification code or click the link sent to your email to verify your account.', 201);
     }
 
     public function me(Request $request): void
@@ -1002,6 +1017,8 @@ class AuthController
         $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
         $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
         $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        $user['email_verified'] = (bool)($user['email_verified'] ?? false);
+        $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? false);
         $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
         $user['pin_is_locked'] = false;
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
@@ -1024,5 +1041,302 @@ class AuthController
             'token' => $jwtToken,
             'pin_policy' => $pinService->getPublicPolicy(),
         ], 'Your password has been reset successfully. You are now logged in.');
+    }
+
+    private function issueEmailVerification(string $userId, string $email, string $fullName, bool $enforceCooldown = false): array
+    {
+        $cleanEmail = strtolower(trim($email));
+        $expiryMinutes = 60;
+
+        if ($enforceCooldown) {
+            $recent = $this->db->fetchOne(
+                'SELECT created_at FROM email_verifications
+                 WHERE user_id = :uid AND created_at > DATE_SUB(NOW(), INTERVAL 60 SECOND)
+                 ORDER BY created_at DESC LIMIT 1',
+                ['uid' => $userId]
+            );
+            if ($recent && !empty($recent['created_at'])) {
+                $elapsed = max(0, time() - strtotime((string)$recent['created_at']));
+                $waitSeconds = max(1, 60 - $elapsed);
+                Response::error(
+                    "Please wait {$waitSeconds} second(s) before requesting another verification email.",
+                    429,
+                    ['retry_after_seconds' => $waitSeconds],
+                    'VERIFICATION_COOLDOWN'
+                );
+            }
+        }
+
+        // Invalidate previous active tokens before issuing a fresh pair
+        $this->db->execute(
+            'UPDATE email_verifications SET is_used = 1 WHERE user_id = :uid AND is_used = 0',
+            ['uid' => $userId]
+        );
+
+        $rawToken = bin2hex(random_bytes(32));
+        $otpCode = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+        $tokenHash = hash('sha256', $rawToken);
+        $codeHash = hash('sha256', $otpCode);
+
+        $this->db->execute(
+            'INSERT INTO email_verifications
+             (id, user_id, email, token_hash, code_hash, attempts, max_attempts, is_used, expires_at, created_at)
+             VALUES (:id, :uid, :email, :th, :ch, 0, 5, 0, DATE_ADD(NOW(), INTERVAL 60 MINUTE), NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $userId,
+                'email' => $cleanEmail,
+                'th' => $tokenHash,
+                'ch' => $codeHash,
+            ]
+        );
+
+        $sent = false;
+        try {
+            $mailService = new MailService();
+            $res = $mailService->sendEmailVerification($cleanEmail, $fullName, $otpCode, $rawToken, $expiryMinutes);
+            $sent = !empty($res['sent']);
+        } catch (Throwable $e) {
+            error_log('[EmailVerification Mail Error] ' . $e->getMessage());
+        }
+
+        return [
+            'sent' => $sent,
+            'expires_in_minutes' => $expiryMinutes,
+        ];
+    }
+
+    /**
+     * GET / POST /api/auth/verify-email
+     * Verifies user's email address via secure 32-byte link token or 6-digit OTP code.
+     */
+    public function verifyEmail(Request $request): void
+    {
+        $token = trim((string)($request->input('token') ?? $request->query('token', '')));
+        $otp = trim((string)($request->input('otp_code') ?? $request->input('otp') ?? $request->input('code') ?? $request->query('code', '')));
+        $email = strtolower(trim((string)($request->input('email') ?? $request->query('email', ''))));
+
+        $authUser = Auth::user($request);
+        if ($email === '' && $authUser) {
+            $email = strtolower((string)($authUser['email'] ?? ''));
+        }
+
+        if ($token === '' && ($otp === '' || $email === '')) {
+            Response::error('Please provide a valid verification token or both email and 6-digit code.', 422);
+        }
+
+        $record = null;
+        if ($token !== '') {
+            $tokenHash = hash('sha256', $token);
+            $record = $this->db->fetchOne(
+                'SELECT * FROM email_verifications WHERE token_hash = :th ORDER BY created_at DESC LIMIT 1',
+                ['th' => $tokenHash]
+            );
+        } else {
+            $record = $this->db->fetchOne(
+                'SELECT * FROM email_verifications WHERE LOWER(email) = :email AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
+                ['email' => $email]
+            );
+        }
+
+        // Handle idempotent re-clicks if user is already verified
+        if (!$record && $email !== '') {
+            $existingUser = $this->db->fetchOne('SELECT id, email_verified FROM users WHERE LOWER(email) = :email LIMIT 1', ['email' => $email]);
+            if ($existingUser && !empty($existingUser['email_verified'])) {
+                $refreshed = $this->loadSanitizedAuthUser((string)$existingUser['id']);
+                Response::success([
+                    'verified' => true,
+                    'already_verified' => true,
+                    'user' => $refreshed,
+                ], 'Your email address is already verified.');
+            }
+        }
+
+        if (!$record) {
+            Response::error('Invalid or expired verification link/code. Please request a new verification email.', 400);
+        }
+
+        $targetUser = $this->db->fetchOne('SELECT id, email, full_name, role, email_verified FROM users WHERE id = :id LIMIT 1', ['id' => $record['user_id']]);
+        if (!$targetUser) {
+            Response::error('Account not found.', 404);
+        }
+
+        if (!empty($targetUser['email_verified'])) {
+            $this->db->execute('UPDATE email_verifications SET is_used = 1, used_at = NOW() WHERE user_id = :uid AND is_used = 0', ['uid' => $targetUser['id']]);
+            $refreshed = $this->loadSanitizedAuthUser((string)$targetUser['id']);
+            Response::success([
+                'verified' => true,
+                'already_verified' => true,
+                'user' => $refreshed,
+            ], 'Your email address is already verified.');
+        }
+
+        if ((int)($record['is_used'] ?? 0) === 1) {
+            Response::error('This verification link or code has already been used. Please request a new one if needed.', 400);
+        }
+
+        if (strtotime((string)$record['expires_at']) < time()) {
+            Response::error('Verification link/code has expired. Please request a new verification email.', 400, null, 'VERIFICATION_EXPIRED');
+        }
+
+        $attempts = (int)($record['attempts'] ?? 0);
+        $maxAttempts = max(1, (int)($record['max_attempts'] ?? 5));
+        if ($attempts >= $maxAttempts) {
+            Response::error('Maximum verification attempts exceeded. Please request a new verification code.', 429, null, 'VERIFICATION_ATTEMPTS_EXCEEDED');
+        }
+
+        $matched = false;
+        if ($token !== '') {
+            $matched = hash_equals((string)$record['token_hash'], hash('sha256', $token));
+        } else {
+            $matched = hash_equals((string)$record['code_hash'], hash('sha256', $otp));
+        }
+
+        if (!$matched) {
+            $this->db->execute('UPDATE email_verifications SET attempts = attempts + 1 WHERE id = :id', ['id' => $record['id']]);
+            $remaining = max(0, $maxAttempts - ($attempts + 1));
+            Response::error("Invalid verification code. {$remaining} attempt(s) remaining.", 400);
+        }
+
+        $this->db->execute(
+            'UPDATE email_verifications SET is_used = 1, used_at = NOW() WHERE user_id = :uid AND is_used = 0',
+            ['uid' => $targetUser['id']]
+        );
+        $this->db->execute(
+            'UPDATE users SET email_verified = 1, email_verified_at = NOW(), updated_at = NOW() WHERE id = :id',
+            ['id' => $targetUser['id']]
+        );
+
+        try {
+            $this->db->execute(
+                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                 VALUES (:id, :uid, "Email Verified Successfully", "Your email address has been verified. All wallet funding, identity verification, and VTU services are now unlocked.", "success", 0, NOW())',
+                ['id' => Security::generateUuid(), 'uid' => $targetUser['id']]
+            );
+        } catch (Throwable) {
+        }
+
+        FootprintService::record(
+            'auth',
+            'EMAIL_VERIFIED',
+            ['id' => $targetUser['id'], 'email' => $targetUser['email'], 'full_name' => $targetUser['full_name'] ?? 'User'],
+            null,
+            null,
+            null,
+            'successful',
+            null,
+            null,
+            [],
+            $request->getIp()
+        );
+
+        $this->db->execute(
+            'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+             VALUES (:id, :uid, :email, "EMAIL_VERIFIED", :details, :ip, NOW())',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $targetUser['id'],
+                'email' => $targetUser['email'],
+                'details' => json_encode(['method' => $token !== '' ? 'link_token' : 'otp_code']),
+                'ip' => $request->getIp(),
+            ]
+        );
+
+        $refreshed = $this->loadSanitizedAuthUser((string)$targetUser['id']);
+        $freshJwt = Auth::generateToken($refreshed, $request);
+
+        Response::success([
+            'verified' => true,
+            'user' => $refreshed,
+            'token' => $freshJwt,
+        ], 'Email verified successfully! Full portal access is now active.');
+    }
+
+    /**
+     * POST /api/auth/resend-verification
+     */
+    public function resendVerification(Request $request): void
+    {
+        $authUser = Auth::user($request);
+        $email = strtolower(trim((string)($request->input('email') ?? ($authUser['email'] ?? ''))));
+
+        if ($email === '') {
+            Response::error('Email address is required.', 422);
+        }
+
+        $targetUser = $authUser
+            ? $this->db->fetchOne('SELECT id, email, full_name, status, email_verified FROM users WHERE id = :id LIMIT 1', ['id' => $authUser['id']])
+            : $this->db->fetchOne('SELECT id, email, full_name, status, email_verified FROM users WHERE LOWER(email) = :email LIMIT 1', ['email' => $email]);
+
+        if (!$targetUser) {
+            Response::success([
+                'sent' => true,
+                'expires_in_minutes' => 60,
+            ], 'If an unverified account exists for this email address, a verification email has been sent.');
+            return;
+        }
+
+        if (($targetUser['status'] ?? 'active') === 'suspended') {
+            Response::error('Your account is currently suspended. Please contact support.', 403);
+        }
+
+        if (!empty($targetUser['email_verified'])) {
+            Response::success([
+                'verified' => true,
+                'already_verified' => true,
+            ], 'Your email address is already verified.');
+            return;
+        }
+
+        $dispatch = $this->issueEmailVerification(
+            (string)$targetUser['id'],
+            (string)$targetUser['email'],
+            (string)($targetUser['full_name'] ?? 'Customer'),
+            true
+        );
+
+        Response::success([
+            'sent' => (bool)($dispatch['sent'] ?? false),
+            'expires_in_minutes' => (int)($dispatch['expires_in_minutes'] ?? 60),
+            'cooldown_seconds' => 60,
+        ], 'A fresh verification code and link have been sent to your email address.');
+    }
+
+    private function loadSanitizedAuthUser(string $userId): array
+    {
+        try {
+            $user = $this->db->fetchOne(
+                'SELECT u.id, u.email, u.full_name, u.phone_number, u.phone_normalized, u.role, u.assigned_dashboard, u.wallet_balance,
+                        u.kyc_status, u.kyc_level, u.tier, u.referral_code, u.referred_by_user_id, u.referral_source,
+                        u.referral_campaign_code, u.referral_bound_at, u.status, u.avatar_url,
+                        u.email_verified, u.email_verification_required, u.email_verified_at, u.token_version,
+                        u.mfa_enabled, u.mfa_method, u.last_login_at, u.created_at, u.updated_at,
+                        (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
+                        w.balance AS live_wallet_balance, p.nin, p.bvn, p.address, p.state, p.lga, p.bio, p.date_of_birth,
+                        p.notification_preferences, p.security_settings
+                 FROM users u
+                 LEFT JOIN wallets w ON w.user_id = u.id
+                 LEFT JOIN user_profiles p ON p.user_id = u.id
+                 WHERE u.id = :id LIMIT 1',
+                ['id' => $userId]
+            );
+        } catch (Throwable) {
+            $user = $this->db->fetchOne('SELECT * FROM users WHERE id = :id LIMIT 1', ['id' => $userId]) ?: [];
+        }
+        $normalizedRole = DashboardConfigService::normalizeRole((string)($user['role'] ?? 'customer'));
+        $user['role'] = $normalizedRole;
+        $user['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey($user['assigned_dashboard'] ?? null, $normalizedRole);
+        $user['wallet_balance'] = (float)($user['live_wallet_balance'] ?? $user['wallet_balance'] ?? 0);
+        $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
+        $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
+        $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        $user['email_verified'] = (bool)($user['email_verified'] ?? false);
+        $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? false);
+        $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
+        $user['pin_is_locked'] = false;
+        $user['permissions'] = $normalizedRole === 'superadmin' ? ['*'] : (Auth::isConsoleRole($normalizedRole) ? DashboardConfigService::getDefaultPermissionsForRole($normalizedRole) : []);
+        $user['dashboard_config'] = DashboardConfigService::getConfig($this->db, (string)$user['assigned_dashboard'], 'published');
+        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
+        return $user;
     }
 }

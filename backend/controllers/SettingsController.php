@@ -120,7 +120,7 @@ class SettingsController
             // 8. Authentication
             'auth' => array_merge([
                 'allow_customer_registration' => true,
-                'require_email_verification' => false,
+                'require_email_verification' => true,
                 'min_password_length' => 8,
                 'max_failed_attempts' => 5,
                 'lockout_duration_minutes' => 15,
@@ -139,24 +139,26 @@ class SettingsController
             ], is_array($settingsMap['kyc_settings'] ?? null) ? $settingsMap['kyc_settings'] : []),
 
             // 11. Wallet
-            'wallet' => array_merge([
-                'min_funding_amount' => 100,
-                'max_funding_amount' => 500000,
-                'manual_funding_enabled' => true,
-                'bank_name' => 'Moniepoint MFB',
-                'bank_account_number' => '5210741634',
-                'bank_account_name' => 'Hambaktech_Services',
-            ], is_array($settingsMap['wallet_settings'] ?? null) ? $settingsMap['wallet_settings'] : []),
+            'wallet' => (function () use ($settingsMap) {
+                $w = array_merge([
+                    'min_funding_amount' => 100,
+                    'max_funding_amount' => 500000,
+                ], is_array($settingsMap['wallet_settings'] ?? null) ? $settingsMap['wallet_settings'] : []);
+                unset($w['manual_funding_enabled'], $w['bank_name'], $w['bank_account_number'], $w['bank_account_name']);
+                return $w;
+            })(),
 
             // 12. Payment gateways
-            'payment_gateways' => array_merge([
-                'active_gateway' => 'paystack',
-                'enable_paystack' => true,
-                'enable_flutterwave' => false,
-                'enable_bank_transfer' => true,
-                'paystack_charge_percent' => 1.5,
-                'flutterwave_charge_percent' => 1.4,
-            ], is_array($settingsMap['payment_gateways_settings'] ?? null) ? $settingsMap['payment_gateways_settings'] : []),
+            'payment_gateways' => (function () use ($settingsMap) {
+                $pg = array_merge([
+                    'active_gateway' => 'paystack',
+                    'enable_paystack' => true,
+                    'paystack_charge_percent' => 1.5,
+                ], is_array($settingsMap['payment_gateways_settings'] ?? null) ? $settingsMap['payment_gateways_settings'] : []);
+                unset($pg['enable_flutterwave'], $pg['flutterwave_charge_percent'], $pg['enable_bank_transfer']);
+                $pg['active_gateway'] = 'paystack';
+                return $pg;
+            })(),
 
             // 13. Provider integration
             'provider_integration' => (function () use ($settingsMap) {
@@ -361,9 +363,10 @@ class SettingsController
             $settingsData['max_withdrawal_naira'] = max((float)$settingsData['min_withdrawal_naira'], (float)($settingsData['max_withdrawal_naira'] ?? 100000));
             $settingsData['max_rewards_per_referee'] = max(1, min(100, (int)($settingsData['max_rewards_per_referee'] ?? 1)));
         } elseif ($category === 'wallet') {
-            if (isset($settingsData['bank_account_number'])) {
-                $settingsData['bank_account_number'] = preg_replace('/\s+/', '', trim((string)$settingsData['bank_account_number'])) ?: '5210741634';
-            }
+            unset($settingsData['manual_funding_enabled'], $settingsData['bank_name'], $settingsData['bank_account_number'], $settingsData['bank_account_name']);
+        } elseif ($category === 'payment_gateways') {
+            unset($settingsData['enable_flutterwave'], $settingsData['flutterwave_charge_percent'], $settingsData['enable_bank_transfer']);
+            $settingsData['active_gateway'] = 'paystack';
         }
 
         $settingKey = $category . '_settings';
@@ -387,19 +390,6 @@ class SettingsController
         );
 
         // Mirror key settings to top-level keys for direct runtime lookup
-        if ($category === 'wallet' && isset($settingsData['bank_name'])) {
-            $cleanAcc = preg_replace('/\s+/', '', trim((string)($settingsData['bank_account_number'] ?? '5210741634'))) ?: '5210741634';
-            $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_bank", :v, "wallet", NOW())', ['v' => (string)$settingsData['bank_name']]);
-            $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_account_number", :v, "wallet", NOW())', ['v' => $cleanAcc]);
-            $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "bank_transfer_account_name", :v, "wallet", NOW())', ['v' => (string)($settingsData['bank_account_name'] ?? 'Hambaktech_Services')]);
-            try {
-                $this->db->execute(
-                    'UPDATE accounting_accounts SET bank_name = :b, account_number = :a WHERE account_code = "BANK_MAIN"',
-                    ['b' => (string)$settingsData['bank_name'], 'a' => $cleanAcc]
-                );
-            } catch (\Throwable) {
-            }
-        }
         if ($category === 'payment_gateways' && isset($settingsData['active_gateway'])) {
             $this->db->execute('REPLACE INTO system_settings (id, setting_key, setting_value, category, updated_at) VALUES (UUID(), "active_payment_gateway", :v, "payments", NOW())', ['v' => (string)$settingsData['active_gateway']]);
         }

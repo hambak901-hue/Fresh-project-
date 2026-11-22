@@ -7,10 +7,11 @@
 
 import { Router } from 'express';
 import { db, hashPassword, verifyPassword, hashPin, verifyPin, User } from '../db/database.js';
-import { parseToken, sanitizeUser } from './auth.js';
+import { parseToken, sanitizeUser, requireVerifiedEmail } from './auth.js';
 import { getDashboardConfig, normalizeDashboardKey } from '../services/dashboardConfig.js';
 import { sendEmail } from '../services/mailer.js';
 import { validateUploadFile, validateUploadBuffer, generateSecureFilename } from '../services/security.js';
+import { sanitizeCustomerError } from '../services/errorSanitizer.js';
 
 export const customerRouter = Router();
 
@@ -122,11 +123,7 @@ customerRouter.get('/summary', requireCustomer, (req: any, res) => {
     recent_verifications: userVerifications.slice(0, 5),
     notifications: userNotifications.slice(0, 5),
     announcements: publishedAnnouncements,
-    bank_details: {
-      accountName: db.data.settings.bank_transfer_account_name,
-      bank: db.data.settings.bank_transfer_bank,
-      accountNumber: db.data.settings.bank_transfer_account_number,
-    },
+    bank_details: null,
   });
 });
 
@@ -343,7 +340,7 @@ customerRouter.post('/upload', requireCustomer, (req: any, res) => {
       size_bytes: buffer.length,
     });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'File upload failed' });
+    return res.status(500).json({ error: sanitizeCustomerError(err?.message) });
   }
 });
 
@@ -376,6 +373,7 @@ customerRouter.get('/document/:id', requireCustomer, (req: any, res) => {
 
 // POST /api/customer/kyc-submit - Submit KYC verification documents
 customerRouter.post('/kyc-submit', requireCustomer, (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   const { id_type, id_number, doc_url, notes } = req.body;
 
   if (!id_type || !id_number) {
@@ -421,70 +419,10 @@ customerRouter.post('/kyc-submit', requireCustomer, (req: any, res) => {
   });
 });
 
-// POST /api/customer/manual-funding - Submit proof of bank transfer
-customerRouter.post('/manual-funding', requireCustomer, (req: any, res) => {
-  const { amount, sender_name, bank_name, reference, payment_proof_url } = req.body;
-  const numAmount = Number(amount);
-
-  if (!numAmount || numAmount < 500) {
-    return res.status(400).json({ error: 'Minimum manual funding amount is ₦500' });
-  }
-  if (!sender_name || !reference) {
-    return res.status(400).json({ error: 'Sender name and transaction reference are required' });
-  }
-
-  if (payment_proof_url) {
-    const fileCheck = validateUploadFile(payment_proof_url);
-    if (!fileCheck.valid) {
-      return res.status(400).json({ error: fileCheck.error });
-    }
-  }
-
-  const cleanRef = reference.trim().toUpperCase();
-  const existingRef = db.data.transactions.find(t => t.reference === cleanRef);
-  if (existingRef) {
-    return res.status(400).json({ error: `A transaction with reference "${cleanRef}" has already been submitted.` });
-  }
-
-  // Create pending transaction in ledger
-  const txnId = `txn_${Date.now()}`;
-  const transaction: any = {
-    id: txnId,
-    user_id: req.user.id,
-    type: 'credit',
-    amount: numAmount,
-    balance_before: req.user.wallet_balance,
-    balance_after: req.user.wallet_balance, // not credited until approved
-    category: 'funding',
-    reference: cleanRef,
-    gateway: 'manual_transfer',
-    status: 'pending',
-    description: `Manual Bank Transfer: ₦${numAmount.toLocaleString()} from ${sender_name} (${bank_name || 'Bank'})`,
-    metadata: {
-      sender_name,
-      bank_name,
-      payment_proof_url,
-      submitted_at: new Date().toISOString(),
-    },
-    created_at: new Date().toISOString(),
-  };
-
-  db.data.transactions.unshift(transaction);
-  db.saveDatabase();
-
-  db.logAudit('MANUAL_FUNDING_SUBMITTED', { amount: numAmount, reference, sender_name }, req.user.id, req.user.email);
-
-  db.addNotification(
-    req.user.id,
-    'Payment Proof Submitted',
-    `Your transfer of ₦${numAmount.toLocaleString()} (Ref: ${reference}) is received and pending manual verification.`,
-    'info'
-  );
-
-  res.json({
-    success: true,
-    message: 'Payment proof submitted. An admin will verify the transfer within 15 minutes.',
-    transaction,
+// POST /api/customer/manual-funding - Discontinued
+customerRouter.post('/manual-funding', requireCustomer, (_req: any, res) => {
+  return res.status(410).json({
+    error: 'Direct Bank Transfer and Bank Transfer Proof submission have been discontinued. Please fund your wallet via Paystack.',
   });
 });
 

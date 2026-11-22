@@ -107,7 +107,12 @@ function MainAppContent() {
     gateway?: string;
     transactionId?: string;
   } | null>(null);
+  const [emailVerifyState, setEmailVerifyState] = useState<{
+    status: 'verifying' | 'success' | 'error';
+    message: string;
+  } | null>(null);
   const processedPaymentKeyRef = useRef<string>('');
+  const processedEmailVerifyRef = useRef<string>('');
   const [previewSession, setPreviewSession] = useState<{
     targetRole: UserRole;
     targetDashboard: DashboardKey;
@@ -343,7 +348,7 @@ function MainAppContent() {
     }
   }, [authLoading, user]);
 
-  // Verify Paystack / Flutterwave wallet funding callback automatically on return (Browser, PWA & Android APK)
+  // Verify Paystack wallet funding callback automatically on return (Browser, PWA & Android APK)
   const runReturnedPaymentVerification = async (reference: string, gateway?: string, transactionId?: string) => {
     setPaymentReturnState({
       status: 'verifying',
@@ -439,6 +444,55 @@ function MainAppContent() {
       // Ignore malformed return params
     }
   }, [authLoading, user]);
+
+  // Handle email verification links (?verify_email=1&token=...&email=... or /verify-email?token=...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const pathLower = (window.location.pathname || '').toLowerCase();
+      const urlParams = new URLSearchParams(window.location.search || '');
+      const h = window.location.hash || '';
+      const qIdx = h.indexOf('?');
+      const hashParams = qIdx !== -1 ? new URLSearchParams(h.slice(qIdx + 1)) : new URLSearchParams('');
+
+      const verifyFlag = urlParams.get('verify_email') || hashParams.get('verify_email');
+      const token = (urlParams.get('token') || hashParams.get('token') || '').trim();
+      const otpCode = (urlParams.get('code') || hashParams.get('code') || '').trim();
+      const emailParam = (urlParams.get('email') || hashParams.get('email') || '').trim();
+
+      const isVerifyEmailLink =
+        Boolean((verifyFlag || pathLower.includes('/verify-email')) && (token || (otpCode && emailParam)));
+
+      if (!isVerifyEmailLink) return;
+      const dedupeKey = `${token}:${otpCode}:${emailParam}`;
+      if (processedEmailVerifyRef.current === dedupeKey) return;
+      processedEmailVerifyRef.current = dedupeKey;
+
+      window.history.replaceState(null, '', userRef.current ? '/#portal' : '/');
+      setEmailVerifyState({ status: 'verifying', message: 'Confirming your email address...' });
+
+      api.verifyEmail({
+        token: token || undefined,
+        otp_code: otpCode || undefined,
+        email: emailParam || undefined,
+      })
+        .then(async (res) => {
+          await refreshUser();
+          setEmailVerifyState({
+            status: 'success',
+            message: res.message || 'Email verified successfully! Full portal access is now active.',
+          });
+        })
+        .catch((err: any) => {
+          setEmailVerifyState({
+            status: 'error',
+            message: err?.message || 'Verification link is invalid or expired. Request a new code in your portal.',
+          });
+        });
+    } catch {
+      // Ignore malformed verification query params
+    }
+  }, []);
 
   // Listen for server-enforced 403 PIN_SETUP_REQUIRED events from api.ts
   useEffect(() => {
@@ -562,6 +616,46 @@ function MainAppContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-700 selection:text-white transition-colors">
+      {/* EMAIL VERIFICATION LINK STATUS BANNER */}
+      {emailVerifyState && (
+        <div
+          role="status"
+          className={`no-print fixed top-3 left-1/2 -translate-x-1/2 z-[86] max-w-md w-[calc(100%-1.5rem)] px-4 py-3 rounded-2xl border shadow-2xl backdrop-blur-md flex items-start gap-3 text-xs ${
+            emailVerifyState.status === 'success'
+              ? 'bg-emerald-950/95 border-emerald-500/50 text-emerald-100'
+              : emailVerifyState.status === 'verifying'
+              ? 'bg-blue-950/95 border-blue-500/50 text-blue-100'
+              : 'bg-rose-950/95 border-rose-500/50 text-rose-100'
+          }`}
+        >
+          {emailVerifyState.status === 'verifying' ? (
+            <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0 mt-0.5" />
+          ) : emailVerifyState.status === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+          )}
+          <div className="flex-1 space-y-1">
+            <div className="font-bold">
+              {emailVerifyState.status === 'verifying'
+                ? 'Verifying Email'
+                : emailVerifyState.status === 'success'
+                ? 'Email Verified'
+                : 'Email Verification Notice'}
+            </div>
+            <p className="text-[11px] opacity-90 leading-snug">{emailVerifyState.message}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setEmailVerifyState(null)}
+            aria-label="Close email verification notice"
+            className="p-1 rounded-lg hover:bg-white/10 transition shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* WALLET PAYMENT CALLBACK VERIFICATION BANNER */}
       {paymentReturnState && (
         <div
@@ -969,12 +1063,13 @@ function MainAppContent() {
       {/* Wallet Modal */}
       <WalletModal isOpen={walletModalOpen} onClose={() => setWalletModalOpen(false)} />
 
-      {/* Compulsory Transaction PIN Activation Overlay */}
+      {/* Compulsory Transaction PIN Activation Overlay (gated until email verified for new accounts) */}
       <MandatoryPinSetupModal
         isOpen={Boolean(
           user &&
           !previewSession &&
           (user.role === 'customer' || user.role === 'student' || user.role === 'agent') &&
+          (!user.email_verification_required || Boolean(user.email_verified)) &&
           !user.has_transaction_pin &&
           (pinPolicy?.require_pin_activation_for_all_customers || forcePinSetupOpen)
         )}

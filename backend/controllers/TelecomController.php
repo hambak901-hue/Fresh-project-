@@ -530,7 +530,7 @@ class TelecomController
     public function purchaseData(Request $request): void
     {
         $this->ensureDataSchema();
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $planId = trim((string)($request->input('planId') ?? $request->input('plan_id', '')));
         $rawPhone = trim((string)$request->input('phone', ''));
         $selectedNetwork = strtoupper(trim((string)$request->input('network', '')));
@@ -759,7 +759,11 @@ class TelecomController
                 'phone' => $phone,
             ]);
 
-            Response::error('Failed to dispatch data: ' . $e->getMessage() . '. Your wallet balance has been refunded.', 502);
+            $safeErr = Security::sanitizeCustomerError($e->getMessage());
+            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
+                ? $safeErr . ' Your wallet balance has been refunded.'
+                : 'Failed to dispatch data: ' . $safeErr . ' Your wallet balance has been refunded.';
+            Response::error($clientMsg, 502);
         }
     }
 
@@ -768,7 +772,7 @@ class TelecomController
      */
     public function topupAirtime(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $network = strtoupper((string)$request->input('network', ''));
         $phone = trim((string)$request->input('phone', ''));
         $amount = (float)$request->input('amount', 0);
@@ -886,7 +890,11 @@ class TelecomController
                 'phone' => $phone,
             ]);
 
-            Response::error('Failed to recharge airtime: ' . $e->getMessage() . '. Your wallet balance has been refunded.', 502);
+            $safeErr = Security::sanitizeCustomerError($e->getMessage());
+            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
+                ? $safeErr . ' Your wallet balance has been refunded.'
+                : 'Failed to recharge airtime: ' . $safeErr . ' Your wallet balance has been refunded.';
+            Response::error($clientMsg, 502);
         }
     }
 
@@ -1032,7 +1040,7 @@ class TelecomController
     public function vendAirtimePin(Request $request): void
     {
         $this->ensureDataSchema();
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         if (!$this->verifyTransactionPinOrFail($user, $request, 'telecom_pins', 'airtime_pin')) {
             return;
         }
@@ -1439,7 +1447,11 @@ class TelecomController
                 $this->db->execute('UPDATE telecom_orders SET status = "failed", profit = 0.00 WHERE id = :id', ['id' => $orderId]);
             }
             $this->logFootprint($user, 'airtime_pin', 'AIRTIME_PIN_FAILED', $reference, $totalPrice, 'failed', $this->activeProviderId, $e->getMessage());
-            Response::error('Failed to generate Airtime PINs: ' . $e->getMessage() . '. Your wallet balance has been refunded.', 502);
+            $safeErr = Security::sanitizeCustomerError($e->getMessage());
+            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
+                ? $safeErr . ' Your wallet balance has been refunded.'
+                : 'Failed to generate Airtime PINs: ' . $safeErr . ' Your wallet balance has been refunded.';
+            Response::error($clientMsg, 502);
         }
     }
 
@@ -1449,7 +1461,7 @@ class TelecomController
     public function vendDataPin(Request $request): void
     {
         $this->ensureDataSchema();
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         if (!$this->verifyTransactionPinOrFail($user, $request, 'telecom_pins', 'data_pin')) {
             return;
         }
@@ -1516,7 +1528,7 @@ class TelecomController
 
         // Strict isolation: ONLY allow confirmed data_pin_denominations rows with confirmed provider_plan_id (never /api/data_plans fallback)
         if ($planId === '') {
-            Response::error('Data PIN service is currently disabled pending confirmed Ulamadata Data PIN plan IDs and pricing.', 403);
+            Response::error('Data PIN service is currently unavailable. Please try again later or contact support.', 403);
             return;
         }
 
@@ -1525,7 +1537,7 @@ class TelecomController
             ['id' => $planId]
         );
         if (!$plan) {
-            Response::error('Selected Data PIN plan is unavailable or disabled until confirmed Ulamadata Data PIN catalogue IDs are supplied.', 404);
+            Response::error('Selected Data PIN plan is currently unavailable. Please select another plan or contact support.', 404);
             return;
         }
 
@@ -1785,7 +1797,11 @@ class TelecomController
                 $this->db->execute('UPDATE telecom_orders SET status = "failed", profit = 0.00 WHERE id = :id', ['id' => $orderId]);
             }
             $this->logFootprint($user, 'data_pin', 'DATA_PIN_FAILED', $reference, $totalPrice, 'failed', $this->activeProviderId, $e->getMessage());
-            Response::error('Failed to generate Data PINs: ' . $e->getMessage() . '. Your wallet balance has been refunded.', 502);
+            $safeErr = Security::sanitizeCustomerError($e->getMessage());
+            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
+                ? $safeErr . ' Your wallet balance has been refunded.'
+                : 'Failed to generate Data PINs: ' . $safeErr . ' Your wallet balance has been refunded.';
+            Response::error($clientMsg, 502);
         }
     }
 
@@ -1794,7 +1810,7 @@ class TelecomController
      */
     public function processAirtimeSwap(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $network = strtoupper((string)$request->input('network', ''));
         $phone = trim((string)$request->input('phone', ''));
         $amount = (float)$request->input('amount', 0);
@@ -1852,7 +1868,11 @@ class TelecomController
                 'swapDetails' => $dispatch,
             ], 'Airtime swap initiated! Please transfer airtime to complete.');
         } catch (Throwable $e) {
-            Response::error('Failed to initiate airtime swap: ' . $e->getMessage(), 502);
+            $safeErr = Security::sanitizeCustomerError($e->getMessage());
+            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
+                ? $safeErr
+                : 'Failed to initiate airtime swap: ' . $safeErr;
+            Response::error($clientMsg, 502);
         }
     }
 
@@ -1882,7 +1902,7 @@ class TelecomController
                 'data' => $res,
             ]);
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 404);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to verify smartcard number right now. Please check and try again.'), 404);
         }
     }
 
@@ -1891,7 +1911,7 @@ class TelecomController
      */
     public function renewCable(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $provider = (string)($request->input('provider', 'gotv'));
         $smartcard = trim((string)($request->input('smartcardNumber') ?? $request->input('smartcard', '')));
         $packageCode = (string)($request->input('packageId') ?? $request->input('package_code', ''));
@@ -1989,7 +2009,11 @@ class TelecomController
                 ]
             );
             $this->logFootprint($user, 'cable', 'CABLE_FAILED', $reference, $amount, 'failed', $this->activeProviderId, $e->getMessage());
-            Response::error('Failed to renew cable: ' . $e->getMessage() . '. Wallet refunded.', 502);
+            $safeErr = Security::sanitizeCustomerError($e->getMessage());
+            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
+                ? $safeErr . ' Your wallet balance has been refunded.'
+                : 'Failed to renew cable subscription: ' . $safeErr . ' Your wallet balance has been refunded.';
+            Response::error($clientMsg, 502);
         }
     }
 
@@ -2021,7 +2045,7 @@ class TelecomController
                 'data' => $res,
             ]);
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 404);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Unable to verify meter number right now. Please check and try again.'), 404);
         }
     }
 
@@ -2030,7 +2054,7 @@ class TelecomController
      */
     public function vendElectricity(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $discoCode = (string)($request->input('discoId') ?? $request->input('disco', 'ikeja-electric'));
         $meterNumber = trim((string)($request->input('meterNumber') ?? $request->input('meter_number', '')));
         $meterType = (string)($request->input('meterType') ?? $request->input('meter_type', 'prepaid'));
@@ -2129,7 +2153,11 @@ class TelecomController
                 ]
             );
             $this->logFootprint($user, 'electricity', 'ELECTRICITY_FAILED', $reference, $amount, 'failed', $this->activeProviderId, $e->getMessage());
-            Response::error('Failed to vend electricity token: ' . $e->getMessage() . '. Wallet refunded.', 502);
+            $safeErr = Security::sanitizeCustomerError($e->getMessage());
+            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
+                ? $safeErr . ' Your wallet balance has been refunded.'
+                : 'Failed to vend electricity token: ' . $safeErr . ' Your wallet balance has been refunded.';
+            Response::error($clientMsg, 502);
         }
     }
 
@@ -2138,7 +2166,7 @@ class TelecomController
      */
     public function vendExamPin(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $examName = strtoupper((string)($request->input('examId') ?? $request->input('exam_name', 'WAEC')));
         $quantity = max(1, min(10, (int)$request->input('quantity', 1)));
         $phone = (string)$request->input('phone', '');
@@ -2234,7 +2262,11 @@ class TelecomController
                 ]
             );
             $this->logFootprint($user, 'exam', 'EXAM_PIN_FAILED', $reference, $totalPrice, 'failed', $this->activeProviderId, $e->getMessage());
-            Response::error('Failed to purchase exam PINs: ' . $e->getMessage() . '. Wallet refunded.', 502);
+            $safeErr = Security::sanitizeCustomerError($e->getMessage());
+            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
+                ? $safeErr . ' Your wallet balance has been refunded.'
+                : 'Failed to purchase exam PINs: ' . $safeErr . ' Your wallet balance has been refunded.';
+            Response::error($clientMsg, 502);
         }
     }
 
@@ -2243,7 +2275,7 @@ class TelecomController
      */
     public function sendBulkSms(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $senderId = trim((string)($request->input('senderId') ?? $request->input('sender_id', 'HAMBAK')));
         $recipientsInput = $request->input('recipients', []);
         $rawList = is_string($recipientsInput) ? explode(',', $recipientsInput) : (array)$recipientsInput;
@@ -2342,7 +2374,11 @@ class TelecomController
                 ]
             );
             $this->logFootprint($user, 'bulksms', 'BULKSMS_FAILED', $reference, $totalCost, 'failed', $this->activeProviderId, $e->getMessage());
-            Response::error('Failed to send Bulk SMS: ' . $e->getMessage() . '. Wallet refunded.', 502);
+            $safeErr = Security::sanitizeCustomerError($e->getMessage());
+            $clientMsg = str_contains($safeErr, 'temporarily unavailable')
+                ? $safeErr . ' Your wallet balance has been refunded.'
+                : 'Failed to send Bulk SMS: ' . $safeErr . ' Your wallet balance has been refunded.';
+            Response::error($clientMsg, 502);
         }
     }
 

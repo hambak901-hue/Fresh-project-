@@ -44,6 +44,8 @@ export interface User {
   requires_pin_setup?: boolean;
   pin_length?: number;
   email_verified?: boolean;
+  email_verification_required?: boolean;
+  email_verified_at?: string | null;
   address?: string;
   residential_address?: string;
   state?: string;
@@ -466,7 +468,8 @@ export interface SystemStatusResponse {
     sureverify: { configured: boolean; keyMasked: string };
     ulamaData: { configured: boolean; keyMasked: string };
     vtpass: { configured: boolean; apiKeyMasked: string; publicKeyMasked: string; secretKeyMasked: string };
-    flutterwave: { configured: boolean; clientIdMasked: string; secretKeyMasked: string; encryptionKeyConfigured: boolean };
+    paystack?: { configured: boolean; publicKeyMasked?: string; secretKeyMasked?: string };
+    flutterwave?: { configured: boolean; clientIdMasked: string; secretKeyMasked: string; encryptionKeyConfigured: boolean };
     smtpMail: { configured: boolean; host: string; port: number; user: string; supportEmail: string; webmailUrl: string };
     cpanel: { serverName: string; serverIp: string; sftpHost: string; sftpPort: number; sftpUser: string; sftpPassConfigured: boolean; nameservers: string[] };
   };
@@ -840,7 +843,8 @@ export interface AdminOverviewData {
     sureverify: { configured: boolean; status: string; keyMasked: string };
     ulamaData: { configured: boolean; status: string; keyMasked: string };
     vtpass: { configured: boolean; status: string; apiKeyMasked: string };
-    flutterwave: { configured: boolean; status: string; clientIdMasked: string };
+    paystack?: { configured: boolean; status: string; keyMasked?: string };
+    flutterwave?: { configured: boolean; status: string; clientIdMasked: string };
     smtpMail: { configured: boolean; status: string; host: string; port: number };
     cpanel: { configured: boolean; status: string; host: string; serverIp: string };
   };

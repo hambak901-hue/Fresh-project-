@@ -15,7 +15,9 @@
       "updated_at": "2026-11-12T15:32:17.405Z",
       "status": "active",
       "assigned_dashboard": "admin",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "id": "usr_customer_demo",
@@ -34,7 +36,9 @@
       "updated_at": "2026-11-12T11:56:50.109Z",
       "status": "active",
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "qa_reg_1794497446870@hambaktech.com.ng",
@@ -63,7 +67,9 @@
         }
       ],
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "qa_reg_1794497537207@hambaktech.com.ng",
@@ -92,7 +98,9 @@
         }
       ],
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "id": "usr_e2e_superadmin",
@@ -113,7 +121,8 @@
         "*"
       ],
       "assigned_dashboard": "admin",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false
     },
     {
       "email": "e2e_customer@hambaktech.com.ng",
@@ -130,7 +139,9 @@
       "created_at": "2026-11-17T08:51:28.551Z",
       "updated_at": "2026-11-17T08:51:28.551Z",
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_cust_1794905548847@hambaktech.com.ng",
@@ -148,7 +159,9 @@
       "updated_at": "2026-11-17T08:52:29.276Z",
       "transaction_pin_hash": "$2b$10$yM7J.d2GcHkTywUbWw19huasgDCqV1Hz1yyiqFcPx25D5N2Vvgd4a",
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_cust_1794905571448@hambaktech.com.ng",
@@ -166,7 +179,9 @@
       "updated_at": "2026-11-17T08:52:51.912Z",
       "transaction_pin_hash": "$2b$10$EhnGtq0qXD3Dtcqi.uJ02.gXRRpu8QtRj0Dg12Uxp9a6h5Kgz233W",
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_agent_1794905571448@hambaktech.com.ng",
@@ -183,7 +198,9 @@
       "created_at": "2026-11-17T08:52:52.044Z",
       "updated_at": "2026-11-17T08:52:52.059Z",
       "assigned_dashboard": "agent",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_sp_1794905571448@hambaktech.com.ng",
@@ -203,7 +220,9 @@
       "created_at": "2026-11-17T08:52:52.325Z",
       "updated_at": "2026-11-17T08:52:52.325Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_cust_1794905577105@hambaktech.com.ng",
@@ -221,7 +240,9 @@
       "updated_at": "2026-11-17T08:52:57.560Z",
       "transaction_pin_hash": "$2b$10$sPZG/WqaRzKY8AY9C6o2i.rUXdOZWOBpGyrmcSCAzzzjaUjohcfGu",
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_agent_1794905577105@hambaktech.com.ng",
@@ -238,7 +259,9 @@
       "created_at": "2026-11-17T08:52:57.697Z",
       "updated_at": "2026-11-17T08:52:57.709Z",
       "assigned_dashboard": "agent",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_sp_1794905577105@hambaktech.com.ng",
@@ -258,7 +281,9 @@
       "created_at": "2026-11-17T08:52:57.982Z",
       "updated_at": "2026-11-17T08:52:57.982Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_spm_1794905577105@hambaktech.com.ng",
@@ -279,7 +304,9 @@
       "created_at": "2026-11-17T08:52:58.256Z",
       "updated_at": "2026-11-17T08:52:58.256Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_kyc_1794905577105@hambaktech.com.ng",
@@ -301,7 +328,9 @@
       "created_at": "2026-11-17T08:52:58.501Z",
       "updated_at": "2026-11-17T08:52:58.501Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_ops_1794905577105@hambaktech.com.ng",
@@ -322,7 +351,9 @@
       "created_at": "2026-11-17T08:52:58.765Z",
       "updated_at": "2026-11-17T08:52:58.765Z",
       "assigned_dashboard": "admin",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_cust_1794905604078@hambaktech.com.ng",
@@ -340,7 +371,9 @@
       "updated_at": "2026-11-17T08:53:24.579Z",
       "transaction_pin_hash": "$2b$10$xFFWAOkH9QAiLlRFZ4hHie9SpRC9ZjULKs0djC6e6PInObqDAO7dK",
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_agent_1794905604078@hambaktech.com.ng",
@@ -357,7 +390,9 @@
       "created_at": "2026-11-17T08:53:24.707Z",
       "updated_at": "2026-11-17T08:53:24.722Z",
       "assigned_dashboard": "agent",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_sp_1794905604078@hambaktech.com.ng",
@@ -377,7 +412,9 @@
       "created_at": "2026-11-17T08:53:24.957Z",
       "updated_at": "2026-11-17T08:53:24.957Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_spm_1794905604078@hambaktech.com.ng",
@@ -398,7 +435,9 @@
       "created_at": "2026-11-17T08:53:25.196Z",
       "updated_at": "2026-11-17T08:53:25.196Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_kyc_1794905604078@hambaktech.com.ng",
@@ -420,7 +459,9 @@
       "created_at": "2026-11-17T08:53:25.437Z",
       "updated_at": "2026-11-17T08:53:25.437Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_ops_1794905604078@hambaktech.com.ng",
@@ -441,7 +482,9 @@
       "created_at": "2026-11-17T08:53:25.677Z",
       "updated_at": "2026-11-17T08:53:25.677Z",
       "assigned_dashboard": "admin",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_cust_1794905658676@hambaktech.com.ng",
@@ -459,7 +502,9 @@
       "updated_at": "2026-11-17T08:54:19.082Z",
       "transaction_pin_hash": "$2b$10$Ei1VU2idz2rv6l.RnIiDSONgciBikSp5B8EBaY1vgUB78zztqdA16",
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_agent_1794905658676@hambaktech.com.ng",
@@ -476,7 +521,9 @@
       "created_at": "2026-11-17T08:54:19.209Z",
       "updated_at": "2026-11-17T08:54:19.223Z",
       "assigned_dashboard": "agent",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_sp_1794905658676@hambaktech.com.ng",
@@ -496,7 +543,9 @@
       "created_at": "2026-11-17T08:54:19.480Z",
       "updated_at": "2026-11-17T08:54:19.480Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_spm_1794905658676@hambaktech.com.ng",
@@ -517,7 +566,9 @@
       "created_at": "2026-11-17T08:54:19.724Z",
       "updated_at": "2026-11-17T08:54:19.724Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_kyc_1794905658676@hambaktech.com.ng",
@@ -539,7 +590,9 @@
       "created_at": "2026-11-17T08:54:19.964Z",
       "updated_at": "2026-11-17T08:54:19.964Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_ops_1794905658676@hambaktech.com.ng",
@@ -560,7 +613,9 @@
       "created_at": "2026-11-17T08:54:20.208Z",
       "updated_at": "2026-11-17T08:54:20.208Z",
       "assigned_dashboard": "admin",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_cust_1794905693753@hambaktech.com.ng",
@@ -578,7 +633,9 @@
       "updated_at": "2026-11-17T08:54:54.165Z",
       "transaction_pin_hash": "$2b$10$MsgjfNgEBMkOnGPLusiQEerDoZ7TE7bwC7Ekf7QVDO2V40Ee2M5pK",
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_agent_1794905693753@hambaktech.com.ng",
@@ -595,7 +652,9 @@
       "created_at": "2026-11-17T08:54:54.295Z",
       "updated_at": "2026-11-17T08:54:54.311Z",
       "assigned_dashboard": "agent",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_sp_1794905693753@hambaktech.com.ng",
@@ -615,7 +674,9 @@
       "created_at": "2026-11-17T08:54:54.554Z",
       "updated_at": "2026-11-17T08:54:54.554Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_spm_1794905693753@hambaktech.com.ng",
@@ -636,7 +697,9 @@
       "created_at": "2026-11-17T08:54:54.806Z",
       "updated_at": "2026-11-17T08:54:54.806Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_kyc_1794905693753@hambaktech.com.ng",
@@ -658,7 +721,9 @@
       "created_at": "2026-11-17T08:54:55.059Z",
       "updated_at": "2026-11-17T08:54:55.059Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_ops_1794905693753@hambaktech.com.ng",
@@ -679,7 +744,9 @@
       "created_at": "2026-11-17T08:54:55.320Z",
       "updated_at": "2026-11-17T08:54:55.320Z",
       "assigned_dashboard": "admin",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_cust_1794905737097@hambaktech.com.ng",
@@ -697,7 +764,9 @@
       "updated_at": "2026-11-17T08:55:37.521Z",
       "transaction_pin_hash": "$2b$10$3LNq90ql2gd9CnPbNR7PguQRdKvF8SEyjbD3ovA5FA/HDgEYsH07O",
       "assigned_dashboard": "customer",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_agent_1794905737097@hambaktech.com.ng",
@@ -714,7 +783,9 @@
       "created_at": "2026-11-17T08:55:37.651Z",
       "updated_at": "2026-11-17T08:55:37.668Z",
       "assigned_dashboard": "agent",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_sp_1794905737097@hambaktech.com.ng",
@@ -734,7 +805,9 @@
       "created_at": "2026-11-17T08:55:37.933Z",
       "updated_at": "2026-11-17T08:55:37.933Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_spm_1794905737097@hambaktech.com.ng",
@@ -755,7 +828,9 @@
       "created_at": "2026-11-17T08:55:38.196Z",
       "updated_at": "2026-11-17T08:55:38.196Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_kyc_1794905737097@hambaktech.com.ng",
@@ -777,7 +852,9 @@
       "created_at": "2026-11-17T08:55:38.450Z",
       "updated_at": "2026-11-17T08:55:38.450Z",
       "assigned_dashboard": "staff",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
     },
     {
       "email": "e2e_ops_1794905737097@hambaktech.com.ng",
@@ -798,7 +875,47 @@
       "created_at": "2026-11-17T08:55:38.692Z",
       "updated_at": "2026-11-17T08:55:38.692Z",
       "assigned_dashboard": "admin",
-      "token_version": 1
+      "token_version": 1,
+      "email_verification_required": false,
+      "email_verified": true
+    },
+    {
+      "email": "ui_audit_1795334880037@hambaktech.com.ng",
+      "password_hash": "$2b$10$PVaL/Lkq0c3H3P9DVjZt4.TqnlRKwFmjbv2bUBFw1vnDDwoR9HN0m",
+      "full_name": "UI Audit Tester",
+      "phone_number": "08094880037",
+      "role": "customer",
+      "assigned_dashboard": "customer",
+      "token_version": 1,
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-C0C2F2",
+      "status": "active",
+      "id": "usr_1795334880149_4hwh0",
+      "created_at": "2026-11-22T08:08:00.149Z",
+      "updated_at": "2026-11-22T08:08:00.149Z",
+      "email_verification_required": false,
+      "email_verified": true
+    },
+    {
+      "email": "ui_audit_1795334896820@hambaktech.com.ng",
+      "password_hash": "$2b$10$E3fxpQ/1ikucN/oBY1PQHuKjuEGiIr2XiXDUE/t6fN1x8ErywWZeq",
+      "full_name": "UI Audit Tester",
+      "phone_number": "08094896820",
+      "role": "customer",
+      "assigned_dashboard": "customer",
+      "token_version": 1,
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-750134",
+      "status": "active",
+      "id": "usr_1795334896940_2q5xg",
+      "created_at": "2026-11-22T08:08:16.940Z",
+      "updated_at": "2026-11-22T08:08:16.940Z",
+      "email_verification_required": false,
+      "email_verified": true
     }
   ],
   "transactions": [
@@ -1224,6 +1341,24 @@
   ],
   "notifications": [
     {
+      "id": "notif_1795334896943_l2gcz",
+      "user_id": "usr_1795334896940_2q5xg",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello UI Audit Tester, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-22T08:08:16.943Z"
+    },
+    {
+      "id": "notif_1795334880152_wu157",
+      "user_id": "usr_1795334880149_4hwh0",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello UI Audit Tester, your account has been successfully created. Fund your wallet or complete KYC to get started.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-22T08:08:00.152Z"
+    },
+    {
       "id": "notif_1794905737654_utkpc",
       "user_id": "usr_1794905737651_xmhh7",
       "title": "Welcome to HambakTech Enterprise!",
@@ -1523,15 +1658,145 @@
     "maintenance_mode": false,
     "active_verification_provider": "2sureverify",
     "active_telecom_provider": "ulamadata",
-    "active_payment_gateway": "flutterwave",
-    "bank_transfer_account_name": "Hambak Technologies Enterprise",
-    "bank_transfer_bank": "Moniepoint MFB",
-    "bank_transfer_account_number": "8210492817",
+    "active_payment_gateway": "paystack",
+    "bank_transfer_account_name": "",
+    "bank_transfer_bank": "",
+    "bank_transfer_account_number": "",
     "company_name": "HambakTech Technologies",
     "support_phone": "+234 803 000 1122",
     "support_email": "support@hambaktech.com.ng"
   },
   "audit_logs": [
+    {
+      "id": "audit_1795336358314",
+      "user_id": "usr_superadmin",
+      "action": "USER_LOGOUT",
+      "details": {
+        "userId": "usr_superadmin"
+      },
+      "ip": "197.211.59.121",
+      "created_at": "2026-11-22T08:32:38.314Z"
+    },
+    {
+      "id": "audit_1795336321351",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DASHBOARD_PREVIEW",
+      "details": {
+        "target_role": "customer",
+        "target_dashboard": "customer",
+        "mode": "published"
+      },
+      "created_at": "2026-11-22T08:32:01.351Z"
+    },
+    {
+      "id": "audit_1795336306205",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DASHBOARD_PREVIEW",
+      "details": {
+        "target_role": "customer",
+        "target_dashboard": "customer",
+        "mode": "published"
+      },
+      "created_at": "2026-11-22T08:31:46.205Z"
+    },
+    {
+      "id": "audit_1795336303902",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DASHBOARD_PREVIEW",
+      "details": {
+        "target_role": "customer",
+        "target_dashboard": "customer",
+        "mode": "draft"
+      },
+      "created_at": "2026-11-22T08:31:43.902Z"
+    },
+    {
+      "id": "audit_1795336301744",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DASHBOARD_PREVIEW",
+      "details": {
+        "target_role": "customer",
+        "target_dashboard": "customer",
+        "mode": "published"
+      },
+      "created_at": "2026-11-22T08:31:41.744Z"
+    },
+    {
+      "id": "audit_1795336299161",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DASHBOARD_PREVIEW",
+      "details": {
+        "target_role": "customer",
+        "target_dashboard": "customer",
+        "mode": "draft"
+      },
+      "created_at": "2026-11-22T08:31:39.161Z"
+    },
+    {
+      "id": "audit_1795336270165",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DASHBOARD_PREVIEW",
+      "details": {
+        "target_role": "customer",
+        "target_dashboard": "customer",
+        "mode": "published"
+      },
+      "created_at": "2026-11-22T08:31:10.165Z"
+    },
+    {
+      "id": "audit_1795334896948",
+      "user_id": "usr_1795334896940_2q5xg",
+      "user_email": "ui_audit_1795334896820@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "ui_audit_1795334896820@hambaktech.com.ng",
+        "phone": "08094896820"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-22T08:08:16.948Z"
+    },
+    {
+      "id": "audit_1795334880155",
+      "user_id": "usr_1795334880149_4hwh0",
+      "user_email": "ui_audit_1795334880037@hambaktech.com.ng",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "ui_audit_1795334880037@hambaktech.com.ng",
+        "phone": "08094880037"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-22T08:08:00.155Z"
+    },
+    {
+      "id": "audit_1795334697396",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DASHBOARD_PREVIEW",
+      "details": {
+        "target_role": "customer",
+        "target_dashboard": "customer",
+        "mode": "published"
+      },
+      "created_at": "2026-11-22T08:04:57.396Z"
+    },
+    {
+      "id": "audit_1795334601025",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin",
+        "assigned_dashboard": "admin"
+      },
+      "ip": "197.211.59.121",
+      "created_at": "2026-11-22T08:03:21.025Z"
+    },
     {
       "id": "audit_1794905741207",
       "user_id": "usr_1794905737362_saxw0",
@@ -3256,7 +3521,7 @@
       "id": "faq_4",
       "category": "wallet",
       "question": "How do I fund my wallet balance?",
-      "answer": "You can fund your wallet using automated Flutterwave card checkout or via instant bank transfer to your dedicated Moniepoint virtual account.",
+      "answer": "You can fund your wallet instantly using Paystack checkout (Debit Card, Bank Transfer via Paystack, and USSD).",
       "order": 4
     },
     {
@@ -3340,7 +3605,7 @@
     {
       "id": "wallet",
       "name": "My Wallet",
-      "description": "Real-time ledger, Moniepoint VA, & instant funding",
+      "description": "Real-time ledger & Paystack instant funding",
       "icon": "Wallet",
       "status": "active",
       "visible": true,
@@ -5093,6 +5358,20 @@
     "last_test_message": "Production SMTP handshake confirmed on port 587 (STARTTLS)",
     "logs": [
       {
+        "id": "smtplog_1795334896950_y4e0",
+        "timestamp": "2026-11-22T08:08:16.950Z",
+        "recipient": "ui_audit_1795334896820@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
+        "id": "smtplog_1795334880158_6i0x",
+        "timestamp": "2026-11-22T08:08:00.158Z",
+        "recipient": "ui_audit_1795334880037@hambaktech.com.ng",
+        "subject": "Welcome to HambakTech Enterprise Portal",
+        "status": "simulated"
+      },
+      {
         "id": "smtplog_1794905737659_sc1e",
         "timestamp": "2026-11-17T08:55:37.659Z",
         "recipient": "e2e_agent_1794905737097@hambaktech.com.ng",
@@ -6580,5 +6859,2410 @@
       "created_at": "2026-11-17T08:54:24.610Z"
     }
   ],
-  "role_dashboard_configs": {}
+  "role_dashboard_configs": {
+    "customer": {
+      "dashboard_key": "customer",
+      "category": "portal",
+      "draft_config": {
+        "dashboard_key": "customer",
+        "category": "portal",
+        "title": "Welcome to HAMBAKTECH",
+        "subtitle": "Your real-time workspace for Nigerian telecom vending, identity lookups, printing, and wallet management.",
+        "badge_text": "Customer Portal",
+        "default_tab": "dashboard",
+        "announcement_banner": {
+          "enabled": false,
+          "title": "Platform Notice",
+          "message": "Enjoy instant automated wallet funding, VTU cashback, and NIMC/BVN verification services.",
+          "tone": "emerald"
+        },
+        "sections": {
+          "wallet_balance_card": true,
+          "transaction_kpis": true,
+          "quick_actions_grid": true,
+          "recent_activities": true,
+          "notice_board": true,
+          "virtual_account_card": true,
+          "kyc_upgrade_banner": true,
+          "student_academy_hero": false,
+          "agent_reseller_panel": false
+        },
+        "features": {
+          "enable_wallet_funding": true,
+          "enable_nin_bvn": true,
+          "enable_telecom": true,
+          "enable_printing": true,
+          "enable_academy_enrollment": true,
+          "enable_student_id_card": true,
+          "enable_referrals": true,
+          "enable_support_tickets": true
+        },
+        "modules": [
+          {
+            "id": "dashboard",
+            "label": "Dashboard",
+            "description": "Workspace overview, balance, and quick actions",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "nin",
+            "label": "NIN & BVN Services",
+            "description": "NIMC & BVN identity verification, slips, modifications & enrolment",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "telecom",
+            "label": "Telecom & VTU",
+            "description": "Data bundles, airtime cashback, utility bills, pins & bulk SMS",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "digital",
+            "label": "Digital Services",
+            "description": "Cable TV bouquets & electricity prepaid tokens",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "printing",
+            "label": "Printing Services",
+            "description": "Document printing, ID cards, banners, photos & delivery tracking",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "wallet",
+            "label": "Wallet & Funding",
+            "description": "Paystack instant funding & wallet ledger",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "referrals",
+            "label": "Referral Rewards",
+            "description": "Invite users, earn points & convert rewards to wallet or cash",
+            "status": "active",
+            "visible": true,
+            "order": 7
+          },
+          {
+            "id": "store",
+            "label": "Hardware Store",
+            "description": "POS terminals, biometric scanners & digital hardware catalog",
+            "status": "coming_soon",
+            "visible": true,
+            "order": 8,
+            "coming_soon_message": "Official launch in Phase 5. Hardware stock being staged."
+          },
+          {
+            "id": "academy",
+            "label": "Academy",
+            "description": "Digital Training Academy courses, admissions & QR Student ID Card",
+            "status": "coming_soon",
+            "visible": true,
+            "order": 9,
+            "coming_soon_message": "Accreditation syllabus under review."
+          },
+          {
+            "id": "reports",
+            "label": "Reports & Statements",
+            "description": "Downloadable wallet statements & spending breakdown",
+            "status": "coming_soon",
+            "visible": true,
+            "order": 10,
+            "coming_soon_message": "Financial reporting engine rolling out."
+          },
+          {
+            "id": "transactions",
+            "label": "Transactions",
+            "description": "Full double-entry transaction ledger history",
+            "status": "active",
+            "visible": true,
+            "order": 11
+          },
+          {
+            "id": "orders",
+            "label": "Orders",
+            "description": "Telecom & digital service order fulfillment logs",
+            "status": "active",
+            "visible": true,
+            "order": 12
+          },
+          {
+            "id": "kyc",
+            "label": "Identity & KYC",
+            "description": "Upgrade KYC tier & view dedicated virtual account status",
+            "status": "active",
+            "visible": true,
+            "order": 13
+          },
+          {
+            "id": "notifications",
+            "label": "Notifications",
+            "description": "System alerts, transaction updates & announcements",
+            "status": "active",
+            "visible": true,
+            "order": 14
+          },
+          {
+            "id": "messages",
+            "label": "Messages",
+            "description": "Direct inbox messages & broadcast notices",
+            "status": "active",
+            "visible": true,
+            "order": 15
+          },
+          {
+            "id": "support",
+            "label": "Support / Help",
+            "description": "Open support tickets & track team responses",
+            "status": "active",
+            "visible": true,
+            "order": 16
+          },
+          {
+            "id": "profile",
+            "label": "Profile",
+            "description": "Personal identity details & referral code",
+            "status": "active",
+            "visible": true,
+            "order": 17
+          },
+          {
+            "id": "settings",
+            "label": "Security & PIN",
+            "description": "Transaction PIN, password & notification preferences",
+            "status": "active",
+            "visible": true,
+            "order": 18
+          }
+        ],
+        "required_permissions": []
+      },
+      "published_config": {
+        "dashboard_key": "customer",
+        "category": "portal",
+        "title": "Welcome to HAMBAKTECH",
+        "subtitle": "Your real-time workspace for Nigerian telecom vending, identity lookups, printing, and wallet management.",
+        "badge_text": "Customer Portal",
+        "default_tab": "dashboard",
+        "announcement_banner": {
+          "enabled": false,
+          "title": "Platform Notice",
+          "message": "Enjoy instant automated wallet funding, VTU cashback, and NIMC/BVN verification services.",
+          "tone": "emerald"
+        },
+        "sections": {
+          "wallet_balance_card": true,
+          "transaction_kpis": true,
+          "quick_actions_grid": true,
+          "recent_activities": true,
+          "notice_board": true,
+          "virtual_account_card": true,
+          "kyc_upgrade_banner": true,
+          "student_academy_hero": false,
+          "agent_reseller_panel": false
+        },
+        "features": {
+          "enable_wallet_funding": true,
+          "enable_nin_bvn": true,
+          "enable_telecom": true,
+          "enable_printing": true,
+          "enable_academy_enrollment": true,
+          "enable_student_id_card": true,
+          "enable_referrals": true,
+          "enable_support_tickets": true
+        },
+        "modules": [
+          {
+            "id": "dashboard",
+            "label": "Dashboard",
+            "description": "Workspace overview, balance, and quick actions",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "nin",
+            "label": "NIN & BVN Services",
+            "description": "NIMC & BVN identity verification, slips, modifications & enrolment",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "telecom",
+            "label": "Telecom & VTU",
+            "description": "Data bundles, airtime cashback, utility bills, pins & bulk SMS",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "digital",
+            "label": "Digital Services",
+            "description": "Cable TV bouquets & electricity prepaid tokens",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "printing",
+            "label": "Printing Services",
+            "description": "Document printing, ID cards, banners, photos & delivery tracking",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "wallet",
+            "label": "Wallet & Funding",
+            "description": "Paystack instant funding & wallet ledger",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "referrals",
+            "label": "Referral Rewards",
+            "description": "Invite users, earn points & convert rewards to wallet or cash",
+            "status": "active",
+            "visible": true,
+            "order": 7
+          },
+          {
+            "id": "store",
+            "label": "Hardware Store",
+            "description": "POS terminals, biometric scanners & digital hardware catalog",
+            "status": "coming_soon",
+            "visible": true,
+            "order": 8,
+            "coming_soon_message": "Official launch in Phase 5. Hardware stock being staged."
+          },
+          {
+            "id": "academy",
+            "label": "Academy",
+            "description": "Digital Training Academy courses, admissions & QR Student ID Card",
+            "status": "coming_soon",
+            "visible": true,
+            "order": 9,
+            "coming_soon_message": "Accreditation syllabus under review."
+          },
+          {
+            "id": "reports",
+            "label": "Reports & Statements",
+            "description": "Downloadable wallet statements & spending breakdown",
+            "status": "coming_soon",
+            "visible": true,
+            "order": 10,
+            "coming_soon_message": "Financial reporting engine rolling out."
+          },
+          {
+            "id": "transactions",
+            "label": "Transactions",
+            "description": "Full double-entry transaction ledger history",
+            "status": "active",
+            "visible": true,
+            "order": 11
+          },
+          {
+            "id": "orders",
+            "label": "Orders",
+            "description": "Telecom & digital service order fulfillment logs",
+            "status": "active",
+            "visible": true,
+            "order": 12
+          },
+          {
+            "id": "kyc",
+            "label": "Identity & KYC",
+            "description": "Upgrade KYC tier & view dedicated virtual account status",
+            "status": "active",
+            "visible": true,
+            "order": 13
+          },
+          {
+            "id": "notifications",
+            "label": "Notifications",
+            "description": "System alerts, transaction updates & announcements",
+            "status": "active",
+            "visible": true,
+            "order": 14
+          },
+          {
+            "id": "messages",
+            "label": "Messages",
+            "description": "Direct inbox messages & broadcast notices",
+            "status": "active",
+            "visible": true,
+            "order": 15
+          },
+          {
+            "id": "support",
+            "label": "Support / Help",
+            "description": "Open support tickets & track team responses",
+            "status": "active",
+            "visible": true,
+            "order": 16
+          },
+          {
+            "id": "profile",
+            "label": "Profile",
+            "description": "Personal identity details & referral code",
+            "status": "active",
+            "visible": true,
+            "order": 17
+          },
+          {
+            "id": "settings",
+            "label": "Security & PIN",
+            "description": "Transaction PIN, password & notification preferences",
+            "status": "active",
+            "visible": true,
+            "order": 18
+          }
+        ],
+        "required_permissions": []
+      },
+      "has_unpublished_changes": false,
+      "updated_by": "system",
+      "updated_at": "2026-11-22T08:03:21.021Z",
+      "published_by": "system",
+      "published_at": "2026-11-22T08:03:21.021Z"
+    },
+    "student": {
+      "dashboard_key": "student",
+      "category": "portal",
+      "draft_config": {
+        "dashboard_key": "student",
+        "category": "portal",
+        "title": "Academy Student Workspace",
+        "subtitle": "Track your Digital Training Academy admission, download your verified QR Student ID Card, and access wallet services.",
+        "badge_text": "Student Portal",
+        "default_tab": "dashboard",
+        "announcement_banner": {
+          "enabled": true,
+          "title": "Academy Student Portal Active",
+          "message": "Your verified Academy enrollments, course schedules, and QR Student ID Card are available directly from your Student Workspace.",
+          "tone": "info"
+        },
+        "sections": {
+          "wallet_balance_card": true,
+          "transaction_kpis": true,
+          "quick_actions_grid": true,
+          "recent_activities": true,
+          "notice_board": true,
+          "virtual_account_card": true,
+          "kyc_upgrade_banner": true,
+          "student_academy_hero": true,
+          "agent_reseller_panel": false
+        },
+        "features": {
+          "enable_wallet_funding": true,
+          "enable_nin_bvn": true,
+          "enable_telecom": true,
+          "enable_printing": true,
+          "enable_academy_enrollment": true,
+          "enable_student_id_card": true,
+          "enable_referrals": true,
+          "enable_support_tickets": true
+        },
+        "modules": [
+          {
+            "id": "dashboard",
+            "label": "Dashboard",
+            "description": "Workspace overview, balance, and quick actions",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "academy",
+            "label": "My Academy & ID Card",
+            "description": "Digital Training Academy courses, admissions & QR Student ID Card",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "nin",
+            "label": "NIN & BVN Services",
+            "description": "NIMC & BVN identity verification, slips, modifications & enrolment",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "telecom",
+            "label": "Telecom & VTU",
+            "description": "Data bundles, airtime cashback, utility bills, pins & bulk SMS",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "digital",
+            "label": "Digital Services",
+            "description": "Cable TV bouquets & electricity prepaid tokens",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "printing",
+            "label": "Printing Services",
+            "description": "Document printing, ID cards, banners, photos & delivery tracking",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "wallet",
+            "label": "Wallet & Funding",
+            "description": "Paystack instant funding & wallet ledger",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "referrals",
+            "label": "Referral Rewards",
+            "description": "Invite users, earn points & convert rewards to wallet or cash",
+            "status": "active",
+            "visible": true,
+            "order": 7
+          },
+          {
+            "id": "store",
+            "label": "Hardware Store",
+            "description": "POS terminals, biometric scanners & digital hardware catalog",
+            "status": "active",
+            "visible": true,
+            "order": 8
+          },
+          {
+            "id": "reports",
+            "label": "Reports & Statements",
+            "description": "Downloadable wallet statements & spending breakdown",
+            "status": "active",
+            "visible": true,
+            "order": 10
+          },
+          {
+            "id": "transactions",
+            "label": "Transactions",
+            "description": "Full double-entry transaction ledger history",
+            "status": "active",
+            "visible": true,
+            "order": 11
+          },
+          {
+            "id": "orders",
+            "label": "Orders",
+            "description": "Telecom & digital service order fulfillment logs",
+            "status": "active",
+            "visible": true,
+            "order": 12
+          },
+          {
+            "id": "kyc",
+            "label": "Identity & KYC",
+            "description": "Upgrade KYC tier & view dedicated virtual account status",
+            "status": "active",
+            "visible": true,
+            "order": 13
+          },
+          {
+            "id": "notifications",
+            "label": "Notifications",
+            "description": "System alerts, transaction updates & announcements",
+            "status": "active",
+            "visible": true,
+            "order": 14
+          },
+          {
+            "id": "messages",
+            "label": "Messages",
+            "description": "Direct inbox messages & broadcast notices",
+            "status": "active",
+            "visible": true,
+            "order": 15
+          },
+          {
+            "id": "support",
+            "label": "Support / Help",
+            "description": "Open support tickets & track team responses",
+            "status": "active",
+            "visible": true,
+            "order": 16
+          },
+          {
+            "id": "profile",
+            "label": "Profile",
+            "description": "Personal identity details & referral code",
+            "status": "active",
+            "visible": true,
+            "order": 17
+          },
+          {
+            "id": "settings",
+            "label": "Security & PIN",
+            "description": "Transaction PIN, password & notification preferences",
+            "status": "active",
+            "visible": true,
+            "order": 18
+          }
+        ],
+        "required_permissions": []
+      },
+      "published_config": {
+        "dashboard_key": "student",
+        "category": "portal",
+        "title": "Academy Student Workspace",
+        "subtitle": "Track your Digital Training Academy admission, download your verified QR Student ID Card, and access wallet services.",
+        "badge_text": "Student Portal",
+        "default_tab": "dashboard",
+        "announcement_banner": {
+          "enabled": true,
+          "title": "Academy Student Portal Active",
+          "message": "Your verified Academy enrollments, course schedules, and QR Student ID Card are available directly from your Student Workspace.",
+          "tone": "info"
+        },
+        "sections": {
+          "wallet_balance_card": true,
+          "transaction_kpis": true,
+          "quick_actions_grid": true,
+          "recent_activities": true,
+          "notice_board": true,
+          "virtual_account_card": true,
+          "kyc_upgrade_banner": true,
+          "student_academy_hero": true,
+          "agent_reseller_panel": false
+        },
+        "features": {
+          "enable_wallet_funding": true,
+          "enable_nin_bvn": true,
+          "enable_telecom": true,
+          "enable_printing": true,
+          "enable_academy_enrollment": true,
+          "enable_student_id_card": true,
+          "enable_referrals": true,
+          "enable_support_tickets": true
+        },
+        "modules": [
+          {
+            "id": "dashboard",
+            "label": "Dashboard",
+            "description": "Workspace overview, balance, and quick actions",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "academy",
+            "label": "My Academy & ID Card",
+            "description": "Digital Training Academy courses, admissions & QR Student ID Card",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "nin",
+            "label": "NIN & BVN Services",
+            "description": "NIMC & BVN identity verification, slips, modifications & enrolment",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "telecom",
+            "label": "Telecom & VTU",
+            "description": "Data bundles, airtime cashback, utility bills, pins & bulk SMS",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "digital",
+            "label": "Digital Services",
+            "description": "Cable TV bouquets & electricity prepaid tokens",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "printing",
+            "label": "Printing Services",
+            "description": "Document printing, ID cards, banners, photos & delivery tracking",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "wallet",
+            "label": "Wallet & Funding",
+            "description": "Paystack instant funding & wallet ledger",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "referrals",
+            "label": "Referral Rewards",
+            "description": "Invite users, earn points & convert rewards to wallet or cash",
+            "status": "active",
+            "visible": true,
+            "order": 7
+          },
+          {
+            "id": "store",
+            "label": "Hardware Store",
+            "description": "POS terminals, biometric scanners & digital hardware catalog",
+            "status": "active",
+            "visible": true,
+            "order": 8
+          },
+          {
+            "id": "reports",
+            "label": "Reports & Statements",
+            "description": "Downloadable wallet statements & spending breakdown",
+            "status": "active",
+            "visible": true,
+            "order": 10
+          },
+          {
+            "id": "transactions",
+            "label": "Transactions",
+            "description": "Full double-entry transaction ledger history",
+            "status": "active",
+            "visible": true,
+            "order": 11
+          },
+          {
+            "id": "orders",
+            "label": "Orders",
+            "description": "Telecom & digital service order fulfillment logs",
+            "status": "active",
+            "visible": true,
+            "order": 12
+          },
+          {
+            "id": "kyc",
+            "label": "Identity & KYC",
+            "description": "Upgrade KYC tier & view dedicated virtual account status",
+            "status": "active",
+            "visible": true,
+            "order": 13
+          },
+          {
+            "id": "notifications",
+            "label": "Notifications",
+            "description": "System alerts, transaction updates & announcements",
+            "status": "active",
+            "visible": true,
+            "order": 14
+          },
+          {
+            "id": "messages",
+            "label": "Messages",
+            "description": "Direct inbox messages & broadcast notices",
+            "status": "active",
+            "visible": true,
+            "order": 15
+          },
+          {
+            "id": "support",
+            "label": "Support / Help",
+            "description": "Open support tickets & track team responses",
+            "status": "active",
+            "visible": true,
+            "order": 16
+          },
+          {
+            "id": "profile",
+            "label": "Profile",
+            "description": "Personal identity details & referral code",
+            "status": "active",
+            "visible": true,
+            "order": 17
+          },
+          {
+            "id": "settings",
+            "label": "Security & PIN",
+            "description": "Transaction PIN, password & notification preferences",
+            "status": "active",
+            "visible": true,
+            "order": 18
+          }
+        ],
+        "required_permissions": []
+      },
+      "has_unpublished_changes": false,
+      "updated_by": "system",
+      "updated_at": "2026-11-22T08:03:21.021Z",
+      "published_by": "system",
+      "published_at": "2026-11-22T08:03:21.021Z"
+    },
+    "agent": {
+      "dashboard_key": "agent",
+      "category": "portal",
+      "draft_config": {
+        "dashboard_key": "agent",
+        "category": "portal",
+        "title": "Partner Reseller Workspace",
+        "subtitle": "High-volume identity verification, wholesale telecom vending, printing services, and referral commissions.",
+        "badge_text": "Agent / Reseller Portal",
+        "default_tab": "dashboard",
+        "announcement_banner": {
+          "enabled": true,
+          "title": "Authorized Partner Reseller Rates Active",
+          "message": "Process bulk NIN/BVN lookups, telecom top-ups, and grow referral commissions with priority processing.",
+          "tone": "emerald"
+        },
+        "sections": {
+          "wallet_balance_card": true,
+          "transaction_kpis": true,
+          "quick_actions_grid": true,
+          "recent_activities": true,
+          "notice_board": true,
+          "virtual_account_card": true,
+          "kyc_upgrade_banner": true,
+          "student_academy_hero": false,
+          "agent_reseller_panel": true
+        },
+        "features": {
+          "enable_wallet_funding": true,
+          "enable_nin_bvn": true,
+          "enable_telecom": true,
+          "enable_printing": true,
+          "enable_academy_enrollment": true,
+          "enable_student_id_card": true,
+          "enable_referrals": true,
+          "enable_support_tickets": true
+        },
+        "modules": [
+          {
+            "id": "dashboard",
+            "label": "Dashboard",
+            "description": "Workspace overview, balance, and quick actions",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "nin",
+            "label": "NIN & BVN Services",
+            "description": "NIMC & BVN identity verification, slips, modifications & enrolment",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "telecom",
+            "label": "Telecom & VTU",
+            "description": "Data bundles, airtime cashback, utility bills, pins & bulk SMS",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "referrals",
+            "label": "Agent Commission & Referrals",
+            "description": "Invite users, earn points & convert rewards to wallet or cash",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "digital",
+            "label": "Digital Services",
+            "description": "Cable TV bouquets & electricity prepaid tokens",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "printing",
+            "label": "Printing Services",
+            "description": "Document printing, ID cards, banners, photos & delivery tracking",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "wallet",
+            "label": "Wallet & Funding",
+            "description": "Paystack instant funding & wallet ledger",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "store",
+            "label": "Hardware Store",
+            "description": "POS terminals, biometric scanners & digital hardware catalog",
+            "status": "active",
+            "visible": true,
+            "order": 8
+          },
+          {
+            "id": "academy",
+            "label": "Academy",
+            "description": "Digital Training Academy courses, admissions & QR Student ID Card",
+            "status": "active",
+            "visible": true,
+            "order": 9
+          },
+          {
+            "id": "reports",
+            "label": "Reports & Statements",
+            "description": "Downloadable wallet statements & spending breakdown",
+            "status": "active",
+            "visible": true,
+            "order": 10
+          },
+          {
+            "id": "transactions",
+            "label": "Transactions",
+            "description": "Full double-entry transaction ledger history",
+            "status": "active",
+            "visible": true,
+            "order": 11
+          },
+          {
+            "id": "orders",
+            "label": "Orders",
+            "description": "Telecom & digital service order fulfillment logs",
+            "status": "active",
+            "visible": true,
+            "order": 12
+          },
+          {
+            "id": "kyc",
+            "label": "Identity & KYC",
+            "description": "Upgrade KYC tier & view dedicated virtual account status",
+            "status": "active",
+            "visible": true,
+            "order": 13
+          },
+          {
+            "id": "notifications",
+            "label": "Notifications",
+            "description": "System alerts, transaction updates & announcements",
+            "status": "active",
+            "visible": true,
+            "order": 14
+          },
+          {
+            "id": "messages",
+            "label": "Messages",
+            "description": "Direct inbox messages & broadcast notices",
+            "status": "active",
+            "visible": true,
+            "order": 15
+          },
+          {
+            "id": "support",
+            "label": "Support / Help",
+            "description": "Open support tickets & track team responses",
+            "status": "active",
+            "visible": true,
+            "order": 16
+          },
+          {
+            "id": "profile",
+            "label": "Profile",
+            "description": "Personal identity details & referral code",
+            "status": "active",
+            "visible": true,
+            "order": 17
+          },
+          {
+            "id": "settings",
+            "label": "Security & PIN",
+            "description": "Transaction PIN, password & notification preferences",
+            "status": "active",
+            "visible": true,
+            "order": 18
+          }
+        ],
+        "required_permissions": []
+      },
+      "published_config": {
+        "dashboard_key": "agent",
+        "category": "portal",
+        "title": "Partner Reseller Workspace",
+        "subtitle": "High-volume identity verification, wholesale telecom vending, printing services, and referral commissions.",
+        "badge_text": "Agent / Reseller Portal",
+        "default_tab": "dashboard",
+        "announcement_banner": {
+          "enabled": true,
+          "title": "Authorized Partner Reseller Rates Active",
+          "message": "Process bulk NIN/BVN lookups, telecom top-ups, and grow referral commissions with priority processing.",
+          "tone": "emerald"
+        },
+        "sections": {
+          "wallet_balance_card": true,
+          "transaction_kpis": true,
+          "quick_actions_grid": true,
+          "recent_activities": true,
+          "notice_board": true,
+          "virtual_account_card": true,
+          "kyc_upgrade_banner": true,
+          "student_academy_hero": false,
+          "agent_reseller_panel": true
+        },
+        "features": {
+          "enable_wallet_funding": true,
+          "enable_nin_bvn": true,
+          "enable_telecom": true,
+          "enable_printing": true,
+          "enable_academy_enrollment": true,
+          "enable_student_id_card": true,
+          "enable_referrals": true,
+          "enable_support_tickets": true
+        },
+        "modules": [
+          {
+            "id": "dashboard",
+            "label": "Dashboard",
+            "description": "Workspace overview, balance, and quick actions",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "nin",
+            "label": "NIN & BVN Services",
+            "description": "NIMC & BVN identity verification, slips, modifications & enrolment",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "telecom",
+            "label": "Telecom & VTU",
+            "description": "Data bundles, airtime cashback, utility bills, pins & bulk SMS",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "referrals",
+            "label": "Agent Commission & Referrals",
+            "description": "Invite users, earn points & convert rewards to wallet or cash",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "digital",
+            "label": "Digital Services",
+            "description": "Cable TV bouquets & electricity prepaid tokens",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "printing",
+            "label": "Printing Services",
+            "description": "Document printing, ID cards, banners, photos & delivery tracking",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "wallet",
+            "label": "Wallet & Funding",
+            "description": "Paystack instant funding & wallet ledger",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "store",
+            "label": "Hardware Store",
+            "description": "POS terminals, biometric scanners & digital hardware catalog",
+            "status": "active",
+            "visible": true,
+            "order": 8
+          },
+          {
+            "id": "academy",
+            "label": "Academy",
+            "description": "Digital Training Academy courses, admissions & QR Student ID Card",
+            "status": "active",
+            "visible": true,
+            "order": 9
+          },
+          {
+            "id": "reports",
+            "label": "Reports & Statements",
+            "description": "Downloadable wallet statements & spending breakdown",
+            "status": "active",
+            "visible": true,
+            "order": 10
+          },
+          {
+            "id": "transactions",
+            "label": "Transactions",
+            "description": "Full double-entry transaction ledger history",
+            "status": "active",
+            "visible": true,
+            "order": 11
+          },
+          {
+            "id": "orders",
+            "label": "Orders",
+            "description": "Telecom & digital service order fulfillment logs",
+            "status": "active",
+            "visible": true,
+            "order": 12
+          },
+          {
+            "id": "kyc",
+            "label": "Identity & KYC",
+            "description": "Upgrade KYC tier & view dedicated virtual account status",
+            "status": "active",
+            "visible": true,
+            "order": 13
+          },
+          {
+            "id": "notifications",
+            "label": "Notifications",
+            "description": "System alerts, transaction updates & announcements",
+            "status": "active",
+            "visible": true,
+            "order": 14
+          },
+          {
+            "id": "messages",
+            "label": "Messages",
+            "description": "Direct inbox messages & broadcast notices",
+            "status": "active",
+            "visible": true,
+            "order": 15
+          },
+          {
+            "id": "support",
+            "label": "Support / Help",
+            "description": "Open support tickets & track team responses",
+            "status": "active",
+            "visible": true,
+            "order": 16
+          },
+          {
+            "id": "profile",
+            "label": "Profile",
+            "description": "Personal identity details & referral code",
+            "status": "active",
+            "visible": true,
+            "order": 17
+          },
+          {
+            "id": "settings",
+            "label": "Security & PIN",
+            "description": "Transaction PIN, password & notification preferences",
+            "status": "active",
+            "visible": true,
+            "order": 18
+          }
+        ],
+        "required_permissions": []
+      },
+      "has_unpublished_changes": false,
+      "updated_by": "system",
+      "updated_at": "2026-11-22T08:03:21.021Z",
+      "published_by": "system",
+      "published_at": "2026-11-22T08:03:21.021Z"
+    },
+    "support": {
+      "dashboard_key": "support",
+      "category": "console",
+      "draft_config": {
+        "dashboard_key": "support",
+        "category": "console",
+        "title": "Customer Support Desk",
+        "subtitle": "Review customer tickets, assist with order inquiries, and inspect account verification status.",
+        "badge_text": "Support Agent Console",
+        "default_tab": "support_admin",
+        "announcement_banner": {
+          "enabled": false,
+          "title": "Operations Briefing",
+          "message": "All actions performed inside internal consoles are recorded in the immutable security audit ledger.",
+          "tone": "info"
+        },
+        "sections": {
+          "kpi_financial_cards": false,
+          "kpi_customer_cards": true,
+          "quick_preview_launcher": false,
+          "recent_registrations": true,
+          "pending_funding_queue": false,
+          "printing_ops_summary": false
+        },
+        "features": {
+          "show_revenue_metrics": false,
+          "allow_customer_lookup": true,
+          "allow_ticket_resolution": true,
+          "allow_kyc_review": false,
+          "allow_printing_ops": false,
+          "allow_academy_review": false
+        },
+        "modules": [
+          {
+            "id": "overview",
+            "label": "Overview Hub",
+            "description": "Executive KPIs, metrics & pending approvals",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "customers",
+            "label": "Customer Management",
+            "description": "Registered users, roles, KYC & wallet balance directory",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "support_admin",
+            "label": "Support Desk",
+            "description": "Customer support ticket triage & live resolution",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "printing_admin",
+            "label": "Printing Operations",
+            "description": "Printing quotes, production status, delivery & pricing",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "academy_admin",
+            "label": "Academy Management",
+            "description": "Courses, student admissions review & QR ID cards",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "kyc_admin",
+            "label": "KYC & Security Rules",
+            "description": "Identity compliance review & tier limits",
+            "status": "active",
+            "visible": false,
+            "order": 6
+          },
+          {
+            "id": "accounting",
+            "label": "Business Accounting",
+            "description": "Website ledger, physical sales, expenses & reconciliations",
+            "status": "active",
+            "visible": false,
+            "order": 7
+          },
+          {
+            "id": "services",
+            "label": "Service Pricing & Telecom",
+            "description": "NIN/BVN pricing, telecom plans & provider status",
+            "status": "active",
+            "visible": false,
+            "order": 8
+          },
+          {
+            "id": "referrals_admin",
+            "label": "Referrals & Withdrawals",
+            "description": "Referral campaigns, rewards & cash payout approvals",
+            "status": "active",
+            "visible": false,
+            "order": 9
+          },
+          {
+            "id": "notifications_admin",
+            "label": "Broadcast & Notifications",
+            "description": "Platform announcements & SMTP/SMS messaging",
+            "status": "active",
+            "visible": true,
+            "order": 10
+          },
+          {
+            "id": "cms",
+            "label": "Website CMS & Branding",
+            "description": "Landing page content, FAQs & legal pages",
+            "status": "active",
+            "visible": false,
+            "order": 11
+          },
+          {
+            "id": "staff",
+            "label": "Staff & Role Permissions",
+            "description": "Internal roles & RBAC access matrix",
+            "status": "active",
+            "visible": false,
+            "order": 12
+          },
+          {
+            "id": "modules",
+            "label": "Dashboard Management",
+            "description": "Central role dashboard configurator & preview",
+            "status": "active",
+            "visible": false,
+            "order": 13
+          },
+          {
+            "id": "security_audit",
+            "label": "Security & Audit Trail",
+            "description": "Active sessions, MFA policies & audit footprint",
+            "status": "active",
+            "visible": false,
+            "order": 14
+          }
+        ],
+        "required_permissions": [
+          "support",
+          "customers",
+          "notifications"
+        ]
+      },
+      "published_config": {
+        "dashboard_key": "support",
+        "category": "console",
+        "title": "Customer Support Desk",
+        "subtitle": "Review customer tickets, assist with order inquiries, and inspect account verification status.",
+        "badge_text": "Support Agent Console",
+        "default_tab": "support_admin",
+        "announcement_banner": {
+          "enabled": false,
+          "title": "Operations Briefing",
+          "message": "All actions performed inside internal consoles are recorded in the immutable security audit ledger.",
+          "tone": "info"
+        },
+        "sections": {
+          "kpi_financial_cards": false,
+          "kpi_customer_cards": true,
+          "quick_preview_launcher": false,
+          "recent_registrations": true,
+          "pending_funding_queue": false,
+          "printing_ops_summary": false
+        },
+        "features": {
+          "show_revenue_metrics": false,
+          "allow_customer_lookup": true,
+          "allow_ticket_resolution": true,
+          "allow_kyc_review": false,
+          "allow_printing_ops": false,
+          "allow_academy_review": false
+        },
+        "modules": [
+          {
+            "id": "overview",
+            "label": "Overview Hub",
+            "description": "Executive KPIs, metrics & pending approvals",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "customers",
+            "label": "Customer Management",
+            "description": "Registered users, roles, KYC & wallet balance directory",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "support_admin",
+            "label": "Support Desk",
+            "description": "Customer support ticket triage & live resolution",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "printing_admin",
+            "label": "Printing Operations",
+            "description": "Printing quotes, production status, delivery & pricing",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "academy_admin",
+            "label": "Academy Management",
+            "description": "Courses, student admissions review & QR ID cards",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "kyc_admin",
+            "label": "KYC & Security Rules",
+            "description": "Identity compliance review & tier limits",
+            "status": "active",
+            "visible": false,
+            "order": 6
+          },
+          {
+            "id": "accounting",
+            "label": "Business Accounting",
+            "description": "Website ledger, physical sales, expenses & reconciliations",
+            "status": "active",
+            "visible": false,
+            "order": 7
+          },
+          {
+            "id": "services",
+            "label": "Service Pricing & Telecom",
+            "description": "NIN/BVN pricing, telecom plans & provider status",
+            "status": "active",
+            "visible": false,
+            "order": 8
+          },
+          {
+            "id": "referrals_admin",
+            "label": "Referrals & Withdrawals",
+            "description": "Referral campaigns, rewards & cash payout approvals",
+            "status": "active",
+            "visible": false,
+            "order": 9
+          },
+          {
+            "id": "notifications_admin",
+            "label": "Broadcast & Notifications",
+            "description": "Platform announcements & SMTP/SMS messaging",
+            "status": "active",
+            "visible": true,
+            "order": 10
+          },
+          {
+            "id": "cms",
+            "label": "Website CMS & Branding",
+            "description": "Landing page content, FAQs & legal pages",
+            "status": "active",
+            "visible": false,
+            "order": 11
+          },
+          {
+            "id": "staff",
+            "label": "Staff & Role Permissions",
+            "description": "Internal roles & RBAC access matrix",
+            "status": "active",
+            "visible": false,
+            "order": 12
+          },
+          {
+            "id": "modules",
+            "label": "Dashboard Management",
+            "description": "Central role dashboard configurator & preview",
+            "status": "active",
+            "visible": false,
+            "order": 13
+          },
+          {
+            "id": "security_audit",
+            "label": "Security & Audit Trail",
+            "description": "Active sessions, MFA policies & audit footprint",
+            "status": "active",
+            "visible": false,
+            "order": 14
+          }
+        ],
+        "required_permissions": [
+          "support",
+          "customers",
+          "notifications"
+        ]
+      },
+      "has_unpublished_changes": false,
+      "updated_by": "system",
+      "updated_at": "2026-11-22T08:03:21.021Z",
+      "published_by": "system",
+      "published_at": "2026-11-22T08:03:21.021Z"
+    },
+    "staff": {
+      "dashboard_key": "staff",
+      "category": "console",
+      "draft_config": {
+        "dashboard_key": "staff",
+        "category": "console",
+        "title": "Staff Operations Workspace",
+        "subtitle": "Execute assigned daily operational tasks across printing, academy, or customer support queues.",
+        "badge_text": "Operations Staff Console",
+        "default_tab": "overview",
+        "announcement_banner": {
+          "enabled": false,
+          "title": "Operations Briefing",
+          "message": "All actions performed inside internal consoles are recorded in the immutable security audit ledger.",
+          "tone": "info"
+        },
+        "sections": {
+          "kpi_financial_cards": false,
+          "kpi_customer_cards": true,
+          "quick_preview_launcher": false,
+          "recent_registrations": false,
+          "pending_funding_queue": false,
+          "printing_ops_summary": true
+        },
+        "features": {
+          "show_revenue_metrics": false,
+          "allow_customer_lookup": false,
+          "allow_ticket_resolution": true,
+          "allow_kyc_review": false,
+          "allow_printing_ops": true,
+          "allow_academy_review": false
+        },
+        "modules": [
+          {
+            "id": "overview",
+            "label": "Overview Hub",
+            "description": "Executive KPIs, metrics & pending approvals",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "customers",
+            "label": "Customer Management",
+            "description": "Registered users, roles, KYC & wallet balance directory",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "support_admin",
+            "label": "Support Desk",
+            "description": "Customer support ticket triage & live resolution",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "printing_admin",
+            "label": "Printing Operations",
+            "description": "Printing quotes, production status, delivery & pricing",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "academy_admin",
+            "label": "Academy Management",
+            "description": "Courses, student admissions review & QR ID cards",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "kyc_admin",
+            "label": "KYC & Security Rules",
+            "description": "Identity compliance review & tier limits",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "accounting",
+            "label": "Business Accounting",
+            "description": "Website ledger, physical sales, expenses & reconciliations",
+            "status": "active",
+            "visible": false,
+            "order": 7
+          },
+          {
+            "id": "services",
+            "label": "Service Pricing & Telecom",
+            "description": "NIN/BVN pricing, telecom plans & provider status",
+            "status": "active",
+            "visible": false,
+            "order": 8
+          },
+          {
+            "id": "referrals_admin",
+            "label": "Referrals & Withdrawals",
+            "description": "Referral campaigns, rewards & cash payout approvals",
+            "status": "active",
+            "visible": false,
+            "order": 9
+          },
+          {
+            "id": "notifications_admin",
+            "label": "Broadcast & Notifications",
+            "description": "Platform announcements & SMTP/SMS messaging",
+            "status": "active",
+            "visible": false,
+            "order": 10
+          },
+          {
+            "id": "cms",
+            "label": "Website CMS & Branding",
+            "description": "Landing page content, FAQs & legal pages",
+            "status": "active",
+            "visible": false,
+            "order": 11
+          },
+          {
+            "id": "staff",
+            "label": "Staff & Role Permissions",
+            "description": "Internal roles & RBAC access matrix",
+            "status": "active",
+            "visible": false,
+            "order": 12
+          },
+          {
+            "id": "modules",
+            "label": "Dashboard Management",
+            "description": "Central role dashboard configurator & preview",
+            "status": "active",
+            "visible": false,
+            "order": 13
+          },
+          {
+            "id": "security_audit",
+            "label": "Security & Audit Trail",
+            "description": "Active sessions, MFA policies & audit footprint",
+            "status": "active",
+            "visible": false,
+            "order": 14
+          }
+        ],
+        "required_permissions": [
+          "printing",
+          "support"
+        ]
+      },
+      "published_config": {
+        "dashboard_key": "staff",
+        "category": "console",
+        "title": "Staff Operations Workspace",
+        "subtitle": "Execute assigned daily operational tasks across printing, academy, or customer support queues.",
+        "badge_text": "Operations Staff Console",
+        "default_tab": "overview",
+        "announcement_banner": {
+          "enabled": false,
+          "title": "Operations Briefing",
+          "message": "All actions performed inside internal consoles are recorded in the immutable security audit ledger.",
+          "tone": "info"
+        },
+        "sections": {
+          "kpi_financial_cards": false,
+          "kpi_customer_cards": true,
+          "quick_preview_launcher": false,
+          "recent_registrations": false,
+          "pending_funding_queue": false,
+          "printing_ops_summary": true
+        },
+        "features": {
+          "show_revenue_metrics": false,
+          "allow_customer_lookup": false,
+          "allow_ticket_resolution": true,
+          "allow_kyc_review": false,
+          "allow_printing_ops": true,
+          "allow_academy_review": false
+        },
+        "modules": [
+          {
+            "id": "overview",
+            "label": "Overview Hub",
+            "description": "Executive KPIs, metrics & pending approvals",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "customers",
+            "label": "Customer Management",
+            "description": "Registered users, roles, KYC & wallet balance directory",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "support_admin",
+            "label": "Support Desk",
+            "description": "Customer support ticket triage & live resolution",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "printing_admin",
+            "label": "Printing Operations",
+            "description": "Printing quotes, production status, delivery & pricing",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "academy_admin",
+            "label": "Academy Management",
+            "description": "Courses, student admissions review & QR ID cards",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "kyc_admin",
+            "label": "KYC & Security Rules",
+            "description": "Identity compliance review & tier limits",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "accounting",
+            "label": "Business Accounting",
+            "description": "Website ledger, physical sales, expenses & reconciliations",
+            "status": "active",
+            "visible": false,
+            "order": 7
+          },
+          {
+            "id": "services",
+            "label": "Service Pricing & Telecom",
+            "description": "NIN/BVN pricing, telecom plans & provider status",
+            "status": "active",
+            "visible": false,
+            "order": 8
+          },
+          {
+            "id": "referrals_admin",
+            "label": "Referrals & Withdrawals",
+            "description": "Referral campaigns, rewards & cash payout approvals",
+            "status": "active",
+            "visible": false,
+            "order": 9
+          },
+          {
+            "id": "notifications_admin",
+            "label": "Broadcast & Notifications",
+            "description": "Platform announcements & SMTP/SMS messaging",
+            "status": "active",
+            "visible": false,
+            "order": 10
+          },
+          {
+            "id": "cms",
+            "label": "Website CMS & Branding",
+            "description": "Landing page content, FAQs & legal pages",
+            "status": "active",
+            "visible": false,
+            "order": 11
+          },
+          {
+            "id": "staff",
+            "label": "Staff & Role Permissions",
+            "description": "Internal roles & RBAC access matrix",
+            "status": "active",
+            "visible": false,
+            "order": 12
+          },
+          {
+            "id": "modules",
+            "label": "Dashboard Management",
+            "description": "Central role dashboard configurator & preview",
+            "status": "active",
+            "visible": false,
+            "order": 13
+          },
+          {
+            "id": "security_audit",
+            "label": "Security & Audit Trail",
+            "description": "Active sessions, MFA policies & audit footprint",
+            "status": "active",
+            "visible": false,
+            "order": 14
+          }
+        ],
+        "required_permissions": [
+          "printing",
+          "support"
+        ]
+      },
+      "has_unpublished_changes": false,
+      "updated_by": "system",
+      "updated_at": "2026-11-22T08:03:21.021Z",
+      "published_by": "system",
+      "published_at": "2026-11-22T08:03:21.021Z"
+    },
+    "manager": {
+      "dashboard_key": "manager",
+      "category": "console",
+      "draft_config": {
+        "dashboard_key": "manager",
+        "category": "console",
+        "title": "Operations Management Hub",
+        "subtitle": "Oversee daily fulfillment, financial reconciliation, printing production, and team KPIs.",
+        "badge_text": "Operations Manager Console",
+        "default_tab": "overview",
+        "announcement_banner": {
+          "enabled": false,
+          "title": "Operations Briefing",
+          "message": "All actions performed inside internal consoles are recorded in the immutable security audit ledger.",
+          "tone": "info"
+        },
+        "sections": {
+          "kpi_financial_cards": true,
+          "kpi_customer_cards": true,
+          "quick_preview_launcher": false,
+          "recent_registrations": true,
+          "pending_funding_queue": true,
+          "printing_ops_summary": true
+        },
+        "features": {
+          "show_revenue_metrics": true,
+          "allow_customer_lookup": true,
+          "allow_ticket_resolution": true,
+          "allow_kyc_review": true,
+          "allow_printing_ops": true,
+          "allow_academy_review": true
+        },
+        "modules": [
+          {
+            "id": "overview",
+            "label": "Overview Hub",
+            "description": "Executive KPIs, metrics & pending approvals",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "customers",
+            "label": "Customer Management",
+            "description": "Registered users, roles, KYC & wallet balance directory",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "support_admin",
+            "label": "Support Desk",
+            "description": "Customer support ticket triage & live resolution",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "printing_admin",
+            "label": "Printing Operations",
+            "description": "Printing quotes, production status, delivery & pricing",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "academy_admin",
+            "label": "Academy Management",
+            "description": "Courses, student admissions review & QR ID cards",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "kyc_admin",
+            "label": "KYC & Security Rules",
+            "description": "Identity compliance review & tier limits",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "accounting",
+            "label": "Business Accounting",
+            "description": "Website ledger, physical sales, expenses & reconciliations",
+            "status": "active",
+            "visible": true,
+            "order": 7
+          },
+          {
+            "id": "services",
+            "label": "Service Pricing & Telecom",
+            "description": "NIN/BVN pricing, telecom plans & provider status",
+            "status": "active",
+            "visible": true,
+            "order": 8
+          },
+          {
+            "id": "referrals_admin",
+            "label": "Referrals & Withdrawals",
+            "description": "Referral campaigns, rewards & cash payout approvals",
+            "status": "active",
+            "visible": true,
+            "order": 9
+          },
+          {
+            "id": "notifications_admin",
+            "label": "Broadcast & Notifications",
+            "description": "Platform announcements & SMTP/SMS messaging",
+            "status": "active",
+            "visible": true,
+            "order": 10
+          },
+          {
+            "id": "cms",
+            "label": "Website CMS & Branding",
+            "description": "Landing page content, FAQs & legal pages",
+            "status": "active",
+            "visible": false,
+            "order": 11
+          },
+          {
+            "id": "staff",
+            "label": "Staff & Role Permissions",
+            "description": "Internal roles & RBAC access matrix",
+            "status": "active",
+            "visible": false,
+            "order": 12
+          },
+          {
+            "id": "modules",
+            "label": "Dashboard Management",
+            "description": "Central role dashboard configurator & preview",
+            "status": "active",
+            "visible": false,
+            "order": 13
+          },
+          {
+            "id": "security_audit",
+            "label": "Security & Audit Trail",
+            "description": "Active sessions, MFA policies & audit footprint",
+            "status": "active",
+            "visible": false,
+            "order": 14
+          }
+        ],
+        "required_permissions": [
+          "customers",
+          "wallet",
+          "kyc",
+          "services",
+          "printing",
+          "printing_pricing",
+          "support",
+          "reports",
+          "referrals",
+          "withdrawals",
+          "academy",
+          "accounting",
+          "accounting_physical",
+          "accounting_reconcile",
+          "notifications"
+        ]
+      },
+      "published_config": {
+        "dashboard_key": "manager",
+        "category": "console",
+        "title": "Operations Management Hub",
+        "subtitle": "Oversee daily fulfillment, financial reconciliation, printing production, and team KPIs.",
+        "badge_text": "Operations Manager Console",
+        "default_tab": "overview",
+        "announcement_banner": {
+          "enabled": false,
+          "title": "Operations Briefing",
+          "message": "All actions performed inside internal consoles are recorded in the immutable security audit ledger.",
+          "tone": "info"
+        },
+        "sections": {
+          "kpi_financial_cards": true,
+          "kpi_customer_cards": true,
+          "quick_preview_launcher": false,
+          "recent_registrations": true,
+          "pending_funding_queue": true,
+          "printing_ops_summary": true
+        },
+        "features": {
+          "show_revenue_metrics": true,
+          "allow_customer_lookup": true,
+          "allow_ticket_resolution": true,
+          "allow_kyc_review": true,
+          "allow_printing_ops": true,
+          "allow_academy_review": true
+        },
+        "modules": [
+          {
+            "id": "overview",
+            "label": "Overview Hub",
+            "description": "Executive KPIs, metrics & pending approvals",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "customers",
+            "label": "Customer Management",
+            "description": "Registered users, roles, KYC & wallet balance directory",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "support_admin",
+            "label": "Support Desk",
+            "description": "Customer support ticket triage & live resolution",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "printing_admin",
+            "label": "Printing Operations",
+            "description": "Printing quotes, production status, delivery & pricing",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "academy_admin",
+            "label": "Academy Management",
+            "description": "Courses, student admissions review & QR ID cards",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "kyc_admin",
+            "label": "KYC & Security Rules",
+            "description": "Identity compliance review & tier limits",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "accounting",
+            "label": "Business Accounting",
+            "description": "Website ledger, physical sales, expenses & reconciliations",
+            "status": "active",
+            "visible": true,
+            "order": 7
+          },
+          {
+            "id": "services",
+            "label": "Service Pricing & Telecom",
+            "description": "NIN/BVN pricing, telecom plans & provider status",
+            "status": "active",
+            "visible": true,
+            "order": 8
+          },
+          {
+            "id": "referrals_admin",
+            "label": "Referrals & Withdrawals",
+            "description": "Referral campaigns, rewards & cash payout approvals",
+            "status": "active",
+            "visible": true,
+            "order": 9
+          },
+          {
+            "id": "notifications_admin",
+            "label": "Broadcast & Notifications",
+            "description": "Platform announcements & SMTP/SMS messaging",
+            "status": "active",
+            "visible": true,
+            "order": 10
+          },
+          {
+            "id": "cms",
+            "label": "Website CMS & Branding",
+            "description": "Landing page content, FAQs & legal pages",
+            "status": "active",
+            "visible": false,
+            "order": 11
+          },
+          {
+            "id": "staff",
+            "label": "Staff & Role Permissions",
+            "description": "Internal roles & RBAC access matrix",
+            "status": "active",
+            "visible": false,
+            "order": 12
+          },
+          {
+            "id": "modules",
+            "label": "Dashboard Management",
+            "description": "Central role dashboard configurator & preview",
+            "status": "active",
+            "visible": false,
+            "order": 13
+          },
+          {
+            "id": "security_audit",
+            "label": "Security & Audit Trail",
+            "description": "Active sessions, MFA policies & audit footprint",
+            "status": "active",
+            "visible": false,
+            "order": 14
+          }
+        ],
+        "required_permissions": [
+          "customers",
+          "wallet",
+          "kyc",
+          "services",
+          "printing",
+          "printing_pricing",
+          "support",
+          "reports",
+          "referrals",
+          "withdrawals",
+          "academy",
+          "accounting",
+          "accounting_physical",
+          "accounting_reconcile",
+          "notifications"
+        ]
+      },
+      "has_unpublished_changes": false,
+      "updated_by": "system",
+      "updated_at": "2026-11-22T08:03:21.021Z",
+      "published_by": "system",
+      "published_at": "2026-11-22T08:03:21.021Z"
+    },
+    "admin": {
+      "dashboard_key": "admin",
+      "category": "console",
+      "draft_config": {
+        "dashboard_key": "admin",
+        "category": "console",
+        "title": "Enterprise Control Center",
+        "subtitle": "Centralized management across customers, identity services, telecom, academy, and compliance.",
+        "badge_text": "Administrator Console",
+        "default_tab": "overview",
+        "announcement_banner": {
+          "enabled": false,
+          "title": "Operations Briefing",
+          "message": "All actions performed inside internal consoles are recorded in the immutable security audit ledger.",
+          "tone": "info"
+        },
+        "sections": {
+          "kpi_financial_cards": true,
+          "kpi_customer_cards": true,
+          "quick_preview_launcher": true,
+          "recent_registrations": true,
+          "pending_funding_queue": true,
+          "printing_ops_summary": true
+        },
+        "features": {
+          "show_revenue_metrics": true,
+          "allow_customer_lookup": true,
+          "allow_ticket_resolution": true,
+          "allow_kyc_review": true,
+          "allow_printing_ops": true,
+          "allow_academy_review": true
+        },
+        "modules": [
+          {
+            "id": "overview",
+            "label": "Overview Hub",
+            "description": "Executive KPIs, metrics & pending approvals",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "customers",
+            "label": "Customer Management",
+            "description": "Registered users, roles, KYC & wallet balance directory",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "support_admin",
+            "label": "Support Desk",
+            "description": "Customer support ticket triage & live resolution",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "printing_admin",
+            "label": "Printing Operations",
+            "description": "Printing quotes, production status, delivery & pricing",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "academy_admin",
+            "label": "Academy Management",
+            "description": "Courses, student admissions review & QR ID cards",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "kyc_admin",
+            "label": "KYC & Security Rules",
+            "description": "Identity compliance review & tier limits",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "accounting",
+            "label": "Business Accounting",
+            "description": "Website ledger, physical sales, expenses & reconciliations",
+            "status": "active",
+            "visible": true,
+            "order": 7
+          },
+          {
+            "id": "services",
+            "label": "Service Pricing & Telecom",
+            "description": "NIN/BVN pricing, telecom plans & provider status",
+            "status": "active",
+            "visible": true,
+            "order": 8
+          },
+          {
+            "id": "referrals_admin",
+            "label": "Referrals & Withdrawals",
+            "description": "Referral campaigns, rewards & cash payout approvals",
+            "status": "active",
+            "visible": true,
+            "order": 9
+          },
+          {
+            "id": "notifications_admin",
+            "label": "Broadcast & Notifications",
+            "description": "Platform announcements & SMTP/SMS messaging",
+            "status": "active",
+            "visible": true,
+            "order": 10
+          },
+          {
+            "id": "cms",
+            "label": "Website CMS & Branding",
+            "description": "Landing page content, FAQs & legal pages",
+            "status": "active",
+            "visible": true,
+            "order": 11
+          },
+          {
+            "id": "staff",
+            "label": "Staff & Role Permissions",
+            "description": "Internal roles & RBAC access matrix",
+            "status": "active",
+            "visible": true,
+            "order": 12
+          },
+          {
+            "id": "modules",
+            "label": "Dashboard Management",
+            "description": "Central role dashboard configurator & preview",
+            "status": "active",
+            "visible": true,
+            "order": 13
+          },
+          {
+            "id": "security_audit",
+            "label": "Security & Audit Trail",
+            "description": "Active sessions, MFA policies & audit footprint",
+            "status": "active",
+            "visible": true,
+            "order": 14
+          }
+        ],
+        "required_permissions": [
+          "customers",
+          "wallet",
+          "kyc",
+          "services",
+          "printing",
+          "printing_pricing",
+          "cms",
+          "audit",
+          "support",
+          "reports",
+          "referrals",
+          "withdrawals",
+          "academy",
+          "notifications",
+          "accounting",
+          "accounting_physical",
+          "accounting_reconcile"
+        ]
+      },
+      "published_config": {
+        "dashboard_key": "admin",
+        "category": "console",
+        "title": "Enterprise Control Center",
+        "subtitle": "Centralized management across customers, identity services, telecom, academy, and compliance.",
+        "badge_text": "Administrator Console",
+        "default_tab": "overview",
+        "announcement_banner": {
+          "enabled": false,
+          "title": "Operations Briefing",
+          "message": "All actions performed inside internal consoles are recorded in the immutable security audit ledger.",
+          "tone": "info"
+        },
+        "sections": {
+          "kpi_financial_cards": true,
+          "kpi_customer_cards": true,
+          "quick_preview_launcher": true,
+          "recent_registrations": true,
+          "pending_funding_queue": true,
+          "printing_ops_summary": true
+        },
+        "features": {
+          "show_revenue_metrics": true,
+          "allow_customer_lookup": true,
+          "allow_ticket_resolution": true,
+          "allow_kyc_review": true,
+          "allow_printing_ops": true,
+          "allow_academy_review": true
+        },
+        "modules": [
+          {
+            "id": "overview",
+            "label": "Overview Hub",
+            "description": "Executive KPIs, metrics & pending approvals",
+            "status": "active",
+            "visible": true,
+            "order": 1
+          },
+          {
+            "id": "customers",
+            "label": "Customer Management",
+            "description": "Registered users, roles, KYC & wallet balance directory",
+            "status": "active",
+            "visible": true,
+            "order": 2
+          },
+          {
+            "id": "support_admin",
+            "label": "Support Desk",
+            "description": "Customer support ticket triage & live resolution",
+            "status": "active",
+            "visible": true,
+            "order": 3
+          },
+          {
+            "id": "printing_admin",
+            "label": "Printing Operations",
+            "description": "Printing quotes, production status, delivery & pricing",
+            "status": "active",
+            "visible": true,
+            "order": 4
+          },
+          {
+            "id": "academy_admin",
+            "label": "Academy Management",
+            "description": "Courses, student admissions review & QR ID cards",
+            "status": "active",
+            "visible": true,
+            "order": 5
+          },
+          {
+            "id": "kyc_admin",
+            "label": "KYC & Security Rules",
+            "description": "Identity compliance review & tier limits",
+            "status": "active",
+            "visible": true,
+            "order": 6
+          },
+          {
+            "id": "accounting",
+            "label": "Business Accounting",
+            "description": "Website ledger, physical sales, expenses & reconciliations",
+            "status": "active",
+            "visible": true,
+            "order": 7
+          },
+          {
+            "id": "services",
+            "label": "Service Pricing & Telecom",
+            "description": "NIN/BVN pricing, telecom plans & provider status",
+            "status": "active",
+            "visible": true,
+            "order": 8
+          },
+          {
+            "id": "referrals_admin",
+            "label": "Referrals & Withdrawals",
+            "description": "Referral campaigns, rewards & cash payout approvals",
+            "status": "active",
+            "visible": true,
+            "order": 9
+          },
+          {
+            "id": "notifications_admin",
+            "label": "Broadcast & Notifications",
+            "description": "Platform announcements & SMTP/SMS messaging",
+            "status": "active",
+            "visible": true,
+            "order": 10
+          },
+          {
+            "id": "cms",
+            "label": "Website CMS & Branding",
+            "description": "Landing page content, FAQs & legal pages",
+            "status": "active",
+            "visible": true,
+            "order": 11
+          },
+          {
+            "id": "staff",
+            "label": "Staff & Role Permissions",
+            "description": "Internal roles & RBAC access matrix",
+            "status": "active",
+            "visible": true,
+            "order": 12
+          },
+          {
+            "id": "modules",
+            "label": "Dashboard Management",
+            "description": "Central role dashboard configurator & preview",
+            "status": "active",
+            "visible": true,
+            "order": 13
+          },
+          {
+            "id": "security_audit",
+            "label": "Security & Audit Trail",
+            "description": "Active sessions, MFA policies & audit footprint",
+            "status": "active",
+            "visible": true,
+            "order": 14
+          }
+        ],
+        "required_permissions": [
+          "customers",
+          "wallet",
+          "kyc",
+          "services",
+          "printing",
+          "printing_pricing",
+          "cms",
+          "audit",
+          "support",
+          "reports",
+          "referrals",
+          "withdrawals",
+          "academy",
+          "notifications",
+          "accounting",
+          "accounting_physical",
+          "accounting_reconcile"
+        ]
+      },
+      "has_unpublished_changes": false,
+      "updated_by": "system",
+      "updated_at": "2026-11-22T08:03:21.021Z",
+      "published_by": "system",
+      "published_at": "2026-11-22T08:03:21.021Z"
+    }
+  },
+  "email_verifications": []
 }

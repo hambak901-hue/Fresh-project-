@@ -43,7 +43,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 }) => {
   const { login, completeMfaLogin, register, refreshUser } = useAuth();
   const { branding } = useCms();
-  const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'verify_otp' | 'reset_password' | 'mfa_challenge'>(initialMode);
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'verify_otp' | 'reset_password' | 'mfa_challenge' | 'verify_email'>(initialMode);
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
@@ -62,6 +62,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [agreeTerms, setAgreeTerms] = useState(false);
 
   const [otpCode, setOtpCode] = useState('');
+  const [emailVerifyCode, setEmailVerifyCode] = useState('');
+  const [pendingVerifyUser, setPendingVerifyUser] = useState<any>(null);
   const [resetToken, setResetToken] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
 
@@ -165,6 +167,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       setLoading(true);
       const loggedUser = await login(email.trim().toLowerCase(), password);
+      if (loggedUser?.email_verification_required && !loggedUser?.email_verified) {
+        setPendingVerifyUser(loggedUser);
+        setEmailVerifyCode('');
+        setMode('verify_email');
+        setSuccessMsg(`Signed in! Enter the 6-digit verification code sent to ${loggedUser.email || email} to unlock wallet funding and services.`);
+        return;
+      }
       setSuccessMsg('Signed in successfully!');
       setTimeout(() => {
         onClose();
@@ -180,6 +189,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             ? 'Enter the 6-digit code from your authenticator app (or a recovery code).'
             : `We sent a 6-digit verification code to ${err.challenge.masked_email}.`
         );
+      } else if (err?.payload?.code === 'EMAIL_VERIFICATION_REQUIRED' || err?.payload?.errors?.email_verification_required) {
+        setPendingVerifyUser(null);
+        setEmailVerifyCode('');
+        setMode('verify_email');
+        setError(null);
+        setSuccessMsg(err.message || 'Please enter the 6-digit verification code sent to your email.');
       } else {
         setError(err.message || 'Sign in failed. Please check your credentials or reset your password.');
       }
@@ -256,6 +271,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       } catch {
         // Ignore sessionStorage errors
       }
+      if (registeredUser?.email_verification_required && !registeredUser?.email_verified) {
+        setPendingVerifyUser(registeredUser);
+        setEmailVerifyCode('');
+        setResendCooldown(60);
+        setMode('verify_email');
+        setSuccessMsg(`Account created! Enter the 6-digit code or click the confirmation link sent to ${registeredUser.email || email.trim().toLowerCase()}.`);
+        return;
+      }
       setSuccessMsg(`Account created at KYC Level 1! Welcome to ${brandLabel}.`);
       setTimeout(() => {
         onClose();
@@ -263,6 +286,54 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }, 450);
     } catch (err: any) {
       setError(err.message || 'Registration failed. Email may already be registered.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyEmailCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    const code = emailVerifyCode.trim();
+    if (!code || code.length < 6) {
+      setError('Please enter the 6-digit verification code sent to your email.');
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await api.verifyEmail({
+        email: (pendingVerifyUser?.email || email).trim().toLowerCase(),
+        otp_code: code,
+      });
+      await refreshUser();
+      setSuccessMsg(res.message || 'Email verified successfully! Opening your portal...');
+      setTimeout(() => {
+        onClose();
+        if (onSuccess) onSuccess(res.user || pendingVerifyUser);
+      }, 450);
+    } catch (err: any) {
+      setError(err.message || 'Invalid or expired verification code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendEmailVerification = async () => {
+    setError(null);
+    const targetEmail = (pendingVerifyUser?.email || email).trim().toLowerCase();
+    if (!targetEmail) {
+      setError('Email address is required to resend verification.');
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await api.resendVerification(targetEmail);
+      setResendCooldown(res.cooldown_seconds || 60);
+      setSuccessMsg(res.message || `Verification code sent to ${targetEmail}.`);
+    } catch (err: any) {
+      const waitSec = Number(err?.payload?.errors?.retry_after_seconds || 0);
+      if (waitSec > 0) setResendCooldown(waitSec);
+      setError(err.message || 'Unable to resend verification email right now.');
     } finally {
       setLoading(false);
     }
@@ -373,6 +444,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {mode === 'verify_otp' && 'Code Verification'}
               {mode === 'reset_password' && 'Set New Password'}
               {mode === 'mfa_challenge' && 'Two-Factor Verification'}
+              {mode === 'verify_email' && 'Email Verification'}
             </span>
           </div>
 
@@ -383,6 +455,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode === 'verify_otp' && 'Enter Verification Code'}
             {mode === 'reset_password' && 'Create New Password'}
             {mode === 'mfa_challenge' && 'Security Verification'}
+            {mode === 'verify_email' && 'Verify Your Email Address'}
           </h2>
 
           <p className="text-xs text-slate-600 dark:text-slate-400">
@@ -391,6 +464,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode === 'forgot' && 'Enter your registered email to receive a 6-digit password recovery code.'}
             {mode === 'verify_otp' && `Enter the 6-digit OTP dispatched to ${email || 'your email'}.`}
             {mode === 'reset_password' && 'Choose a strong password of at least 8 characters.'}
+            {mode === 'verify_email' && `Confirm ${pendingVerifyUser?.email || email || 'your email'} to unlock wallet funding, NIN/BVN verification, and telecom purchases.`}
             {mode === 'mfa_challenge' && (
               mfaChallenge?.method === 'totp'
                 ? 'Open your authenticator app and enter the 6-digit code or a backup recovery code.'
@@ -894,6 +968,67 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             >
               {loading ? <span>Verifying...</span> : <span>Verify &amp; Sign In</span>}
             </button>
+          </form>
+        )}
+
+        {mode === 'verify_email' && (
+          <form onSubmit={handleVerifyEmailCode} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                6-Digit Email Verification Code
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={emailVerifyCode}
+                  onChange={(e) => setEmailVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="Enter 6-digit code"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm font-mono tracking-widest text-blue-700 dark:text-emerald-400 font-bold focus:outline-none focus:border-blue-600"
+                  required
+                  autoFocus
+                />
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
+                Code expires in 60 minutes. You can also click the confirmation link inside the email.
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || emailVerifyCode.trim().length < 6}
+              className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-bold transition-colors flex items-center justify-center gap-2 shadow-sm"
+            >
+              {loading ? <span>Verifying Email...</span> : <span>Verify Email &amp; Unlock Portal</span>}
+            </button>
+
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <span>Didn&apos;t receive the email?</span>
+              <button
+                type="button"
+                disabled={loading || resendCooldown > 0}
+                onClick={handleResendEmailVerification}
+                className="text-blue-700 dark:text-amber-400 disabled:text-slate-400 flex items-center gap-1 font-semibold"
+              >
+                <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                <span>{resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Email'}</span>
+              </button>
+            </div>
+
+            {pendingVerifyUser && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  if (onSuccess) onSuccess(pendingVerifyUser);
+                }}
+                className="w-full py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition-colors"
+              >
+                Continue to Portal (Limited Access Until Verified)
+              </button>
+            )}
           </form>
         )}
 

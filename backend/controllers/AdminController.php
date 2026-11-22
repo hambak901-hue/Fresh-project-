@@ -26,7 +26,6 @@ use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Telecom\UlamaDataAdapter;
 use HambakTech\Adapters\Telecom\VtpassAdapter;
 use HambakTech\Adapters\Payment\PaystackAdapter;
-use HambakTech\Adapters\Payment\FlutterwaveAdapter;
 use Throwable;
 
 class AdminController
@@ -2495,6 +2494,7 @@ class AdminController
     {
         Auth::requirePermission($request, 'services');
         $providers = $this->db->fetchAll('SELECT * FROM providers ORDER BY provider_type ASC, is_default DESC, name ASC');
+        $providers = array_values(array_filter($providers, static fn($p) => strtolower((string)($p['id'] ?? '')) !== 'flutterwave'));
         $primaryId = '2sureverify';
         foreach ($providers as &$p) {
             if (!empty($p['is_default']) && in_array($p['provider_type'] ?? '', ['identity', 'verification'], true)) {
@@ -2712,17 +2712,6 @@ class AdminController
                     $balance = ((float)$decoded['data'][0]['balance']) / 100.0;
                 }
                 $message = "Paystack API authenticated successfully ({$latency}ms).";
-            } elseif ($id === 'flutterwave') {
-                $start = microtime(true);
-                $adapter = new \HambakTech\Adapters\Payment\FlutterwaveAdapter();
-                $testRes = $adapter->testConnection();
-                $latency = (int)($testRes['latency_ms'] ?? round((microtime(true) - $start) * 1000));
-                if (empty($testRes['operational'])) {
-                    throw new Exception((string)($testRes['message'] ?? 'Flutterwave authentication failed.'));
-                }
-                $operational = true;
-                $balance = isset($testRes['balance']) ? (float)$testRes['balance'] : null;
-                $message = (string)($testRes['message'] ?? "Flutterwave API authenticated successfully ({$latency}ms).");
             } else {
                 $message = "Unknown provider '{$id}'";
             }

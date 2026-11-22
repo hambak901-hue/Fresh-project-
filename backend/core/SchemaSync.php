@@ -59,6 +59,8 @@ class SchemaSync
                 avatar_url VARCHAR(500) NULL,
                 transaction_pin_hash VARCHAR(255) NULL,
                 email_verified TINYINT(1) NOT NULL DEFAULT 0,
+                email_verification_required TINYINT(1) NOT NULL DEFAULT 0,
+                email_verified_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_user_role (role),
@@ -2337,6 +2339,8 @@ class SchemaSync
 
         $userCols = [
             'assigned_dashboard' => 'ADD COLUMN assigned_dashboard VARCHAR(32) NULL AFTER role',
+            'email_verification_required' => 'ADD COLUMN email_verification_required TINYINT(1) NOT NULL DEFAULT 0 AFTER email_verified',
+            'email_verified_at' => 'ADD COLUMN email_verified_at DATETIME NULL AFTER email_verification_required',
             'kyc_level' => 'ADD COLUMN kyc_level INT NOT NULL DEFAULT 1',
             'phone_normalized' => 'ADD COLUMN phone_normalized VARCHAR(32) NULL',
             'token_version' => 'ADD COLUMN token_version INT NOT NULL DEFAULT 1',
@@ -2639,6 +2643,24 @@ class SchemaSync
                 published_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'email_verifications' => 'CREATE TABLE IF NOT EXISTS email_verifications (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                email VARCHAR(191) NOT NULL,
+                token_hash VARCHAR(128) NOT NULL,
+                code_hash VARCHAR(128) NOT NULL,
+                attempts INT NOT NULL DEFAULT 0,
+                max_attempts INT NOT NULL DEFAULT 5,
+                is_used TINYINT(1) NOT NULL DEFAULT 0,
+                used_at DATETIME NULL,
+                expires_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_ev_user (user_id, is_used),
+                INDEX idx_ev_email (email, is_used),
+                INDEX idx_ev_token (token_hash),
+                INDEX idx_ev_exp (expires_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
         ];
 

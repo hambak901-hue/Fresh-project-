@@ -79,13 +79,7 @@ class EnrolmentController
 
     private function sanitizeCustomerError(string $message): string
     {
-        $clean = preg_replace('/https?:\/\/\S+/i', '', $message) ?? $message;
-        $clean = str_ireplace(
-            ['2sureverify', 'veripine', 'ulamadata', 'api_key', 'twosureverify_api_key', 'secret_key'],
-            'enrolment gateway',
-            $clean
-        );
-        return trim($clean) ?: 'NIN Enrolment request could not be submitted right now. Please verify your details and try again.';
+        return Security::sanitizeCustomerError($message);
     }
 
     private function normalizeFormSchema(array $schema, bool $includeProviderParams = false): array
@@ -694,7 +688,7 @@ class EnrolmentController
     {
         SchemaSync::syncEnrolmentCatalog($this->db);
 
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
         $body = $request->getBody();
 
@@ -1130,8 +1124,11 @@ class EnrolmentController
         );
 
         $displayErr = $isAdmin ? $provMsg : $this->sanitizeCustomerError($provMsg);
+        $errMsg = (!$isAdmin && str_starts_with($displayErr, 'This service is temporarily unavailable'))
+            ? $displayErr . ' Your wallet has been automatically refunded.'
+            : 'NIN Enrolment order could not be accepted: ' . $displayErr . '. Your wallet has been automatically refunded.';
         Response::error(
-            'NIN Enrolment order could not be accepted: ' . $displayErr . '. Your wallet has been automatically refunded.',
+            $errMsg,
             502,
             [
                 'refunded' => true,

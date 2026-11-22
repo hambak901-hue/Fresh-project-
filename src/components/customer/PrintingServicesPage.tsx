@@ -195,8 +195,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
   const [showDeclineBox, setShowDeclineBox] = useState<boolean>(false);
   const [actionBusy, setActionBusy] = useState<boolean>(false);
   const [payScope, setPayScope] = useState<'full' | 'deposit' | 'balance' | 'delivery'>('full');
-  const [payGateway, setPayGateway] = useState<'wallet' | 'manual_transfer' | 'paystack' | 'flutterwave'>('wallet');
-  const [flwEnabled, setFlwEnabled] = useState<boolean>(false);
+  const [payGateway, setPayGateway] = useState<'wallet' | 'manual_transfer' | 'paystack'>('wallet');
   const [txPin, setTxPin] = useState<string>('');
   const [payerName, setPayerName] = useState<string>(user?.full_name || '');
   const [bankReference, setBankReference] = useState<string>('');
@@ -218,14 +217,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
   const loadCatalog = useCallback(async () => {
     try {
       setCatalogLoading(true);
-      const [res, gwRes] = await Promise.all([
-        api.getPrintingCatalog(),
-        api.getPaymentGateways().catch(() => null),
-      ]);
-      if (gwRes?.gateways) {
-        const flwGw = gwRes.gateways.find(g => g.id === 'flutterwave');
-        setFlwEnabled(flwGw?.status === 'active');
-      }
+      const res = await api.getPrintingCatalog();
       if (res.success) {
         setCategories(res.categories || []);
         setZones(res.delivery_zones || []);
@@ -563,7 +555,7 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
       });
       if (res.success) {
         setTxPin('');
-        if (payGateway === 'paystack' || payGateway === 'flutterwave') {
+        if (payGateway === 'paystack') {
           const checkoutLink = res.authorization_url || res.link || null;
           setPendingVerifyRef(res.reference || null);
           setPendingCheckoutUrl(checkoutLink);
@@ -2110,9 +2102,6 @@ export const PrintingServicesPage: React.FC<PrintingServicesPageProps> = ({
                             <option value="wallet">HambakTech Wallet (Instant)</option>
                             <option value="paystack">Paystack Online Checkout</option>
                             <option value="manual_transfer">Manual Bank Transfer (Admin Confirmed)</option>
-                            <option value="flutterwave" disabled={!flwEnabled}>
-                              {flwEnabled ? 'Flutterwave Online Checkout' : 'Flutterwave (Temporarily Unavailable)'}
-                            </option>
                           </select>
                         </div>
                       </div>

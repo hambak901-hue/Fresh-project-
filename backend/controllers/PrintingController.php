@@ -21,7 +21,6 @@ use HambakTech\Services\WalletService;
 use HambakTech\Services\PinSecurityService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Adapters\Payment\PaystackAdapter;
-use HambakTech\Adapters\Payment\FlutterwaveAdapter;
 
 class PrintingController
 {
@@ -326,7 +325,7 @@ class PrintingController
      */
     public function createOrder(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $body = $request->all();
 
         $catKey = trim((string)($body['category_key'] ?? ''));
@@ -601,12 +600,12 @@ class PrintingController
 
     /**
      * POST /api/printing/orders/:id/pay
-     * Supports Wallet (with compulsory Transaction PIN), Paystack, Flutterwave, and Manual Bank Transfer.
+     * Supports Wallet (with compulsory Transaction PIN), Paystack, and Manual Bank Transfer.
      * Supports Full payment, Deposit payment, Balance payment, and separate Delivery payment.
      */
     public function payOrder(Request $request, array $params): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $id = trim((string)($params['id'] ?? ''));
         $body = $request->all();
 
@@ -654,8 +653,8 @@ class PrintingController
         }
 
         $gateway = strtolower(trim((string)($body['gateway'] ?? 'wallet')));
-        if (!in_array($gateway, ['wallet', 'paystack', 'flutterwave', 'manual_transfer'], true)) {
-            Response::error('Unsupported payment method. Use wallet, paystack, flutterwave, or manual_transfer.', 422);
+        if (!in_array($gateway, ['wallet', 'paystack', 'manual_transfer'], true)) {
+            Response::error('Unsupported payment method. Use wallet, paystack, or manual_transfer.', 422);
         }
 
         $payRef = 'PRTPAY_' . strtoupper(bin2hex(random_bytes(5)));
@@ -759,8 +758,8 @@ class PrintingController
             return;
         }
 
-        // Paystack / Flutterwave checkout initialization — respect admin gateway enablement
-        $gwCfg = ['enable_paystack' => true, 'enable_flutterwave' => false];
+        // Paystack checkout initialization — respect admin gateway enablement
+        $gwCfg = ['enable_paystack' => true];
         try {
             $gwRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "payment_gateways_settings" LIMIT 1');
             if ($gwRow && !empty($gwRow['setting_value'])) {
@@ -771,11 +770,7 @@ class PrintingController
             }
         } catch (Throwable) {
         }
-        if ($gateway === 'flutterwave' && empty($gwCfg['enable_flutterwave'])) {
-            Response::error('Flutterwave payment gateway is currently disabled by administrators. Please use Paystack, Wallet, or Bank Transfer.', 403);
-            return;
-        }
-        if ($gateway === 'paystack' && array_key_exists('enable_paystack', $gwCfg) && empty($gwCfg['enable_paystack'])) {
+        if (array_key_exists('enable_paystack', $gwCfg) && empty($gwCfg['enable_paystack'])) {
             Response::error('Paystack payment gateway is currently disabled by administrators.', 403);
             return;
         }
@@ -800,37 +795,26 @@ class PrintingController
         );
 
         try {
-            if ($gateway === 'flutterwave') {
-                $flw = new FlutterwaveAdapter();
-                $initRes = $flw->initializePayment(
-                    (string)$user['email'],
-                    $amountToPay,
-                    $payRef,
-                    $callbackUrl . $sep . 'printing_order=' . $order['id'] . '&gateway=flutterwave&reference=' . $payRef,
-                    ['order_reference' => $order['order_reference'], 'scope' => $scope]
-                );
-            } else {
-                $ps = new PaystackAdapter();
-                $initRes = $ps->initializePayment(
-                    (string)$user['email'],
-                    $amountToPay,
-                    $payRef,
-                    $callbackUrl . $sep . 'printing_order=' . $order['id'] . '&gateway=paystack&reference=' . $payRef,
-                    ['order_reference' => $order['order_reference'], 'scope' => $scope]
-                );
-            }
+            $ps = new PaystackAdapter();
+            $initRes = $ps->initializePayment(
+                (string)$user['email'],
+                $amountToPay,
+                $payRef,
+                $callbackUrl . $sep . 'printing_order=' . $order['id'] . '&gateway=paystack&reference=' . $payRef,
+                ['order_reference' => $order['order_reference'], 'scope' => $scope]
+            );
 
             Response::success([
                 'payment_id' => $paymentId,
                 'reference' => $payRef,
                 'amount' => $amountToPay,
-                'gateway' => $gateway,
+                'gateway' => 'paystack',
                 'authorization_url' => $initRes['authorization_url'] ?? ($initRes['link'] ?? ''),
                 'link' => $initRes['link'] ?? ($initRes['authorization_url'] ?? ''),
             ], 'Payment gateway checkout initialized.');
         } catch (Throwable $e) {
             $this->db->execute('UPDATE printing_payments SET status = "rejected", remarks = :rem WHERE id = :id', ['rem' => $e->getMessage(), 'id' => $paymentId]);
-            Response::error($e->getMessage(), 502);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Payment service is temporarily unavailable. Please try again later or use Wallet/Bank Transfer.'), 502);
         }
     }
 
@@ -873,17 +857,16 @@ class PrintingController
         }
 
         try {
-            $gw = (string)$payment['gateway'];
-            if ($gw === 'flutterwave') {
-                $flw = new FlutterwaveAdapter();
-                $res = $flw->verifyPayment($reference, $flwTransactionId !== '' ? $flwTransactionId : null);
-            } else {
-                $ps = new PaystackAdapter();
-                $res = $ps->verifyPayment($reference);
+            $gw = strtolower((string)$payment['gateway']);
+            if ($gw !== 'paystack') {
+                Response::error('Online verification for this legacy payment method has been discontinued. Please contact support.', 400);
+                return;
             }
+            $ps = new PaystackAdapter();
+            $res = $ps->verifyPayment($reference);
 
             if (($res['status'] ?? '') !== 'successful') {
-                Response::error('Payment verification incomplete: ' . ($res['gateway_response'] ?? 'Unverified'), 400);
+                Response::error('Payment verification was not completed. Please try again.', 400);
             }
 
             $verifiedAmt = (float)($res['amount'] ?? 0);
@@ -893,13 +876,13 @@ class PrintingController
 
             $this->db->execute(
                 'UPDATE printing_payments SET status = "confirmed", confirmed_by = :cb, confirmed_by_name = :cbn, confirmed_at = NOW() WHERE id = :id',
-                ['cb' => $user['id'], 'cbn' => ucfirst($gw) . ' Gateway', 'id' => $payment['id']]
+                ['cb' => $user['id'], 'cbn' => 'Paystack Gateway', 'id' => $payment['id']]
             );
 
-            $updated = $this->applyConfirmedPayment($order, (float)$payment['amount'], (string)$payment['payment_scope'], $user, ucfirst($gw) . " payment verified ({$reference})");
+            $updated = $this->applyConfirmedPayment($order, (float)$payment['amount'], (string)$payment['payment_scope'], $user, "Paystack payment verified ({$reference})");
             Response::success(['order' => $this->printing->sanitizeOrderForCustomer($updated)], 'Payment verified and confirmed!');
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 502);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Payment verification is temporarily unavailable. Please try again shortly.'), 502);
         }
     }
 

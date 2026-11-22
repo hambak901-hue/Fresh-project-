@@ -16,6 +16,12 @@ use HambakTech\Core\Security;
 
 class MailService
 {
+    public const NOTIFICATION_OPTIONS = [
+        'from_email' => 'notification@hambaktech.com.ng',
+        'from_name' => 'HAMBAKTECH Notifications',
+        'reply_to' => 'support@hambaktech.com.ng',
+    ];
+
     private Database $db;
     private array $config;
 
@@ -72,6 +78,23 @@ class MailService
         $subject = 'Your HambakTech Verification Code: ' . $otpCode;
         $html = $this->buildOtpHtml($recipientName, $otpCode, $resetToken);
         return $this->send($recipientEmail, $recipientName, $subject, $html, $otpCode);
+    }
+
+    /**
+     * Send Account Registration Email Verification (6-digit OTP + secure click-to-verify link)
+     */
+    public function sendEmailVerification(
+        string $recipientEmail,
+        string $recipientName,
+        string $otpCode,
+        string $verifyToken,
+        int $expiryMinutes = 60
+    ): array {
+        $subject = 'Verify Your HAMBAKTECH Email Address: ' . $otpCode;
+        $html = $this->buildEmailVerificationHtml($recipientEmail, $recipientName, $otpCode, $verifyToken, $expiryMinutes);
+        return $this->send($recipientEmail, $recipientName, $subject, $html, null, [
+            'audit_action' => 'EMAIL_VERIFICATION_DISPATCHED',
+        ]);
     }
 
     /**
@@ -274,6 +297,89 @@ class MailService
 
                 <p style="font-size: 12px; color: #64748b; line-height: 18px; margin-top: 22px; margin-bottom: 0;">
                     Need assistance? Email <a href="mailto:support@hambaktech.com.ng" style="color: #1d4ed8; font-weight: 600;">support@hambaktech.com.ng</a> or call Customer Service on 09127469686.
+                </p>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 18px 32px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
+                <p style="font-size: 11px; color: #64748b; margin: 0;">
+                    &copy; 2024–2026 HAMBAK TECH &amp; SERVICES (BN 9284726). All rights reserved.<br>
+                    Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria.
+                </p>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+HTML;
+    }
+
+    /**
+     * Branded HTML Template for Registration Email Verification
+     */
+    private function buildEmailVerificationHtml(
+        string $recipientEmail,
+        string $recipientName,
+        string $otpCode,
+        string $verifyToken,
+        int $expiryMinutes = 60
+    ): string {
+        $name = !empty($recipientName) ? htmlspecialchars($recipientName, ENT_QUOTES, 'UTF-8') : 'Valued Customer';
+        $code = htmlspecialchars($otpCode, ENT_QUOTES, 'UTF-8');
+        $verifyUrl = 'https://hambaktech.com.ng/?verify_email=1&token=' . rawurlencode($verifyToken) . '&email=' . rawurlencode($recipientEmail);
+        $safeUrl = htmlspecialchars($verifyUrl, ENT_QUOTES, 'UTF-8');
+
+        return <<<HTML
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Verify Your HAMBAKTECH Account</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #0f172a; margin: 0; padding: 24px;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
+        <tr>
+            <td style="padding: 28px 32px; text-align: left; background: linear-gradient(135deg, #065f46 0%, #0284c7 100%);">
+                <div style="font-size: 18px; font-weight: 800; color: #ffffff; letter-spacing: -0.02em;">
+                    HAMBAK TECH &amp; SERVICES
+                </div>
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #d1fae5; margin-top: 4px; font-weight: 600;">
+                    Email Verification &bull; Account Activation
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 32px;">
+                <h1 style="color: #0f172a; font-size: 20px; font-weight: 800; margin: 0 0 12px 0;">
+                    Confirm Your Email Address
+                </h1>
+                <p style="font-size: 14px; line-height: 22px; color: #334155; margin-top: 0;">
+                    Hello <strong>{$name}</strong>,
+                </p>
+                <p style="font-size: 13px; line-height: 22px; color: #475569;">
+                    Thank you for registering on HAMBAK TECH &amp; SERVICES. To activate wallet funding, identity verification, VTU services, and order submissions, please verify your email address using the button or 6-digit code below:
+                </p>
+
+                <div style="margin: 24px 0; text-align: center;">
+                    <a href="{$safeUrl}" style="display: inline-block; background-color: #059669; color: #ffffff; text-decoration: none; padding: 13px 28px; border-radius: 10px; font-size: 14px; font-weight: 700;">
+                        Verify Email Address
+                    </a>
+                </div>
+
+                <div style="margin: 22px 0; text-align: center;">
+                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 8px; font-weight: 700;">
+                        Or enter this 6-digit verification code
+                    </div>
+                    <div style="display: inline-block; background-color: #ecfdf5; border: 2px solid #10b981; border-radius: 12px; padding: 14px 34px; letter-spacing: 8px; font-family: monospace; font-size: 30px; font-weight: 800; color: #065f46;">
+                        {$code}
+                    </div>
+                    <p style="font-size: 11px; color: #64748b; margin-top: 10px; margin-bottom: 0;">
+                        This verification link and code expire in <strong>{$expiryMinutes} minutes</strong>.
+                    </p>
+                </div>
+
+                <p style="font-size: 12px; color: #64748b; line-height: 18px; margin-top: 22px; margin-bottom: 0;">
+                    Need assistance? Email <a href="mailto:support@hambaktech.com.ng" style="color: #059669; font-weight: 600;">support@hambaktech.com.ng</a> or call Customer Service on 09127469686.
                 </p>
             </td>
         </tr>

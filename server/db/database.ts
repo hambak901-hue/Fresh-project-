@@ -30,6 +30,8 @@ export interface User {
   avatar_url?: string;
   transaction_pin_hash?: string;
   email_verified?: boolean;
+  email_verification_required?: boolean;
+  email_verified_at?: string;
   address?: string;
   state?: string;
   lga?: string;
@@ -625,8 +627,23 @@ export interface SlipTemplateItem {
   updated_at?: string;
 }
 
+export interface EmailVerificationRecord {
+  id: string;
+  user_id: string;
+  email: string;
+  token_hash: string;
+  code_hash: string;
+  attempts: number;
+  max_attempts: number;
+  is_used: boolean;
+  used_at?: string;
+  expires_at: string;
+  created_at: string;
+}
+
 interface DatabaseSchema {
   users: User[];
+  email_verifications?: EmailVerificationRecord[];
   transactions: Transaction[];
   verifications: VerificationRecord[];
   telecom_orders: TelecomOrder[];
@@ -885,10 +902,10 @@ function getDefaultData(): DatabaseSchema {
       maintenance_mode: false,
       active_verification_provider: '2sureverify',
       active_telecom_provider: 'ulamadata',
-      active_payment_gateway: 'flutterwave',
-      bank_transfer_account_name: 'Hambak Technologies Enterprise',
-      bank_transfer_bank: 'Moniepoint MFB',
-      bank_transfer_account_number: '8210492817',
+      active_payment_gateway: 'paystack',
+      bank_transfer_account_name: '',
+      bank_transfer_bank: '',
+      bank_transfer_account_number: '',
       company_name: 'HambakTech Technologies',
       support_phone: '+234 803 000 1122',
       support_email: 'support@hambaktech.com.ng',
@@ -961,7 +978,7 @@ function getDefaultData(): DatabaseSchema {
         {
           step: '02',
           title: 'Fund Your Balance',
-          description: 'Top up seamlessly via instant Flutterwave checkout or dedicated virtual bank accounts.',
+          description: 'Top up seamlessly via instant Paystack checkout or direct bank transfer.',
         },
         {
           step: '03',
@@ -1065,7 +1082,7 @@ function getDefaultData(): DatabaseSchema {
         id: 'faq_4',
         category: 'wallet',
         question: 'How do I fund my wallet balance?',
-        answer: 'You can fund your wallet using automated Flutterwave card checkout or via instant bank transfer to your dedicated Moniepoint virtual account.',
+        answer: 'You can fund your wallet instantly using Paystack checkout (Debit Card, Bank Transfer via Paystack, and USSD).',
         order: 4,
       },
       {
@@ -1088,7 +1105,7 @@ function getDefaultData(): DatabaseSchema {
     dashboard_modules: [
       { id: 'nin', name: 'NIN Services', description: 'NIMC & BVN Sovereign Identity Verification Engine', icon: 'ShieldCheck', status: 'active', visible: true, order: 1 },
       { id: 'telecom', name: 'Telecommunications', description: 'High-speed automated SME data & airtime top-up', icon: 'Smartphone', status: 'active', visible: true, order: 2 },
-      { id: 'wallet', name: 'My Wallet', description: 'Real-time ledger, Moniepoint VA, & instant funding', icon: 'Wallet', status: 'active', visible: true, order: 3 },
+      { id: 'wallet', name: 'My Wallet', description: 'Real-time ledger & Paystack instant funding', icon: 'Wallet', status: 'active', visible: true, order: 3 },
       { id: 'store', name: 'Store', description: 'Biometric scanners, POS terminals, and developer API licenses', icon: 'ShoppingBag', status: 'coming_soon', visible: true, coming_soon_message: 'Official launch in Phase 5. Hardware stock being staged.', order: 4 },
       { id: 'digital', name: 'Digital Services', description: 'Instant Cable TV renewal & 20-digit electricity prepaid tokens', icon: 'Zap', status: 'active', visible: true, order: 5 },
       { id: 'academy', name: 'Academy', description: 'Accredited VTU reseller masterclasses & NIMC agent licensing', icon: 'GraduationCap', status: 'coming_soon', visible: true, coming_soon_message: 'Accreditation syllabus under review.', order: 6 },
@@ -2138,6 +2155,9 @@ export function initDatabase(): void {
       if (!dbData.navigation) dbData.navigation = defaults.navigation;
       if (!dbData.dashboard_modules) dbData.dashboard_modules = defaults.dashboard_modules;
       if (!dbData.role_dashboard_configs) dbData.role_dashboard_configs = {};
+      if (!Array.isArray(dbData.email_verifications)) {
+        dbData.email_verifications = [];
+      }
       if (Array.isArray(dbData.users)) {
         for (const u of dbData.users) {
           if (!u.assigned_dashboard) {
@@ -2145,6 +2165,47 @@ export function initDatabase(): void {
           }
           if (!u.token_version) {
             u.token_version = 1;
+          }
+          if (u.email_verification_required === undefined) {
+            u.email_verification_required = false;
+          }
+          if (u.email_verified === undefined) {
+            u.email_verified = !u.email_verification_required;
+          }
+        }
+      }
+      if (!dbData.settings) {
+        dbData.settings = defaults.settings;
+      } else {
+        if ((dbData.settings as any).active_payment_gateway !== 'paystack') {
+          dbData.settings.active_payment_gateway = 'paystack';
+        }
+        dbData.settings.bank_transfer_account_number = '';
+        dbData.settings.bank_transfer_account_name = '';
+        dbData.settings.bank_transfer_bank = '';
+      }
+      if (Array.isArray(dbData.faqs)) {
+        const faq4 = dbData.faqs.find((f: any) => f.id === 'faq_4');
+        if (faq4 && /moniepoint|flutterwave|manual/i.test(String(faq4.answer || ''))) {
+          faq4.answer = 'You can fund your wallet instantly using Paystack checkout (Debit Card, Bank Transfer via Paystack, and USSD).';
+        }
+      }
+      if (Array.isArray(dbData.dashboard_modules)) {
+        const walMod = dbData.dashboard_modules.find((m: any) => m.id === 'wallet');
+        if (walMod && /moniepoint/i.test(String(walMod.description || ''))) {
+          walMod.description = 'Real-time ledger & Paystack instant funding';
+        }
+      }
+      if (dbData.dashboard_configs && typeof dbData.dashboard_configs === 'object') {
+        for (const cfg of Object.values(dbData.dashboard_configs as Record<string, any>)) {
+          for (const branch of ['draft_config', 'published_config']) {
+            const mods = cfg?.[branch]?.modules;
+            if (Array.isArray(mods)) {
+              const w = mods.find((m: any) => m.id === 'wallet');
+              if (w && /moniepoint|funding requests/i.test(String(w.description || ''))) {
+                w.description = 'Paystack instant funding & wallet ledger';
+              }
+            }
           }
         }
       }

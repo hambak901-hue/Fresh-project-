@@ -19,7 +19,8 @@
 import { Router } from 'express';
 import { db } from '../db/database.js';
 import { telecomManager } from '../adapters/telecom/TelecomAdapter.js';
-import { parseToken, hasUserPermission } from './auth.js';
+import { parseToken, hasUserPermission, requireVerifiedEmail } from './auth.js';
+import { sanitizeCustomerError } from '../services/errorSanitizer.js';
 
 export const telecomRouter = Router();
 
@@ -108,6 +109,7 @@ telecomRouter.get('/plans', (req, res) => {
 
 // POST /api/telecom/purchase-data
 telecomRouter.post('/purchase-data', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const { planId, phone, bypassValidation = false } = req.body;
 
@@ -141,7 +143,7 @@ telecomRouter.post('/purchase-data', requireAuth, async (req: any, res) => {
         { planId: plan.id, phone: cleanPhone, network: plan.network }
       );
     } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: sanitizeCustomerError(err?.message) });
     }
 
     // Call Provider Adapter (Ulamadata)
@@ -153,23 +155,24 @@ telecomRouter.post('/purchase-data', requireAuth, async (req: any, res) => {
     });
 
     if (!result.success) {
+      const safeError = sanitizeCustomerError(result.message);
       db.adjustBalance(
         req.user.id,
         plan.price,
         'manual_adjustment',
-        `REFUND: Failed ${plan.name} (${result.message})`,
+        `REFUND: Failed ${plan.name}`,
         'internal',
         { planId: plan.id, providerMessage: result.message }
       );
       db.addNotification(
         req.user.id,
         'Data Order Failed - Refunded',
-        `Could not complete ${plan.name} to ${cleanPhone}: ${result.message}. Your wallet was refunded.`,
+        `Could not complete ${plan.name} to ${cleanPhone}: ${safeError}. Your wallet was refunded.`,
         'alert'
       );
       return res.status(400).json({
         success: false,
-        error: result.message,
+        error: safeError,
         refunded: true,
         refundedAmount: plan.price,
         newBalance: req.user.wallet_balance,
@@ -217,7 +220,7 @@ telecomRouter.post('/purchase-data', requireAuth, async (req: any, res) => {
       newBalance: debitResult.user.wallet_balance,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Data purchase failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -227,6 +230,7 @@ telecomRouter.post('/purchase-data', requireAuth, async (req: any, res) => {
 
 // POST /api/telecom/purchase-airtime
 telecomRouter.post('/purchase-airtime', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const { network, phone, amount } = req.body;
     const numAmount = Number(amount);
@@ -250,7 +254,7 @@ telecomRouter.post('/purchase-airtime', requireAuth, async (req: any, res) => {
         { network, phone: cleanPhone, nominalAmount: numAmount, paid: payableAmount }
       );
     } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: sanitizeCustomerError(err?.message) });
     }
 
     // Call Provider Adapter (Ulamadata)
@@ -262,23 +266,24 @@ telecomRouter.post('/purchase-airtime', requireAuth, async (req: any, res) => {
     });
 
     if (!result.success) {
+      const safeError = sanitizeCustomerError(result.message);
       db.adjustBalance(
         req.user.id,
         payableAmount,
         'manual_adjustment',
-        `REFUND: Failed ₦${numAmount} ${network} airtime (${result.message})`,
+        `REFUND: Failed ₦${numAmount} ${network} airtime`,
         'internal',
         { network, amount: numAmount, providerMessage: result.message }
       );
       db.addNotification(
         req.user.id,
         'Airtime Recharge Failed - Refunded',
-        `Airtime recharge of ₦${numAmount} to ${cleanPhone} failed: ${result.message}. Your wallet was refunded.`,
+        `Airtime recharge of ₦${numAmount} to ${cleanPhone} failed: ${safeError}. Your wallet was refunded.`,
         'alert'
       );
       return res.status(400).json({
         success: false,
-        error: result.message,
+        error: safeError,
         refunded: true,
         refundedAmount: payableAmount,
         newBalance: req.user.wallet_balance,
@@ -318,7 +323,7 @@ telecomRouter.post('/purchase-airtime', requireAuth, async (req: any, res) => {
       newBalance: debitResult.user.wallet_balance,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Airtime purchase failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -338,6 +343,7 @@ telecomRouter.get('/airtime-pins/denominations', (req, res) => {
 
 // POST /api/telecom/purchase-airtime-pin
 telecomRouter.post('/purchase-airtime-pin', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const { network, denomination, quantity = 1, businessName } = req.body;
     const denomVal = Number(denomination);
@@ -369,7 +375,7 @@ telecomRouter.post('/purchase-airtime-pin', requireAuth, async (req: any, res) =
         { network, denomination: denomVal, quantity: qtyVal }
       );
     } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: sanitizeCustomerError(err?.message) });
     }
 
     const provider = telecomManager.getPrimaryProvider();
@@ -381,23 +387,24 @@ telecomRouter.post('/purchase-airtime-pin', requireAuth, async (req: any, res) =
     });
 
     if (!result.success) {
+      const safeError = sanitizeCustomerError(result.message);
       db.adjustBalance(
         req.user.id,
         totalAmount,
         'manual_adjustment',
-        `REFUND: Failed Airtime PIN generation (${result.message || 'Provider error'})`,
+        `REFUND: Failed Airtime PIN generation`,
         'internal',
-        { network, denomination: denomVal, quantity: qtyVal }
+        { network, denomination: denomVal, quantity: qtyVal, providerMessage: result.message }
       );
       db.addNotification(
         req.user.id,
         'Airtime PIN Generation Failed - Refunded',
-        `Generation of ${qtyVal}x ₦${denomVal} ${network} Airtime PINs failed: ${result.message || 'Provider error'}. Your wallet was refunded.`,
+        `Generation of ${qtyVal}x ₦${denomVal} ${network} Airtime PINs failed: ${safeError}. Your wallet was refunded.`,
         'alert'
       );
       return res.status(400).json({
         success: false,
-        error: result.message || 'Airtime PIN generation failed at provider',
+        error: safeError,
         refunded: true,
         refundedAmount: totalAmount,
         newBalance: req.user.wallet_balance,
@@ -431,7 +438,7 @@ telecomRouter.post('/purchase-airtime-pin', requireAuth, async (req: any, res) =
       newBalance: debitResult.user.wallet_balance,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Airtime PIN generation failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -448,6 +455,7 @@ telecomRouter.get('/airtime-swap/config', (req, res) => {
 
 // POST /api/telecom/airtime-swap
 telecomRouter.post('/airtime-swap', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const { network, phone, amount, bankName, accountNumber, accountName } = req.body;
     const numAmount = Number(amount);
@@ -499,7 +507,7 @@ telecomRouter.post('/airtime-swap', requireAuth, async (req: any, res) => {
       order,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Airtime swap request failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -547,12 +555,13 @@ telecomRouter.post('/verify-smartcard', requireAuth, async (req: any, res) => {
       bouquet: validation.bouquet,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Smartcard verification failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
 // POST /api/telecom/purchase-cable
 telecomRouter.post('/purchase-cable', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const { provider, smartcardNumber, packageId, phone } = req.body;
     if (!provider || !smartcardNumber || !packageId) {
@@ -578,7 +587,7 @@ telecomRouter.post('/purchase-cable', requireAuth, async (req: any, res) => {
         { provider: pkg.provider, smartcardNumber, packageId, packageName: pkg.name }
       );
     } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: sanitizeCustomerError(err?.message) });
     }
 
     const telecomProv = telecomManager.getPrimaryProvider();
@@ -592,23 +601,24 @@ telecomRouter.post('/purchase-cable', requireAuth, async (req: any, res) => {
     });
 
     if (!result.success) {
+      const safeError = sanitizeCustomerError(result.message);
       db.adjustBalance(
         req.user.id,
         pkg.price,
         'manual_adjustment',
-        `REFUND: Failed ${pkg.provider} ${pkg.name} cable subscription (${result.message || 'Provider error'})`,
+        `REFUND: Failed ${pkg.provider} ${pkg.name} cable subscription`,
         'internal',
-        { provider: pkg.provider, smartcardNumber, packageId }
+        { provider: pkg.provider, smartcardNumber, packageId, providerMessage: result.message }
       );
       db.addNotification(
         req.user.id,
         'Cable TV Subscription Failed - Refunded',
-        `Subscription for ${pkg.provider} (${pkg.name}) failed: ${result.message || 'Provider error'}. Your wallet was refunded.`,
+        `Subscription for ${pkg.provider} (${pkg.name}) failed: ${safeError}. Your wallet was refunded.`,
         'alert'
       );
       return res.status(400).json({
         success: false,
-        error: result.message || 'Cable subscription failed at provider',
+        error: safeError,
         refunded: true,
         refundedAmount: pkg.price,
         newBalance: req.user.wallet_balance,
@@ -655,7 +665,7 @@ telecomRouter.post('/purchase-cable', requireAuth, async (req: any, res) => {
       newBalance: debitResult.user.wallet_balance,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Cable renewal failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -675,6 +685,7 @@ telecomRouter.get('/data-pins/denominations', (req, res) => {
 
 // POST /api/telecom/purchase-data-pin
 telecomRouter.post('/purchase-data-pin', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const { network, planId, quantity = 1, businessName } = req.body;
     const qtyVal = Math.max(1, Math.min(50, Number(quantity)));
@@ -700,7 +711,7 @@ telecomRouter.post('/purchase-data-pin', requireAuth, async (req: any, res) => {
         { network: pinConfig.network, size: pinConfig.size, quantity: qtyVal }
       );
     } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: sanitizeCustomerError(err?.message) });
     }
 
     const provider = telecomManager.getPrimaryProvider();
@@ -713,23 +724,24 @@ telecomRouter.post('/purchase-data-pin', requireAuth, async (req: any, res) => {
     });
 
     if (!result.success) {
+      const safeError = sanitizeCustomerError(result.message);
       db.adjustBalance(
         req.user.id,
         totalAmount,
         'manual_adjustment',
-        `REFUND: Failed Data PIN generation (${result.message || 'Provider error'})`,
+        `REFUND: Failed Data PIN generation`,
         'internal',
-        { network: pinConfig.network, size: pinConfig.size, quantity: qtyVal }
+        { network: pinConfig.network, size: pinConfig.size, quantity: qtyVal, providerMessage: result.message }
       );
       db.addNotification(
         req.user.id,
         'Data PIN Generation Failed - Refunded',
-        `Generation of ${qtyVal}x ${pinConfig.size} Data PIN cards failed: ${result.message || 'Provider error'}. Your wallet was refunded.`,
+        `Generation of ${qtyVal}x ${pinConfig.size} Data PIN cards failed: ${safeError}. Your wallet was refunded.`,
         'alert'
       );
       return res.status(400).json({
         success: false,
-        error: result.message || 'Data PIN generation failed at provider',
+        error: safeError,
         refunded: true,
         refundedAmount: totalAmount,
         newBalance: req.user.wallet_balance,
@@ -763,7 +775,7 @@ telecomRouter.post('/purchase-data-pin', requireAuth, async (req: any, res) => {
       newBalance: debitResult.user.wallet_balance,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Data PIN generation failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -773,6 +785,7 @@ telecomRouter.post('/purchase-data-pin', requireAuth, async (req: any, res) => {
 
 // POST /api/telecom/send-bulksms
 telecomRouter.post('/send-bulksms', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const { senderId, recipients, message } = req.body;
     if (!senderId || !recipients || !message) {
@@ -803,7 +816,7 @@ telecomRouter.post('/send-bulksms', requireAuth, async (req: any, res) => {
         { senderId, pages, count: cleanRecipients.length }
       );
     } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: sanitizeCustomerError(err?.message) });
     }
 
     const provider = telecomManager.getPrimaryProvider();
@@ -858,7 +871,7 @@ telecomRouter.post('/send-bulksms', requireAuth, async (req: any, res) => {
       newBalance: debitResult.user.wallet_balance,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Bulk SMS dispatch failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -898,12 +911,13 @@ telecomRouter.post('/verify-meter', requireAuth, async (req: any, res) => {
       tariffClass: 'A-Non Maximum Demand (NMD)',
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Meter verification failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
 // POST /api/telecom/purchase-electricity
 telecomRouter.post('/purchase-electricity', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const { discoId, meterNumber, meterType = 'prepaid', amount, phone } = req.body;
     const numAmount = Number(amount);
@@ -926,7 +940,7 @@ telecomRouter.post('/purchase-electricity', requireAuth, async (req: any, res) =
         { discoId, meterNumber, meterType, amount: numAmount }
       );
     } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: sanitizeCustomerError(err?.message) });
     }
 
     const provider = telecomManager.getPrimaryProvider();
@@ -939,23 +953,24 @@ telecomRouter.post('/purchase-electricity', requireAuth, async (req: any, res) =
     });
 
     if (!result.success) {
+      const safeError = sanitizeCustomerError(result.message);
       db.adjustBalance(
         req.user.id,
         numAmount,
         'manual_adjustment',
-        `REFUND: Failed electricity token purchase (${result.message || 'Provider error'})`,
+        `REFUND: Failed electricity token purchase`,
         'internal',
-        { discoId, meterNumber, meterType, amount: numAmount }
+        { discoId, meterNumber, meterType, amount: numAmount, providerMessage: result.message }
       );
       db.addNotification(
         req.user.id,
         'Electricity Purchase Failed - Refunded',
-        `Electricity token for Meter ${meterNumber} failed: ${result.message || 'Provider error'}. Your wallet was refunded.`,
+        `Electricity token for Meter ${meterNumber} failed: ${safeError}. Your wallet was refunded.`,
         'alert'
       );
       return res.status(400).json({
         success: false,
-        error: result.message || 'Electricity token purchase failed at provider',
+        error: safeError,
         refunded: true,
         refundedAmount: numAmount,
         newBalance: req.user.wallet_balance,
@@ -997,7 +1012,7 @@ telecomRouter.post('/purchase-electricity', requireAuth, async (req: any, res) =
       newBalance: debitResult.user.wallet_balance,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Electricity token purchase failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -1017,6 +1032,7 @@ telecomRouter.get('/exam-packages', (req, res) => {
 
 // POST /api/telecom/purchase-exam-pin
 telecomRouter.post('/purchase-exam-pin', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const { examId, quantity = 1, phone } = req.body;
     const qtyVal = Math.max(1, Math.min(20, Number(quantity)));
@@ -1042,7 +1058,7 @@ telecomRouter.post('/purchase-exam-pin', requireAuth, async (req: any, res) => {
         { examId, examName: pkg.name, quantity: qtyVal }
       );
     } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: sanitizeCustomerError(err?.message) });
     }
 
     const examCode = (pkg as any).exam_name || (pkg as any).code || pkg.name;
@@ -1055,23 +1071,24 @@ telecomRouter.post('/purchase-exam-pin', requireAuth, async (req: any, res) => {
     });
 
     if (!result.success) {
+      const safeError = sanitizeCustomerError(result.message);
       db.adjustBalance(
         req.user.id,
         totalAmount,
         'manual_adjustment',
-        `REFUND: Failed exam PIN generation (${result.message || 'Provider error'})`,
+        `REFUND: Failed exam PIN generation`,
         'internal',
-        { examId, examName: pkg.name, quantity: qtyVal }
+        { examId, examName: pkg.name, quantity: qtyVal, providerMessage: result.message }
       );
       db.addNotification(
         req.user.id,
         'Exam Scratch Card Purchase Failed - Refunded',
-        `Purchase of ${qtyVal}x ${pkg.name} cards failed: ${result.message || 'Provider error'}. Your wallet was refunded.`,
+        `Purchase of ${qtyVal}x ${pkg.name} cards failed: ${safeError}. Your wallet was refunded.`,
         'alert'
       );
       return res.status(400).json({
         success: false,
-        error: result.message || 'Exam PIN purchase failed at provider',
+        error: safeError,
         refunded: true,
         refundedAmount: totalAmount,
         newBalance: req.user.wallet_balance,
@@ -1108,7 +1125,7 @@ telecomRouter.post('/purchase-exam-pin', requireAuth, async (req: any, res) => {
       newBalance: debitResult.user.wallet_balance,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Exam token purchase failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -1135,7 +1152,7 @@ telecomRouter.get('/verify/:reference', requireAuth, async (req: any, res) => {
       order,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Transaction query failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 

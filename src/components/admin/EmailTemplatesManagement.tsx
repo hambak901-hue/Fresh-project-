@@ -117,7 +117,7 @@ export const EmailTemplatesManagement: React.FC = () => {
       amount: '₦25,000.00',
       new_balance: '₦34,500.00',
       reference: 'TXN-902482-NG',
-      channel: 'Flutterwave Card Checkout',
+      channel: 'Paystack Online Checkout',
       reason: 'Bank network session timed out',
       service: 'NIN Premium Slip Verification',
       status: 'Successful',

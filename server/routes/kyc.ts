@@ -12,10 +12,11 @@
 
 import { Router } from 'express';
 import { db, User, KycSubmission, ServiceSecurityRule, VirtualAccountItem, verifyPin } from '../db/database.js';
-import { parseToken, hasUserPermission } from './auth.js';
+import { parseToken, hasUserPermission, requireVerifiedEmail } from './auth.js';
 import { validateUploadFile } from '../services/security.js';
 import { sendEmail } from '../services/mailer.js';
 import { verificationManager } from '../adapters/verification/VerificationAdapter.js';
+import { sanitizeCustomerError } from '../services/errorSanitizer.js';
 
 export const kycRouter = Router();
 
@@ -88,6 +89,7 @@ kycRouter.get('/status', requireAuth, (req: any, res) => {
 
 // POST /api/kyc/submit - Customer submits KYC identity verification
 kycRouter.post('/submit', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const {
       target_level = 2,
@@ -314,7 +316,7 @@ kycRouter.post('/submit', requireAuth, async (req: any, res) => {
       user: sanitizeUser(updatedUser),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Failed to submit KYC verification' });
+    res.status(500).json({ error: sanitizeCustomerError(err?.message) });
   }
 });
 

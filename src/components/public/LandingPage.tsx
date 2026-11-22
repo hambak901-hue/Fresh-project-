@@ -242,7 +242,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
       </section>
 
       {/* 4. COMPANY INTRODUCTION */}
-      <section className="rounded-2xl bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 p-8 sm:p-10 shadow-sm">
+      <section className="rounded-2xl bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 p-5 sm:p-10 shadow-sm">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           <div className="lg:col-span-7 space-y-4">
             <div className="text-xs font-semibold text-blue-700 dark:text-blue-400">{intro.badge}</div>
@@ -434,7 +434,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
       </section>
 
       {/* 7. BENEFITS */}
-      <section className="rounded-2xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 p-8 sm:p-10 space-y-8 shadow-sm">
+      <section className="rounded-2xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 p-5 sm:p-10 space-y-8 shadow-sm">
         <div>
           <div className="text-xs font-semibold text-blue-700 dark:text-blue-400">Customer Value</div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mt-1">
@@ -458,7 +458,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAuth
       </section>
 
       {/* 8. CALL TO ACTION */}
-      <section className="rounded-3xl bg-gradient-to-r from-blue-900 via-blue-800 to-slate-900 text-white p-8 sm:p-14 text-center space-y-5 shadow-xl">
+      <section className="rounded-3xl bg-gradient-to-r from-blue-900 via-blue-800 to-slate-900 text-white p-6 sm:p-14 text-center space-y-5 shadow-xl">
         <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
           {companyName} &bull; {regNo}
         </span>

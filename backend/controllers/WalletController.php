@@ -22,21 +22,18 @@ use HambakTech\Services\MailService;
 use HambakTech\Services\AccountingService;
 use HambakTech\Services\DashboardConfigService;
 use HambakTech\Adapters\Payment\PaystackAdapter;
-use HambakTech\Adapters\Payment\FlutterwaveAdapter;
 
 class WalletController
 {
     private Database $db;
     private WalletService $walletService;
     private PaystackAdapter $paystack;
-    private FlutterwaveAdapter $flutterwave;
 
     public function __construct()
     {
         $this->db = Database::getInstance();
         $this->walletService = new WalletService();
         $this->paystack = new PaystackAdapter();
-        $this->flutterwave = new FlutterwaveAdapter();
     }
 
     private function getWalletPolicy(): array
@@ -44,20 +41,19 @@ class WalletController
         $walletCfg = [
             'min_funding_amount' => 100.0,
             'max_funding_amount' => 500000.0,
-            'manual_funding_enabled' => true,
-            'bank_name' => 'Moniepoint MFB',
-            'bank_account_number' => '5210741634',
-            'bank_account_name' => 'Hambaktech_Services',
+            'manual_funding_enabled' => false,
+            'bank_name' => '',
+            'bank_account_number' => '',
+            'bank_account_name' => '',
         ];
         $gwCfg = [
             'active_gateway' => 'paystack',
             'enable_paystack' => true,
-            'enable_flutterwave' => false,
-            'enable_bank_transfer' => true,
+            'enable_bank_transfer' => false,
         ];
         try {
             $rows = $this->db->fetchAll(
-                'SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("wallet_settings","payment_gateways_settings","bank_transfer_bank","bank_transfer_account_number","bank_transfer_account_name","active_payment_gateway")'
+                'SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("wallet_settings","payment_gateways_settings","active_payment_gateway")'
             );
             $kv = [];
             foreach ($rows as $r) {
@@ -75,32 +71,17 @@ class WalletController
                     $gwCfg = array_merge($gwCfg, $dec);
                 }
             }
-            if (!empty($kv['bank_transfer_bank'])) {
-                $walletCfg['bank_name'] = trim((string)$kv['bank_transfer_bank']);
-            }
-            if (!empty($kv['bank_transfer_account_number'])) {
-                $walletCfg['bank_account_number'] = (string)$kv['bank_transfer_account_number'];
-            }
-            if (!empty($kv['bank_transfer_account_name'])) {
-                $walletCfg['bank_account_name'] = trim((string)$kv['bank_transfer_account_name']);
-            }
-            if (!empty($kv['active_payment_gateway'])) {
-                $gwCfg['active_gateway'] = (string)$kv['active_payment_gateway'];
-            }
         } catch (Throwable) {
         }
-        $normalizedAcc = preg_replace('/\s+/', '', trim((string)($walletCfg['bank_account_number'] ?? '')));
-        $walletCfg['bank_account_number'] = $normalizedAcc !== '' ? $normalizedAcc : '5210741634';
+        $walletCfg['manual_funding_enabled'] = false;
+        $walletCfg['bank_name'] = '';
+        $walletCfg['bank_account_number'] = '';
+        $walletCfg['bank_account_name'] = '';
         $walletCfg['min_funding_amount'] = max(100.0, (float)$walletCfg['min_funding_amount']);
         $walletCfg['max_funding_amount'] = max($walletCfg['min_funding_amount'], (float)$walletCfg['max_funding_amount']);
 
-        $activeGw = strtolower((string)($gwCfg['active_gateway'] ?? 'paystack'));
-        if ($activeGw === 'flutterwave' && empty($gwCfg['enable_flutterwave'])) {
-            $activeGw = !empty($gwCfg['enable_paystack']) ? 'paystack' : 'manual';
-        } elseif ($activeGw === 'paystack' && empty($gwCfg['enable_paystack'])) {
-            $activeGw = !empty($gwCfg['enable_flutterwave']) ? 'flutterwave' : 'manual';
-        }
-        $gwCfg['active_gateway'] = $activeGw;
+        $gwCfg['enable_bank_transfer'] = false;
+        $gwCfg['active_gateway'] = 'paystack';
 
         return ['wallet' => $walletCfg, 'gateways' => $gwCfg];
     }
@@ -144,8 +125,6 @@ class WalletController
         }
 
         $paystackActive = (bool)($gCfg['enable_paystack'] ?? true);
-        $flwActive = (bool)($gCfg['enable_flutterwave'] ?? false);
-        $manualActive = (bool)($wCfg['manual_funding_enabled'] ?? true) && (bool)($gCfg['enable_bank_transfer'] ?? true);
 
         $availableGateways = [
             [
@@ -153,18 +132,6 @@ class WalletController
                 'name' => 'Paystack Merchant Checkout',
                 'status' => $paystackActive ? 'active' : 'disabled',
                 'is_active' => ($activeGateway === 'paystack' && $paystackActive),
-            ],
-            [
-                'id' => 'manual',
-                'name' => 'Direct Bank Transfer',
-                'status' => $manualActive ? 'active' : 'disabled',
-                'is_active' => ($activeGateway === 'manual' && $manualActive),
-            ],
-            [
-                'id' => 'flutterwave',
-                'name' => 'Flutterwave Enterprise Gateway',
-                'status' => $flwActive ? 'active' : 'disabled',
-                'is_active' => ($activeGateway === 'flutterwave' && $flwActive),
             ],
         ];
 
@@ -184,11 +151,7 @@ class WalletController
                 'min_amount' => (float)$wCfg['min_funding_amount'],
                 'max_amount' => (float)$wCfg['max_funding_amount'],
             ],
-            'bankDetails' => [
-                'bank' => (string)($wCfg['bank_name'] ?? 'Moniepoint MFB'),
-                'accountNumber' => (string)($wCfg['bank_account_number'] ?? '5210741634'),
-                'accountName' => (string)($wCfg['bank_account_name'] ?? 'Hambaktech_Services'),
-            ],
+            'bankDetails' => null,
         ]);
     }
 
@@ -198,12 +161,9 @@ class WalletController
     public function gateways(Request $request): void
     {
         $policy = $this->getWalletPolicy();
-        $wCfg = $policy['wallet'];
         $gCfg = $policy['gateways'];
         $activeGateway = strtolower((string)($gCfg['active_gateway'] ?? 'paystack'));
         $paystackActive = (bool)($gCfg['enable_paystack'] ?? true);
-        $flwActive = (bool)($gCfg['enable_flutterwave'] ?? false);
-        $manualActive = (bool)($wCfg['manual_funding_enabled'] ?? true) && (bool)($gCfg['enable_bank_transfer'] ?? true);
 
         Response::success([
             'activeGateway' => $activeGateway,
@@ -213,18 +173,6 @@ class WalletController
                     'name' => 'Paystack Gateway',
                     'status' => $paystackActive ? 'active' : 'disabled',
                     'is_active' => ($activeGateway === 'paystack' && $paystackActive),
-                ],
-                [
-                    'id' => 'manual',
-                    'name' => 'Bank Transfer',
-                    'status' => $manualActive ? 'active' : 'disabled',
-                    'is_active' => ($activeGateway === 'manual' && $manualActive),
-                ],
-                [
-                    'id' => 'flutterwave',
-                    'name' => 'Flutterwave Gateway',
-                    'status' => $flwActive ? 'active' : 'disabled',
-                    'is_active' => ($activeGateway === 'flutterwave' && $flwActive),
                 ],
             ],
         ]);
@@ -238,17 +186,13 @@ class WalletController
         Auth::requireRole($request, ['admin', 'superadmin']);
         $gatewayId = strtolower((string)$request->input('gatewayId', ''));
 
-        if (!in_array($gatewayId, ['paystack', 'flutterwave', 'manual'], true)) {
-            Response::error('Invalid gateway ID.', 422);
+        if ($gatewayId !== 'paystack') {
+            Response::error('Invalid gateway ID. Only Paystack is supported as an automated online payment gateway.', 422);
             return;
         }
 
         $policy = $this->getWalletPolicy();
         $gCfg = $policy['gateways'];
-        if ($gatewayId === 'flutterwave' && empty($gCfg['enable_flutterwave'])) {
-            Response::error('Flutterwave is currently disabled in Payment Gateway settings. Configure valid live credentials and enable it first.', 422);
-            return;
-        }
         if ($gatewayId === 'paystack' && empty($gCfg['enable_paystack'])) {
             Response::error('Paystack is currently disabled in Payment Gateway settings.', 422);
             return;
@@ -277,14 +221,12 @@ class WalletController
 
     /**
      * 4. POST /api/wallet/fund/initiate and /api/wallet/paystack/initialize
-     * Server-side checkout initialization with Paystack or Flutterwave
+     * Server-side checkout initialization with Paystack
      */
     public function initiateFunding(Request $request): void
     {
-        $user = Auth::requireAuth($request);
-        $uri = $request->getPath();
-        $defaultGateway = str_contains($uri, 'flutterwave') ? 'flutterwave' : 'paystack';
-        $gateway = strtolower((string)$request->input('gateway', $defaultGateway));
+        $user = Auth::requireVerifiedEmail($request);
+        $gateway = strtolower(trim((string)$request->input('gateway', 'paystack')));
         $rawCallbackUrl = trim((string)$request->input('callback_url', 'https://hambaktech.com.ng/?payment=verify#portal'));
         $parsedCb = parse_url($rawCallbackUrl);
         $cbHost = strtolower((string)($parsedCb['host'] ?? ''));
@@ -302,11 +244,13 @@ class WalletController
         $maxAmt = (float)$policy['wallet']['max_funding_amount'];
         $gCfg = $policy['gateways'];
 
-        if ($gateway === 'flutterwave' && empty($gCfg['enable_flutterwave'])) {
-            Response::error('Flutterwave checkout is currently disabled by administrator settings.', 403);
+        if ($gateway !== 'paystack') {
+            Response::error('Unsupported payment gateway. Please use Paystack or Direct Bank Transfer.', 422);
+            return;
         }
-        if ($gateway === 'paystack' && array_key_exists('enable_paystack', $gCfg) && empty($gCfg['enable_paystack'])) {
+        if (array_key_exists('enable_paystack', $gCfg) && empty($gCfg['enable_paystack'])) {
             Response::error('Paystack checkout is currently disabled by administrator settings.', 403);
+            return;
         }
 
         if ($amount < $minAmt) {
@@ -316,8 +260,7 @@ class WalletController
             Response::error('Maximum single wallet funding amount is ₦' . number_format($maxAmt, 2) . '.', 422);
         }
 
-        $refPrefix = ($gateway === 'flutterwave') ? 'FLWFUND' : 'PAY_';
-        $reference = $refPrefix . strtoupper(bin2hex(random_bytes(6)));
+        $reference = 'PAY_' . strtoupper(bin2hex(random_bytes(6)));
         $paymentRecordId = Security::generateUuid();
 
         // 1. Create pending record in MySQL
@@ -327,30 +270,20 @@ class WalletController
             [
                 'id' => $paymentRecordId,
                 'uid' => $user['id'],
-                'gateway' => $gateway,
+                'gateway' => 'paystack',
                 'ref' => $reference,
                 'amt' => $amount,
             ]
         );
 
         try {
-            if ($gateway === 'flutterwave') {
-                $initRes = $this->flutterwave->initializePayment(
-                    $user['email'],
-                    $amount,
-                    $reference,
-                    $cbBase . $cbSep . 'gateway=flutterwave&reference=' . rawurlencode($reference) . $cbFrag,
-                    ['customer_name' => $user['full_name'], 'phone_number' => $user['phone_number']]
-                );
-            } else {
-                $initRes = $this->paystack->initializePayment(
-                    $user['email'],
-                    $amount,
-                    $reference,
-                    $cbBase . $cbSep . 'gateway=paystack&reference=' . rawurlencode($reference) . $cbFrag,
-                    ['customer_name' => $user['full_name'], 'phone_number' => $user['phone_number']]
-                );
-            }
+            $initRes = $this->paystack->initializePayment(
+                $user['email'],
+                $amount,
+                $reference,
+                $cbBase . $cbSep . 'gateway=paystack&reference=' . rawurlencode($reference) . $cbFrag,
+                ['customer_name' => $user['full_name'], 'phone_number' => $user['phone_number']]
+            );
 
             if (!empty($initRes)) {
                 try {
@@ -415,7 +348,7 @@ class WalletController
                 'error_message' => $e->getMessage(),
             ]);
 
-            Response::error($e->getMessage(), 502);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Payment service is temporarily unavailable. Please try again later or use Direct Bank Transfer.'), 502);
         }
     }
 
@@ -486,22 +419,15 @@ class WalletController
             }
         }
 
-        $gateway = $record['gateway'] ?? ((str_starts_with($reference, 'FLWFUND') || str_starts_with($reference, 'FLW_')) ? 'flutterwave' : 'paystack');
-        $savedVaId = null;
-        if ($record && !empty($record['raw_response'])) {
-            $recRaw = is_string($record['raw_response']) ? json_decode($record['raw_response'], true) : $record['raw_response'];
-            if (is_array($recRaw) && !empty($recRaw['flw_va_id'])) {
-                $savedVaId = (string)$recRaw['flw_va_id'];
-            }
+        $gateway = strtolower((string)($record['gateway'] ?? 'paystack'));
+        if ($gateway !== 'paystack') {
+            Response::error('This payment gateway is no longer supported. Please contact support for older transaction references.', 400);
+            return;
         }
 
         try {
-            // 2. Perform live verification directly with provider cURL
-            if ($gateway === 'flutterwave') {
-                $verifyRes = $this->flutterwave->verifyPayment($reference, !empty($flwTransactionId) ? $flwTransactionId : null, $savedVaId);
-            } else {
-                $verifyRes = $this->paystack->verifyPayment($reference);
-            }
+            // 2. Perform live verification directly with Paystack
+            $verifyRes = $this->paystack->verifyPayment($reference);
 
             $upStatus = strtolower(trim((string)($verifyRes['status'] ?? '')));
 
@@ -685,7 +611,7 @@ class WalletController
                     'error_message' => $verifyRes['gateway_response'] ?? 'Transaction failed',
                 ]);
 
-                Response::error('Payment not verified upstream: ' . ($verifyRes['gateway_response'] ?? 'Transaction failed'), 400);
+                Response::error('Payment verification was not successful. Please try again or contact support.', 400);
             }
         } catch (Throwable $e) {
             FootprintService::record([
@@ -701,7 +627,7 @@ class WalletController
                 'amount' => $amount,
                 'error_message' => $e->getMessage(),
             ]);
-            Response::error($e->getMessage(), 502);
+            Response::error(Security::sanitizeCustomerError($e->getMessage(), 'Payment verification is temporarily unavailable. Please try again shortly.'), 502);
         }
     }
 
@@ -809,116 +735,20 @@ class WalletController
     }
 
     /**
-     * 7. POST /api/wallet/flutterwave/webhook
-     * Official Flutterwave Webhook Handler with v4 (flutterwave-signature HMAC-SHA256) and v3 (verif-hash) validation
-     */
-    public function flutterwaveWebhook(Request $request): void
-    {
-        $rawBody = file_get_contents('php://input') ?: '';
-        $signature = $request->header('flutterwave-signature')
-            ?? $request->header('Flutterwave-Signature')
-            ?? $request->header('verif-hash')
-            ?? ($request->header('Verif-Hash') ?? '');
-
-        if (!$this->flutterwave->validateWebhookSignature($rawBody, (string)$signature)) {
-            Response::error('Invalid Flutterwave webhook signature', 401);
-            return;
-        }
-
-        $payload = json_decode($rawBody, true) ?: [];
-        $data = $payload['data'] ?? [];
-        $statusLower = strtolower((string)($data['status'] ?? ''));
-
-        if ($data && in_array($statusLower, ['successful', 'succeeded', 'completed', 'paid'], true)) {
-            $rawRef = (string)($data['meta']['wallet_reference'] ?? ($data['tx_ref'] ?? ($data['reference'] ?? '')));
-            $reference = trim($rawRef);
-            $alphaRef = preg_replace('/[^A-Za-z0-9]/', '', $reference) ?: $reference;
-            $amount = (float)($data['amount'] ?? 0.0);
-            $feeAmount = (float)($data['fees'][0]['amount'] ?? ($data['app_fee'] ?? 0.0));
-            $currency = strtoupper((string)($data['currency'] ?? 'NGN'));
-            $email = strtolower(trim((string)($data['customer']['email'] ?? '')));
-
-            if (!empty($reference) && $amount > 0 && $currency === 'NGN') {
-                $recordMatch = $this->db->fetchOne(
-                    'SELECT user_id, reference FROM payment_records WHERE reference = :ref OR REPLACE(reference, "_", "") = :aref LIMIT 1',
-                    ['ref' => $reference, 'aref' => $alphaRef]
-                );
-                if ($recordMatch) {
-                    $reference = (string)$recordMatch['reference'];
-                    $user = $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE id = :uid LIMIT 1', ['uid' => $recordMatch['user_id']]);
-                } else {
-                    $user = !empty($email)
-                        ? $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE LOWER(email) = :email LIMIT 1', ['email' => $email])
-                        : null;
-                }
-
-                if ($user) {
-                    $settledRes = $this->db->withTransaction(function (Database $db) use ($user, $reference, $amount, $feeAmount, $data) {
-                        $record = $db->fetchOne(
-                            'SELECT id, status, amount, reference FROM payment_records WHERE reference = :ref FOR UPDATE',
-                            ['ref' => $reference]
-                        );
-                        if ($record && $record['status'] === 'successful') {
-                            return ['already_settled' => true];
-                        }
-                        if ($record && $amount < (float)$record['amount']) {
-                            throw new RuntimeException('Flutterwave webhook underpayment rejected.');
-                        }
-
-                        $tx = $this->walletService->credit(
-                            $user['id'],
-                            $amount,
-                            'funding',
-                            $reference,
-                            'Flutterwave Webhook Automated Settlement',
-                            'flutterwave',
-                            ['flw_id' => $data['id'] ?? null, 'gateway_fee' => $feeAmount]
-                        );
-
-                        if ($record) {
-                            $db->execute(
-                                'UPDATE payment_records SET status = "successful", fee = :fee, paid_at = NOW(), raw_response = :raw WHERE id = :id',
-                                ['fee' => $feeAmount, 'raw' => json_encode($data), 'id' => $record['id']]
-                            );
-                        }
-                        return ['already_settled' => false, 'tx' => $tx];
-                    });
-
-                    if (empty($settledRes['already_settled'])) {
-                        try {
-                            (new AccountingService($this->db))->syncWebsiteTransactions();
-                        } catch (Throwable) {
-                        }
-                    }
-
-                    if (empty($settledRes['already_settled']) && !empty($user['email'])) {
-                        try {
-                            $mailer = new MailService();
-                            $amtFmt = '₦' . number_format($amount, 2);
-                            $balFmt = '₦' . number_format((float)($settledRes['tx']['balance_after'] ?? 0), 2);
-                            $safeName = htmlspecialchars((string)($user['full_name'] ?? 'Customer'), ENT_QUOTES, 'UTF-8');
-                            $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
-                                . "<h2 style='margin:0 0 12px;color:#059669;'>Wallet Credited: {$amtFmt}</h2>"
-                                . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
-                                . "<p style='color:#334155;'>Your Flutterwave transfer of <strong>{$amtFmt}</strong> (Ref: <code>{$reference}</code>) has settled into your wallet. New Balance: <strong>{$balFmt}</strong>.</p></div>";
-                            $mailer->send((string)$user['email'], (string)($user['full_name'] ?? 'Customer'), "Wallet Funding Confirmed ({$amtFmt}) — HAMBAKTECH", $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'FLW_WEBHOOK_CREDIT_EMAIL']);
-                        } catch (Throwable) {
-                        }
-                    }
-                }
-            }
-        }
-
-        Response::success(['status' => 'processed']);
-    }
-
-    /**
-     * 8. POST /api/wallet/manual-funding
+     * 7. POST /api/wallet/manual-funding
      * Handles real file upload or JSON receipt submission with secure storage outside public root
      */
     public function manualFunding(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        Auth::requireAuth($request);
+        Response::error('Direct Bank Transfer and Bank Transfer Proof submission have been discontinued. Please fund your wallet via Paystack.', 410);
+        return;
+    }
+
+    /** @phpstan-ignore-next-line legacy archive kept unreachable below */
+    private function manualFundingLegacyDisabled(Request $request): void
+    {
+        $user = Auth::requireVerifiedEmail($request);
         $policy = $this->getWalletPolicy();
         $wCfg = $policy['wallet'];
         $gCfg = $policy['gateways'];
@@ -1318,20 +1148,11 @@ class WalletController
                 'created_at' => $va['created_at'],
             ]);
         } else {
-            $policy = $this->getWalletPolicy();
-            $walletBank = $policy['wallet'] ?? [];
-            $bankName = trim((string)($walletBank['manual_bank_name'] ?? $walletBank['bank_name'] ?? ''));
-            $accountNumber = trim((string)($walletBank['manual_account_number'] ?? $walletBank['bank_account_number'] ?? ''));
-            $accountName = trim((string)($walletBank['manual_account_name'] ?? $walletBank['bank_account_name'] ?? ''));
             Response::success([
                 'has_virtual_account' => false,
                 'status' => 'pending_activation',
-                'message' => 'Dedicated NGN virtual accounts will be activated once business regulatory approvals are completed on Flutterwave.',
-                'bankDetails' => [
-                    'bank' => $bankName,
-                    'accountNumber' => $accountNumber,
-                    'accountName' => $accountName,
-                ],
+                'message' => 'Dedicated NGN virtual accounts will be activated once business regulatory approvals are completed.',
+                'bankDetails' => null,
             ]);
         }
     }

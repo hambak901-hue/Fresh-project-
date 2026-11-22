@@ -3,8 +3,6 @@
  * Enterprise Payment Gateway Adapter Architecture for HambakTech Portal.
  * Supports:
  * 1. Paystack (Primary operational gateway - Initialization, Checkout Authorization, Verification, Webhook validation)
- * 2. Flutterwave (Prepared as Coming Soon adapter - Separate architecture ready for activation)
- * 3. Manual Bank Transfer (Moniepoint / Commercial Bank Desk)
  */
 
 import crypto from 'crypto';
@@ -463,13 +461,11 @@ export class PaymentManager {
 
   constructor() {
     const paystack = new PaystackAdapter();
-    const flutterwave = new FlutterwaveAdapter();
     this.gateways.set(paystack.getId(), paystack);
-    this.gateways.set(flutterwave.getId(), flutterwave);
   }
 
-  getGateway(id: string): PaymentGatewayInterface {
-    return this.gateways.get(id) || this.gateways.get('paystack')!;
+  getGateway(_id: string): PaymentGatewayInterface {
+    return this.gateways.get('paystack')!;
   }
 
   getActiveGateway(): PaymentGatewayInterface {

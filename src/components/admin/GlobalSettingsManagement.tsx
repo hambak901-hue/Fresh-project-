@@ -251,16 +251,13 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
         type: 'select',
         options: [
           { label: 'Paystack', value: 'paystack' },
-          { label: 'Flutterwave', value: 'flutterwave' },
           { label: 'Manual Bank Transfer', value: 'bank_transfer' },
         ],
         helper: 'Default payment gateway selected in customer funding modal',
       },
       { key: 'enable_paystack', label: 'Enable Paystack Gateway', type: 'boolean', helper: 'Process cards, USSD, and instant bank transfers' },
-      { key: 'enable_flutterwave', label: 'Enable Flutterwave Gateway', type: 'boolean', helper: 'Process multi-currency and card payments' },
       { key: 'enable_bank_transfer', label: 'Enable Direct Bank Transfer', type: 'boolean', helper: 'Allow direct manual bank transfer submissions' },
       { key: 'paystack_charge_percent', label: 'Paystack Fee Rate (%)', type: 'number', helper: 'Configured settlement fee percentage' },
-      { key: 'flutterwave_charge_percent', label: 'Flutterwave Fee Rate (%)', type: 'number', helper: 'Configured settlement fee percentage' },
     ],
   },
   // 13. Provider Integration
@@ -430,7 +427,7 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
     description: 'API rate limits, webhook dispatch toggles, signature verification strictness, and CORS allowlist.',
     fields: [
       { key: 'rate_limit_requests_per_minute', label: 'API Rate Limit (Requests / Minute)', type: 'number', helper: 'Per-IP/user request limit per minute' },
-      { key: 'enable_webhook_dispatch', label: 'Enable Webhook Processing', type: 'boolean', helper: 'Accept Paystack/Flutterwave and provider callbacks' },
+      { key: 'enable_webhook_dispatch', label: 'Enable Webhook Processing', type: 'boolean', helper: 'Accept Paystack and provider callbacks' },
       { key: 'signature_verification_strict', label: 'Strict Webhook HMAC Verification', type: 'boolean', helper: 'Reject unsigned or invalid HMAC webhook signatures' },
       { key: 'cors_allowed_origins', label: 'CORS Allowed Origins', type: 'text', helper: 'Allowed frontend origins (comma-separated or *)' },
     ],

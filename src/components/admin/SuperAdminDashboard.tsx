@@ -1209,24 +1209,24 @@ export function SuperAdminDashboard({
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 sm:px-8 py-3.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-xl bg-slate-100 dark:bg-slate-800"
+              className="lg:hidden p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-xl bg-slate-100 dark:bg-slate-800 shrink-0"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block">
+            <div className="min-w-0">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden sm:block truncate">
                 HAMBAK TECH &amp; SERVICES &bull; {getRoleLabel(effectiveConsoleRole)} Console
               </p>
-              <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">{currentTitle}</h1>
+              <h1 className="text-sm sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight truncate">{currentTitle}</h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
             {canPreviewDashboards && onLaunchPreview && (
               <select
                 value=""

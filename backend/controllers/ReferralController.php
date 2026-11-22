@@ -83,7 +83,7 @@ class ReferralController
      */
     public function convertToWallet(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $body = $request->getBody();
 
         // Mandatory PIN verification gate
@@ -110,7 +110,7 @@ class ReferralController
      */
     public function convertPoints(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $body = $request->getBody();
 
         // Mandatory PIN verification gate
@@ -153,7 +153,7 @@ class ReferralController
      */
     public function requestWithdrawal(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $body = $request->getBody();
 
         // Mandatory PIN verification gate

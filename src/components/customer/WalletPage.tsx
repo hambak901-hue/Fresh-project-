@@ -1,7 +1,7 @@
 /**
  * @file WalletPage.tsx
  * Customer Wallet management page for HambakTech Enterprise.
- * Features available balance, Flutterwave funding, dedicated virtual accounts, manual payment proof submission,
+ * Features available balance, Paystack funding, dedicated virtual accounts, manual payment proof submission,
  * transaction ledger, and exportable financial statement.
  */
 

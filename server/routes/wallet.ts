@@ -6,18 +6,16 @@
  * 1. Individual customer wallets with atomic balance locks, credit, debit, statements, and ledger entries.
  * 2. Immutable double-entry ledger with atomic updates and duplicate protection.
  * 3. Paystack Online Gateway: Initialization, Authorization, Verification, Webhook with HMAC SHA512 signature validation.
- * 4. Customer Manual Funding Request Submission with proof uploads and bank transfer instructions.
- * 5. Admin Manual Payment Approval with idempotency and duplicate credit guards.
- * 6. Admin Wallet Controls: Manual Credit/Debit with mandatory audit logging and reason recording.
- * 7. Flutterwave Gateway: Registered as Coming Soon.
- * 8. Financial Administration: Summary metrics, ledger reports, and revenue analysis.
+ * 4. Admin Wallet Controls: Manual Credit/Debit with mandatory audit logging and reason recording.
+ * 5. Financial Administration: Summary metrics, ledger reports, and revenue analysis.
  */
 
 import { Router } from 'express';
 import { db, User, Transaction } from '../db/database.js';
 import { paymentManager, PaystackAdapter } from '../adapters/payment/PaymentAdapter.js';
-import { parseToken, hasAnyUserPermission } from './auth.js';
+import { parseToken, hasAnyUserPermission, requireVerifiedEmail } from './auth.js';
 import { sendEmail } from '../services/mailer.js';
+import { sanitizeCustomerError } from '../services/errorSanitizer.js';
 
 export const walletRouter = Router();
 
@@ -84,11 +82,7 @@ walletRouter.get('/summary', requireAuth, (req: any, res) => {
     recentTransactions: userTxns.slice(0, 15),
     activeGateway: paymentManager.getActiveGateway().getId(),
     availableGateways: paymentManager.getAllGateways(),
-    bankDetails: {
-      accountName: db.data.settings.bank_transfer_account_name || 'HAMBAKTECH ENTERPRISE',
-      bank: db.data.settings.bank_transfer_bank || 'Moniepoint Microfinance Bank',
-      accountNumber: db.data.settings.bank_transfer_account_number || '8210492817',
-    },
+    bankDetails: null,
   });
 });
 
@@ -180,6 +174,7 @@ walletRouter.get('/transactions', requireAuth, (req: any, res) => {
 // POST /api/wallet/paystack/initialize
 // Initializes transaction with Paystack and returns checkout URL
 walletRouter.post('/paystack/initialize', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const { amount, callback_url } = req.body;
     const numAmount = Number(amount);
@@ -233,7 +228,7 @@ walletRouter.post('/paystack/initialize', requireAuth, async (req: any, res) => 
     if (!result.success) {
       return res.status(400).json({
         success: false,
-        error: result.message || 'Payment initialization failed',
+        error: sanitizeCustomerError(result.message),
       });
     }
 
@@ -249,44 +244,16 @@ walletRouter.post('/paystack/initialize', requireAuth, async (req: any, res) => 
       is_simulated: result.is_simulated,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Payment initialization failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
-// POST /api/wallet/flutterwave/initialize
-walletRouter.post('/flutterwave/initialize', requireAuth, async (req: any, res) => {
-  try {
-    const { amount, callback_url = 'https://hambaktech.com.ng/dashboard?payment=verify' } = req.body;
-    const numAmount = parseFloat(amount);
-
-    if (isNaN(numAmount) || numAmount < 100) {
-      return res.status(400).json({ error: 'Minimum funding amount is ₦100' });
-    }
-
-    const tx_ref = `FLW_FUND_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-
-    const checkoutUrl = `https://checkout.flutterwave.com/v3/hosted/pay/${tx_ref}`;
-
-    res.json({
-      success: true,
-      status: 'success',
-      data: {
-        authorization_url: checkoutUrl,
-        link: checkoutUrl,
-        reference: tx_ref,
-        tx_ref,
-        amount: numAmount,
-        currency: 'NGN',
-      },
-      authorization_url: checkoutUrl,
-      link: checkoutUrl,
-      reference: tx_ref,
-      tx_ref,
-      amount: numAmount,
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Flutterwave initialization failed' });
-  }
+// POST /api/wallet/flutterwave/initialize (Discontinued)
+walletRouter.post('/flutterwave/initialize', requireAuth, (_req: any, res) => {
+  return res.status(410).json({
+    success: false,
+    error: 'Flutterwave checkout has been discontinued. Please use Paystack or Direct Bank Transfer.',
+  });
 });
 
 // POST /api/wallet/paystack/verify
@@ -327,8 +294,7 @@ walletRouter.post('/paystack/verify', requireAuth, async (req: any, res) => {
       txn.metadata.verification_message = verifyResult.message;
       db.saveDatabase();
       return res.status(400).json({
-        error: 'Payment verification failed on Paystack',
-        details: verifyResult.message,
+        error: 'We could not confirm this payment yet. If you were debited, please try verifying again shortly or contact support.',
       });
     }
 
@@ -391,7 +357,7 @@ walletRouter.post('/paystack/verify', requireAuth, async (req: any, res) => {
       transaction: txn,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Payment verification failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -462,82 +428,14 @@ walletRouter.post('/paystack/webhook', (req: any, res) => {
 });
 
 // -------------------------------------------------------------
-// 3. MANUAL WALLET FUNDING (CUSTOMER INSTRUCTIONS & SUBMISSION)
+// 3. MANUAL WALLET FUNDING (DISCONTINUED — PAYSTACK ONLY)
 // -------------------------------------------------------------
 
-// POST /api/wallet/manual-funding - Customer submits proof of bank transfer
-walletRouter.post('/manual-funding', requireAuth, (req: any, res) => {
-  try {
-    const { amount, sender_name, bank_name, reference, remarks, payment_proof_url } = req.body;
-    const numAmount = Number(amount);
-
-    if (!numAmount || numAmount < 500) {
-      return res.status(400).json({ error: 'Minimum manual bank transfer funding amount is ₦500' });
-    }
-    if (!sender_name || !reference) {
-      return res.status(400).json({ error: 'Sender account name and bank transaction reference are required' });
-    }
-
-    const cleanRef = String(reference).trim().toUpperCase();
-
-    // Check if reference already exists to prevent duplicate submissions
-    const existing = db.data.transactions.find(t => t.reference === cleanRef);
-    if (existing) {
-      return res.status(400).json({
-        error: `A funding request with reference "${cleanRef}" already exists in the system (Status: ${existing.status}).`,
-      });
-    }
-
-    const txnId = `txn_man_${Date.now()}`;
-    const transaction: Transaction = {
-      id: txnId,
-      user_id: req.user.id,
-      type: 'credit',
-      amount: numAmount,
-      balance_before: req.user.wallet_balance,
-      balance_after: req.user.wallet_balance, // NOT credited until admin confirms in desk
-      category: 'funding',
-      reference: cleanRef,
-      gateway: 'manual_transfer',
-      status: 'pending',
-      description: `Manual Bank Transfer: ₦${numAmount.toLocaleString()} from ${sender_name} (${bank_name || 'Bank'})`,
-      metadata: {
-        sender_name,
-        bank_name: bank_name || 'Moniepoint MFB',
-        payment_proof_url: payment_proof_url || null,
-        customer_remarks: remarks || '',
-        submitted_at: new Date().toISOString(),
-        customer_email: req.user.email,
-        customer_phone: req.user.phone_number,
-      },
-      created_at: new Date().toISOString(),
-    };
-
-    db.data.transactions.unshift(transaction);
-    db.saveDatabase();
-
-    db.logAudit('MANUAL_FUNDING_REQUEST_CREATED', {
-      amount: numAmount,
-      reference: cleanRef,
-      sender_name,
-      bank_name,
-    }, req.user.id, req.user.email);
-
-    db.addNotification(
-      req.user.id,
-      'Bank Transfer Request Received',
-      `Your manual transfer proof for ₦${numAmount.toLocaleString()} (Ref: ${cleanRef}) was logged and queued for compliance verification.`,
-      'info'
-    );
-
-    res.json({
-      success: true,
-      message: 'Payment proof submitted successfully. Our settlement desk will verify and credit your wallet shortly.',
-      transaction,
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Submission failed' });
-  }
+// POST /api/wallet/manual-funding - Discontinued
+walletRouter.post('/manual-funding', requireAuth, (_req: any, res) => {
+  return res.status(410).json({
+    error: 'Direct Bank Transfer and Bank Transfer Proof submission have been discontinued. Please fund your wallet via Paystack.',
+  });
 });
 
 // -------------------------------------------------------------
@@ -545,32 +443,11 @@ walletRouter.post('/manual-funding', requireAuth, (req: any, res) => {
 // -------------------------------------------------------------
 
 // GET /api/wallet/admin/pending-fundings
-walletRouter.get('/admin/pending-fundings', requireAdmin, (req, res) => {
-  const pending = db.data.transactions.filter(
-    t => t.gateway === 'manual_transfer' && t.status === 'pending'
-  );
-
-  const populated = pending.map(t => {
-    const user = db.findUserById(t.user_id);
-    return {
-      ...t,
-      customer: user
-        ? {
-            id: user.id,
-            full_name: user.full_name,
-            email: user.email,
-            phone: user.phone_number,
-            tier: user.tier,
-            current_balance: user.wallet_balance,
-          }
-        : null,
-    };
-  });
-
+walletRouter.get('/admin/pending-fundings', requireAdmin, (_req, res) => {
   res.json({
     success: true,
-    count: populated.length,
-    pending: populated,
+    count: 0,
+    pending: [],
   });
 });
 
@@ -781,12 +658,14 @@ walletRouter.post('/admin/gateways/switch', requireAdmin, (req: any, res) => {
     return res.status(400).json({ error: 'Gateway ID is required' });
   }
 
-  const gateway = paymentManager.getGateway(gatewayId);
-  if (gateway.getStatus() === 'coming_soon') {
+  const normalizedId = String(gatewayId).trim().toLowerCase();
+  if (normalizedId !== 'paystack') {
     return res.status(400).json({
-      error: `Gateway "${gateway.getName()}" is currently in Coming Soon mode and cannot be activated until production certification is complete.`,
+      error: 'Only Paystack is supported as an automated online payment gateway.',
     });
   }
+
+  const gateway = paymentManager.getGateway(normalizedId);
 
   paymentManager.setActiveGateway(gatewayId);
   db.data.settings.active_payment_gateway = gatewayId as any;

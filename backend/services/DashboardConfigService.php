@@ -202,7 +202,7 @@ class DashboardConfigService
             ['id' => 'telecom', 'label' => 'Telecom & VTU', 'description' => 'Data bundles, airtime cashback, utility bills, pins & bulk SMS', 'status' => 'active', 'visible' => true, 'order' => $isStudent ? 4 : 3],
             ['id' => 'digital', 'label' => 'Digital Services', 'description' => 'Cable TV bouquets & electricity prepaid tokens', 'status' => 'active', 'visible' => true, 'order' => 4],
             ['id' => 'printing', 'label' => 'Printing Services', 'description' => 'Document printing, ID cards, banners, photos & delivery tracking', 'status' => 'active', 'visible' => true, 'order' => 5],
-            ['id' => 'wallet', 'label' => 'Wallet & Funding', 'description' => 'Paystack, Moniepoint VA, wallet ledger & funding requests', 'status' => 'active', 'visible' => true, 'order' => 6],
+            ['id' => 'wallet', 'label' => 'Wallet & Funding', 'description' => 'Paystack instant funding & wallet ledger', 'status' => 'active', 'visible' => true, 'order' => 6],
             ['id' => 'referrals', 'label' => $isAgent ? 'Agent Commission & Referrals' : 'Referral Rewards', 'description' => 'Invite users, earn points & convert rewards to wallet or cash', 'status' => 'active', 'visible' => true, 'order' => $isAgent ? 3 : 7],
             ['id' => 'store', 'label' => 'Hardware Store', 'description' => 'POS terminals, biometric scanners & digital hardware catalog', 'status' => 'active', 'visible' => true, 'order' => 8],
             ['id' => 'reports', 'label' => 'Reports & Statements', 'description' => 'Downloadable wallet statements & spending breakdown', 'status' => 'active', 'visible' => true, 'order' => 10],

@@ -46,6 +46,39 @@ export class ApiError extends Error {
   }
 }
 
+const GENERIC_SERVICE_UNAVAILABLE =
+  'This service is temporarily unavailable. Please try again later or contact support.';
+
+function sanitizeClientFacingError(rawMessage: string, endpoint: string, payload?: any): string {
+  const msg = String(rawMessage || '').trim();
+  if (!msg) return GENERIC_SERVICE_UNAVAILABLE;
+
+  // Never sanitize internal administrative/system diagnostic endpoints used by authorized console staff
+  if (endpoint.startsWith('/api/admin') || endpoint.startsWith('/api/system')) {
+    return msg;
+  }
+
+  // Always preserve customer account, verification, PIN, and own-wallet messages
+  if (
+    payload?.code === 'EMAIL_VERIFICATION_REQUIRED' ||
+    payload?.code === 'PIN_SETUP_REQUIRED' ||
+    /insufficient wallet balance|transaction pin|verify your email/i.test(msg)
+  ) {
+    return msg;
+  }
+
+  // Strip/mask upstream provider names, merchant balances, SQL/stack traces, URLs, or secret key leaks
+  if (
+    /ulamadata|vtpass|2sureverify|sureverify|veripine|randa|flutterwave|monnify|merchant\s+(wallet|balance)|provider\s+(balance|wallet|api|error)|sqlstate|pdoexception|uncaught\s+(error|exception)|stack\s+trace|curl\s+error|econnrefused|enotfound|https?:\/\/[^\s]+|flwseck|sk_live_|sk_test_/i.test(
+      msg
+    )
+  ) {
+    return GENERIC_SERVICE_UNAVAILABLE;
+  }
+
+  return msg;
+}
+
 type ApiRequestOptions = RequestInit & {
   timeoutMs?: number;
 };
@@ -140,10 +173,18 @@ async function request<T>(endpoint: string, options: ApiRequestOptions = {}): Pr
     ) {
       window.dispatchEvent(new CustomEvent('hambak:pin-setup-required', { detail: data }));
     }
-    throw new ApiError(
-      data?.error || data?.message || `Request failed with status ${response.status}`,
-      { statusCode: response.status, payload: data }
-    );
+    if (
+      response.status === 403 &&
+      (data?.code === 'EMAIL_VERIFICATION_REQUIRED' || data?.errors?.email_verification_required) &&
+      typeof window !== 'undefined'
+    ) {
+      window.dispatchEvent(new CustomEvent('hambak:email-verification-required', { detail: data }));
+    }
+    const rawErr = data?.error || data?.message || `Request failed with status ${response.status}`;
+    throw new ApiError(sanitizeClientFacingError(rawErr, endpoint, data), {
+      statusCode: response.status,
+      payload: data,
+    });
   }
 
   // Handle both flat responses ({ token, user }) and wrapped responses ({ success: true, data: { token, user } })
@@ -261,13 +302,57 @@ export const api = {
     if (token && token !== 'undefined') {
       setStoredToken(token);
     }
-    return {
+      return {
       success: true,
       token,
       user: user && dashboardConfig ? { ...user, dashboard_config: dashboardConfig } : user,
       dashboard_config: dashboardConfig,
       pin_policy: res.pin_policy || res.data?.pin_policy,
     };
+  },
+
+  async verifyEmail(params: {
+    email?: string;
+    otp_code?: string;
+    token?: string;
+  }): Promise<{
+    success: boolean;
+    verified?: boolean;
+    already_verified?: boolean;
+    message?: string;
+    token?: string;
+    user?: User;
+  }> {
+    const res = await request<any>('/api/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    const freshToken = res.token || res.data?.token || '';
+    if (freshToken && freshToken !== 'undefined') {
+      setStoredToken(freshToken);
+    }
+    return {
+      success: true,
+      verified: Boolean(res.verified ?? res.data?.verified ?? true),
+      already_verified: Boolean(res.already_verified ?? res.data?.already_verified),
+      message: res.message || res.data?.message || 'Email verified successfully.',
+      token: freshToken || undefined,
+      user: res.user || res.data?.user,
+    };
+  },
+
+  async resendVerification(email?: string): Promise<{
+    success: boolean;
+    sent?: boolean;
+    already_verified?: boolean;
+    expires_in_minutes?: number;
+    cooldown_seconds?: number;
+    message?: string;
+  }> {
+    return request('/api/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify(email ? { email } : {}),
+    });
   },
 
   async getMe(): Promise<{
@@ -561,32 +646,6 @@ export const api = {
     return request('/api/wallet/paystack/verify', {
       method: 'POST',
       body: JSON.stringify({ reference, gateway: 'paystack' }),
-    });
-  },
-
-  async initializeFlutterwave(amount: number, callbackUrl?: string): Promise<{
-    success: boolean;
-    message: string;
-    authorization_url: string;
-    reference: string;
-    amount: number;
-  }> {
-    return request('/api/wallet/flutterwave/initialize', {
-      method: 'POST',
-      body: JSON.stringify({ gateway: 'flutterwave', amount, callback_url: callbackUrl }),
-    });
-  },
-
-  async verifyFlutterwavePayment(reference: string): Promise<{
-    success: boolean;
-    message: string;
-    balance: number;
-    transaction: Transaction;
-    already_credited?: boolean;
-  }> {
-    return request('/api/wallet/flutterwave/verify', {
-      method: 'POST',
-      body: JSON.stringify({ reference, gateway: 'flutterwave' }),
     });
   },
 
@@ -4294,7 +4353,7 @@ export const api = {
   async payPrintingOrder(
     id: string,
     payload: {
-      gateway: 'wallet' | 'paystack' | 'flutterwave' | 'manual_transfer';
+      gateway: 'wallet' | 'paystack' | 'manual_transfer';
       payment_scope?: 'full' | 'deposit' | 'balance' | 'delivery';
       transaction_pin?: string;
       payer_name?: string;
@@ -4452,7 +4511,7 @@ export const api = {
     payload: {
       amount: number;
       payment_scope: 'full' | 'deposit' | 'balance' | 'delivery';
-      gateway: 'cash' | 'pos' | 'manual_transfer' | 'paystack' | 'flutterwave';
+      gateway: 'cash' | 'pos' | 'manual_transfer' | 'paystack';
       reference?: string;
       remarks?: string;
     }

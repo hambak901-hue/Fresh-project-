@@ -6,7 +6,7 @@
  * 2. Approve funding requests (idempotent, atomically credits customer wallet).
  * 3. Reject funding requests with custom mandatory reasons.
  * 4. Perform direct administrative wallet adjustments (Credit / Debit) with mandatory audit justification.
- * 5. Review Gateway status (Paystack Active vs Flutterwave Coming Soon).
+ * 5. Review Gateway status (Paystack Active & Moniepoint Direct Bank Transfer).
  * 6. View real-time Financial Administration Reports (Funding, Service Sales, Provider Expenditure, Gross Profit, and Float).
  */
 
@@ -644,12 +644,14 @@ export function ManualFundingQueue() {
                         ₦{(financialReports.funding.paystackFunding || 0).toLocaleString()}
                       </span>
                     </div>
-                    <div className="flex justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
-                      <span className="text-slate-400">Flutterwave Online:</span>
-                      <span className="font-mono text-amber-400 font-bold">
-                        ₦{(financialReports.funding.flutterwaveFunding || 0).toLocaleString()}
-                      </span>
-                    </div>
+                    {(financialReports.funding.flutterwaveFunding || 0) > 0 && (
+                      <div className="flex justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
+                        <span className="text-slate-400">Legacy Flutterwave (Historical):</span>
+                        <span className="font-mono text-amber-400 font-bold">
+                          ₦{(financialReports.funding.flutterwaveFunding || 0).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
                       <span className="text-slate-400">Manual Bank Transfers (Moniepoint):</span>
                       <span className="font-mono text-sky-400 font-bold">
@@ -688,7 +690,7 @@ export function ManualFundingQueue() {
       {activeSubTab === 'gateways' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {gateways.map(g => (
+            {gateways.filter(g => g.id !== 'flutterwave').map(g => (
               <div
                 key={g.id}
                 className={`p-6 rounded-2xl border transition-all ${
@@ -709,7 +711,7 @@ export function ManualFundingQueue() {
                         : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                     }`}
                   >
-                    {g.status === 'active' ? 'Operational' : g.status === 'disabled' ? 'Disabled / Unavailable' : 'Coming Soon'}
+                    {g.status === 'active' ? 'Operational' : 'Disabled'}
                   </span>
                 </div>
 
@@ -718,15 +720,9 @@ export function ManualFundingQueue() {
                     <p>
                       Official checkout engine. Supports Mastercard, Visa, Verve, USSD banking, and direct bank account transfers with instant webhook verification.
                     </p>
-                  ) : g.id === 'manual' ? (
-                    <p>
-                      Direct Moniepoint transfer desk. Customers submit transfer proof for administrative verification and ledger settlement.
-                    </p>
                   ) : (
                     <p>
-                      {g.status === 'active'
-                        ? 'Flutterwave checkout gateway is active and ready for live online payments and webhook verification.'
-                        : 'Flutterwave is currently disabled pending valid live v4 OAuth client credentials and secret hash configuration.'}
+                      Direct Moniepoint transfer desk. Customers submit transfer proof for administrative verification and ledger settlement.
                     </p>
                   )}
                 </div>

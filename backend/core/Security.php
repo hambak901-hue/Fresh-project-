@@ -119,4 +119,52 @@ class Security
         }
         return $value;
     }
+
+    public static function sanitizeCustomerError(
+        string $rawMessage,
+        string $fallback = 'This service is temporarily unavailable. Please try again later or contact support.'
+    ): string {
+        $msg = trim($rawMessage);
+        if ($msg === '') {
+            return $fallback;
+        }
+
+        // Preserve customer's own wallet balance shortfall notice
+        if (
+            preg_match('/^insufficient\s+(?:wallet\s+)?balance\s*(?:\.\s*available:|\(available|\(required)/i', $msg) === 1
+            && preg_match('/(?:provider|ulamadata|2sureverify|twosureverify|veripine|vtpass|merchant|upstream|randa)/i', $msg) !== 1
+        ) {
+            return $msg;
+        }
+
+        // Mask upstream/merchant insufficient balance/wallet/credit errors
+        if (preg_match('/(?:insufficient|low|empty|exhausted).*(?:balance|wallet|fund|credit|unit)/i', $msg) === 1) {
+            return $fallback;
+        }
+
+        // Mask URLs, endpoints, provider names, keys, HTTP/cURL/PDO internals
+        $patterns = [
+            '/https?:\/\/\S+/i',
+            '/\b(?:ulamadata|vtpass|2sureverify|twosureverify|veripine|randa|flutterwave|rave|paystack|monnify)\b/i',
+            '/\b(?:api[_\s-]?key|secret[_\s-]?key|public[_\s-]?key|client[_\s-]?secret|client[_\s-]?id|bearer|authorization|webhook[_\s-]?hash|encryption[_\s-]?key|smtp|phpmailer)\b/i',
+            '/\b(?:curl|guzzle|pdoexception|sqlstate|syntax error|stack trace|uncaught|ssl|tls|socket|connection timed out|failed to open stream)\b/i',
+            '/\b(?:upstream|merchant\s+wallet|provider\s+(?:error|timeout|balance|wallet|rejected|failed|unavailable)|gateway\s+(?:credentials|error|timeout))\b/i',
+            '/\b(?:fund\s+(?:your\s+)?(?:merchant|api|provider|vendor)?\s*wallet|low\s+balance|credit\s+limit|exceeded\s+quota|not\s+configured|credentials?\s+missing)\b/i',
+            '/\bhttp\s*(?:4\d\d|5\d\d|status\s*\d+)\b/i',
+            '/\.php:\d+/i',
+            '/^\s*[\{\[]/',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $msg) === 1) {
+                return $fallback;
+            }
+        }
+
+        if (mb_strlen($msg) > 220) {
+            return $fallback;
+        }
+
+        return $msg;
+    }
 }

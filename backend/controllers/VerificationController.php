@@ -573,9 +573,7 @@ class VerificationController
 
     private function sanitizeCustomerError(string $message): string
     {
-        $clean = preg_replace('/https?:\/\/\S+/i', '', $message) ?? $message;
-        $clean = str_ireplace(['2sureverify', 'veripine', 'ulamadata', 'api_key', 'twosureverify_api_key'], 'verification gateway', $clean);
-        return trim($clean) ?: 'Identity verification could not be completed at this moment.';
+        return Security::sanitizeCustomerError($message);
     }
 
     private function sanitizeResultForCustomer(array $data, string $serviceKey = '', string $type = ''): array
@@ -737,7 +735,7 @@ class VerificationController
     {
         self::ensureSlipSchemaAndDefaults($this->db);
 
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
 
         // Enforce explicit NDPR/NIMC authorization consent
@@ -1270,8 +1268,11 @@ class VerificationController
             ]);
 
             $displayError = $isAdmin ? $e->getMessage() : $this->sanitizeCustomerError($e->getMessage());
+            $errMsg = (!$isAdmin && str_starts_with($displayError, 'This service is temporarily unavailable'))
+                ? $displayError . ' Your wallet has been automatically refunded.'
+                : 'Verification could not be completed: ' . $displayError . '. Your wallet has been automatically refunded.';
             Response::error(
-                'Verification could not be completed: ' . $displayError . '. Your wallet has been automatically refunded.',
+                $errMsg,
                 502,
                 [
                     'refunded' => true,

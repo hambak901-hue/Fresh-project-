@@ -8,8 +8,9 @@
 import { Router } from 'express';
 import { db, VerificationRecord, IdentityServiceConfig } from '../db/database.js';
 import { CREDENTIALS } from '../config/credentials.js';
-import { parseToken } from './auth.js';
+import { parseToken, requireVerifiedEmail } from './auth.js';
 import { verificationManager } from '../adapters/verification/VerificationAdapter.js';
+import { sanitizeCustomerError } from '../services/errorSanitizer.js';
 
 export const verificationRouter = Router();
 
@@ -184,6 +185,7 @@ verificationRouter.get('/banks/enrollment', async (req, res) => {
 // 3. MAIN VERIFICATION & DISPATCH ENGINE
 // -------------------------------------------------------------
 verificationRouter.post('/verify', requireAuth, async (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
   try {
     const serviceKey = req.body.serviceKey || req.body.service_key;
     const consent = Boolean(req.body.consent || req.body.ndpr_consent);
@@ -263,12 +265,13 @@ verificationRouter.post('/verify', requireAuth, async (req: any, res) => {
 
     // If provider rejected transaction (e.g. invalid NIN, format error, or upstream failure):
     if (!providerResult.success && !providerResult.pending) {
+      const safeError = sanitizeCustomerError(providerResult.message);
       // Execute automatic refund to preserve user trust!
       db.adjustBalance(
         req.user.id,
         customerPrice,
         'manual_adjustment',
-        `REFUND: Failed ${service.name} (${providerResult.message})`,
+        `REFUND: Failed ${service.name}`,
         'internal',
         { serviceKey, failedRef: txnRef, providerMessage: providerResult.message }
       );
@@ -276,13 +279,13 @@ verificationRouter.post('/verify', requireAuth, async (req: any, res) => {
       db.addNotification(
         req.user.id,
         `${service.name} Failed - ₦${customerPrice.toLocaleString()} Refunded`,
-        `The provider could not fulfill this request (${providerResult.message}). Your wallet has been immediately refunded.`,
+        `Your verification request could not be completed (${safeError}). Your wallet has been immediately refunded.`,
         'alert'
       );
 
       return res.status(400).json({
         success: false,
-        error: providerResult.message,
+        error: safeError,
         refunded: true,
         refundedAmount: customerPrice,
         newBalance: req.user.wallet_balance,
@@ -350,7 +353,7 @@ verificationRouter.post('/verify', requireAuth, async (req: any, res) => {
       },
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Identity processing failed' });
+    res.status(500).json({ error: sanitizeCustomerError(error?.message) });
   }
 });
 
@@ -373,9 +376,16 @@ verificationRouter.get('/status/:reference', requireAuth, async (req: any, res) 
       db.saveDatabase();
     }
 
+    if (!result.success && !result.pending) {
+      return res.json({
+        ...result,
+        message: sanitizeCustomerError(result.message),
+      });
+    }
+
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: sanitizeCustomerError(err?.message) });
   }
 });
 
