@@ -287,6 +287,93 @@ class AcademyService
         return (int)$birthDate->diff($today)->y;
     }
 
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_UNDER_REVIEW = 'under_review';
+    public const STATUS_INFO_REQUESTED = 'information_requested';
+    public const STATUS_APPROVED = 'approved';
+    public const STATUS_REJECTED = 'rejected';
+    public const STATUS_ENROLLED = 'enrolled';
+    public const STATUS_WITHDRAWN = 'withdrawn';
+
+    public const CANONICAL_STATUSES = [
+        self::STATUS_PENDING,
+        self::STATUS_UNDER_REVIEW,
+        self::STATUS_INFO_REQUESTED,
+        self::STATUS_APPROVED,
+        self::STATUS_REJECTED,
+        self::STATUS_ENROLLED,
+        self::STATUS_WITHDRAWN,
+    ];
+
+    public const ACTIVE_APPLICATION_STATUSES = [
+        self::STATUS_PENDING,
+        self::STATUS_UNDER_REVIEW,
+        self::STATUS_INFO_REQUESTED,
+        self::STATUS_APPROVED,
+        self::STATUS_ENROLLED,
+    ];
+
+    public static function normalizeApplicationStatus(?string $status): string
+    {
+        $clean = strtolower(trim((string)$status));
+        if ($clean === 'info_requested') {
+            return self::STATUS_INFO_REQUESTED;
+        }
+        if (in_array($clean, self::CANONICAL_STATUSES, true)) {
+            return $clean;
+        }
+        return self::STATUS_PENDING;
+    }
+
+    public static function canTransition(string $fromStatus, string $toStatus): bool
+    {
+        $from = self::normalizeApplicationStatus($fromStatus);
+        $to = self::normalizeApplicationStatus($toStatus);
+        if ($from === $to) {
+            return false;
+        }
+
+        $matrix = [
+            self::STATUS_PENDING => [
+                self::STATUS_UNDER_REVIEW,
+                self::STATUS_INFO_REQUESTED,
+                self::STATUS_APPROVED,
+                self::STATUS_REJECTED,
+                self::STATUS_WITHDRAWN,
+            ],
+            self::STATUS_UNDER_REVIEW => [
+                self::STATUS_INFO_REQUESTED,
+                self::STATUS_APPROVED,
+                self::STATUS_REJECTED,
+                self::STATUS_WITHDRAWN,
+            ],
+            self::STATUS_INFO_REQUESTED => [
+                self::STATUS_PENDING,
+                self::STATUS_UNDER_REVIEW,
+                self::STATUS_APPROVED,
+                self::STATUS_REJECTED,
+                self::STATUS_WITHDRAWN,
+            ],
+            self::STATUS_APPROVED => [
+                self::STATUS_ENROLLED,
+                self::STATUS_INFO_REQUESTED,
+                self::STATUS_REJECTED,
+                self::STATUS_WITHDRAWN,
+            ],
+            self::STATUS_ENROLLED => [
+                self::STATUS_WITHDRAWN,
+            ],
+            self::STATUS_REJECTED => [
+                self::STATUS_UNDER_REVIEW,
+            ],
+            self::STATUS_WITHDRAWN => [
+                self::STATUS_UNDER_REVIEW,
+            ],
+        ];
+
+        return in_array($to, $matrix[$from] ?? [], true);
+    }
+
     public static function generateApplicationRef(Database $db): string
     {
         $year = date('Y');
@@ -301,18 +388,34 @@ class AcademyService
         return 'HTDA-APP-' . $year . '-' . strtoupper(substr(Security::generateUuid(), 0, 6));
     }
 
+    /**
+     * Generates a monotonically increasing HTDA/YYYY/NNNN ID using MAX numeric suffix parsing (safe against deleted/withdrawn rows).
+     */
     public static function generateStudentId(Database $db, string $prefix = 'HTDA'): string
     {
         $cleanPrefix = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $prefix) ?: 'HTDA');
         $year = date('Y');
         $likePattern = "{$cleanPrefix}/{$year}/%";
 
-        $row = $db->fetchOne(
-            'SELECT COUNT(*) as total FROM academy_students WHERE student_id LIKE :pat',
+        $rows = $db->fetchAll(
+            'SELECT student_id FROM academy_students WHERE student_id LIKE :pat',
             ['pat' => $likePattern]
         );
-        $seq = (int)($row['total'] ?? 0) + 1;
 
+        $maxSeq = 0;
+        foreach ($rows as $r) {
+            $sid = (string)($r['student_id'] ?? '');
+            $parts = explode('/', $sid);
+            $last = end($parts);
+            if ($last !== false && ctype_digit($last)) {
+                $num = (int)$last;
+                if ($num > $maxSeq) {
+                    $maxSeq = $num;
+                }
+            }
+        }
+
+        $seq = $maxSeq + 1;
         while (true) {
             $candidate = sprintf('%s/%s/%04d', $cleanPrefix, $year, $seq);
             $exists = $db->fetchOne('SELECT id FROM academy_students WHERE student_id = :sid', ['sid' => $candidate]);
@@ -322,4 +425,371 @@ class AcademyService
             $seq++;
         }
     }
+
+    public static function findActiveDuplicateApplication(
+        Database $db,
+        string $courseId,
+        string $email,
+        ?string $userId = null
+    ): ?array {
+        $cleanEmail = strtolower(trim($email));
+        $placeholders = implode(',', array_fill(0, count(self::ACTIVE_APPLICATION_STATUSES), '?'));
+        $params = array_merge([$courseId, $cleanEmail], self::ACTIVE_APPLICATION_STATUSES);
+
+        $sql = "SELECT id, application_ref, status, course_id, user_id, created_at
+                FROM academy_applications
+                WHERE course_id = ?
+                  AND LOWER(email) = ?
+                  AND deleted_at IS NULL
+                  AND status IN ({$placeholders})
+                ORDER BY created_at DESC LIMIT 1";
+
+        $row = $db->fetchOne($sql, $params);
+        if ($row) {
+            return $row;
+        }
+
+        if ($userId !== null && $userId !== '') {
+            $params2 = array_merge([$courseId, $userId], self::ACTIVE_APPLICATION_STATUSES);
+            $sql2 = "SELECT id, application_ref, status, course_id, user_id, created_at
+                     FROM academy_applications
+                     WHERE course_id = ?
+                       AND user_id = ?
+                       AND deleted_at IS NULL
+                       AND status IN ({$placeholders})
+                     ORDER BY created_at DESC LIMIT 1";
+            return $db->fetchOne($sql2, $params2) ?: null;
+        }
+
+        return null;
+    }
+
+    public static function recordEvent(
+        Database $db,
+        string $applicationId,
+        ?string $fromStatus,
+        string $toStatus,
+        string $action,
+        ?array $actor = null,
+        ?string $notes = null,
+        array $metadata = []
+    ): void {
+        try {
+            $db->execute(
+                'INSERT INTO academy_application_events
+                 (id, application_id, from_status, to_status, action, actor_user_id, actor_name, actor_role, notes, metadata_json, created_at)
+                 VALUES (:id, :app_id, :from_st, :to_st, :act, :actor_id, :actor_name, :actor_role, :notes, :meta, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'app_id' => $applicationId,
+                    'from_st' => $fromStatus !== null ? self::normalizeApplicationStatus($fromStatus) : null,
+                    'to_st' => self::normalizeApplicationStatus($toStatus),
+                    'act' => $action,
+                    'actor_id' => $actor['id'] ?? null,
+                    'actor_name' => (string)($actor['full_name'] ?? $actor['name'] ?? 'System'),
+                    'actor_role' => strtolower((string)($actor['role'] ?? 'system')),
+                    'notes' => $notes,
+                    'meta' => !empty($metadata) ? json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null,
+                ]
+            );
+        } catch (Throwable $e) {
+            Security::logPrivateError('AcademyEventLog', $e, ['application_id' => $applicationId, 'action' => $action]);
+        }
+    }
+
+    public static function getApplicationTimeline(Database $db, string $applicationId): array
+    {
+        try {
+            $rows = $db->fetchAll(
+                'SELECT id, application_id, from_status, to_status, action, actor_user_id, actor_name, actor_role, notes, metadata_json, created_at
+                 FROM academy_application_events
+                 WHERE application_id = :id
+                 ORDER BY created_at ASC, id ASC',
+                ['id' => $applicationId]
+            );
+            foreach ($rows as &$r) {
+                if (isset($r['metadata_json']) && is_string($r['metadata_json'])) {
+                    $dec = json_decode($r['metadata_json'], true);
+                    $r['metadata'] = is_array($dec) ? $dec : null;
+                } else {
+                    $r['metadata'] = null;
+                }
+                unset($r['metadata_json']);
+            }
+            return $rows;
+        } catch (Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * Issues a single-use, expiring (48h) hashed account invitation for an applicant without an account.
+     * Never creates, stores, or emails plaintext passwords.
+     */
+    public static function issueAccountInvitation(
+        Database $db,
+        string $applicationId,
+        string $email,
+        string $fullName,
+        string $phone,
+        string $applicationRef,
+        string $courseTitle
+    ): array {
+        $cleanEmail = strtolower(trim($email));
+        $rawToken = bin2hex(random_bytes(32));
+        $tokenHash = hash('sha256', $rawToken);
+        $invId = Security::generateUuid();
+
+        try {
+            $db->execute(
+                'UPDATE academy_account_invitations SET status = "revoked" WHERE LOWER(email) = :email AND status = "pending"',
+                ['email' => $cleanEmail]
+            );
+            $db->execute(
+                'INSERT INTO academy_account_invitations
+                 (id, application_id, email, full_name, phone, token_hash, expires_at, status, created_at)
+                 VALUES (:id, :app_id, :email, :name, :phone, :th, DATE_ADD(NOW(), INTERVAL 48 HOUR), "pending", NOW())',
+                [
+                    'id' => $invId,
+                    'app_id' => $applicationId,
+                    'email' => $cleanEmail,
+                    'name' => $fullName,
+                    'phone' => $phone,
+                    'th' => $tokenHash,
+                ]
+            );
+            $db->execute(
+                'UPDATE academy_applications SET account_link_status = "invited" WHERE id = :id AND (user_id IS NULL OR user_id = "")',
+                ['id' => $applicationId]
+            );
+        } catch (Throwable $e) {
+            Security::logPrivateError('AcademyIssueInviteDB', $e, ['application_id' => $applicationId]);
+            return ['issued' => false, 'sent' => false];
+        }
+
+        $sent = false;
+        try {
+            $mail = new MailService();
+            $res = $mail->sendAcademyAccountInvitation($cleanEmail, $fullName, $applicationRef, $courseTitle, $rawToken, 48);
+            $sent = !empty($res['sent']);
+        } catch (Throwable $e) {
+            Security::logPrivateError('AcademyIssueInviteMail', $e, ['application_id' => $applicationId]);
+        }
+
+        return [
+            'issued' => true,
+            'sent' => $sent,
+            'expires_hours' => 48,
+        ];
+    }
+
+    /**
+     * Reconciles unlinked academy_applications and academy_students rows to a verified user account by email.
+     * Safely upgrades role='customer' -> 'student' ONLY if an active enrolled student record exists.
+     * Preserves all non-customer roles (agent, support, staff, manager, admin, superadmin).
+     */
+    public static function reconcileUserAcademyLinks(
+        Database $db,
+        string $userId,
+        string $email,
+        bool $emailVerified = true
+    ): array {
+        $linkedApps = 0;
+        $linkedStudents = 0;
+        $roleUpgraded = false;
+        $cleanEmail = strtolower(trim($email));
+
+        if ($userId === '' || $cleanEmail === '' || !$emailVerified) {
+            return ['linked_applications' => 0, 'linked_students' => 0, 'role_upgraded' => false];
+        }
+
+        try {
+            $unlinkedApps = $db->fetchAll(
+                'SELECT id, status FROM academy_applications WHERE LOWER(email) = :email AND (user_id IS NULL OR user_id = "") AND deleted_at IS NULL',
+                ['email' => $cleanEmail]
+            );
+            if (!empty($unlinkedApps)) {
+                $db->execute(
+                    'UPDATE academy_applications
+                     SET user_id = :uid, account_link_status = "linked", updated_at = NOW()
+                     WHERE LOWER(email) = :email AND (user_id IS NULL OR user_id = "") AND deleted_at IS NULL',
+                    ['uid' => $userId, 'email' => $cleanEmail]
+                );
+                $linkedApps = count($unlinkedApps);
+                foreach ($unlinkedApps as $ua) {
+                    self::recordEvent(
+                        $db,
+                        (string)$ua['id'],
+                        (string)$ua['status'],
+                        (string)$ua['status'],
+                        'account_reconciled',
+                        ['id' => $userId, 'full_name' => $cleanEmail, 'role' => 'customer'],
+                        'Application automatically linked upon verified account authentication.'
+                    );
+                }
+            }
+
+            $unlinkedStudents = $db->fetchAll(
+                'SELECT id FROM academy_students WHERE LOWER(email) = :email AND (user_id IS NULL OR user_id = "") AND deleted_at IS NULL',
+                ['email' => $cleanEmail]
+            );
+            if (!empty($unlinkedStudents)) {
+                $db->execute(
+                    'UPDATE academy_students
+                     SET user_id = :uid, updated_at = NOW()
+                     WHERE LOWER(email) = :email AND (user_id IS NULL OR user_id = "") AND deleted_at IS NULL',
+                    ['uid' => $userId, 'email' => $cleanEmail]
+                );
+                $linkedStudents = count($unlinkedStudents);
+            }
+
+            $db->execute(
+                'UPDATE academy_account_invitations
+                 SET status = "accepted", used_at = COALESCE(used_at, NOW()), created_user_id = COALESCE(created_user_id, :uid)
+                 WHERE LOWER(email) = :email AND status = "pending"',
+                ['uid' => $userId, 'email' => $cleanEmail]
+            );
+
+            // Promote customer -> student ONLY if an active enrolled academy_students record exists
+            $activeStudent = $db->fetchOne(
+                'SELECT id FROM academy_students WHERE (user_id = :uid OR LOWER(email) = :email) AND academic_status = "active" AND deleted_at IS NULL LIMIT 1',
+                ['uid' => $userId, 'email' => $cleanEmail]
+            );
+            if ($activeStudent) {
+                $userRow = $db->fetchOne('SELECT role, assigned_dashboard FROM users WHERE id = :id LIMIT 1', ['id' => $userId]);
+                $currRole = strtolower((string)($userRow['role'] ?? 'customer'));
+                if ($currRole === 'customer') {
+                    $db->execute(
+                        'UPDATE users SET role = "student", assigned_dashboard = "student", updated_at = NOW() WHERE id = :id AND role = "customer"',
+                        ['id' => $userId]
+                    );
+                    $roleUpgraded = true;
+                }
+            }
+        } catch (Throwable $e) {
+            Security::logPrivateError('AcademyReconcileLinks', $e, ['user_id' => $userId]);
+        }
+
+        return [
+            'linked_applications' => $linkedApps,
+            'linked_students' => $linkedStudents,
+            'role_upgraded' => $roleUpgraded,
+        ];
+    }
+
+    /**
+     * Evaluates whether an approved application satisfies all Phase 1 enrollment prerequisites.
+     */
+    public static function evaluateEnrollmentRequirements(Database $db, array $application, ?array $course = null): array
+    {
+        $missing = [];
+        $status = self::normalizeApplicationStatus((string)($application['status'] ?? 'pending'));
+        if ($status !== self::STATUS_APPROVED) {
+            $missing[] = 'Application must be in approved admission status first.';
+        }
+
+        if ($course && empty($course['is_available'])) {
+            $missing[] = 'Selected training course is currently marked unavailable for new enrollment.';
+        }
+
+        $user = null;
+        $userId = trim((string)($application['user_id'] ?? ''));
+        if ($userId === '') {
+            $missing[] = 'Applicant portal account is not yet created or linked.';
+        } else {
+            $user = $db->fetchOne(
+                'SELECT id, email, full_name, role, assigned_dashboard, status, email_verified FROM users WHERE id = :id LIMIT 1',
+                ['id' => $userId]
+            ) ?: null;
+            if (!$user) {
+                $missing[] = 'Linked user account record could not be found.';
+            } else {
+                if (($user['status'] ?? 'active') !== 'active') {
+                    $missing[] = 'Linked user account is suspended or inactive.';
+                }
+                if (empty($user['email_verified'])) {
+                    $missing[] = 'Applicant email address must be verified before enrollment activation.';
+                }
+            }
+        }
+
+        foreach ([
+            'full_name' => 'Full name',
+            'email' => 'Email address',
+            'phone' => 'Phone number',
+            'date_of_birth' => 'Date of birth',
+            'address' => 'Residential address',
+            'state' => 'State',
+            'lga' => 'LGA',
+        ] as $field => $label) {
+            if (trim((string)($application[$field] ?? '')) === '') {
+                $missing[] = "{$label} is required.";
+            }
+        }
+
+        $age = (int)($application['age_at_submission'] ?? 18);
+        if ($age < 18) {
+            if (trim((string)($application['guardian_name'] ?? '')) === '' ||
+                trim((string)($application['guardian_phone'] ?? '')) === '' ||
+                trim((string)($application['guardian_relationship'] ?? '')) === '') {
+                $missing[] = 'Parent / Guardian details are mandatory for applicants under 18.';
+            }
+        }
+
+        return [
+            'met' => empty($missing),
+            'missing' => $missing,
+            'user' => $user,
+        ];
+    }
+
+    public static function computeCustomerAccessSummary(array $user, array $applications, array $students): array
+    {
+        $role = strtolower((string)($user['role'] ?? 'customer'));
+        $hasActiveStudent = false;
+        $hasWithdrawnStudent = false;
+        foreach ($students as $st) {
+            $ast = strtolower((string)($st['academic_status'] ?? ''));
+            if (in_array($ast, ['active', 'graduated'], true)) {
+                $hasActiveStudent = true;
+            } elseif ($ast === 'withdrawn') {
+                $hasWithdrawnStudent = true;
+            }
+        }
+
+        $hasApprovedApp = false;
+        $hasActiveApp = false;
+        $hasWithdrawnApp = false;
+        foreach ($applications as $app) {
+            $st = self::normalizeApplicationStatus((string)($app['status'] ?? ''));
+            if ($st === self::STATUS_ENROLLED) {
+                $hasActiveStudent = true;
+            } elseif ($st === self::STATUS_APPROVED) {
+                $hasApprovedApp = true;
+            } elseif (in_array($st, [self::STATUS_PENDING, self::STATUS_UNDER_REVIEW, self::STATUS_INFO_REQUESTED], true)) {
+                $hasActiveApp = true;
+            } elseif ($st === self::STATUS_WITHDRAWN) {
+                $hasWithdrawnApp = true;
+            }
+        }
+
+        $accessLevel = 'none';
+        if ($hasActiveStudent || $role === 'student') {
+            $accessLevel = 'enrolled';
+        } elseif ($hasApprovedApp) {
+            $accessLevel = 'approved';
+        } elseif ($hasActiveApp) {
+            $accessLevel = 'applicant';
+        } elseif ($hasWithdrawnStudent || $hasWithdrawnApp) {
+            $accessLevel = 'withdrawn';
+        }
+
+        return [
+            'access_level' => $accessLevel,
+            'can_access_student_hub' => $hasActiveStudent || $role === 'student',
+            'has_active_enrollment' => $hasActiveStudent,
+            'has_approved_awaiting_enrollment' => $hasApprovedApp && !$hasActiveStudent,
+        ];
+    }
 }
+

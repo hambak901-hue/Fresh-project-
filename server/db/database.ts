@@ -171,11 +171,17 @@ export interface StoreItem {
 export interface AcademyCourse {
   id: string;
   title: string;
+  category?: string;
   level: string;
   duration: string;
   modules_count: number;
-  price: number;
+  price: number | null;
   description: string;
+  curriculum_outline?: string | null;
+  is_available?: boolean;
+  admission_start_date?: string | null;
+  admission_end_date?: string | null;
+  display_order?: number;
   status: 'draft' | 'enrolling' | 'active';
   created_at: string;
 }
@@ -584,11 +590,30 @@ export interface StoreSettingsItem {
 
 export interface AcademySettingsItem {
   academy_name: string;
+  short_name?: string;
+  email?: string;
+  contact_email?: string;
+  mentor_email?: string;
+  address?: string;
+  business_reg_number?: string;
+  motto?: string;
+  student_id_prefix?: string;
+  certificate_prefix?: string;
+  academy_enabled?: boolean;
+  coming_soon?: boolean;
+  enrollment_open?: boolean;
+  admission_open?: boolean;
   status: 'coming_soon' | 'active' | 'maintenance';
-  coming_soon_message: string;
+  coming_soon_message?: string;
   instructor_lead: string;
   certificate_issuer: string;
-  allow_waitlist: boolean;
+  allow_waitlist?: boolean;
+  whatsapp_number?: string;
+  business_phone?: string;
+  office_phone?: string;
+  banner_url?: string;
+  admission_start_date?: string;
+  admission_end_date?: string;
 }
 
 export interface ReportsSettingsItem {
@@ -688,6 +713,10 @@ interface DatabaseSchema {
   printing_orders?: any[];
   printing_order_history?: any[];
   printing_order_messages?: any[];
+  academy_applications?: any[];
+  academy_students?: any[];
+  academy_application_events?: any[];
+  academy_account_invitations?: any[];
   printing_payments?: any[];
   printing_settings?: any;
 }
@@ -1121,10 +1150,107 @@ function getDefaultData(): DatabaseSchema {
       { id: 'item_003', name: 'Enterprise VTU Reseller API Developer Key (Annual)', category: 'Software License', price: 50000, stock: 999, description: 'Unlimited 99.9% uptime telecom and verification API webhooks with zero rate limits.', status: 'active', created_at: new Date().toISOString() },
     ],
     academy_courses: [
-      { id: 'crs_001', title: 'Nigerian VTU Business Mastery & Automated Sells', level: 'Beginner to Pro', duration: '4 Weeks', modules_count: 8, price: 15000, description: 'Learn how to generate ₦150k - ₦500k monthly reselling data, airtime, and utility tokens with zero upfront inventory.', status: 'enrolling', created_at: new Date().toISOString() },
-      { id: 'crs_002', title: 'NIMC Identity Verification Agent Licensing Course', level: 'Professional', duration: '6 Weeks', modules_count: 12, price: 35000, description: 'Comprehensive compliance and software operating certification for authorized NIN and BVN slip enrollment centers.', status: 'enrolling', created_at: new Date().toISOString() },
-      { id: 'crs_003', title: 'Agency Banking & POS Terminal Fleet Operations', level: 'Intermediate', duration: '2 Weeks', modules_count: 6, price: 20000, description: 'Managing cash-in cash-out (CICO), float balancing, Moniepoint settlement gateways, and dispute resolution.', status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_01', title: 'Basic ICT', category: 'Foundational Computing', level: 'Beginner', duration: '1 month', modules_count: 4, price: 25000, description: 'Essential computer literacy, operating systems, file management, internet safety, email communication, and everyday workplace productivity.', is_available: true, display_order: 1, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_02', title: 'Microsoft Office Professional', category: 'Office Productivity', level: 'Beginner to Intermediate', duration: '1 month', modules_count: 4, price: null, description: 'Hands-on proficiency in Microsoft Word, Excel spreadsheets & formulas, PowerPoint presentations, and business document formatting.', is_available: true, display_order: 2, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_03', title: 'Graphic Design', category: 'Creative Design', level: 'Beginner to Pro', duration: '2 months', modules_count: 8, price: null, description: 'Comprehensive commercial brand identity, typography, layout composition, social media creatives, and print-ready production design.', is_available: true, display_order: 3, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_04', title: 'Photoshop', category: 'Creative Design', level: 'Beginner to Intermediate', duration: '1 month', modules_count: 4, price: null, description: 'Focused Adobe Photoshop mastery covering photo retouching, background masking, compositing, colour grading, and digital flyers.', is_available: true, display_order: 4, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_05', title: 'CorelDRAW', category: 'Creative Design', level: 'Beginner to Intermediate', duration: '1 month', modules_count: 4, price: null, description: 'Practical vector illustration and commercial print design using CorelDRAW for logos, banners, packaging, ID cards, and stationery.', is_available: true, display_order: 5, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_06', title: 'Canva Design', category: 'Creative Design', level: 'Beginner', duration: '1 month', modules_count: 4, price: null, description: 'Fast-turnaround visual content creation in Canva for business flyers, pitch decks, social media carousels, and brand kits.', is_available: true, display_order: 6, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_07', title: 'UI/UX Design', category: 'Product & Interface Design', level: 'Intermediate', duration: '2 months', modules_count: 8, price: null, description: 'User research, wireframing, design systems, interactive prototyping, and mobile/web product design using modern tools such as Figma.', is_available: true, display_order: 7, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_08', title: 'Frontend Web Development', category: 'Software Engineering', level: 'Beginner to Intermediate', duration: '3 months', modules_count: 12, price: null, description: 'Modern responsive website and web application engineering using HTML5, CSS3, Tailwind CSS, JavaScript, and React.', is_available: true, display_order: 8, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_09', title: 'Backend Development', category: 'Software Engineering', level: 'Intermediate', duration: '3 months', modules_count: 12, price: null, description: 'Server-side programming, relational database design with MySQL, REST API architecture, authentication, and secure production deployment.', is_available: true, display_order: 9, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_10', title: 'Full Stack Development', category: 'Software Engineering', level: 'Comprehensive Career Track', duration: '6 months', modules_count: 24, price: null, description: 'End-to-end software engineering program spanning frontend interfaces, backend APIs, MySQL databases, security, and live product launch.', is_available: true, display_order: 10, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_11', title: 'Programming (Python & JavaScript)', category: 'Programming', level: 'Beginner to Intermediate', duration: '3 months', modules_count: 12, price: null, description: 'Strong algorithmic problem-solving and software scripting foundations in Python and JavaScript for automation, web, and data workflows.', is_available: true, display_order: 11, status: 'enrolling', created_at: new Date().toISOString() },
+      { id: 'htda_12', title: 'Data Analysis', category: 'Data & Analytics', level: 'Beginner to Intermediate', duration: '3 months', modules_count: 12, price: null, description: 'Business intelligence and analytical storytelling using Microsoft Excel, SQL, Power BI, and Python for data cleaning and dashboards.', is_available: true, display_order: 12, status: 'enrolling', created_at: new Date().toISOString() },
     ],
+    academy_applications: [
+      {
+        id: 'app_prod_001',
+        application_ref: 'HTDA-APP-2026-00001',
+        user_id: null,
+        course_id: 'htda_03',
+        course_title: 'Graphic Design',
+        course_duration: '2 months',
+        full_name: 'Adegboyega Ruqoyah Oyinkonsola',
+        email: 'ruqoyah.adegboyega@example.ng',
+        phone: '08010000001',
+        date_of_birth: '2001-05-14',
+        age_at_submission: 25,
+        gender: 'Female',
+        address: 'Lekki Axis, Lagos State',
+        state: 'Lagos',
+        lga: 'Ibeju-Lekki',
+        study_mode: 'physical',
+        preferred_schedule: 'weekday',
+        status: 'enrolled',
+        enrollment_requirements_met: true,
+        account_link_status: 'unlinked',
+        created_at: '2026-11-17T09:00:00.000Z',
+        enrolled_at: '2026-11-17T10:00:00.000Z',
+      },
+      {
+        id: 'app_prod_002',
+        application_ref: 'HTDA-APP-2026-00002',
+        user_id: null,
+        course_id: 'htda_05',
+        course_title: 'CorelDRAW',
+        course_duration: '1 month',
+        full_name: 'Fatimoh Alake',
+        email: 'fatimoh.alake@example.ng',
+        phone: '08010000002',
+        date_of_birth: '2000-08-21',
+        age_at_submission: 26,
+        gender: 'Female',
+        address: 'Lekki Axis, Lagos State',
+        state: 'Lagos',
+        lga: 'Ibeju-Lekki',
+        study_mode: 'physical',
+        preferred_schedule: 'weekday',
+        status: 'enrolled',
+        enrollment_requirements_met: true,
+        account_link_status: 'unlinked',
+        created_at: '2026-11-20T09:00:00.000Z',
+        enrolled_at: '2026-11-20T10:00:00.000Z',
+      },
+    ],
+    academy_students: [
+      {
+        id: 'stu_prod_001',
+        student_id: 'HTDA/2026/0001',
+        application_id: 'app_prod_001',
+        user_id: null,
+        course_id: 'htda_03',
+        course_title: 'Graphic Design',
+        course_duration: '2 months',
+        full_name: 'Adegboyega Ruqoyah Oyinkonsola',
+        email: 'ruqoyah.adegboyega@example.ng',
+        phone: '08010000001',
+        enrollment_date: '2026-11-17',
+        academic_status: 'active',
+        id_card_issued_at: '2026-11-17T10:00:00.000Z',
+        qr_token: 'htda20260001qr',
+        created_at: '2026-11-17T10:00:00.000Z',
+      },
+      {
+        id: 'stu_prod_002',
+        student_id: 'HTDA/2026/0002',
+        application_id: 'app_prod_002',
+        user_id: null,
+        course_id: 'htda_05',
+        course_title: 'CorelDRAW',
+        course_duration: '1 month',
+        full_name: 'Fatimoh Alake',
+        email: 'fatimoh.alake@example.ng',
+        phone: '08010000002',
+        enrollment_date: '2026-11-20',
+        academic_status: 'active',
+        id_card_issued_at: '2026-11-20T10:00:00.000Z',
+        qr_token: 'htda20260002qr',
+        created_at: '2026-11-20T10:00:00.000Z',
+      },
+    ],
+    academy_application_events: [],
+    academy_account_invitations: [],
     provider_configs: [
       {
         id: '2sureverify',
@@ -1551,11 +1677,27 @@ function getDefaultData(): DatabaseSchema {
       allow_preorders: true,
     },
     academy_settings: {
-      academy_name: 'HambakTech VTU & Identity Reseller Academy',
-      status: 'coming_soon',
-      coming_soon_message: 'Accreditation syllabus under review with regulatory partners. Pre-enrollment waitlist open.',
-      instructor_lead: 'Bakar Hambak (Certified NIMC Infrastructure Lead)',
-      certificate_issuer: 'Hambak Technologies Enterprise Institute',
+      academy_name: 'HAMBAK TECH & SERVICES DIGITAL TRAINING ACADEMY',
+      short_name: 'HAMBAKTECH Digital Training Academy',
+      email: 'hambak901@gmail.com',
+      contact_email: 'hambak901@gmail.com',
+      mentor_email: 'hambak901@gmail.com',
+      address: 'Origanrigan, Cele Area, Lekki LCDA, Lagos State, Nigeria',
+      business_reg_number: 'BN 9284726',
+      motto: 'Where Technology Meets Services',
+      student_id_prefix: 'HTDA',
+      certificate_prefix: 'HTDA',
+      academy_enabled: true,
+      coming_soon: false,
+      enrollment_open: true,
+      admission_open: true,
+      status: 'active',
+      instructor_lead: 'HAMBAK TECH & SERVICES Faculty',
+      certificate_issuer: 'HAMBAK TECH & SERVICES DIGITAL TRAINING ACADEMY',
+      whatsapp_number: '09155104724',
+      business_phone: '08147837664',
+      office_phone: '09127469686',
+      banner_url: '',
       allow_waitlist: true,
     },
     reports_settings: {
@@ -2216,7 +2358,13 @@ export function initDatabase(): void {
         }
       }
       if (!dbData.store_items) dbData.store_items = defaults.store_items;
-      if (!dbData.academy_courses) dbData.academy_courses = defaults.academy_courses;
+      if (!dbData.academy_courses || dbData.academy_courses.some((c: any) => String(c.id).startsWith('crs_'))) {
+        dbData.academy_courses = defaults.academy_courses;
+      }
+      if (!dbData.academy_applications) dbData.academy_applications = defaults.academy_applications;
+      if (!dbData.academy_students) dbData.academy_students = defaults.academy_students;
+      if (!dbData.academy_application_events) dbData.academy_application_events = [];
+      if (!dbData.academy_account_invitations) dbData.academy_account_invitations = [];
       if (!dbData.identity_services) dbData.identity_services = defaults.identity_services;
       if (!dbData.provider_configs) dbData.provider_configs = defaults.provider_configs;
       if (!dbData.provider_logs) dbData.provider_logs = defaults.provider_logs || [];
@@ -2241,7 +2389,9 @@ export function initDatabase(): void {
       }
       if (!dbData.sms_config) dbData.sms_config = defaults.sms_config;
       if (!dbData.store_settings) dbData.store_settings = defaults.store_settings;
-      if (!dbData.academy_settings) dbData.academy_settings = defaults.academy_settings;
+      if (!dbData.academy_settings || dbData.academy_settings.status === 'coming_soon') {
+        dbData.academy_settings = defaults.academy_settings;
+      }
       if (!dbData.reports_settings) dbData.reports_settings = defaults.reports_settings;
       if (!dbData.customer_messages) dbData.customer_messages = defaults.customer_messages;
       if (!dbData.service_security_rules || dbData.service_security_rules.length === 0) {

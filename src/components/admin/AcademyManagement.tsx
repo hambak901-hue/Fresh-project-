@@ -1,9 +1,11 @@
 /**
  * @file AcademyManagement.tsx
- * Stage 2: HAMBAK TECH & SERVICES Digital Training Academy Admin Console.
+ * Phase 1: HAMBAK TECH & SERVICES Digital Training Academy Admin Console.
  * Features 4 tabs:
  * 1. Courses (12 Official Tracks & CRUD with nullable fee, categories, schedule dates, ordering)
- * 2. Admissions Queue (Review, Approve -> issue HTDA/YYYY/0001, Request Info, Reject, Under-18 Guardian inspection)
+ * 2. Admissions Queue (7 canonical statuses, Account Link inspection, Start Review, Request Info,
+ *    Approve Admission [without auto-enrolling], Requirement-Gated Complete Enrollment with Override,
+ *    Withdraw, Soft Delete guard, and immutable Audit Timeline)
  * 3. Enrolled Students Registry (Status & Completion Date management + QR Student ID Card modal)
  * 4. Academy Settings (Official identity, prefix, admissions open toggles & date window, phone lines)
  */
@@ -33,6 +35,10 @@ import {
   MessageSquareMore,
   XCircle,
   Calendar,
+  Link2,
+  Play,
+  Ban,
+  CheckSquare,
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import {
@@ -53,7 +59,7 @@ const DEFAULT_ACADEMY_SETTINGS: AcademySettings = {
   business_reg_number: 'BN 9284726',
   motto: 'Where Technology Meets Services',
   student_id_prefix: 'HTDA',
-  certificate_prefix: 'HTDA-CERT',
+  certificate_prefix: 'HTDA',
   status: 'active',
   coming_soon: false,
   coming_soon_message:
@@ -79,6 +85,19 @@ function formatPriceLabel(price: number | null | undefined): string {
   return `₦${Number(price).toLocaleString('en-NG')}`;
 }
 
+function getStatusPillClass(status: string): string {
+  const s = (status || '').toLowerCase();
+  if (s === 'enrolled') return 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300';
+  if (s === 'approved') return 'bg-teal-100 dark:bg-teal-500/15 text-teal-800 dark:text-teal-300';
+  if (s === 'rejected') return 'bg-rose-100 dark:bg-rose-500/15 text-rose-800 dark:text-rose-300';
+  if (s === 'withdrawn') return 'bg-slate-200 dark:bg-slate-700/60 text-slate-700 dark:text-slate-300';
+  if (s === 'information_requested' || s === 'info_requested') {
+    return 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300';
+  }
+  if (s === 'under_review') return 'bg-indigo-100 dark:bg-indigo-500/15 text-indigo-800 dark:text-indigo-300';
+  return 'bg-blue-100 dark:bg-blue-500/15 text-blue-800 dark:text-blue-300';
+}
+
 export const AcademyManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminAcademyTab>('courses');
   const [courses, setCourses] = useState<AcademyCourse[]>([]);
@@ -90,6 +109,8 @@ export const AcademyManagement: React.FC = () => {
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingCourse, setSavingCourse] = useState(false);
   const [reviewingApp, setReviewingApp] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [deletingApp, setDeletingApp] = useState(false);
   const [updatingStudentId, setUpdatingStudentId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -99,6 +120,10 @@ export const AcademyManagement: React.FC = () => {
   const [appStatusFilter, setAppStatusFilter] = useState<string>('all');
   const [appSearch, setAppSearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
+
+  // Inline Delete Confirmations
+  const [confirmDeleteCourseId, setConfirmDeleteCourseId] = useState<string | null>(null);
+  const [confirmDeleteApp, setConfirmDeleteApp] = useState(false);
 
   // Course Modal
   const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
@@ -124,6 +149,8 @@ export const AcademyManagement: React.FC = () => {
   const [selectedApp, setSelectedApp] = useState<AcademyApplication | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
   const [infoRequestMsg, setInfoRequestMsg] = useState('');
+  const [approveException, setApproveException] = useState(false);
+  const [exceptionReason, setExceptionReason] = useState('');
 
   // Student ID Card Modal + Edit Student Modal
   const [idCardStudent, setIdCardStudent] = useState<AcademyStudent | null>(null);
@@ -187,7 +214,13 @@ export const AcademyManagement: React.FC = () => {
   const filteredApplications = useMemo(() => {
     const q = appSearch.trim().toLowerCase();
     return applications.filter((a) => {
-      if (appStatusFilter !== 'all' && a.status !== appStatusFilter) return false;
+      if (appStatusFilter !== 'all') {
+        if (appStatusFilter === 'information_requested') {
+          if (a.status !== 'information_requested' && a.status !== 'info_requested') return false;
+        } else if (a.status !== appStatusFilter) {
+          return false;
+        }
+      }
       if (!q) return true;
       return (
         a.full_name.toLowerCase().includes(q) ||
@@ -211,7 +244,10 @@ export const AcademyManagement: React.FC = () => {
     });
   }, [students, studentSearch]);
 
-  const pendingCount = applications.filter((a) => a.status === 'pending' || a.status === 'info_requested').length;
+  const pendingCount = applications.filter((a) =>
+    ['pending', 'under_review', 'information_requested', 'info_requested'].includes(a.status)
+  ).length;
+  const approvedAwaitingCount = applications.filter((a) => a.status === 'approved').length;
 
   // Course CRUD handlers
   const handleOpenAddCourse = () => {
@@ -308,10 +344,10 @@ export const AcademyManagement: React.FC = () => {
   };
 
   const handleDeleteCourse = async (id: string, title: string) => {
-    if (!window.confirm(`Delete course "${title}"?`)) return;
     try {
       const res = await api.deleteAdminAcademyCourse(id);
       if (res.success) {
+        setConfirmDeleteCourseId(null);
         setFeedback({ type: 'success', message: `Course "${title}" removed.` });
         await loadAcademyData();
       }
@@ -321,18 +357,52 @@ export const AcademyManagement: React.FC = () => {
   };
 
   // Application review handlers
+  const refreshSelectedApplicationDetail = async (appId: string) => {
+    setDetailLoading(true);
+    try {
+      const detail = await api.getAdminAcademyApplicationDetail(appId);
+      if (detail?.success && detail.application) {
+        setSelectedApp({
+          ...detail.application,
+          student: detail.student || detail.application.student || null,
+          timeline: detail.timeline || detail.application.timeline || [],
+          enrollment_requirements:
+            detail.enrollment_requirements || detail.application.enrollment_requirements,
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to load application detail:', err);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
   const handleInspectApplication = (app: AcademyApplication) => {
     setSelectedApp(app);
     setAdminNotes(app.admin_notes || '');
     setInfoRequestMsg(app.info_request_message || '');
+    setApproveException(false);
+    setExceptionReason('');
+    setConfirmDeleteApp(false);
+    refreshSelectedApplicationDetail(app.id);
   };
 
-  const handleReviewAction = async (action: 'approve' | 'reject' | 'request_info') => {
+  const handleReviewAction = async (
+    action: 'start_review' | 'request_info' | 'approve' | 'reject' | 'enroll' | 'withdraw' | 'reconcile'
+  ) => {
     if (!selectedApp) return;
     if (action === 'request_info' && !infoRequestMsg.trim()) {
       setFeedback({ type: 'error', message: 'Please enter the details requested from the applicant.' });
       return;
     }
+    if (action === 'enroll' && approveException && exceptionReason.trim().length < 8) {
+      setFeedback({
+        type: 'error',
+        message: 'Provide an explicit exception reason (at least 8 characters) to override missing prerequisites.',
+      });
+      return;
+    }
+
     setReviewingApp(true);
     setFeedback(null);
     try {
@@ -340,25 +410,55 @@ export const AcademyManagement: React.FC = () => {
         action,
         admin_notes: adminNotes.trim() || undefined,
         info_request_message: action === 'request_info' ? infoRequestMsg.trim() : undefined,
+        approve_exception: action === 'enroll' ? approveException : undefined,
+        exception_reason: action === 'enroll' && approveException ? exceptionReason.trim() : undefined,
+        withdrawal_reason: action === 'withdraw' ? adminNotes.trim() || undefined : undefined,
       });
+
       if (res.success) {
-        setFeedback({
-          type: 'success',
-          message:
-            action === 'approve' && res.student
-              ? `Approved! Official Student ID issued: ${res.student.student_id}`
-              : res.message || 'Application review saved.',
-        });
-        setSelectedApp(null);
-        await loadAcademyData();
-        if (action === 'approve' && res.student) {
+        if (action === 'enroll' && res.student) {
+          setFeedback({
+            type: 'success',
+            message: `Enrollment completed! Official Student ID issued: ${res.student.student_id}`,
+          });
+          setSelectedApp(null);
+          await loadAcademyData();
           setIdCardStudent(res.student);
+        } else {
+          setFeedback({
+            type: 'success',
+            message:
+              action === 'approve'
+                ? 'Application approved (awaiting enrollment). Complete Enrollment when prerequisites are satisfied.'
+                : res.message || 'Application updated.',
+          });
+          await loadAcademyData();
+          await refreshSelectedApplicationDetail(selectedApp.id);
         }
       }
     } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || 'Failed to process application review' });
+      setFeedback({ type: 'error', message: err.message || 'Failed to process application action' });
     } finally {
       setReviewingApp(false);
+    }
+  };
+
+  const handleSoftDeleteApplication = async () => {
+    if (!selectedApp) return;
+    setDeletingApp(true);
+    setFeedback(null);
+    try {
+      const res = await api.deleteAdminAcademyApplication(selectedApp.id);
+      if (res.success) {
+        setFeedback({ type: 'success', message: res.message || 'Application archived / deleted.' });
+        setSelectedApp(null);
+        setConfirmDeleteApp(false);
+        await loadAcademyData();
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Unable to delete application' });
+    } finally {
+      setDeletingApp(false);
     }
   };
 
@@ -420,6 +520,11 @@ export const AcademyManagement: React.FC = () => {
     window.location.hash = `#verify-student/${encodeURIComponent(studentId)}`;
   };
 
+  const isProtectedRecord = (app: AcademyApplication): boolean => {
+    const sid = (app.student_id || app.student?.student_id || '').toUpperCase();
+    return sid === 'HTDA/2026/0001' || sid === 'HTDA/2026/0002' || app.status === 'enrolled';
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Header */}
@@ -433,7 +538,7 @@ export const AcademyManagement: React.FC = () => {
             Academy Courses, Admissions &amp; Student Registry
           </h2>
           <p className="text-slate-600 dark:text-slate-400 text-xs mt-1">
-            Manage all official curriculum tracks, admission reviews (with Under-18 guardian verification), QR Student ID cards, and enrollment dates.
+            Manage all official curriculum tracks, admission workflow transitions, account linking, prerequisite-gated enrollments, and QR Student ID cards.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -482,10 +587,10 @@ export const AcademyManagement: React.FC = () => {
           </div>
         </div>
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
-          <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Pending Admissions</div>
+          <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">In-Review Admissions</div>
           <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">{pendingCount}</div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-            {applications.length} total applications received
+            {approvedAwaitingCount} approved awaiting enrollment &bull; {applications.length} total
           </div>
         </div>
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
@@ -511,7 +616,7 @@ export const AcademyManagement: React.FC = () => {
       <div className="flex flex-wrap gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
         {[
           { key: 'courses', label: `Courses (${courses.length})`, icon: BookOpen },
-          { key: 'applications', label: `Admissions Queue (${pendingCount})`, icon: ClipboardList },
+          { key: 'applications', label: `Admissions Queue (${pendingCount + approvedAwaitingCount})`, icon: ClipboardList },
           { key: 'students', label: `Enrolled Students (${students.length})`, icon: Users },
           { key: 'settings', label: 'Academy Settings', icon: Settings },
         ].map((tab) => {
@@ -651,14 +756,33 @@ export const AcademyManagement: React.FC = () => {
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteCourse(course.id, course.title)}
-                              className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/20"
-                              title="Delete Course"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {confirmDeleteCourseId === course.id ? (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCourse(course.id, course.title)}
+                                  className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[10px] font-bold"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteCourseId(null)}
+                                  className="px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px]"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteCourseId(course.id)}
+                                className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/20"
+                                title="Delete Course"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -674,7 +798,7 @@ export const AcademyManagement: React.FC = () => {
       {/* TAB 2: ADMISSIONS QUEUE */}
       {activeTab === 'applications' && (
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div className="relative flex-1 max-w-sm">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -687,18 +811,27 @@ export const AcademyManagement: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap gap-1.5">
-              {['all', 'pending', 'info_requested', 'approved', 'rejected'].map((st) => (
+              {[
+                { key: 'all', label: 'All' },
+                { key: 'pending', label: 'Pending' },
+                { key: 'under_review', label: 'Under Review' },
+                { key: 'information_requested', label: 'Info Requested' },
+                { key: 'approved', label: 'Approved' },
+                { key: 'enrolled', label: 'Enrolled' },
+                { key: 'rejected', label: 'Rejected' },
+                { key: 'withdrawn', label: 'Withdrawn' },
+              ].map((st) => (
                 <button
-                  key={st}
+                  key={st.key}
                   type="button"
-                  onClick={() => setAppStatusFilter(st)}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold capitalize transition-colors ${
-                    appStatusFilter === st
+                  onClick={() => setAppStatusFilter(st.key)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${
+                    appStatusFilter === st.key
                       ? 'bg-blue-700 text-white'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                   }`}
                 >
-                  {st.replace('_', ' ')}
+                  {st.label}
                 </button>
               ))}
             </div>
@@ -711,6 +844,7 @@ export const AcademyManagement: React.FC = () => {
                   <th className="pb-3 pl-2">Reference</th>
                   <th className="pb-3">Applicant</th>
                   <th className="pb-3">Course Selected</th>
+                  <th className="pb-3">Account Link</th>
                   <th className="pb-3">Age / Guardian</th>
                   <th className="pb-3">Status</th>
                   <th className="pb-3 pr-2 text-right">Review</th>
@@ -719,13 +853,14 @@ export const AcademyManagement: React.FC = () => {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
                 {filteredApplications.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-10 text-center text-slate-500">
+                    <td colSpan={7} className="py-10 text-center text-slate-500">
                       No admission applications match this filter.
                     </td>
                   </tr>
                 ) : (
                   filteredApplications.map((app) => {
                     const isMinor = Number(app.age_at_submission) < 18;
+                    const linkState = app.account_link_status || (app.user_id ? 'linked' : 'unlinked');
                     return (
                       <tr key={app.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                         <td className="py-3 pl-2 font-mono font-bold text-blue-700 dark:text-blue-400">
@@ -751,6 +886,24 @@ export const AcademyManagement: React.FC = () => {
                           </div>
                         </td>
                         <td className="py-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              linkState === 'linked'
+                                ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                                : linkState === 'invited'
+                                ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300'
+                                : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            {linkState}
+                          </span>
+                          {app.linked_user_role && (
+                            <div className="text-[10px] text-slate-500 mt-0.5 capitalize">
+                              Role: {app.linked_user_role}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3">
                           <div className="flex items-center gap-1.5">
                             <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
                               {app.age_at_submission} yrs
@@ -769,17 +922,11 @@ export const AcademyManagement: React.FC = () => {
                         </td>
                         <td className="py-3">
                           <span
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase ${
-                              app.status === 'approved' || app.status === 'enrolled'
-                                ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
-                                : app.status === 'rejected'
-                                ? 'bg-rose-100 dark:bg-rose-500/15 text-rose-800 dark:text-rose-300'
-                                : app.status === 'info_requested'
-                                ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300'
-                                : 'bg-blue-100 dark:bg-blue-500/15 text-blue-800 dark:text-blue-300'
-                            }`}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase ${getStatusPillClass(
+                              app.status
+                            )}`}
                           >
-                            {app.status.replace('_', ' ')}
+                            {app.status.replace(/_/g, ' ')}
                           </span>
                         </td>
                         <td className="py-3 pr-2 text-right">
@@ -837,7 +984,7 @@ export const AcademyManagement: React.FC = () => {
                 {filteredStudents.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-10 text-center text-slate-500">
-                      No enrolled students yet. Approve an admission application to issue an official Student ID.
+                      No enrolled students yet. Approve an application and complete enrollment to issue an official Student ID.
                     </td>
                   </tr>
                 ) : (
@@ -1312,14 +1459,32 @@ export const AcademyManagement: React.FC = () => {
         </div>
       )}
 
-      {/* APPLICATION REVIEW MODAL */}
+      {/* APPLICATION REVIEW MODAL (PHASE 1 WORKSTATION) */}
       {selectedApp && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 my-6 text-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-              <div>
-                <div className="font-mono font-bold text-blue-700 dark:text-blue-400">{selectedApp.application_ref}</div>
-                <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">{selectedApp.full_name}</h3>
+          <div className="w-full max-w-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5 my-6 text-xs max-h-[92vh] overflow-y-auto">
+            <div className="flex items-start justify-between pb-3 border-b border-slate-200 dark:border-slate-800 gap-4">
+              <div className="flex items-center gap-3">
+                {selectedApp.passport_url && (
+                  <img
+                    src={selectedApp.passport_url}
+                    alt={selectedApp.full_name}
+                    className="w-14 h-14 rounded-xl object-cover border border-slate-300 dark:border-slate-700 shrink-0"
+                  />
+                )}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-blue-700 dark:text-blue-400">
+                      {selectedApp.application_ref}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${getStatusPillClass(selectedApp.status)}`}>
+                      {selectedApp.status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-extrabold text-slate-900 dark:text-white mt-0.5">
+                    {selectedApp.full_name}
+                  </h3>
+                </div>
               </div>
               <button
                 type="button"
@@ -1344,21 +1509,38 @@ export const AcademyManagement: React.FC = () => {
               </div>
 
               <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5">
-                <div className="font-bold text-slate-900 dark:text-white uppercase text-[11px]">Enrollment &amp; Emergency</div>
+                <div className="font-bold text-slate-900 dark:text-white uppercase text-[11px]">Course &amp; Account Link</div>
                 <p><strong>Course:</strong> {selectedApp.course_title || selectedApp.course_id}</p>
-                <p><strong>Study Mode:</strong> {selectedApp.study_mode}</p>
-                <p><strong>Schedule:</strong> {selectedApp.preferred_schedule}</p>
+                <p><strong>Study Mode:</strong> {selectedApp.study_mode} &bull; {selectedApp.preferred_schedule}</p>
                 <p>
-                  <strong>Emergency Contact:</strong> {selectedApp.emergency_contact_name || '-'} (
-                  <span className="font-mono">{selectedApp.emergency_contact_phone || '-'}</span>)
+                  <strong>Account Link:</strong>{' '}
+                  <span className="uppercase font-bold">
+                    {selectedApp.account_link_status || (selectedApp.user_id ? 'linked' : 'unlinked')}
+                  </span>
+                  {selectedApp.linked_user_role && ` (${selectedApp.linked_user_role})`}
+                  {selectedApp.linked_user_verified !== null && selectedApp.linked_user_verified !== undefined && (
+                    <span className="ml-1 text-[11px]">
+                      {selectedApp.linked_user_verified ? '• Email Verified' : '• Email Unverified'}
+                    </span>
+                  )}
                 </p>
-                <p><strong>Current Status:</strong> <span className="uppercase font-bold">{selectedApp.status}</span></p>
-                {selectedApp.student_id && (
+                {(selectedApp.student_id || selectedApp.student?.student_id) && (
                   <p>
                     <strong>Issued Student ID:</strong>{' '}
-                    <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">{selectedApp.student_id}</span>
+                    <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                      {selectedApp.student_id || selectedApp.student?.student_id}
+                    </span>
                   </p>
                 )}
+                <button
+                  type="button"
+                  disabled={reviewingApp}
+                  onClick={() => handleReviewAction('reconcile')}
+                  className="mt-1 px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-blue-700 hover:text-white text-slate-800 dark:text-slate-200 text-[11px] font-semibold inline-flex items-center gap-1"
+                >
+                  <Link2 className="w-3 h-3" />
+                  <span>Reconcile Account Link</span>
+                </button>
               </div>
             </div>
 
@@ -1376,6 +1558,44 @@ export const AcademyManagement: React.FC = () => {
                   <strong>Guardian Phone:</strong> <span className="font-mono">{selectedApp.guardian_phone || '-'}</span> &bull;{' '}
                   <strong>Address:</strong> {selectedApp.guardian_address || '-'}
                 </p>
+              </div>
+            )}
+
+            {selectedApp.applicant_response && (
+              <div className="p-3.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-700/40 space-y-1">
+                <div className="font-bold text-indigo-800 dark:text-indigo-300">Applicant Submitted Response</div>
+                <p className="text-slate-800 dark:text-slate-200">{selectedApp.applicant_response}</p>
+              </div>
+            )}
+
+            {/* Enrollment Prerequisites Status */}
+            {selectedApp.enrollment_requirements && (
+              <div
+                className={`p-3.5 rounded-xl border space-y-1.5 ${
+                  selectedApp.enrollment_requirements.met
+                    ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-700/40'
+                    : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-700/40'
+                }`}
+              >
+                <div className="font-bold text-slate-900 dark:text-white flex items-center justify-between">
+                  <span>Enrollment Prerequisites Checklist</span>
+                  <span
+                    className={
+                      selectedApp.enrollment_requirements.met
+                        ? 'text-emerald-700 dark:text-emerald-300'
+                        : 'text-amber-700 dark:text-amber-300'
+                    }
+                  >
+                    {selectedApp.enrollment_requirements.met ? 'All Prerequisites Met' : 'Missing Prerequisites'}
+                  </span>
+                </div>
+                {!selectedApp.enrollment_requirements.met && (
+                  <ul className="list-disc list-inside text-amber-800 dark:text-amber-300 space-y-0.5">
+                    {selectedApp.enrollment_requirements.missing.map((m, idx) => (
+                      <li key={idx}>{m}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
 
@@ -1404,34 +1624,188 @@ export const AcademyManagement: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2.5 pt-3 border-t border-slate-200 dark:border-slate-800">
-              <button
-                type="button"
-                disabled={reviewingApp}
-                onClick={() => handleReviewAction('reject')}
-                className="px-4 py-2 rounded-xl bg-rose-50 dark:bg-rose-500/15 hover:bg-rose-100 text-rose-700 dark:text-rose-300 font-bold flex items-center gap-1.5"
-              >
-                <XCircle className="w-4 h-4" />
-                <span>Reject</span>
-              </button>
-              <button
-                type="button"
-                disabled={reviewingApp}
-                onClick={() => handleReviewAction('request_info')}
-                className="px-4 py-2 rounded-xl bg-amber-50 dark:bg-amber-500/15 hover:bg-amber-100 text-amber-800 dark:text-amber-300 font-bold flex items-center gap-1.5"
-              >
-                <MessageSquareMore className="w-4 h-4" />
-                <span>Request Info</span>
-              </button>
-              <button
-                type="button"
-                disabled={reviewingApp}
-                onClick={() => handleReviewAction('approve')}
-                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 shadow-sm"
-              >
-                <UserCheck className="w-4 h-4" />
-                <span>{reviewingApp ? 'Processing...' : 'Approve & Issue Student ID'}</span>
-              </button>
+            {/* Enrollment Exception Override (only when Approved & prerequisites missing) */}
+            {selectedApp.status === 'approved' && selectedApp.enrollment_requirements && !selectedApp.enrollment_requirements.met && (
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-800 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={approveException}
+                    onChange={(e) => setApproveException(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600"
+                  />
+                  <span>Admin Override: Approve Enrollment Exception Despite Missing Prerequisites</span>
+                </label>
+                {approveException && (
+                  <input
+                    type="text"
+                    value={exceptionReason}
+                    onChange={(e) => setExceptionReason(e.target.value)}
+                    placeholder="Enter mandatory exception justification (min 8 characters)..."
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Server-Enforced Transition Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex flex-wrap items-center gap-2">
+                {!isProtectedRecord(selectedApp) && !confirmDeleteApp && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteApp(true)}
+                    className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                )}
+                {confirmDeleteApp && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={deletingApp}
+                      onClick={handleSoftDeleteApplication}
+                      className="px-3 py-1.5 rounded-xl bg-rose-600 text-white font-bold"
+                    >
+                      {deletingApp ? 'Deleting...' : 'Confirm Soft Delete'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteApp(false)}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {['pending', 'information_requested', 'info_requested'].includes(selectedApp.status) && (
+                  <button
+                    type="button"
+                    disabled={reviewingApp}
+                    onClick={() => handleReviewAction('start_review')}
+                    className="px-3.5 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-100 text-indigo-800 dark:text-indigo-300 font-bold flex items-center gap-1.5"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                    <span>Start Review</span>
+                  </button>
+                )}
+
+                {['pending', 'under_review', 'approved'].includes(selectedApp.status) && (
+                  <button
+                    type="button"
+                    disabled={reviewingApp}
+                    onClick={() => handleReviewAction('request_info')}
+                    className="px-3.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-500/15 hover:bg-amber-100 text-amber-800 dark:text-amber-300 font-bold flex items-center gap-1.5"
+                  >
+                    <MessageSquareMore className="w-3.5 h-3.5" />
+                    <span>Request Info</span>
+                  </button>
+                )}
+
+                {['pending', 'under_review', 'information_requested', 'info_requested', 'approved'].includes(selectedApp.status) && (
+                  <button
+                    type="button"
+                    disabled={reviewingApp}
+                    onClick={() => handleReviewAction('reject')}
+                    className="px-3.5 py-2 rounded-xl bg-rose-50 dark:bg-rose-500/15 hover:bg-rose-100 text-rose-700 dark:text-rose-300 font-bold flex items-center gap-1.5"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>Reject</span>
+                  </button>
+                )}
+
+                {['pending', 'under_review', 'information_requested', 'info_requested', 'approved', 'enrolled'].includes(selectedApp.status) && (
+                  <button
+                    type="button"
+                    disabled={reviewingApp}
+                    onClick={() => handleReviewAction('withdraw')}
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-bold flex items-center gap-1.5"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>Withdraw</span>
+                  </button>
+                )}
+
+                {['pending', 'under_review', 'information_requested', 'info_requested'].includes(selectedApp.status) && (
+                  <button
+                    type="button"
+                    disabled={reviewingApp}
+                    onClick={() => handleReviewAction('approve')}
+                    className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold flex items-center gap-1.5 shadow-sm"
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>{reviewingApp ? 'Processing...' : 'Approve Admission'}</span>
+                  </button>
+                )}
+
+                {selectedApp.status === 'approved' && (
+                  <button
+                    type="button"
+                    disabled={
+                      reviewingApp ||
+                      (Boolean(selectedApp.enrollment_requirements && !selectedApp.enrollment_requirements.met) &&
+                        (!approveException || exceptionReason.trim().length < 8))
+                    }
+                    onClick={() => handleReviewAction('enroll')}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold flex items-center gap-1.5 shadow-sm"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5" />
+                    <span>{reviewingApp ? 'Enrolling...' : 'Complete Enrollment & Issue ID'}</span>
+                  </button>
+                )}
+
+                {selectedApp.status === 'enrolled' && selectedApp.student && (
+                  <button
+                    type="button"
+                    onClick={() => setIdCardStudent(selectedApp.student!)}
+                    className="px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white font-bold flex items-center gap-1.5"
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    <span>View Student ID Card</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Audit History Timeline */}
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-bold uppercase text-[11px] text-slate-600 dark:text-slate-400">
+                  Immutable Admission Audit Timeline
+                </span>
+                {detailLoading && <span className="text-[11px] text-slate-400">Loading history...</span>}
+              </div>
+              {(!selectedApp.timeline || selectedApp.timeline.length === 0) ? (
+                <div className="text-slate-500">Application submitted at {selectedApp.created_at}.</div>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {selectedApp.timeline.map((ev) => (
+                    <div
+                      key={ev.id}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2 border-b border-slate-200/70 dark:border-slate-800/70 last:border-0 last:pb-0"
+                    >
+                      <div>
+                        <span className="font-bold text-slate-900 dark:text-white capitalize">
+                          {ev.from_status ? `${ev.from_status.replace(/_/g, ' ')} → ` : ''}
+                          {ev.to_status.replace(/_/g, ' ')}
+                        </span>{' '}
+                        <span className="text-slate-500">
+                          ({ev.action.replace(/_/g, ' ')}) &bull; {ev.actor_name} [{ev.actor_role}]
+                        </span>
+                        {ev.notes && <div className="text-slate-600 dark:text-slate-400 mt-0.5">{ev.notes}</div>}
+                      </div>
+                      <span className="font-mono text-[10px] text-slate-500 shrink-0">
+                        {new Date(ev.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

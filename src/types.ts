@@ -718,6 +718,53 @@ export interface AcademyCourse {
   created_at: string;
 }
 
+export type AcademyApplicationStatus =
+  | 'pending'
+  | 'under_review'
+  | 'information_requested'
+  | 'approved'
+  | 'rejected'
+  | 'enrolled'
+  | 'withdrawn'
+  | 'info_requested';
+
+export interface AcademyApplicationEvent {
+  id: string;
+  application_id: string;
+  from_status: string | null;
+  to_status: string;
+  action: string;
+  actor_user_id?: string | null;
+  actor_name: string;
+  actor_role: string;
+  notes?: string | null;
+  metadata?: Record<string, any> | null;
+  created_at: string;
+}
+
+export interface AcademyEnrollmentRequirements {
+  met: boolean;
+  missing: string[];
+}
+
+export interface AcademyAccessSummary {
+  access_level: 'none' | 'applicant' | 'approved' | 'enrolled' | 'withdrawn';
+  can_access_student_hub: boolean;
+  has_active_enrollment: boolean;
+  has_approved_awaiting_enrollment: boolean;
+}
+
+export interface AcademyInvitationInfo {
+  email: string;
+  full_name: string;
+  phone?: string | null;
+  application_ref: string;
+  application_status: AcademyApplicationStatus;
+  course_title: string;
+  expires_at: string;
+  requires_existing_login: boolean;
+}
+
 export interface AcademyApplication {
   id: string;
   application_ref: string;
@@ -745,14 +792,30 @@ export interface AcademyApplication {
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
   passport_url?: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'info_requested' | 'enrolled';
+  status: AcademyApplicationStatus;
   admin_notes?: string | null;
   info_request_message?: string | null;
+  applicant_response?: string | null;
+  applicant_responded_at?: string | null;
+  resubmission_count?: number;
+  enrollment_requirements_met?: boolean;
+  enrollment_exception?: boolean;
+  enrollment_exception_reason?: string | null;
+  enrolled_at?: string | null;
+  withdrawn_at?: string | null;
+  withdrawal_reason?: string | null;
+  account_link_status?: 'unlinked' | 'invited' | 'linked';
+  linked_user_role?: string | null;
+  linked_user_verified?: boolean | null;
   reviewed_by?: string | null;
   reviewed_at?: string | null;
   student_id?: string | null;
   academic_status?: string | null;
+  student?: AcademyStudent | null;
+  timeline?: AcademyApplicationEvent[];
+  enrollment_requirements?: AcademyEnrollmentRequirements;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface AcademyStudent {
@@ -772,6 +835,9 @@ export interface AcademyStudent {
   completion_date?: string | null;
   academic_status: 'active' | 'graduated' | 'suspended' | 'withdrawn';
   id_card_issued_at?: string | null;
+  withdrawn_at?: string | null;
+  withdrawal_reason?: string | null;
+  qr_token?: string | null;
   created_at?: string;
 }
 

@@ -1378,6 +1378,15 @@ class SchemaSync
             $errors[] = 'syncPrintingModuleSchema => ' . $e->getMessage();
         }
 
+        // Ensure Phase 1 Academy Application, Admission & Student Account Integration tables & columns exist (idempotent)
+        try {
+            $acadSync = self::syncAcademyPhase1Schema($db, true);
+            $applied = array_merge($applied, $acadSync['applied'] ?? []);
+            $errors = array_merge($errors, $acadSync['errors'] ?? []);
+        } catch (Throwable $e) {
+            $errors[] = 'syncAcademyPhase1Schema => ' . $e->getMessage();
+        }
+
         return [
             'applied_count' => count($applied),
             'applied' => $applied,
@@ -3665,5 +3674,162 @@ class SchemaSync
 
         return ['applied' => $applied, 'errors' => $errors];
     }
+
+    /**
+     * Phase 1: Academy Core Application, Admission Workflow & Account Integration Schema Sync (Idempotent)
+     * Non-destructive upgrade: preserves existing users, HTDA/2026/0001, HTDA/2026/0002, courses, and applications.
+     */
+    public static function syncAcademyPhase1Schema(Database $db, bool $force = false): array
+    {
+        static $synced = false;
+        if ($synced && !$force) {
+            return ['applied' => [], 'errors' => []];
+        }
+        $synced = true;
+
+        $applied = [];
+        $errors = [];
+
+        $tables = [
+            'academy_application_events' => 'CREATE TABLE IF NOT EXISTS academy_application_events (
+                id VARCHAR(36) PRIMARY KEY,
+                application_id VARCHAR(36) NOT NULL,
+                from_status VARCHAR(64) NULL,
+                to_status VARCHAR(64) NOT NULL,
+                action VARCHAR(64) NOT NULL,
+                actor_user_id VARCHAR(36) NULL,
+                actor_name VARCHAR(191) NOT NULL DEFAULT "System",
+                actor_role VARCHAR(50) NOT NULL DEFAULT "system",
+                notes TEXT NULL,
+                metadata_json JSON NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_aae_app (application_id, created_at),
+                INDEX idx_aae_status (to_status, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'academy_account_invitations' => 'CREATE TABLE IF NOT EXISTS academy_account_invitations (
+                id VARCHAR(36) PRIMARY KEY,
+                application_id VARCHAR(36) NOT NULL,
+                email VARCHAR(191) NOT NULL,
+                full_name VARCHAR(191) NOT NULL,
+                phone VARCHAR(32) NULL,
+                token_hash VARCHAR(64) NOT NULL,
+                expires_at DATETIME NOT NULL,
+                used_at DATETIME NULL,
+                created_user_id VARCHAR(36) NULL,
+                status ENUM("pending", "accepted", "expired", "revoked") NOT NULL DEFAULT "pending",
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_aai_token (token_hash),
+                INDEX idx_aai_email (email),
+                INDEX idx_aai_app (application_id, status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+        ];
+
+        foreach ($tables as $name => $sql) {
+            try {
+                $db->execute($sql);
+                $applied[] = "table:{$name}";
+            } catch (Throwable $e) {
+                $errors[] = "table:{$name} => " . $e->getMessage();
+            }
+        }
+
+        // Safely transition academy_applications.status ENUM without dropping info_requested rows
+        try {
+            $colInfo = $db->fetchOne('SHOW COLUMNS FROM academy_applications LIKE "status"');
+            $typeStr = strtolower((string)($colInfo['Type'] ?? ''));
+            if ($typeStr !== '' && (!str_contains($typeStr, 'information_requested') || !str_contains($typeStr, 'under_review') || !str_contains($typeStr, 'withdrawn') || str_contains($typeStr, "'info_requested'"))) {
+                $db->execute(
+                    'ALTER TABLE academy_applications MODIFY COLUMN status ENUM("pending", "under_review", "info_requested", "information_requested", "approved", "rejected", "enrolled", "withdrawn") NOT NULL DEFAULT "pending"'
+                );
+                $db->execute('UPDATE academy_applications SET status = "information_requested" WHERE status = "info_requested"');
+                $db->execute(
+                    'ALTER TABLE academy_applications MODIFY COLUMN status ENUM("pending", "under_review", "information_requested", "approved", "rejected", "enrolled", "withdrawn") NOT NULL DEFAULT "pending"'
+                );
+                $applied[] = 'enum:academy_applications.status';
+            }
+        } catch (Throwable $e) {
+            $errors[] = 'enum:academy_applications.status => ' . $e->getMessage();
+        }
+
+        // Additive columns for academy_applications and academy_students
+        $columnPatches = [
+            'academy_applications' => [
+                'applicant_response' => 'ALTER TABLE academy_applications ADD COLUMN applicant_response TEXT NULL AFTER info_request_message',
+                'applicant_responded_at' => 'ALTER TABLE academy_applications ADD COLUMN applicant_responded_at DATETIME NULL AFTER applicant_response',
+                'resubmission_count' => 'ALTER TABLE academy_applications ADD COLUMN resubmission_count INT NOT NULL DEFAULT 0 AFTER applicant_responded_at',
+                'resubmit_token_hash' => 'ALTER TABLE academy_applications ADD COLUMN resubmit_token_hash VARCHAR(64) NULL AFTER resubmission_count',
+                'resubmit_token_expires_at' => 'ALTER TABLE academy_applications ADD COLUMN resubmit_token_expires_at DATETIME NULL AFTER resubmit_token_hash',
+                'enrollment_requirements_met' => 'ALTER TABLE academy_applications ADD COLUMN enrollment_requirements_met TINYINT(1) NOT NULL DEFAULT 0 AFTER resubmit_token_expires_at',
+                'enrollment_exception' => 'ALTER TABLE academy_applications ADD COLUMN enrollment_exception TINYINT(1) NOT NULL DEFAULT 0 AFTER enrollment_requirements_met',
+                'enrollment_exception_reason' => 'ALTER TABLE academy_applications ADD COLUMN enrollment_exception_reason TEXT NULL AFTER enrollment_exception',
+                'enrollment_exception_by' => 'ALTER TABLE academy_applications ADD COLUMN enrollment_exception_by VARCHAR(36) NULL AFTER enrollment_exception_reason',
+                'enrolled_at' => 'ALTER TABLE academy_applications ADD COLUMN enrolled_at DATETIME NULL AFTER enrollment_exception_by',
+                'enrolled_by' => 'ALTER TABLE academy_applications ADD COLUMN enrolled_by VARCHAR(36) NULL AFTER enrolled_at',
+                'withdrawn_at' => 'ALTER TABLE academy_applications ADD COLUMN withdrawn_at DATETIME NULL AFTER enrolled_by',
+                'withdrawal_reason' => 'ALTER TABLE academy_applications ADD COLUMN withdrawal_reason TEXT NULL AFTER withdrawn_at',
+                'account_link_status' => 'ALTER TABLE academy_applications ADD COLUMN account_link_status ENUM("unlinked", "invited", "linked") NOT NULL DEFAULT "unlinked" AFTER withdrawal_reason',
+                'deleted_at' => 'ALTER TABLE academy_applications ADD COLUMN deleted_at DATETIME NULL AFTER account_link_status',
+            ],
+            'academy_students' => [
+                'withdrawn_at' => 'ALTER TABLE academy_students ADD COLUMN withdrawn_at DATETIME NULL AFTER academic_status',
+                'withdrawal_reason' => 'ALTER TABLE academy_students ADD COLUMN withdrawal_reason TEXT NULL AFTER withdrawn_at',
+                'deleted_at' => 'ALTER TABLE academy_students ADD COLUMN deleted_at DATETIME NULL AFTER withdrawal_reason',
+            ],
+        ];
+
+        foreach ($columnPatches as $table => $cols) {
+            try {
+                $existingCols = $db->fetchAll("SHOW COLUMNS FROM {$table}");
+                $existingMap = [];
+                foreach ($existingCols as $ec) {
+                    $existingMap[(string)$ec['Field']] = true;
+                }
+                foreach ($cols as $colName => $alterSql) {
+                    if (!isset($existingMap[$colName])) {
+                        $db->execute($alterSql);
+                        $applied[] = "col:{$table}.{$colName}";
+                    }
+                }
+            } catch (Throwable $e) {
+                $errors[] = "cols:{$table} => " . $e->getMessage();
+            }
+        }
+
+        // Preserve & reconcile existing active students (e.g., HTDA/2026/0001 & HTDA/2026/0002)
+        try {
+            $db->execute(
+                'UPDATE academy_applications a
+                 INNER JOIN academy_students s ON s.application_id = a.id
+                 SET a.status = "enrolled",
+                     a.enrollment_requirements_met = 1,
+                     a.enrolled_at = COALESCE(a.enrolled_at, s.id_card_issued_at, s.created_at, NOW())
+                 WHERE a.status = "approved"
+                   AND s.academic_status IN ("active", "graduated")
+                   AND s.deleted_at IS NULL'
+            );
+            $db->execute(
+                'UPDATE academy_applications
+                 SET account_link_status = "linked"
+                 WHERE user_id IS NOT NULL AND user_id != "" AND account_link_status != "linked"'
+            );
+            $db->execute(
+                'INSERT INTO academy_application_events (id, application_id, from_status, to_status, action, actor_user_id, actor_name, actor_role, notes, metadata_json, created_at)
+                 SELECT UUID(), a.id, NULL, a.status, "baseline_sync", NULL, "System Migration", "system",
+                        "Phase 1 baseline state synchronized from existing production record.",
+                        JSON_OBJECT("application_ref", a.application_ref, "course_id", a.course_id),
+                        COALESCE(a.updated_at, a.created_at, NOW())
+                 FROM academy_applications a
+                 WHERE NOT EXISTS (SELECT 1 FROM academy_application_events e WHERE e.application_id = a.id)'
+            );
+            $applied[] = 'reconcile:academy_phase1_baseline';
+        } catch (Throwable $e) {
+            $errors[] = 'reconcile:academy_phase1_baseline => ' . $e->getMessage();
+        }
+
+        return ['applied' => $applied, 'errors' => $errors];
+    }
 }
+
 

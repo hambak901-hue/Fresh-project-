@@ -373,6 +373,23 @@ class ReferralController
             if (!$user || ($user['status'] ?? 'active') !== 'active') {
                 Response::forbidden('Account is not active.');
             }
+            if (!empty($user['email']) && !empty($user['email_verified'])) {
+                try {
+                    $reconciled = \HambakTech\Services\AcademyService::reconcileUserAcademyLinks(
+                        $this->db,
+                        (string)$user['id'],
+                        (string)$user['email'],
+                        true
+                    );
+                    if (!empty($reconciled['role_upgraded'])) {
+                        $reloaded = $this->loadFullUserForToken((string)$user['id']);
+                        if ($reloaded) {
+                            $user = $reloaded;
+                        }
+                    }
+                } catch (Throwable) {
+                }
+            }
             $this->db->execute('UPDATE users SET last_login_at = NOW(), last_login_ip = :ip WHERE id = :id', [
                 'ip' => $request->getIp(),
                 'id' => $user['id'],

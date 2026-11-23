@@ -571,18 +571,7 @@ customerRouter.get('/store', requireCustomer, (req: any, res) => {
   });
 });
 
-// GET /api/customer/academy - Courses catalog and status
-customerRouter.get('/academy', requireCustomer, (req: any, res) => {
-  res.json({
-    success: true,
-    courses: (db.data.academy_courses || []).filter(c => c.status !== 'draft'),
-    settings: db.data.academy_settings || {
-      academy_name: 'HambakTech VTU & Identity Reseller Academy',
-      status: 'coming_soon',
-      coming_soon_message: 'Accreditation syllabus under review.',
-    },
-  });
-});
+// Academy routes handled by server/routes/academy.ts (customerAcademyRouter)
 
 // GET /api/customer/reports - Customer personal analytics
 customerRouter.get('/reports', requireCustomer, (req: any, res) => {

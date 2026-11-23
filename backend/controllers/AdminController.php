@@ -1861,11 +1861,7 @@ class AdminController
 
         \HambakTech\Services\AcademyService::ensureSeeded($this->db);
         $academyCourses = $this->db->fetchAll('SELECT * FROM academy_courses ORDER BY display_order ASC, created_at DESC');
-        foreach ($academyCourses as &$ac) {
-            $ac['price'] = $ac['price'] !== null ? (float)$ac['price'] : null;
-            $ac['modules_count'] = (int)$ac['modules_count'];
-            $ac['is_available'] = isset($ac['is_available']) ? (bool)$ac['is_available'] : true;
-        }
+        $academyCourses = array_map([\HambakTech\Services\AcademyService::class, 'normalizeCourse'], $academyCourses);
 
         Response::success([
             'settings' => $settings,
@@ -2911,123 +2907,27 @@ class AdminController
 
     public function academy(Request $request): void
     {
-        Auth::requirePermission($request, 'services');
-        $courses = $this->db->fetchAll('SELECT * FROM academy_courses ORDER BY created_at DESC');
-        if (empty($courses)) {
-            $defaults = [
-                ['crs_001', 'Nigerian VTU Business Mastery & Automated Sells', 'Beginner to Pro', '4 Weeks', 8, 15000.00, 'Learn how to generate ₦150k - ₦500k monthly reselling data, airtime, and utility tokens with zero upfront inventory.', 'enrolling'],
-                ['crs_002', 'NIMC Identity Verification Agent Licensing Course', 'Professional', '6 Weeks', 12, 35000.00, 'Comprehensive compliance and software operating certification for authorized NIN and BVN slip enrollment centers.', 'enrolling'],
-                ['crs_003', 'API Integration & Telecom Webhook Architecture', 'Developer', '3 Weeks', 6, 25000.00, 'Hands-on training for software engineers connecting telecommunication and fintech payment APIs.', 'draft'],
-            ];
-            foreach ($defaults as $d) {
-                $this->db->execute(
-                    'INSERT IGNORE INTO academy_courses (id, title, level, duration, modules_count, price, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    $d
-                );
-            }
-            $courses = $this->db->fetchAll('SELECT * FROM academy_courses ORDER BY created_at DESC');
-        }
-
-        foreach ($courses as &$c) {
-            $c['price'] = (float)$c['price'];
-            $c['modules_count'] = (int)$c['modules_count'];
-        }
-
-        $academySettingsSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "academy_settings"');
-        $settings = $academySettingsSetting ? json_decode($academySettingsSetting['setting_value'], true) : [
-            'coming_soon' => true,
-            'banner_url' => '',
-            'enrollment_open' => true,
-            'contact_email' => 'hambak901@gmail.com',
-        ];
-
-        Response::success([
-            'courses' => $courses,
-            'settings' => $settings,
-        ]);
+        (new AcademyController())->adminOverview($request);
     }
 
     public function academySettings(Request $request): void
     {
-        Auth::requirePermission($request, 'services');
-        $academySettingsSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "academy_settings"');
-        $settings = $academySettingsSetting ? json_decode($academySettingsSetting['setting_value'], true) : [
-            'coming_soon' => true,
-            'banner_url' => '',
-            'enrollment_open' => true,
-            'contact_email' => 'hambak901@gmail.com',
-        ];
-        Response::success(['settings' => $settings]);
+        (new AcademyController())->getSettings($request);
     }
 
     public function updateAcademySettings(Request $request): void
     {
-        Auth::requirePermission($request, 'services');
-        $body = $request->getBody();
-
-        $this->db->execute(
-            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
-             VALUES ("set_academy_config", "academy_settings", :val, "academy", "Academy configurations")
-             ON DUPLICATE KEY UPDATE setting_value = :val2',
-            [
-                'val' => json_encode($body),
-                'val2' => json_encode($body),
-            ]
-        );
-
-        Response::success(['settings' => $body], 'Academy settings saved');
+        (new AcademyController())->updateSettings($request);
     }
 
     public function saveAcademyCourse(Request $request, array $params = []): void
     {
-        Auth::requirePermission($request, 'services');
-        $id = $params['id'] ?? (string)$request->input('id', '');
-        $body = $request->getBody();
-
-        if (empty($id)) {
-            $id = 'crs_' . strtolower(bin2hex(random_bytes(4)));
-        }
-
-        $this->db->execute(
-            'INSERT INTO academy_courses (id, title, level, duration, modules_count, price, description, status)
-             VALUES (:id, :tit, :lvl, :dur, :mod, :pr, :desc, :st)
-             ON DUPLICATE KEY UPDATE
-                title = COALESCE(:tit2, title),
-                level = COALESCE(:lvl2, level),
-                duration = COALESCE(:dur2, duration),
-                modules_count = COALESCE(:mod2, modules_count),
-                price = COALESCE(:pr2, price),
-                description = COALESCE(:desc2, description),
-                status = COALESCE(:st2, status),
-                updated_at = NOW()',
-            [
-                'id' => $id,
-                'tit' => $body['title'] ?? 'Course Title',
-                'lvl' => $body['level'] ?? 'Beginner',
-                'dur' => $body['duration'] ?? '4 Weeks',
-                'mod' => (int)($body['modules_count'] ?? 1),
-                'pr' => (float)($body['price'] ?? 0),
-                'desc' => $body['description'] ?? '',
-                'st' => $body['status'] ?? 'enrolling',
-                'tit2' => $body['title'] ?? null,
-                'lvl2' => $body['level'] ?? null,
-                'dur2' => $body['duration'] ?? null,
-                'mod2' => isset($body['modules_count']) ? (int)$body['modules_count'] : null,
-                'pr2' => isset($body['price']) ? (float)$body['price'] : null,
-                'desc2' => $body['description'] ?? null,
-                'st2' => $body['status'] ?? null,
-            ]
-        );
-
-        $row = $this->db->fetchOne('SELECT * FROM academy_courses WHERE id = :id', ['id' => $id]);
-        Response::success(['course' => $row], 'Academy course saved');
+        (new AcademyController())->saveCourse($request, $params);
     }
 
     public function deleteAcademyCourse(Request $request, array $params): void
     {
-        Auth::requirePermission($request, 'services');
-        $this->db->execute('DELETE FROM academy_courses WHERE id = :id', ['id' => $params['id'] ?? '']);
-        Response::success(null, 'Academy course deleted');
+        (new AcademyController())->deleteCourse($request, $params);
     }
 
     public function reportsSettings(Request $request): void

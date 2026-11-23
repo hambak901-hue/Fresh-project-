@@ -35,7 +35,11 @@ import {
 import { api } from '../../lib/api';
 import { StoreItem, AcademyCourse, IdentityService, ProviderConfigItem, ProviderLogItem, SlipTemplateItem, TelecomPlanItem, TelecomOrder, AirtimePinDenomination, DataPinDenomination } from '../../types';
 
-export function ServiceManagement() {
+interface ServiceManagementProps {
+  onOpenAcademyAdmin?: () => void;
+}
+
+export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps = {}) {
   const [activeTab, setActiveTab] = useState<'nin' | 'slip_templates' | 'providers' | 'telecom' | 'digital' | 'store' | 'academy' | 'reports'>('nin');
 
   const [settings, setSettings] = useState<any>({});
@@ -80,9 +84,6 @@ export function ServiceManagement() {
 
   // Store Item modal
   const [editingStoreItem, setEditingStoreItem] = useState<Partial<StoreItem> | null>(null);
-
-  // Academy Course modal
-  const [editingCourse, setEditingCourse] = useState<Partial<AcademyCourse> | null>(null);
 
   // Telecom Data Bundles & Orders State (Stage 5 Phase 1)
   const [telecomPlans, setTelecomPlans] = useState<TelecomPlanItem[]>([]);
@@ -736,37 +737,6 @@ export function ServiceManagement() {
       setTimeout(() => setSuccessMsg(null), 2500);
     } catch (e: any) {
       setErrorMsg(e.message || 'Failed to delete product');
-    }
-  };
-
-  const handleSaveCourse = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingCourse || !editingCourse.title) return;
-    setErrorMsg(null);
-    try {
-      if (editingCourse.id) {
-        await api.updateAcademyCourse(editingCourse.id, editingCourse);
-      } else {
-        await api.createAcademyCourse(editingCourse);
-      }
-      setEditingCourse(null);
-      await fetchServices();
-      setSuccessMsg('Academy course curriculum updated.');
-      setTimeout(() => setSuccessMsg(null), 3000);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to save course');
-    }
-  };
-
-  const handleDeleteCourse = async (id: string) => {
-    setErrorMsg(null);
-    try {
-      await api.deleteAcademyCourse(id);
-      await fetchServices();
-      setSuccessMsg('Academy course removed.');
-      setTimeout(() => setSuccessMsg(null), 2500);
-    } catch (e: any) {
-      setErrorMsg(e.message || 'Failed to delete course');
     }
   };
 
@@ -3102,108 +3072,30 @@ export function ServiceManagement() {
         </div>
       )}
 
-      {/* 5. ACADEMY COURSES */}
+      {/* 5. ACADEMY COURSES (Authoritative Summary + Redirect to Academy Console) */}
       {activeTab === 'academy' && (
         <div className="space-y-4 text-xs">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center justify-between">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
                 <GraduationCap className="w-4 h-4 text-emerald-400" />
-                <span>Academy Course Curriculum Management</span>
+                <span>Digital Training Academy Curriculum ({academyCourses.length} Tracks)</span>
               </h2>
-              <p className="text-slate-400 mt-0.5">Control agency accreditation tracks, enrollment fees, and module counts.</p>
+              <p className="text-slate-400 mt-0.5">
+                Courses, admissions reviews, student accounts, and QR ID cards are centrally managed in the dedicated Academy Console.
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setEditingCourse({ title: '', level: 'Beginner to Pro', duration: '4 Weeks', modules_count: 6, price: 15000, description: '', status: 'enrolling' })}
-              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Course</span>
-            </button>
+            {onOpenAcademyAdmin && (
+              <button
+                type="button"
+                onClick={onOpenAcademyAdmin}
+                className="px-4 py-2.5 bg-blue-700 hover:bg-blue-600 text-white rounded-xl font-bold flex items-center gap-1.5 shrink-0"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Open Full Academy Management</span>
+              </button>
+            )}
           </div>
-
-          {editingCourse && (
-            <form onSubmit={handleSaveCourse} className="bg-slate-900 border border-indigo-500/30 rounded-2xl p-6 space-y-3">
-              <h3 className="font-bold text-white text-sm">
-                {editingCourse.id ? 'Edit Course' : 'Create Academy Course'}
-              </h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-400">Course Title</label>
-                  <input
-                    type="text"
-                    required
-                    value={editingCourse.title || ''}
-                    onChange={e => setEditingCourse({ ...editingCourse, title: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-400">Target Skill Level</label>
-                  <input
-                    type="text"
-                    value={editingCourse.level || 'Professional'}
-                    onChange={e => setEditingCourse({ ...editingCourse, level: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-slate-400">Duration</label>
-                  <input
-                    type="text"
-                    value={editingCourse.duration || '4 Weeks'}
-                    onChange={e => setEditingCourse({ ...editingCourse, duration: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-400">Modules Count</label>
-                  <input
-                    type="number"
-                    value={editingCourse.modules_count || 6}
-                    onChange={e => setEditingCourse({ ...editingCourse, modules_count: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-400">Tuition Fee (₦)</label>
-                  <input
-                    type="number"
-                    value={editingCourse.price || 0}
-                    onChange={e => setEditingCourse({ ...editingCourse, price: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-slate-400">Description</label>
-                <textarea
-                  rows={2}
-                  value={editingCourse.description || ''}
-                  onChange={e => setEditingCourse({ ...editingCourse, description: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white"
-                />
-              </div>
-              <div className="flex items-center gap-3 pt-1">
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold"
-                >
-                  Save Course
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditingCourse(null)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-xl font-semibold"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {academyCourses.map(course => (
@@ -3211,7 +3103,7 @@ export function ServiceManagement() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono text-[10px]">
-                      {course.level}
+                      {course.category || course.level}
                     </span>
                     <span className="text-slate-400 font-mono">{course.duration}</span>
                   </div>
@@ -3222,24 +3114,13 @@ export function ServiceManagement() {
                   <span className="text-white font-mono font-bold">
                     {course.price === null || course.price === undefined
                       ? 'Contact Academy'
-                      : `₦${course.price.toLocaleString()}`}
+                      : Number(course.price) === 0
+                      ? 'Free / Scholarship'
+                      : `₦${Number(course.price).toLocaleString('en-NG')}`}
                   </span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setEditingCourse(course)}
-                      className="p-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteCourse(course.id)}
-                      className="p-1.5 bg-slate-800 hover:bg-red-500/20 text-red-400 rounded-lg"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <span className="text-[10px] uppercase font-mono text-slate-400">
+                    {course.is_available === false ? 'Closed' : 'Available'}
+                  </span>
                 </div>
               </div>
             ))}

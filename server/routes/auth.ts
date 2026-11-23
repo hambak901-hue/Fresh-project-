@@ -22,6 +22,7 @@ import {
   getDefaultPermissionsForRole,
   getDashboardConfig,
 } from '../services/dashboardConfig.js';
+import { reconcileUserAcademyLinksInMemory } from './academy.js';
 
 export const authRouter = Router();
 
@@ -592,19 +593,22 @@ function handleVerifyEmailRequest(req: any, res: any) {
     targetUser.updated_at = new Date().toISOString();
     db.saveDatabase();
 
+    reconcileUserAcademyLinksInMemory(targetUser.id, targetUser.email, true);
+    const refreshedUser = db.findUserById(targetUser.id) || targetUser;
+
     db.addNotification(
-      targetUser.id,
+      refreshedUser.id,
       'Email Verified Successfully',
       'Your email address has been verified. Wallet funding, identity verification, and VTU services are now unlocked.',
       'success'
     );
-    db.logAudit('EMAIL_VERIFIED', { method: token ? 'link_token' : 'otp_code' }, targetUser.id, targetUser.email, getClientIp(req));
+    db.logAudit('EMAIL_VERIFIED', { method: token ? 'link_token' : 'otp_code' }, refreshedUser.id, refreshedUser.email, getClientIp(req));
 
-    const freshToken = generateToken(targetUser.id, targetUser.role, 86400 * 7, targetUser.token_version ?? 1);
+    const freshToken = generateToken(refreshedUser.id, refreshedUser.role, 86400 * 7, refreshedUser.token_version ?? 1);
     return res.json({
       success: true,
       verified: true,
-      user: sanitizeUser(targetUser, true),
+      user: sanitizeUser(refreshedUser, true),
       token: freshToken,
       message: 'Email verified successfully! Full portal access is now active.',
     });
@@ -740,8 +744,13 @@ authRouter.post('/login', async (req, res) => {
       db.saveDatabase();
     }
 
-    const token = generateToken(user.id, user.role, 86400 * 7, user.token_version ?? 1);
-    const safeUser = sanitizeUser(user, true);
+    if (user.email_verified !== false) {
+      reconcileUserAcademyLinksInMemory(user.id, user.email, true);
+    }
+    const freshLoginUser = db.findUserById(user.id) || user;
+
+    const token = generateToken(freshLoginUser.id, freshLoginUser.role, 86400 * 7, freshLoginUser.token_version ?? 1);
+    const safeUser = sanitizeUser(freshLoginUser, true);
 
     db.logAudit('USER_LOGIN', { role: user.role, assigned_dashboard: safeUser.assigned_dashboard }, user.id, user.email, clientIp);
 

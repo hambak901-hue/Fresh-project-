@@ -19,6 +19,7 @@ use HambakTech\Services\MailService;
 use HambakTech\Services\MfaService;
 use HambakTech\Services\PinSecurityService;
 use HambakTech\Services\ReferralEngineService;
+use HambakTech\Services\AcademyService;
 use HambakTech\Services\DashboardConfigService;
 use RuntimeException;
 use Throwable;
@@ -209,6 +210,15 @@ class AuthController
             'ip' => $ip,
             'id' => $user['id'],
         ]);
+
+        // Reconcile any unlinked Academy applications/students once email is verified (preserves non-customer roles)
+        if (!empty($user['email_verified'])) {
+            $reconcileRes = AcademyService::reconcileUserAcademyLinks($this->db, (string)$user['id'], (string)$user['email'], true);
+            if (!empty($reconcileRes['role_upgraded'])) {
+                $user['role'] = 'student';
+                $user['assigned_dashboard'] = 'student';
+            }
+        }
 
         $token = Auth::generateToken($user, $request);
         $pinService = new PinSecurityService($this->db);
@@ -1235,6 +1245,9 @@ class AuthController
             'UPDATE users SET email_verified = 1, email_verified_at = NOW(), updated_at = NOW() WHERE id = :id',
             ['id' => $targetUser['id']]
         );
+
+        // Automatically reconcile any unlinked Academy applications/students submitted with this email
+        AcademyService::reconcileUserAcademyLinks($this->db, (string)$targetUser['id'], (string)$targetUser['email'], true);
 
         try {
             $this->db->execute(

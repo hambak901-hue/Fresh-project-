@@ -240,16 +240,26 @@ $router->get('/api/customer/document/:id', [CustomerController::class, 'getDocum
 $router->get('/api/customer/store', [CustomerController::class, 'storeItems']);
 $router->get('/api/customer/academy', [AcademyController::class, 'customerAcademy']);
 $router->post('/api/customer/academy/apply', [AcademyController::class, 'customerApply']);
+$router->post('/api/customer/academy/applications/:id/respond', [AcademyController::class, 'customerRespondApplication']);
+$router->post('/api/customer/academy/applications/:id/enroll', [AcademyController::class, 'customerCompleteEnrollment']);
+$router->post('/api/customer/academy/applications/:id/withdraw', [AcademyController::class, 'customerWithdrawApplication']);
+$router->post('/api/customer/academy/upload-passport', [AcademyController::class, 'customerUploadPassport']);
 $router->get('/api/customer/reports', [CustomerController::class, 'reports']);
 $router->get('/api/customer/messages', [CustomerController::class, 'messages']);
 $router->put('/api/customer/messages/:id/read', [CustomerController::class, 'markMessageRead']);
 
-// Public Digital Training Academy & Student Verification Routes
+// Public Digital Training Academy, Invitation Activation & Student Verification Routes
 $router->get('/api/academy/public', [AcademyController::class, 'publicOverview']);
 $router->post('/api/academy/apply', [AcademyController::class, 'apply']);
 $router->get('/api/academy/application-status', [AcademyController::class, 'applicationStatus']);
+$router->get('/api/academy/invitations/validate', [AcademyController::class, 'validateInvitation']);
+$router->post('/api/academy/activate-account', [AcademyController::class, 'activateAccount']);
+$router->post('/api/academy/applications/:id/resubmit', [AcademyController::class, 'resubmitApplication']);
+$router->post('/api/academy/upload-passport', [AcademyController::class, 'uploadPassport']);
+$router->get('/api/academy/passport/:filename', [AcademyController::class, 'servePassport']);
 $router->get('/api/academy/verify', [AcademyController::class, 'verifyStudent']);
 $router->get('/api/academy/verify/:student_id', [AcademyController::class, 'verifyStudent']);
+$router->get('/api/academy/verify/:p1/:p2/:p3', [AcademyController::class, 'verifyStudent']);
 
 // Customer KYC & Purchase Authorization
 $router->get('/api/kyc/status', [CustomerController::class, 'kycStatus']);
@@ -342,9 +352,9 @@ $router->post('/api/admin/enrolments/:id/update', [EnrolmentController::class, '
 $router->post('/api/admin/services/store', [AdminController::class, 'saveStoreItem']);
 $router->put('/api/admin/services/store/:id', [AdminController::class, 'saveStoreItem']);
 $router->delete('/api/admin/services/store/:id', [AdminController::class, 'deleteStoreItem']);
-$router->post('/api/admin/services/academy', [AdminController::class, 'saveAcademyCourse']);
-$router->put('/api/admin/services/academy/:id', [AdminController::class, 'saveAcademyCourse']);
-$router->delete('/api/admin/services/academy/:id', [AdminController::class, 'deleteAcademyCourse']);
+$router->post('/api/admin/services/academy', [AcademyController::class, 'saveCourse']);
+$router->put('/api/admin/services/academy/:id', [AcademyController::class, 'saveCourse']);
+$router->delete('/api/admin/services/academy/:id', [AcademyController::class, 'deleteCourse']);
 
 // Provider Gateways & Logs
 $router->get('/api/admin/providers', [AdminController::class, 'providers']);
@@ -394,7 +404,7 @@ $router->post('/api/admin/store/item', [AdminController::class, 'saveStoreItem']
 $router->put('/api/admin/store/item/:id', [AdminController::class, 'saveStoreItem']);
 $router->delete('/api/admin/store/item/:id', [AdminController::class, 'deleteStoreItem']);
 
-// Agency Academy & Settings (Stage 2 Complete Digital Training Academy)
+// Agency Academy & Settings (Phase 1 Core Application, Admission & Student Account Integration)
 $router->get('/api/admin/academy', [AcademyController::class, 'adminOverview']);
 $router->get('/api/admin/academy/settings', [AcademyController::class, 'getSettings']);
 $router->put('/api/admin/academy/settings', [AcademyController::class, 'updateSettings']);
@@ -402,6 +412,7 @@ $router->post('/api/admin/academy/course', [AcademyController::class, 'saveCours
 $router->put('/api/admin/academy/course/:id', [AcademyController::class, 'saveCourse']);
 $router->delete('/api/admin/academy/course/:id', [AcademyController::class, 'deleteCourse']);
 $router->get('/api/admin/academy/applications', [AcademyController::class, 'applications']);
+$router->get('/api/admin/academy/applications/:id', [AcademyController::class, 'applicationDetail']);
 $router->delete('/api/admin/academy/applications/:id', [AcademyController::class, 'deleteApplication']);
 $router->post('/api/admin/academy/applications/:id/review', [AcademyController::class, 'reviewApplication']);
 $router->get('/api/admin/academy/students', [AcademyController::class, 'students']);

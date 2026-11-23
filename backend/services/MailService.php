@@ -409,4 +409,155 @@ HTML;
 </html>
 HTML;
     }
+
+    /**
+     * Send secure one-time, expiring (48h) Academy Account Activation invitation email (no plaintext password).
+     */
+    public function sendAcademyAccountInvitation(
+        string $recipientEmail,
+        string $recipientName,
+        string $applicationRef,
+        string $courseTitle,
+        string $rawToken,
+        int $expiryHours = 48
+    ): array {
+        $cleanEmail = strtolower(trim($recipientEmail));
+        $activationUrl = 'https://hambaktech.com.ng/?academy_activate=' . urlencode($rawToken) . '#academy';
+        $safeName = htmlspecialchars($recipientName ?: 'Applicant', ENT_QUOTES, 'UTF-8');
+        $safeRef = htmlspecialchars($applicationRef, ENT_QUOTES, 'UTF-8');
+        $safeCourse = htmlspecialchars($courseTitle, ENT_QUOTES, 'UTF-8');
+        $safeUrl = htmlspecialchars($activationUrl, ENT_QUOTES, 'UTF-8');
+
+        $html = <<<HTML
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Activate Your HAMBAKTECH Academy Applicant Account</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #0f172a; margin: 0; padding: 24px;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
+        <tr>
+            <td style="padding: 28px 32px; background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);">
+                <div style="font-size: 18px; font-weight: 800; color: #ffffff;">HAMBAK TECH &amp; SERVICES DIGITAL TRAINING ACADEMY</div>
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #bfdbfe; margin-top: 4px; font-weight: 600;">Application Received &bull; Account Activation Invitation</div>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 32px;">
+                <p style="font-size: 14px; line-height: 22px; color: #334155; margin-top: 0;">Hello <strong>{$safeName}</strong>,</p>
+                <p style="font-size: 13px; line-height: 22px; color: #475569;">
+                    Your training application for <strong>{$safeCourse}</strong> has been received and logged under reference <strong>{$safeRef}</strong>.
+                </p>
+                <p style="font-size: 13px; line-height: 22px; color: #475569;">
+                    To set your own password, activate your HAMBAKTECH portal account, track your admission review progress, and respond to any document requests, use the secure activation link below:
+                </p>
+                <div style="margin: 24px 0; text-align: center;">
+                    <a href="{$safeUrl}" style="display: inline-block; background-color: #1d4ed8; color: #ffffff; text-decoration: none; padding: 13px 28px; border-radius: 10px; font-size: 14px; font-weight: 700;">
+                        Activate Portal Account &amp; Set Password
+                    </a>
+                </div>
+                <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; margin-top: 16px;">
+                    <p style="font-size: 12px; color: #475569; margin: 0; line-height: 18px;">
+                        <strong>Security Notice:</strong> This single-use activation link expires in <strong>{$expiryHours} hours</strong>. No temporary password is ever sent by email — you will choose your own private password during activation.
+                    </p>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 16px 32px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;">
+                <p style="font-size: 11px; color: #64748b; margin: 0;">&copy; 2024–2026 HAMBAK TECH &amp; SERVICES (BN 9284726). Where Technology Meets Services.</p>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+HTML;
+
+        return $this->send(
+            $cleanEmail,
+            $recipientName ?: 'Applicant',
+            "[HAMBAKTECH Academy] Activate Your Account — Ref: {$applicationRef}",
+            $html
+        );
+    }
+
+    /**
+     * Send Academy Admission Workflow Update Email
+     */
+    public function sendAcademyApplicationStatusEmail(
+        string $recipientEmail,
+        string $recipientName,
+        string $applicationRef,
+        string $courseTitle,
+        string $newStatus,
+        string $detailsMessage = '',
+        ?string $studentId = null
+    ): array {
+        $cleanEmail = strtolower(trim($recipientEmail));
+        $safeName = htmlspecialchars($recipientName ?: 'Applicant', ENT_QUOTES, 'UTF-8');
+        $safeRef = htmlspecialchars($applicationRef, ENT_QUOTES, 'UTF-8');
+        $safeCourse = htmlspecialchars($courseTitle, ENT_QUOTES, 'UTF-8');
+        $safeMsg = nl2br(htmlspecialchars($detailsMessage, ENT_QUOTES, 'UTF-8'));
+        $statusLabel = match ($newStatus) {
+            'under_review' => 'Under Admissions Review',
+            'information_requested' => 'Additional Information Requested',
+            'approved' => 'Admission Approved (Pending Enrollment)',
+            'enrolled' => 'Officially Enrolled',
+            'rejected' => 'Application Decision: Not Approved',
+            'withdrawn' => 'Application / Enrollment Withdrawn',
+            default => ucwords(str_replace('_', ' ', $newStatus)),
+        };
+        $safeLabel = htmlspecialchars($statusLabel, ENT_QUOTES, 'UTF-8');
+        $studentBlock = $studentId
+            ? '<p style="font-size:13px;color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;padding:12px;border-radius:8px;"><strong>Official Student ID:</strong> ' . htmlspecialchars($studentId, ENT_QUOTES, 'UTF-8') . '</p>'
+            : '';
+
+        $html = <<<HTML
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>HAMBAKTECH Academy Application Update</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #0f172a; margin: 0; padding: 24px;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
+        <tr>
+            <td style="padding: 24px 32px; background: linear-gradient(135deg, #065f46 0%, #0284c7 100%); color: #ffffff;">
+                <div style="font-size: 17px; font-weight: 800;">HAMBAK TECH &amp; SERVICES DIGITAL TRAINING ACADEMY</div>
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #d1fae5; margin-top: 4px;">Admission Status Update &bull; {$safeRef}</div>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 32px;">
+                <p style="font-size: 14px; color: #334155; margin-top: 0;">Hello <strong>{$safeName}</strong>,</p>
+                <p style="font-size: 13px; line-height: 22px; color: #475569;">
+                    There is an update on your application for <strong>{$safeCourse}</strong> (Reference: <strong>{$safeRef}</strong>):
+                </p>
+                <div style="margin: 18px 0; padding: 14px 18px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px;">
+                    <div style="font-size: 11px; text-transform: uppercase; color: #1d4ed8; font-weight: 700;">Current Status</div>
+                    <div style="font-size: 18px; font-weight: 800; color: #0f172a; margin-top: 4px;">{$safeLabel}</div>
+                </div>
+                {$studentBlock}
+                <p style="font-size: 13px; line-height: 22px; color: #334155;">{$safeMsg}</p>
+                <div style="margin: 24px 0;">
+                    <a href="https://hambaktech.com.ng/#academy" style="display: inline-block; background-color: #059669; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 13px; font-weight: 700;">
+                        View Application in Portal
+                    </a>
+                </div>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+HTML;
+
+        return $this->send(
+            $cleanEmail,
+            $recipientName ?: 'Applicant',
+            "[HAMBAKTECH Academy] {$statusLabel} — {$applicationRef}",
+            $html
+        );
+    }
 }
+

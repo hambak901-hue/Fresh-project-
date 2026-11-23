@@ -1930,43 +1930,7 @@ adminRouter.delete('/store/item/:id', requireAdmin, requirePermission('services'
 // 13. PHASE 8: ACADEMY ADMINISTRATION
 // -------------------------------------------------------------
 
-// GET /api/admin/academy
-adminRouter.get('/academy', requireAdmin, requireAnyPermission(['services', 'academy']), (req, res) => {
-  res.json({
-    success: true,
-    courses: db.data.academy_courses || [],
-    settings: db.data.academy_settings,
-  });
-});
-
-// PUT /api/admin/academy/settings
-adminRouter.put('/academy/settings', requireAdmin, requireAnyPermission(['services', 'academy']), (req: any, res) => {
-  const updated = db.updateAcademySettings(req.body);
-  db.logAudit('ACADEMY_SETTINGS_UPDATED', req.body, req.user?.id, req.user?.email);
-  res.json({ success: true, message: 'Academy settings updated', settings: updated });
-});
-
-// POST /api/admin/academy/course
-adminRouter.post('/academy/course', requireAdmin, requireAnyPermission(['services', 'academy']), (req: any, res) => {
-  const created = db.addAcademyCourse(req.body);
-  db.logAudit('ACADEMY_COURSE_CREATED', created, req.user?.id, req.user?.email);
-  res.json({ success: true, message: 'Course created', course: created });
-});
-
-// PUT /api/admin/academy/course/:id
-adminRouter.put('/academy/course/:id', requireAdmin, requireAnyPermission(['services', 'academy']), (req: any, res) => {
-  const updated = db.updateAcademyCourse(req.params.id, req.body);
-  if (!updated) return res.status(404).json({ error: 'Course not found' });
-  db.logAudit('ACADEMY_COURSE_UPDATED', { id: req.params.id, updates: req.body }, req.user?.id, req.user?.email);
-  res.json({ success: true, message: 'Course updated', course: updated });
-});
-
-// DELETE /api/admin/academy/course/:id
-adminRouter.delete('/academy/course/:id', requireAdmin, requireAnyPermission(['services', 'academy']), (req: any, res) => {
-  const ok = db.deleteAcademyCourse(req.params.id);
-  db.logAudit('ACADEMY_COURSE_DELETED', { id: req.params.id }, req.user?.id, req.user?.email);
-  res.json({ success: ok, message: ok ? 'Course removed' : 'Not found' });
-});
+// Academy administration routes handled by server/routes/academy.ts (adminAcademyRouter)
 
 // -------------------------------------------------------------
 // 14. PHASE 8: REPORTS & RECONCILIATION

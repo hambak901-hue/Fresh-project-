@@ -129,7 +129,13 @@ function MainAppContent() {
       const p = window.location.pathname.toLowerCase();
       const h = window.location.hash.toLowerCase();
       const s = window.location.search.toLowerCase();
-      if (h.startsWith('#verify-student') || h.startsWith('#academy') || h.startsWith('#how-it-works') || h.startsWith('#refund-policy')) {
+      if (
+        h.startsWith('#verify-student') ||
+        h.startsWith('#academy') ||
+        h.startsWith('#how-it-works') ||
+        h.startsWith('#refund-policy') ||
+        s.includes('academy_activate=')
+      ) {
         return '02';
       }
       if (p.includes('/admin') || h.includes('admin')) return '04';
@@ -154,15 +160,42 @@ function MainAppContent() {
 
   const getInitialPublicPage = (): string => {
     if (typeof window !== 'undefined') {
+      if ((window.location.search || '').toLowerCase().includes('academy_activate=')) {
+        return 'academy';
+      }
       return normalizePublicPageKey(window.location.hash || '');
     }
     return 'home';
   };
 
+  const getInitialAcademyActivationToken = (): string | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const sp = new URLSearchParams(window.location.search || '');
+      const tok = sp.get('academy_activate');
+      if (tok && tok.trim().length >= 16) return tok.trim();
+      const h = window.location.hash || '';
+      const qIdx = h.indexOf('?');
+      if (qIdx !== -1) {
+        const hp = new URLSearchParams(h.slice(qIdx + 1));
+        const hTok = hp.get('academy_activate');
+        if (hTok && hTok.trim().length >= 16) return hTok.trim();
+      }
+    } catch {
+      // Ignore malformed params
+    }
+    return null;
+  };
+
   const [activePhase, setActivePhase] = useState<string>(getInitialPhase);
   const [activePublicPage, setActivePublicPage] = useState<string>(getInitialPublicPage);
   const [verifyStudentId, setVerifyStudentId] = useState<string>(parseVerifyStudentIdFromHash);
-  const manualPublicBrowseRef = useRef<boolean>(isExplicitPublicHash());
+  const [academyActivationToken, setAcademyActivationToken] = useState<string | null>(
+    getInitialAcademyActivationToken
+  );
+  const manualPublicBrowseRef = useRef<boolean>(
+    isExplicitPublicHash() || Boolean(getInitialAcademyActivationToken())
+  );
   const userRef = useRef(user);
   useEffect(() => {
     userRef.current = user;
@@ -214,6 +247,15 @@ function MainAppContent() {
       const p = (window.location.pathname || '').toLowerCase();
       const s = (window.location.search || '').toLowerCase();
       const currentUser = userRef.current;
+
+      const activateTok = getInitialAcademyActivationToken();
+      if (activateTok) {
+        manualPublicBrowseRef.current = true;
+        setAcademyActivationToken(activateTok);
+        setActivePublicPage('academy');
+        setActivePhase('02');
+        return;
+      }
 
       if (h.startsWith('#verify-student')) {
         manualPublicBrowseRef.current = true;
@@ -985,7 +1027,21 @@ function MainAppContent() {
             )}
 
             {activePublicPage === 'academy' && (
-              <AcademyPage onNavigate={handleNavigate} onOpenAuth={handleOpenAuth} />
+              <AcademyPage
+                onNavigate={handleNavigate}
+                onOpenAuth={handleOpenAuth}
+                activationToken={academyActivationToken}
+                onActivationComplete={async () => {
+                  setAcademyActivationToken(null);
+                  manualPublicBrowseRef.current = false;
+                  if (typeof window !== 'undefined') {
+                    window.history.replaceState(null, '', '/#portal');
+                  }
+                  await refreshUser();
+                  setActivePhase('03');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              />
             )}
 
             {activePublicPage === 'verify-student' && (

@@ -20,6 +20,7 @@ import { customerRouter } from './server/routes/customer.js';
 import { adminRouter } from './server/routes/admin.js';
 import { kycRouter } from './server/routes/kyc.js';
 import { printingRouter, adminPrintingRouter } from './server/routes/printing.js';
+import { academyRouter, customerAcademyRouter, adminAcademyRouter } from './server/routes/academy.js';
 import { parseToken } from './server/routes/auth.js';
 import { getDashboardConfig, normalizeDashboardKey } from './server/services/dashboardConfig.js';
 import { db } from './server/db/database.js';
@@ -95,7 +96,10 @@ async function startServer() {
   app.use('/api/telecom', telecomRouter);
   app.use('/api/cpanel', cpanelRouter);
   app.use('/api/cms', cmsRouter);
+  app.use('/api/academy', academyRouter);
+  app.use('/api/customer', customerAcademyRouter);
   app.use('/api/customer', customerRouter);
+  app.use('/api/admin', adminAcademyRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/kyc', kycRouter);
   app.use('/api/printing', printingRouter);

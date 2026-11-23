@@ -1298,7 +1298,9 @@ export function SuperAdminDashboard({
               <DashboardModuleManagement onLaunchPreview={onLaunchPreview} />
             )}
 
-            {safeActiveTab === 'services' && <ServiceManagement />}
+            {safeActiveTab === 'services' && (
+              <ServiceManagement onOpenAcademyAdmin={() => setActiveTab('academy_admin')} />
+            )}
 
             {safeActiveTab === 'printing' && (
               <AdminPrintingManagement initialOrderRef={initialPrintOrderRef} />

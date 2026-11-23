@@ -182,7 +182,7 @@ export function CustomerDashboard({
       items: [
         { id: 'store', label: 'HambakTech Store', icon: ShoppingBag, isComingSoon: true },
         { id: 'digital', label: 'Digital Services', icon: Zap },
-        { id: 'academy', label: effectiveDashboardKey === 'student' ? 'My Academy & ID Card' : 'HambakTech Academy', icon: GraduationCap, badge: effectiveDashboardKey === 'student' ? 'Student' : 'Enroll' },
+        { id: 'academy', label: effectiveDashboardKey === 'student' ? 'My Academy & ID Card' : 'HambakTech Academy', icon: GraduationCap, badge: effectiveDashboardKey === 'student' ? 'Student' : 'Apply / Track' },
         { id: 'reports', label: 'Reports & Audits', icon: BarChart3, isComingSoon: true },
       ],
     },

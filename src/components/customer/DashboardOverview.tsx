@@ -37,6 +37,7 @@ import {
   Lock,
 } from 'lucide-react';
 import {
+  AcademyAccessSummary,
   AcademyApplication,
   AcademyStudent,
   DashboardKey,
@@ -69,6 +70,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [academyStudents, setAcademyStudents] = useState<AcademyStudent[]>([]);
   const [academyApps, setAcademyApps] = useState<AcademyApplication[]>([]);
+  const [academyAccess, setAcademyAccess] = useState<AcademyAccessSummary | null>(null);
   const [academyCoursesCount, setAcademyCoursesCount] = useState<number>(12);
   const [idCardStudent, setIdCardStudent] = useState<AcademyStudent | null>(null);
 
@@ -79,11 +81,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const loadSummary = async () => {
     try {
       setLoading(true);
+      const shouldFetchAcademy =
+        effectiveDashboardKey === 'student' ||
+        Boolean(previewAcademyData) ||
+        Boolean(user && !isPreviewMode);
       const [sumRes, acadRes] = await Promise.all([
         api.getCustomerSummary().catch(() => null),
-        effectiveDashboardKey === 'student' || previewAcademyData
-          ? api.getCustomerAcademy().catch(() => null)
-          : Promise.resolve(null),
+        shouldFetchAcademy ? api.getCustomerAcademy().catch(() => null) : Promise.resolve(null),
       ]);
       if (sumRes?.success) {
         setSummary(sumRes);
@@ -91,6 +95,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       if (acadRes?.success) {
         setAcademyStudents(acadRes.students || previewAcademyData?.sample_students || []);
         setAcademyApps(acadRes.applications || []);
+        setAcademyAccess(acadRes.access || null);
         setAcademyCoursesCount((acadRes.courses || []).length || previewAcademyData?.courses_count || 12);
       } else if (previewAcademyData) {
         setAcademyStudents(previewAcademyData.sample_students || []);
@@ -115,7 +120,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const showSection = (key: string, defaultVal = true): boolean =>
     key in sections ? Boolean(sections[key]) : defaultVal;
 
-  const activeEnrollment = academyStudents[0] || null;
+  const activeEnrollment =
+    academyStudents.find((s) => s.academic_status === 'active' || s.academic_status === 'graduated') || null;
   const needsEmailVerification = Boolean(
     user && !isPreviewMode && user.email_verification_required && !user.email_verified
   );
@@ -168,8 +174,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
       </div>
 
-      {/* STUDENT ACADEMY WORKSPACE HERO */}
-      {effectiveDashboardKey === 'student' && showSection('student_academy_hero', true) && (
+      {/* STUDENT ACADEMY WORKSPACE HERO (Enrolled Students or Student Role Preview) */}
+      {(effectiveDashboardKey === 'student' || academyAccess?.can_access_student_hub) &&
+        showSection('student_academy_hero', true) && (
         <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-emerald-950/70 via-slate-900 to-blue-950/60 border border-emerald-500/30 space-y-4 shadow-lg">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-start gap-3.5">
@@ -183,7 +190,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 <p className="text-xs text-slate-300 mt-1 max-w-2xl">
                   {activeEnrollment
                     ? `Enrolled in ${activeEnrollment.course_title} (${activeEnrollment.student_id}) • Status: ${activeEnrollment.academic_status.toUpperCase()}`
-                    : `Explore all ${academyCoursesCount} official training tracks, check application progress, or download your QR-verified Student ID Card.`}
+                    : academyAccess?.has_approved_awaiting_enrollment
+                    ? 'Your Academy admission is approved! Open My Academy to verify prerequisites and complete enrollment for your Student ID Card.'
+                    : `Explore all ${academyCoursesCount} official training tracks, check application progress, and track admission status.`}
                 </p>
               </div>
             </div>
@@ -205,7 +214,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap transition"
               >
                 <BookOpen className="w-4 h-4" />
-                <span>Open My Academy &amp; Courses</span>
+                <span>{academyAccess?.has_approved_awaiting_enrollment && !activeEnrollment ? 'Complete Enrollment' : 'Open My Academy & Courses'}</span>
               </button>
             </div>
           </div>
@@ -224,6 +233,39 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               <span className="font-mono font-bold text-emerald-400 text-base tabular-nums">{academyStudents.length}</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ACADEMY APPLICATION STATUS STRIP FOR NON-ENROLLED APPLICANTS (Customer / Agent) */}
+      {effectiveDashboardKey !== 'student' &&
+        !academyAccess?.can_access_student_hub &&
+        academyApps.length > 0 && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-950/60 via-slate-900 to-teal-950/40 border border-blue-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0">
+              <GraduationCap className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">
+                {academyAccess?.has_approved_awaiting_enrollment
+                  ? 'Academy Admission Approved — Complete Enrollment'
+                  : `Academy Application Status (${academyApps.length} on file)`}
+              </h3>
+              <p className="text-xs text-slate-300">
+                {academyAccess?.has_approved_awaiting_enrollment
+                  ? 'Review enrollment requirements and activate your official Student ID Card.'
+                  : `Latest reference: ${academyApps[0].application_ref} (${academyApps[0].status.replace(/_/g, ' ')})`}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateToPage('academy')}
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shrink-0 flex items-center gap-1.5"
+          >
+            <span>{academyAccess?.has_approved_awaiting_enrollment ? 'Complete Enrollment' : 'Open My Academy'}</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 

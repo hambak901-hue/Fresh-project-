@@ -2255,7 +2255,7 @@ export const api = {
   },
 
   // -------------------------------------------------------------
-  // STAGE 2: DIGITAL TRAINING ACADEMY (PUBLIC, CUSTOMER, ADMIN, VERIFY)
+  // PHASE 1: DIGITAL TRAINING ACADEMY (PUBLIC, CUSTOMER, ADMIN, VERIFY)
   // -------------------------------------------------------------
   async getPublicAcademy(): Promise<{
     success: boolean;
@@ -2270,6 +2270,7 @@ export const api = {
     message: string;
     application: import('../types').AcademyApplication;
     application_ref: string;
+    account_notice?: string | null;
   }> {
     return request('/api/academy/apply', {
       method: 'POST',
@@ -2280,9 +2281,87 @@ export const api = {
   async checkAcademyApplicationStatus(ref: string, email: string): Promise<{
     success: boolean;
     application: import('../types').AcademyApplication;
+    student?: import('../types').AcademyStudent | null;
+    timeline?: import('../types').AcademyApplicationEvent[];
+    resubmit_token?: string | null;
   }> {
     const q = new URLSearchParams({ ref, email }).toString();
     return request(`/api/academy/application-status?${q}`);
+  },
+
+  async validateAcademyInvitation(token: string): Promise<{
+    success: boolean;
+    valid: boolean;
+    invitation: import('../types').AcademyInvitationInfo;
+  }> {
+    const q = new URLSearchParams({ token }).toString();
+    return request(`/api/academy/invitations/validate?${q}`);
+  },
+
+  async activateAcademyAccount(payload: {
+    token: string;
+    password: string;
+    full_name?: string;
+    phone?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    user: import('../types').User;
+    token: string;
+  }> {
+    return request('/api/academy/activate-account', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async resubmitAcademyApplication(
+    id: string,
+    payload: Record<string, any>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    application: import('../types').AcademyApplication;
+    timeline?: import('../types').AcademyApplicationEvent[];
+  }> {
+    return request(`/api/academy/applications/${id}/resubmit`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async uploadAcademyPassport(
+    file: File,
+    opts?: { resubmit_token?: string; application_id?: string }
+  ): Promise<{ success: boolean; file_url: string; file_name: string; message?: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (opts?.resubmit_token) formData.append('resubmit_token', opts.resubmit_token);
+    if (opts?.application_id) formData.append('application_id', opts.application_id);
+    try {
+      return await request('/api/academy/upload-passport', {
+        method: 'POST',
+        body: formData,
+      });
+    } catch (err) {
+      // Fallback JSON data URL for Express dev mirror when multipart parser is skipped
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(err);
+        reader.readAsDataURL(file);
+      });
+      if (!dataUrl.startsWith('data:image/')) throw err;
+      return request('/api/academy/upload-passport', {
+        method: 'POST',
+        body: JSON.stringify({
+          data_url: dataUrl,
+          filename: file.name,
+          resubmit_token: opts?.resubmit_token,
+          application_id: opts?.application_id,
+        }),
+      });
+    }
   },
 
   async verifyStudentById(studentId: string): Promise<import('../types').StudentVerificationResult> {
@@ -2331,13 +2410,44 @@ export const api = {
     return request('/api/admin/academy/applications');
   },
 
+  async getAdminAcademyApplicationDetail(id: string): Promise<{
+    success: boolean;
+    application: import('../types').AcademyApplication;
+    student?: import('../types').AcademyStudent | null;
+    timeline: import('../types').AcademyApplicationEvent[];
+    enrollment_requirements: import('../types').AcademyEnrollmentRequirements;
+  }> {
+    return request(`/api/admin/academy/applications/${id}`);
+  },
+
   async reviewAcademyApplication(
     id: string,
-    data: { action: 'approve' | 'reject' | 'request_info'; admin_notes?: string; info_request_message?: string }
-  ): Promise<{ success: boolean; message: string; status: string; student?: import('../types').AcademyStudent }> {
+    data: {
+      action: 'start_review' | 'request_info' | 'approve' | 'reject' | 'enroll' | 'withdraw' | 'reconcile';
+      admin_notes?: string;
+      info_request_message?: string;
+      approve_exception?: boolean;
+      exception_reason?: string;
+      withdrawal_reason?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    status?: string;
+    student?: import('../types').AcademyStudent;
+    timeline?: import('../types').AcademyApplicationEvent[];
+    linked?: boolean;
+    invited?: boolean;
+  }> {
     return request(`/api/admin/academy/applications/${id}/review`, {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminAcademyApplication(id: string): Promise<{ success: boolean; message: string }> {
+    return request(`/api/admin/academy/applications/${id}`, {
+      method: 'DELETE',
     });
   },
 
@@ -2361,6 +2471,7 @@ export const api = {
     settings: import('../types').AcademySettings;
     applications?: import('../types').AcademyApplication[];
     students?: import('../types').AcademyStudent[];
+    access?: import('../types').AcademyAccessSummary;
   }> {
     return request('/api/customer/academy');
   },
@@ -2374,6 +2485,45 @@ export const api = {
     return request('/api/customer/academy/apply', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async respondCustomerAcademyApplication(
+    id: string,
+    payload: Record<string, any>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    application: import('../types').AcademyApplication;
+    timeline?: import('../types').AcademyApplicationEvent[];
+  }> {
+    return request(`/api/customer/academy/applications/${id}/respond`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async completeCustomerAcademyEnrollment(id: string): Promise<{
+    success: boolean;
+    message: string;
+    status: string;
+    student: import('../types').AcademyStudent;
+    timeline?: import('../types').AcademyApplicationEvent[];
+  }> {
+    return request(`/api/customer/academy/applications/${id}/enroll`, {
+      method: 'POST',
+    });
+  },
+
+  async withdrawCustomerAcademyApplication(id: string, reason?: string): Promise<{
+    success: boolean;
+    message: string;
+    status: string;
+    timeline?: import('../types').AcademyApplicationEvent[];
+  }> {
+    return request(`/api/customer/academy/applications/${id}/withdraw`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
   },
 
