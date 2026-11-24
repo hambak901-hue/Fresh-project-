@@ -343,11 +343,7 @@ class CustomerController
         } catch (Throwable) {
         }
 
-        $va = null;
-        try {
-            $va = $this->db->fetchOne('SELECT * FROM customer_virtual_accounts WHERE user_id = :uid', ['uid' => $user['id']]);
-        } catch (Throwable) {
-        }
+        $vaPayload = (new WalletController())->buildVirtualAccountPayloadForUser($user, false);
 
         $rules = [];
         try {
@@ -368,7 +364,8 @@ class CustomerController
             'user' => $user,
             'level_info' => $tierCatalog[$level] ?? $tierCatalog[1],
             'active_submission' => $activeSubmission,
-            'virtual_account' => $va ?: null,
+            'virtual_account' => $vaPayload['virtual_account'] ?? null,
+            'virtual_account_state' => $vaPayload,
             'rules' => $rules,
         ]);
     }
@@ -689,6 +686,14 @@ class CustomerController
                     ['lvl' => $targetLevel, 'id' => $user['id']]
                 );
             }
+            // Best-effort automatic Paystack DVA provisioning on instant Tier 2+ verification
+            try {
+                $promotedUser = $this->db->fetchOne('SELECT * FROM users WHERE id = :id LIMIT 1', ['id' => $user['id']]);
+                if ($promotedUser && !empty($promotedUser['email_verified'])) {
+                    (new WalletController())->requestPaystackDvaForUser($promotedUser);
+                }
+            } catch (Throwable) {
+            }
         } elseif (strtolower((string)($user['kyc_status'] ?? '')) !== 'verified') {
             $this->db->execute(
                 'UPDATE users SET kyc_status = "pending", updated_at = NOW() WHERE id = :id AND LOWER(COALESCE(kyc_status, "")) != "verified"',
@@ -880,24 +885,9 @@ class CustomerController
     public function virtualAccount(Request $request): void
     {
         $user = Auth::requireAuth($request);
-        $currentLevel = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
-        $va = null;
-        try {
-            $va = $this->db->fetchOne('SELECT * FROM customer_virtual_accounts WHERE user_id = :uid', ['uid' => $user['id']]);
-        } catch (Throwable) {
-        }
-
-        Response::success([
-            'virtual_account' => $va ?: null,
-            'eligible' => $currentLevel >= 2,
-            'required_level' => 2,
-            'current_level' => $currentLevel,
-            'message' => $va
-                ? 'Dedicated virtual account active.'
-                : ($currentLevel >= 2
-                    ? 'You are eligible for virtual account provisioning. Dedicated NGN accounts are currently provisioned once regulatory partner onboarding finishes.'
-                    : 'Upgrade to KYC Tier 2 to become eligible for a dedicated NGN virtual bank account.'),
-        ]);
+        $syncPending = ((string)$request->query('sync', '0')) === '1';
+        $payload = (new WalletController())->buildVirtualAccountPayloadForUser($user, $syncPending);
+        Response::success($payload);
     }
 
     /**
@@ -1000,17 +990,21 @@ class CustomerController
             Response::forbidden('Unauthorized access to document.');
         }
 
-        $path = $doc['file_path'];
-        if (!file_exists($path)) {
+        $storageBase = realpath(dirname(__DIR__) . '/storage');
+        $path = realpath((string)($doc['file_path'] ?? ''));
+        if ($storageBase === false || $path === false || !str_starts_with($path, $storageBase . DIRECTORY_SEPARATOR) || !is_file($path)) {
             Response::notFound('Document file missing on storage.');
         }
 
+        $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename((string)($doc['original_name'] ?? 'document'))) ?: 'document';
+
         header('Content-Type: ' . ($doc['mime_type'] ?: 'application/octet-stream'));
         header('Content-Length: ' . filesize($path));
-        header('Content-Disposition: inline; filename="' . basename((string)$doc['original_name']) . '"');
+        header('Content-Disposition: inline; filename="' . $safeName . '"');
         header('Cache-Control: private, no-store, no-cache, must-revalidate');
         header('Pragma: no-cache');
         header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
         readfile($path);
         exit;
     }

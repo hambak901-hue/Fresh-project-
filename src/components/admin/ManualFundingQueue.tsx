@@ -16,8 +16,12 @@ import {
   TrendingUp,
   Wallet,
   ShieldAlert,
+  ShieldCheck,
+  Landmark,
+  Clock,
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { PaystackDvaAdminStatusResponse } from '../../types';
 
 export function ManualFundingQueue() {
   const [activeSubTab, setActiveSubTab] = useState<'adjust' | 'reports' | 'gateways'>('adjust');
@@ -27,8 +31,11 @@ export function ManualFundingQueue() {
   const [financialReports, setFinancialReports] = useState<any | null>(null);
   const [reportsLoading, setReportsLoading] = useState(false);
 
-  // Gateway Management State
+  // Gateway Management & Paystack DVA State
   const [gateways, setGateways] = useState<any[]>([]);
+  const [dvaStatus, setDvaStatus] = useState<PaystackDvaAdminStatusResponse | null>(null);
+  const [dvaLoading, setDvaLoading] = useState(false);
+  const [requeryingUserId, setRequeryingUserId] = useState<string | null>(null);
 
   // Direct Wallet Adjustment State
   const [customers, setCustomers] = useState<any[]>([]);
@@ -42,6 +49,7 @@ export function ManualFundingQueue() {
     loadReports();
     loadGateways();
     loadCustomers();
+    loadDvaStatus();
   }, []);
 
   const loadReports = async () => {
@@ -63,6 +71,17 @@ export function ManualFundingQueue() {
     } catch (e) {}
   };
 
+  const loadDvaStatus = async () => {
+    setDvaLoading(true);
+    try {
+      const res = await api.getAdminPaystackDvaStatus();
+      setDvaStatus(res);
+    } catch (e) {
+    } finally {
+      setDvaLoading(false);
+    }
+  };
+
   const loadCustomers = async () => {
     try {
       const res = await api.getAdminCustomers();
@@ -71,6 +90,20 @@ export function ManualFundingQueue() {
         setSelectedCustomerId(res.customers[0].id);
       }
     } catch (e) {}
+  };
+
+  const handleRequeryCustomerDva = async (userId: string) => {
+    setRequeryingUserId(userId);
+    setMessage(null);
+    try {
+      const res = await api.requeryAdminPaystackDva(userId);
+      setMessage({ type: 'success', text: res.message || 'Paystack DVA status synchronized.' });
+      await loadDvaStatus();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Failed to sync/requery Paystack DVA.' });
+    } finally {
+      setRequeryingUserId(null);
+    }
   };
 
   const handleDirectAdjustment = async (e: React.FormEvent) => {
@@ -139,10 +172,11 @@ export function ManualFundingQueue() {
               loadReports();
               loadGateways();
               loadCustomers();
+              loadDvaStatus();
             }}
             className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition flex items-center gap-2 text-xs font-semibold self-start sm:self-auto"
           >
-            <RefreshCw className={`w-4 h-4 ${reportsLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${reportsLoading || dvaLoading ? 'animate-spin' : ''}`} />
             <span>Refresh Ledger</span>
           </button>
         </div>
@@ -409,9 +443,20 @@ export function ManualFundingQueue() {
                   <h3 className="text-sm font-bold text-white">Funding Source Breakdown</h3>
                   <div className="space-y-3 text-xs">
                     <div className="flex justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
-                      <span className="text-slate-400">Paystack Online (Card/USSD):</span>
+                      <span className="text-slate-400">Paystack Checkout (Card/USSD/Transfer):</span>
                       <span className="font-mono text-emerald-400 font-bold">
                         ₦{(financialReports.funding.paystackFunding || 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 rounded-xl bg-slate-950 border border-slate-800">
+                      <div>
+                        <span className="text-slate-300 font-medium block">Paystack Dedicated Virtual Accounts (Net):</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {financialReports.funding.paystackDvaAccounts || 0} active DVAs &bull; {financialReports.funding.paystackDvaCount || 0} deposits &bull; Gross ₦{(financialReports.funding.paystackDvaGross || 0).toLocaleString()} &bull; Fees ₦{(financialReports.funding.paystackDvaFees || 0).toLocaleString()}
+                        </span>
+                      </div>
+                      <span className="font-mono text-indigo-400 font-bold">
+                        ₦{(financialReports.funding.paystackDvaNet || 0).toLocaleString()}
                       </span>
                     </div>
                     {(financialReports.funding.flutterwaveFunding || 0) > 0 && (
@@ -515,6 +560,275 @@ export function ManualFundingQueue() {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Paystack Dedicated Virtual Accounts (Auto-Generated) Panel */}
+          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Landmark className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-base font-bold text-white">
+                    Paystack Dedicated Virtual Accounts (Auto-Generated)
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Accounts are requested directly from Paystack&apos;s official API and settled automatically via signed webhooks into the single customer wallet ledger. Manual account entry and deposit approvals are permanently disabled.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadDvaStatus}
+                disabled={dvaLoading}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-2 self-start sm:self-auto"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${dvaLoading ? 'animate-spin' : ''}`} />
+                <span>Check Live Capability</span>
+              </button>
+            </div>
+
+            {/* Live Paystack Capability Banner */}
+            {dvaStatus?.capability && (
+              <div
+                className={`p-4 rounded-xl border text-xs space-y-2 ${
+                  dvaStatus.capability.capable
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 font-bold">
+                  <span className="flex items-center gap-2">
+                    {dvaStatus.capability.capable ? (
+                      <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    )}
+                    <span>
+                      {dvaStatus.capability.capable
+                        ? 'Paystack Dedicated Virtual Accounts Enabled on Merchant Account'
+                        : 'Paystack DVA Live Eligibility / Activation Check'}
+                    </span>
+                  </span>
+                  <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-950/60 border border-slate-700/60">
+                    Policy: {dvaStatus.policy.enable_paystack_dva ? 'Enabled' : 'Paused'} &bull; Bearer: {dvaStatus.policy.fee_bearer}
+                  </span>
+                </div>
+
+                <p className="text-[11px] leading-relaxed">{dvaStatus.capability.message}</p>
+
+                {dvaStatus.capability.capable && dvaStatus.capability.providers?.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {dvaStatus.capability.providers.map((p, idx) => (
+                      <span
+                        key={`${p.provider_slug || idx}`}
+                        className="px-2.5 py-1 rounded-lg bg-slate-950/70 border border-emerald-500/30 text-[11px] font-mono text-emerald-300"
+                      >
+                        {p.bank_name || p.provider_slug} ({p.provider_slug})
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-amber-100/80 pt-1 space-y-1">
+                    <div className="font-semibold">Required Paystack Merchant Go-Live Checklist:</div>
+                    <ul className="list-disc pl-5 space-y-0.5">
+                      <li>Complete Paystack Registered Business compliance &amp; Go-Live approval in Paystack Dashboard.</li>
+                      <li>Request Dedicated Virtual Accounts activation under Paystack Settings &rarr; Preferences / Compliance.</li>
+                      <li>Configure server <code>PAYSTACK_SECRET_KEY</code> and set Paystack Webhook URL to <code>/api/wallet/paystack/webhook</code>.</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* DVA Summary KPIs */}
+            {dvaStatus?.totals && (
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Assigned Accounts</div>
+                  <div className="text-xl font-black font-mono text-emerald-400 mt-1">
+                    {dvaStatus.totals.assigned_accounts}
+                  </div>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Pending Paystack</div>
+                  <div className="text-xl font-black font-mono text-amber-400 mt-1">
+                    {dvaStatus.totals.pending_accounts}
+                  </div>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">DVA Gross Inflow</div>
+                  <div className="text-xl font-black font-mono text-white mt-1">
+                    ₦{Number(dvaStatus.totals.total_gross || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Paystack Charges</div>
+                  <div className="text-xl font-black font-mono text-rose-400 mt-1">
+                    ₦{Number(dvaStatus.totals.total_paystack_fees || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Net Credited Wallets</div>
+                  <div className="text-xl font-black font-mono text-indigo-400 mt-1">
+                    ₦{Number(dvaStatus.totals.total_net_credited || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Read-Only Paystack-Generated Customer Accounts Table */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  Paystack-Generated Customer Accounts ({dvaStatus?.accounts?.length || 0})
+                </h4>
+                <span className="text-[11px] text-slate-500">Read-only Paystack assignments &bull; No manual creation</span>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-800">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold">
+                    <tr>
+                      <th className="px-4 py-3">Customer</th>
+                      <th className="px-4 py-3">Account #</th>
+                      <th className="px-4 py-3">Bank</th>
+                      <th className="px-4 py-3">Paystack Customer Ref</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3 text-right">Total Inflow</th>
+                      <th className="px-4 py-3 text-right">Paystack Sync</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 bg-slate-900/60">
+                    {!dvaStatus?.accounts?.length ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                          No Paystack dedicated virtual accounts have been requested or assigned yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      dvaStatus.accounts.map(acc => (
+                        <tr key={acc.id} className="hover:bg-slate-800/40">
+                          <td className="px-4 py-3">
+                            <div className="font-semibold text-white">{acc.customer_name || acc.user_id}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{acc.customer_email || ''}</div>
+                          </td>
+                          <td className="px-4 py-3 font-mono font-bold text-emerald-400">
+                            {acc.account_number || <span className="text-amber-400">Pending Paystack</span>}
+                          </td>
+                          <td className="px-4 py-3 text-slate-300">{acc.bank_name || '—'}</td>
+                          <td className="px-4 py-3 font-mono text-slate-400">{acc.paystack_customer_code || '—'}</td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                acc.assignment_status === 'assigned' && acc.account_status === 'active'
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                  : acc.assignment_status === 'pending'
+                                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                              }`}
+                            >
+                              {acc.assignment_status === 'assigned' ? acc.account_status : acc.assignment_status}
+                            </span>
+                            {acc.failure_reason && (
+                              <div className="text-[10px] text-rose-400 mt-1 max-w-xs truncate" title={acc.failure_reason}>
+                                {acc.failure_reason}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono font-bold text-white">
+                            ₦{Number(acc.total_inflow || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleRequeryCustomerDva(acc.user_id)}
+                              disabled={requeryingUserId === acc.user_id}
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-[11px] font-semibold inline-flex items-center gap-1"
+                            >
+                              <RefreshCw className={`w-3 h-3 ${requeryingUserId === acc.user_id ? 'animate-spin' : ''}`} />
+                              <span>Requery Paystack</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Recent Automated DVA Webhook Settlements Table */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Recent Automated DVA Webhook Settlements ({dvaStatus?.settlements?.length || 0})</span>
+                </h4>
+                <span className="text-[11px] text-slate-500">HMAC-SHA512 verified &bull; Idempotent ledger credit</span>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-800">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold">
+                    <tr>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Customer</th>
+                      <th className="px-4 py-3">Paystack Ref</th>
+                      <th className="px-4 py-3 text-right">Gross</th>
+                      <th className="px-4 py-3 text-right">Paystack Fee</th>
+                      <th className="px-4 py-3 text-right">Net Credit</th>
+                      <th className="px-4 py-3">Bearer</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 bg-slate-900/60">
+                    {!dvaStatus?.settlements?.length ? (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
+                          No Paystack DVA inbound transfers settled yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      dvaStatus.settlements.map(s => (
+                        <tr key={s.id} className="hover:bg-slate-800/40">
+                          <td className="px-4 py-3 text-slate-400 font-mono whitespace-nowrap">
+                            {new Date(s.created_at).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-semibold text-white">{s.customer_name || s.user_id || 'Unmatched'}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{s.account_number}</div>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-slate-300">{s.paystack_reference}</td>
+                          <td className="px-4 py-3 text-right font-mono text-white">
+                            ₦{Number(s.gross_amount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono text-rose-400">
+                            ₦{Number(s.paystack_fee).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono font-bold text-emerald-400">
+                            ₦{Number(s.net_credit_amount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-3 uppercase text-[10px] font-mono text-slate-400">
+                            {s.fee_bearer}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                s.settlement_status === 'settled'
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              }`}
+                            >
+                              {s.settlement_status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       )}

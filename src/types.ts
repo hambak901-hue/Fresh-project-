@@ -87,11 +87,13 @@ export interface User {
   referral_source?: string | null;
   referral_campaign_code?: string | null;
   virtual_account?: {
-    status: 'unassigned' | 'pending_kyc' | 'active' | 'suspended';
+    status: 'unassigned' | 'pending_kyc' | 'pending' | 'active' | 'suspended';
+    assignment_status?: 'not_requested' | 'pending' | 'assigned' | 'failed' | 'deactivated';
     account_number?: string;
     account_name?: string;
     bank_name?: string;
     bank_code?: string;
+    bank_slug?: string;
     provider?: string;
     assigned_at?: string;
   };
@@ -165,11 +167,113 @@ export interface VirtualAccountItem {
   account_name: string;
   bank_name: string;
   bank_code: string;
-  provider: 'monnify' | 'providus' | 'wema' | 'flutterwave' | 'reserved_stub';
-  status: 'active' | 'suspended' | 'closed' | 'pending_kyc';
+  bank_slug?: string | null;
+  dedicated_account_id?: number | null;
+  paystack_customer_code?: string | null;
+  currency?: string;
+  provider: 'paystack' | 'monnify' | 'providus' | 'wema' | 'flutterwave' | 'reserved_stub';
+  status: 'active' | 'suspended' | 'closed' | 'pending_kyc' | 'pending';
+  assignment_status?: 'not_requested' | 'pending' | 'assigned' | 'failed' | 'deactivated';
+  kyc_validation_status?: 'unverified' | 'pending' | 'verified' | 'failed';
   assigned_at: string;
   total_inflow: number;
-  last_funding_at?: string;
+  last_funding_at?: string | null;
+  webhook_reference?: string;
+}
+
+export interface VirtualAccountStateResponse {
+  success: boolean;
+  has_virtual_account: boolean;
+  dva_enabled: boolean;
+  paystack_configured: boolean;
+  eligible: boolean;
+  email_verified?: boolean;
+  required_level: number;
+  current_level: number;
+  status: 'active' | 'pending' | 'pending_kyc' | 'unassigned';
+  assignment_status: 'not_requested' | 'pending' | 'assigned' | 'failed' | 'deactivated';
+  kyc_validation_status?: 'unverified' | 'pending' | 'verified' | 'failed';
+  failure_reason?: string | null;
+  fee_bearer?: 'customer' | 'merchant';
+  preferred_bank?: string;
+  virtual_account: VirtualAccountItem | null;
+  account_number?: string | null;
+  account_name?: string | null;
+  bank_name?: string | null;
+  message?: string;
+}
+
+export interface PaystackDvaAdminStatusResponse {
+  success: boolean;
+  capability: {
+    configured: boolean;
+    capable: boolean;
+    status_code?: number;
+    reason: string;
+    message: string;
+    providers: Array<{
+      id?: number;
+      provider_slug?: string;
+      bank_id?: number;
+      bank_name?: string;
+    }>;
+  };
+  policy: {
+    enable_paystack_dva: boolean;
+    enable_virtual_accounts: boolean;
+    preferred_bank: string;
+    fee_bearer: 'customer' | 'merchant';
+  };
+  totals: {
+    assigned_accounts: number;
+    pending_accounts: number;
+    failed_accounts: number;
+    settled_count: number;
+    under_review_count: number;
+    total_gross: number;
+    total_paystack_fees: number;
+    total_net_credited: number;
+  };
+  accounts: Array<{
+    id: string;
+    user_id: string;
+    customer_name?: string;
+    customer_email?: string;
+    kyc_level?: number;
+    provider: string;
+    paystack_customer_code?: string | null;
+    dedicated_account_id?: number | null;
+    account_number: string;
+    account_name?: string | null;
+    bank_name: string;
+    bank_slug?: string | null;
+    account_status: string;
+    kyc_validation_status: string;
+    assignment_status: string;
+    failure_reason?: string | null;
+    total_inflow: number;
+    last_funding_at?: string | null;
+    created_at: string;
+    updated_at?: string;
+  }>;
+  settlements: Array<{
+    id: string;
+    user_id?: string | null;
+    customer_name?: string | null;
+    customer_email?: string | null;
+    paystack_reference: string;
+    account_number: string;
+    paystack_customer_code?: string | null;
+    gross_amount: number;
+    paystack_fee: number;
+    net_credit_amount: number;
+    fee_bearer: 'customer' | 'merchant';
+    sender_bank?: string | null;
+    sender_account_name?: string | null;
+    sender_account_number_masked?: string | null;
+    settlement_status: 'settled' | 'under_review' | 'failed';
+    created_at: string;
+  }>;
 }
 
 export interface Transaction {
@@ -1142,20 +1246,6 @@ export interface ServiceSecurityRule {
   updated_by?: string;
 }
 
-export interface VirtualAccountItem {
-  id: string;
-  user_id: string;
-  account_number: string;
-  account_name: string;
-  bank_name: string;
-  bank_code: string;
-  provider: 'monnify' | 'providus' | 'wema' | 'flutterwave' | 'reserved_stub';
-  status: 'active' | 'suspended' | 'closed' | 'pending_kyc';
-  assigned_at: string;
-  total_inflow: number;
-  last_funding_at?: string;
-  webhook_reference?: string;
-}
 
 export interface ActivityFootprint {
   id: string;
@@ -1357,6 +1447,18 @@ export interface ModificationRequestItem {
   completed_at?: string | null;
   created_at: string;
   updated_at?: string | null;
+  // Phase 2 — Official Result Document & Query Review Metadata
+  has_result_document?: boolean;
+  result_document_id?: string | null;
+  result_source?: 'provider_issued' | 'admin_uploaded' | string | null;
+  result_document?: ResultDocumentMeta | null;
+  provider_tracking_id?: string | null;
+  result_details?: Record<string, any> | null;
+  result_retrieval_status?: string | null;
+  result_retrieval_error?: string | null;
+  result_retrieved_at?: string | null;
+  query_review_status?: string | null;
+  additional_info_history?: AdditionalInfoHistoryEntry[];
   // Admin-only fields
   customer_name?: string | null;
   customer_email?: string | null;
@@ -1368,6 +1470,27 @@ export interface ModificationRequestItem {
   admin_notes?: string | null;
   reviewed_by?: string | null;
   provider_response?: any;
+}
+
+export interface ResultDocumentMeta {
+  id: string;
+  document_source: 'provider_issued' | 'admin_uploaded' | string;
+  is_provider_issued: boolean;
+  source_label: string;
+  original_name: string;
+  mime_type: string;
+  file_size: number;
+  sha256_hash?: string | null;
+  provider_tracking_id?: string | null;
+  created_at?: string | null;
+  file_url: string;
+}
+
+export interface AdditionalInfoHistoryEntry {
+  submitted_at: string;
+  note?: string;
+  document_ids?: Record<string, string>;
+  review_status?: string;
 }
 
 export interface ModificationAdminStats {
@@ -1465,6 +1588,16 @@ export interface EnrolmentOrderItem {
   completed_at?: string | null;
   created_at: string;
   updated_at?: string | null;
+  // Phase 2 — Official Result Document Metadata
+  has_result_document?: boolean;
+  result_document_id?: string | null;
+  result_source?: 'provider_issued' | 'admin_uploaded' | string | null;
+  result_document?: ResultDocumentMeta | null;
+  provider_tracking_id?: string | null;
+  result_details?: Record<string, any> | null;
+  result_retrieval_status?: string | null;
+  result_retrieval_error?: string | null;
+  result_retrieved_at?: string | null;
   // Admin-only fields
   provider_reference?: string | null;
   provider_status?: string | null;

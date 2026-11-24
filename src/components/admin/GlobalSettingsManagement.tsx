@@ -252,6 +252,27 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
       },
       { key: 'enable_paystack', label: 'Enable Paystack Gateway', type: 'boolean', helper: 'Process cards, USSD, and instant Paystack bank transfers' },
       { key: 'paystack_charge_percent', label: 'Paystack Fee Rate (%)', type: 'number', helper: 'Configured settlement fee percentage' },
+      { key: 'enable_paystack_dva', label: 'Enable Paystack Dedicated Virtual Accounts', type: 'boolean', helper: 'Allow eligible KYC Level 2+ customers to request a Paystack-generated NUBAN' },
+      {
+        key: 'paystack_dva_preferred_bank',
+        label: 'Preferred Paystack DVA Bank Partner',
+        type: 'select',
+        options: [
+          { label: 'Wema Bank (wema-bank)', value: 'wema-bank' },
+          { label: 'Titan Paystack (titan-paystack)', value: 'titan-paystack' },
+        ],
+        helper: 'Bank slug requested from Paystack when assigning customer DVAs',
+      },
+      {
+        key: 'dva_fee_bearer',
+        label: 'DVA Transfer Fee Handling',
+        type: 'select',
+        options: [
+          { label: 'Deduct Actual Paystack Charge from Deposit (Net Credit)', value: 'customer' },
+          { label: 'Merchant Absorbs Paystack DVA Charge (Full Credit)', value: 'merchant' },
+        ],
+        helper: 'Controls whether actual Paystack DVA charges are deducted before crediting wallet',
+      },
     ],
   },
   // 13. Provider Integration

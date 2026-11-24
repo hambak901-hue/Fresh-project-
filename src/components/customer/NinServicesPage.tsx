@@ -43,6 +43,7 @@ import {
   Wallet,
   Loader2,
   Lock,
+  X,
 } from 'lucide-react';
 
 type HubCategory = 'nin_verify' | 'bvn_verify' | 'nin_mod' | 'bvn_mod' | 'enrolment' | 'additional' | 'history';
@@ -139,6 +140,35 @@ export const NinServicesPage: React.FC = () => {
   const [loadingRecordId, setLoadingRecordId] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState<string>('');
   const [pollingRef, setPollingRef] = useState<string | null>(null);
+  const [loadingOfficialDocId, setLoadingOfficialDocId] = useState<string | null>(null);
+  const [officialDocPreview, setOfficialDocPreview] = useState<{
+    name: string;
+    mimeType: string;
+    blobUrl: string;
+  } | null>(null);
+
+  const handleOfficialResultFile = async (
+    key: string,
+    fileUrl: string,
+    filename: string,
+    mimeType: string = 'application/pdf',
+    mode: 'preview' | 'download' = 'preview'
+  ) => {
+    try {
+      setLoadingOfficialDocId(key);
+      setError(null);
+      if (mode === 'download') {
+        await api.downloadProtectedFile(fileUrl, filename);
+      } else {
+        const blobUrl = await api.fetchProtectedDocumentBlob(fileUrl);
+        setOfficialDocPreview({ name: filename, mimeType, blobUrl });
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Unable to load official result document.');
+    } finally {
+      setLoadingOfficialDocId(null);
+    }
+  };
 
   useEffect(() => {
     setPhotoLoadError(false);
@@ -2394,10 +2424,16 @@ export const NinServicesPage: React.FC = () => {
                   ) : (
                     enrolmentHistory.map(order => {
                       const st = getEnrolmentStatusStyle(order.status);
+                      const hasResultPdf = Boolean(order.has_result_document && order.result_document?.file_url);
                       return (
                         <tr key={order.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                           <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
-                            {order.order_number}
+                            <div>{order.order_number}</div>
+                            {order.provider_tracking_id && (
+                              <div className="text-[10px] font-mono font-normal text-blue-700 dark:text-emerald-400">
+                                Tracking: {order.provider_tracking_id}
+                              </div>
+                            )}
                           </td>
                           <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white">
                             <div>{order.service_name}</div>
@@ -2418,11 +2454,60 @@ export const NinServicesPage: React.FC = () => {
                             <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${st.classes}`}>
                               {st.label}
                             </span>
+                            {String(order.status).toLowerCase() === 'completed' && !hasResultPdf && (
+                              <div className="text-[10px] text-slate-500 mt-0.5">No PDF file</div>
+                            )}
                           </td>
                           <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px]">
                             {new Date(order.created_at).toLocaleString('en-NG')}
                           </td>
-                          <td className="py-3.5 px-4 text-right">
+                          <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                            {hasResultPdf && order.result_document && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOfficialResultFile(
+                                      `enr_prev_${order.id}`,
+                                      order.result_document!.file_url,
+                                      order.result_document!.original_name || `HAMBAK_ENROLMENT_${order.order_number}.pdf`,
+                                      order.result_document!.mime_type,
+                                      'preview'
+                                    )
+                                  }
+                                  disabled={loadingOfficialDocId === `enr_prev_${order.id}`}
+                                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold inline-flex items-center gap-1"
+                                >
+                                  {loadingOfficialDocId === `enr_prev_${order.id}` ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Eye className="w-3 h-3" />
+                                  )}
+                                  <span>Preview</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOfficialResultFile(
+                                      `enr_dl_${order.id}`,
+                                      order.result_document!.file_url,
+                                      order.result_document!.original_name || `HAMBAK_ENROLMENT_${order.order_number}.pdf`,
+                                      order.result_document!.mime_type,
+                                      'download'
+                                    )
+                                  }
+                                  disabled={loadingOfficialDocId === `enr_dl_${order.id}`}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-semibold inline-flex items-center gap-1"
+                                >
+                                  {loadingOfficialDocId === `enr_dl_${order.id}` ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Download className="w-3 h-3" />
+                                  )}
+                                  <span>Official PDF</span>
+                                </button>
+                              </>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleSwitchCategory('enrolment')}
@@ -2467,10 +2552,16 @@ export const NinServicesPage: React.FC = () => {
                     }
                     return scopedMods.map(item => {
                       const st = getModificationStatusStyle(item.status);
+                      const hasResultPdf = Boolean(item.has_result_document && item.result_document?.file_url);
                       return (
                         <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                           <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
-                            {item.request_number}
+                            <div>{item.request_number}</div>
+                            {item.provider_tracking_id && (
+                              <div className="text-[10px] font-mono font-normal text-blue-700 dark:text-emerald-400">
+                                Tracking: {item.provider_tracking_id}
+                              </div>
+                            )}
                           </td>
                           <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white">
                             <div>{item.service_name}</div>
@@ -2490,11 +2581,60 @@ export const NinServicesPage: React.FC = () => {
                             <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${st.classes}`}>
                               {st.label}
                             </span>
+                            {String(item.status).toLowerCase() === 'completed' && !hasResultPdf && (
+                              <div className="text-[10px] text-slate-500 mt-0.5">No PDF file</div>
+                            )}
                           </td>
                           <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px]">
                             {new Date(item.created_at).toLocaleString('en-NG')}
                           </td>
-                          <td className="py-3.5 px-4 text-right">
+                          <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                            {hasResultPdf && item.result_document && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOfficialResultFile(
+                                      `mod_prev_${item.id}`,
+                                      item.result_document!.file_url,
+                                      item.result_document!.original_name || `HAMBAK_RESULT_${item.request_number}.pdf`,
+                                      item.result_document!.mime_type,
+                                      'preview'
+                                    )
+                                  }
+                                  disabled={loadingOfficialDocId === `mod_prev_${item.id}`}
+                                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold inline-flex items-center gap-1"
+                                >
+                                  {loadingOfficialDocId === `mod_prev_${item.id}` ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Eye className="w-3 h-3" />
+                                  )}
+                                  <span>Preview</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOfficialResultFile(
+                                      `mod_dl_${item.id}`,
+                                      item.result_document!.file_url,
+                                      item.result_document!.original_name || `HAMBAK_RESULT_${item.request_number}.pdf`,
+                                      item.result_document!.mime_type,
+                                      'download'
+                                    )
+                                  }
+                                  disabled={loadingOfficialDocId === `mod_dl_${item.id}`}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-semibold inline-flex items-center gap-1"
+                                >
+                                  {loadingOfficialDocId === `mod_dl_${item.id}` ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Download className="w-3 h-3" />
+                                  )}
+                                  <span>Official PDF</span>
+                                </button>
+                              </>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleSwitchCategory(targetDomain === 'BVN' ? 'bvn_mod' : 'nin_mod')}
@@ -2601,6 +2741,49 @@ export const NinServicesPage: React.FC = () => {
               >
                 Use This Slip Format
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Official Result PDF Preview Modal (History) */}
+      {officialDocPreview && (
+        <div className="no-print fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 text-xs">
+              <span className="font-bold text-slate-900 dark:text-white truncate pr-4">
+                {officialDocPreview.name}
+              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={officialDocPreview.blobUrl}
+                  download={officialDocPreview.name}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-semibold inline-flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      URL.revokeObjectURL(officialDocPreview.blobUrl);
+                    } catch {
+                    }
+                    setOfficialDocPreview(null);
+                  }}
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="p-4 bg-slate-100 dark:bg-slate-950 flex items-center justify-center max-h-[75vh] overflow-auto">
+              <iframe
+                src={officialDocPreview.blobUrl}
+                title={officialDocPreview.name}
+                className="w-full h-[65vh] rounded-xl bg-white"
+              />
             </div>
           </div>
         </div>

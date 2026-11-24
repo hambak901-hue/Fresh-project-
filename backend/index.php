@@ -129,13 +129,16 @@ $router->post('/api/wallet/flutterwave/webhook', [WalletController::class, 'flut
 $router->post('/api/wallet/manual-funding', [WalletController::class, 'manualFunding']);
 $router->get('/api/wallet/receipt/:filename', [WalletController::class, 'getReceipt']);
 $router->get('/api/wallet/virtual-account', [WalletController::class, 'virtualAccount']);
+$router->post('/api/wallet/virtual-account/provision', [WalletController::class, 'provisionVirtualAccount']);
 
-// Aliases for Wallet Admin (Pending fundings, Approve, Reject, Adjust Balance, Reports)
+// Aliases for Wallet Admin (Pending fundings, Approve, Reject, Adjust Balance, Reports, Paystack DVA Telemetry)
 $router->get('/api/wallet/admin/pending-fundings', [AdminController::class, 'manualFundingRequests']);
 $router->get('/api/wallet/admin/financial-reports', [AdminController::class, 'financialReports']);
 $router->post('/api/wallet/admin/approve-funding/:id', [AdminController::class, 'approveFunding']);
 $router->post('/api/wallet/admin/reject-funding/:id', [AdminController::class, 'rejectFunding']);
 $router->post('/api/wallet/admin/adjust-balance', [AdminController::class, 'creditDebitUser']);
+$router->get('/api/admin/wallet/paystack/dva-status', [WalletController::class, 'adminDvaStatus']);
+$router->post('/api/admin/wallet/paystack/dva-requery', [WalletController::class, 'adminRequeryDva']);
 
 // -----------------------------------------------------------------------------
 // 5. IDENTITY VERIFICATION (NIN & BVN)
@@ -162,6 +165,7 @@ $router->get('/api/modifications/document/:id', [ModificationController::class, 
 $router->post('/api/modifications/submit', [ModificationController::class, 'submit']);
 $router->get('/api/modifications/history', [ModificationController::class, 'history']);
 $router->get('/api/modifications/:id/status', [ModificationController::class, 'requestStatus']);
+$router->get('/api/modifications/:id/result-document', [ModificationController::class, 'downloadResultDocument']);
 $router->post('/api/modifications/:id/poll', [ModificationController::class, 'pollStatus']);
 $router->post('/api/modifications/:id/submit-info', [ModificationController::class, 'submitAdditionalInfo']);
 $router->post('/api/modifications/webhook', [ModificationController::class, 'webhook']);
@@ -176,7 +180,9 @@ $router->get('/api/enrolments/sample/:id', [EnrolmentController::class, 'getSamp
 $router->post('/api/enrolments/submit', [EnrolmentController::class, 'submit']);
 $router->get('/api/enrolments/history', [EnrolmentController::class, 'history']);
 $router->get('/api/enrolments/:id/status', [EnrolmentController::class, 'orderStatus']);
+$router->get('/api/enrolments/:id/result-document', [EnrolmentController::class, 'downloadResultDocument']);
 $router->post('/api/enrolments/:id/poll', [EnrolmentController::class, 'pollStatus']);
+$router->post('/api/enrolments/webhook', [EnrolmentController::class, 'webhook']);
 
 // -----------------------------------------------------------------------------
 // 6. TELECOMMUNICATIONS (DATA, AIRTIME, BILLS, PINS, EXAMS, SWAP, BULKSMS)
@@ -263,6 +269,7 @@ $router->get('/api/kyc/status', [CustomerController::class, 'kycStatus']);
 $router->post('/api/kyc/submit', [CustomerController::class, 'submitKycFull']);
 $router->post('/api/kyc/authorize-purchase', [CustomerController::class, 'authorizePurchase']);
 $router->get('/api/kyc/virtual-account', [CustomerController::class, 'virtualAccount']);
+$router->post('/api/kyc/virtual-account/provision', [WalletController::class, 'provisionVirtualAccount']);
 
 // Customer Referral, Rewards, Points & Withdrawal Centre
 $router->get('/api/referrals/public-config', [ReferralController::class, 'publicConfig']);
@@ -332,6 +339,8 @@ $router->put('/api/admin/modifications/bvn-types/:id', [ModificationController::
 $router->post('/api/admin/modifications/sync-catalog', [ModificationController::class, 'adminSyncCatalog']);
 $router->get('/api/admin/modifications/:id', [ModificationController::class, 'adminDetail']);
 $router->post('/api/admin/modifications/:id/poll', [ModificationController::class, 'adminPollStatus']);
+$router->post('/api/admin/modifications/:id/retry-result', [ModificationController::class, 'adminRetryResultFetch']);
+$router->post('/api/admin/modifications/:id/result-document', [ModificationController::class, 'adminUploadResultDocument']);
 $router->post('/api/admin/modifications/:id/update', [ModificationController::class, 'adminUpdateRequest']);
 
 // Admin Enrolment Centre Operations (Stage 4)
@@ -343,6 +352,8 @@ $router->delete('/api/admin/enrolments/samples/:id', [EnrolmentController::class
 $router->post('/api/admin/enrolments/sync-catalog', [EnrolmentController::class, 'adminSyncCatalog']);
 $router->get('/api/admin/enrolments/:id', [EnrolmentController::class, 'adminDetail']);
 $router->post('/api/admin/enrolments/:id/poll', [EnrolmentController::class, 'adminPollStatus']);
+$router->post('/api/admin/enrolments/:id/retry-result', [EnrolmentController::class, 'adminRetryResultFetch']);
+$router->post('/api/admin/enrolments/:id/result-document', [EnrolmentController::class, 'adminUploadResultDocument']);
 $router->post('/api/admin/enrolments/:id/update', [EnrolmentController::class, 'adminUpdateOrder']);
 
 // Store & Academy aliases under /api/admin/services/*

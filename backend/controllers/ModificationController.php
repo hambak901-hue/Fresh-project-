@@ -25,6 +25,7 @@ use HambakTech\Services\FootprintService;
 use HambakTech\Services\MailService;
 use HambakTech\Services\PinSecurityService;
 use HambakTech\Services\ReferralEngineService;
+use HambakTech\Services\ResultDocumentService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 
 class ModificationController
@@ -196,7 +197,11 @@ class ModificationController
         $providerCost = (float)($row['provider_cost'] ?? 0);
         $profit = (float)($row['profit'] ?? ($customerPrice - $providerCost));
 
-        $item = [
+        $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $row, 'modification', $isAdmin);
+        $infoHistory = $this->decodeJsonColumn($row['additional_info_history'] ?? null, []);
+        $queryReviewStatus = (string)($fields['query_review_status'] ?? '');
+
+        $item = array_merge([
             'id' => (string)($row['id'] ?? ''),
             'request_number' => (string)($row['request_number'] ?? ''),
             'user_id' => (string)($row['user_id'] ?? ''),
@@ -213,11 +218,13 @@ class ModificationController
             'provider_remarks' => $row['provider_remarks'] ?? null,
             'estimated_completion_text' => (string)($row['estimated_completion_text'] ?? 'Manual Processing'),
             'status' => (string)($row['status'] ?? 'pending'),
+            'query_review_status' => $queryReviewStatus !== '' ? $queryReviewStatus : null,
+            'additional_info_history' => $infoHistory,
             'reviewed_at' => $row['reviewed_at'] ?? null,
             'completed_at' => $row['completed_at'] ?? null,
             'created_at' => $row['created_at'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
-        ];
+        ], $resultMeta);
 
         if ($isAdmin) {
             $item['provider_reference'] = $row['provider_reference'] ?? null;
@@ -802,24 +809,39 @@ class ModificationController
             Response::notFound('Supporting document not found.');
         }
 
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
-        if (!$isAdmin && $doc['user_id'] !== $user['id']) {
+        $isStaff = Auth::isAdmin($user) && Auth::hasPermission($user, 'services');
+        if (!$isStaff && $doc['user_id'] !== $user['id']) {
             Response::forbidden('Unauthorized access to document.');
         }
 
-        $path = (string)($doc['file_path'] ?? '');
-        if ($path === '' || !is_file($path)) {
+        $storageBase = realpath(dirname(__DIR__) . '/storage');
+        $path = realpath((string)($doc['file_path'] ?? ''));
+        if ($storageBase === false || $path === false || !str_starts_with($path, $storageBase . DIRECTORY_SEPARATOR) || !is_file($path)) {
             Response::notFound('Document file missing from storage.');
         }
 
+        $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename((string)($doc['original_name'] ?? 'document'))) ?: 'document';
+
         header('Content-Type: ' . ($doc['mime_type'] ?: 'application/octet-stream'));
         header('Content-Length: ' . filesize($path));
-        header('Content-Disposition: inline; filename="' . basename((string)$doc['original_name']) . '"');
+        header('Content-Disposition: inline; filename="' . $safeName . '"');
         header('Cache-Control: private, no-store, no-cache, must-revalidate');
         header('Pragma: no-cache');
         header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
         readfile($path);
         exit;
+    }
+
+    /**
+     * GET /api/modifications/:id/result-document
+     */
+    public function downloadResultDocument(Request $request, array $params): void
+    {
+        $user = Auth::requireAuth($request);
+        $id = trim((string)($params['id'] ?? ''));
+        $forceDownload = in_array((string)$request->query('download', ''), ['1', 'true', 'yes'], true);
+        ResultDocumentService::streamResultDocument($this->db, $user, 'modification', $id, $forceDownload);
     }
 
     /**
@@ -1483,7 +1505,7 @@ class ModificationController
 
         $res = $adapter->checkStatus($lookupRef);
         $rawStatus = strtolower(trim((string)($res['status'] ?? $res['data']['status'] ?? '')));
-        $remarks = trim((string)($res['message'] ?? $res['remarks'] ?? $res['data']['remarks'] ?? $res['data']['message'] ?? ''));
+        $remarks = trim((string)($res['message'] ?? $res['remarks'] ?? $res['data']['remarks'] ?? $res['data']['admin_note'] ?? $res['data']['message'] ?? ''));
 
         if ($rawStatus === '' && empty($res['success'])) {
             Security::logPrivateError('ModificationPollStatus', $remarks ?: 'Empty status response', [
@@ -1493,22 +1515,25 @@ class ModificationController
         }
 
         $prevStatus = (string)$row['status'];
+        $isTerminal = in_array($prevStatus, ['completed', 'refunded'], true);
         $newStatus = $prevStatus;
 
-        if (in_array($rawStatus, ['completed', 'complete', 'approved', 'success', 'successful', 'done'], true)) {
-            $newStatus = 'completed';
-        } elseif (in_array($rawStatus, ['processing', 'in_progress', 'in-progress', 'reviewing'], true)) {
-            $newStatus = 'processing';
-        } elseif (in_array($rawStatus, ['query', 'query_required', 'info_required', 'action_required'], true)) {
-            $newStatus = 'query_required';
-        } elseif (in_array($rawStatus, ['pending', 'queued', 'submitted'], true)) {
-            $newStatus = 'pending';
-        } elseif (in_array($rawStatus, ['failed', 'rejected', 'declined', 'cancelled', 'canceled', 'error'], true)) {
-            $newStatus = 'rejected';
+        if (!$isTerminal) {
+            if (in_array($rawStatus, ['completed', 'complete', 'approved', 'success', 'successful', 'done', 'delivered'], true)) {
+                $newStatus = 'completed';
+            } elseif (in_array($rawStatus, ['processing', 'in_progress', 'in-progress', 'reviewing'], true)) {
+                $newStatus = 'processing';
+            } elseif (in_array($rawStatus, ['query', 'query_required', 'info_required', 'action_required'], true)) {
+                $newStatus = 'query_required';
+            } elseif (in_array($rawStatus, ['pending', 'queued', 'submitted'], true)) {
+                $newStatus = 'pending';
+            } elseif ($rawStatus === 'refunded' || in_array($rawStatus, ['failed', 'rejected', 'declined', 'cancelled', 'canceled', 'error'], true)) {
+                $newStatus = 'rejected';
+            }
         }
 
         $refundInfo = null;
-        if (in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference']) && $prevStatus !== 'completed') {
+        if (!$isTerminal && in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference'])) {
             $refundInfo = $this->issueSingleAtomicRefund(
                 (string)$row['id'],
                 $remarks ?: 'Provider marked request as ' . $newStatus,
@@ -1516,7 +1541,7 @@ class ModificationController
                 'refunded'
             );
             $newStatus = !empty($refundInfo['refunded']) ? 'refunded' : 'failed';
-        } else {
+        } elseif (!$isTerminal) {
             $this->db->execute(
                 'UPDATE modification_requests
                  SET status = :st,
@@ -1525,7 +1550,7 @@ class ModificationController
                      provider_response = :pres,
                      completed_at = CASE WHEN :st2 = "completed" AND completed_at IS NULL THEN NOW() ELSE completed_at END,
                      updated_at = NOW()
-                 WHERE id = :id',
+                 WHERE id = :id AND status NOT IN ("completed", "refunded")',
                 [
                     'st' => $newStatus,
                     'pst' => $rawStatus ?: $row['provider_status'],
@@ -1535,6 +1560,12 @@ class ModificationController
                     'id' => $row['id'],
                 ]
             );
+        }
+
+        // Sync official provider PDF / tracking ID / details on completed or newly completed records (recovering missing docs safely)
+        if ($newStatus === 'completed' || $prevStatus === 'completed') {
+            $freshForDoc = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
+            ResultDocumentService::syncFromProviderPayload($this->db, 'modification', $freshForDoc, $res, $adapter->getAuthHeaders());
         }
 
         $updatedRow = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
@@ -1551,7 +1582,7 @@ class ModificationController
             $msgMap = [
                 'processing' => "Your {$row['service_name']} request ({$row['request_number']}) is now actively processing." . ($safeRemarks ? " Note: {$safeRemarks}" : ''),
                 'query_required' => "Action required for {$row['request_number']}: " . ($safeRemarks ?: 'Please submit additional requested details/documents.'),
-                'completed' => "Great news! Your {$row['service_name']} request ({$row['request_number']}) has been completed." . ($safeRemarks ? " Details: {$safeRemarks}" : ''),
+                'completed' => "Great news! Your {$row['service_name']} request ({$row['request_number']}) has been completed." . (!empty($updatedRow['result_document_id']) ? ' Your official PDF result is now ready in your portal.' : ($safeRemarks ? " Details: {$safeRemarks}" : '')),
                 'refunded' => "Your {$row['service_name']} request ({$row['request_number']}) was not approved and ₦" . number_format((float)$row['customer_price'], 2) . " has been refunded to your wallet.",
                 'failed' => "Your {$row['service_name']} request ({$row['request_number']}) could not be completed. Your refund is being processed.",
             ];
@@ -1599,7 +1630,7 @@ class ModificationController
     public function pollStatus(Request $request, array $params): void
     {
         $user = Auth::requireAuth($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isStaff = Auth::isAdmin($user) && Auth::hasPermission($user, 'services');
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -1609,22 +1640,23 @@ class ModificationController
         if (!$row) {
             Response::notFound('Modification request not found.');
         }
-        if (!$isAdmin && $row['user_id'] !== $user['id']) {
+        if (!$isStaff && $row['user_id'] !== $user['id']) {
             Response::forbidden('Unauthorized access to modification request.');
         }
 
-        $sync = $this->syncProviderStatusForRow($row, $isAdmin ? $user['id'] : null);
+        $sync = $this->syncProviderStatusForRow($row, $isStaff ? (string)$user['id'] : null);
 
         Response::success([
             'updated' => $sync['updated'],
-            'request' => $this->formatRequestRow($sync['row'], $isAdmin),
+            'request' => $this->formatRequestRow($sync['row'], $isStaff),
             'refund' => $sync['refund'] ?? null,
         ], $sync['message']);
     }
 
     /**
      * POST /api/modifications/:id/submit-info
-     * Allows customer to submit requested additional notes or replacement supporting documents when status is query_required.
+     * Honest local/admin-review workflow: 2SureVerify has no upstream resubmit endpoint.
+     * Records clarification history and queues the request for HAMBAK administrator review without falsely claiming upstream submission.
      */
     public function submitAdditionalInfo(Request $request, array $params): void
     {
@@ -1638,6 +1670,11 @@ class ModificationController
         }
         if ($row['status'] !== 'query_required') {
             Response::error('Additional information can only be submitted when the request status is Query / Info Required.', 422);
+        }
+
+        $existingFields = $this->decodeJsonColumn($row['submitted_fields'] ?? null, []);
+        if (($existingFields['query_review_status'] ?? '') === 'submitted_for_admin_review') {
+            Response::error('Additional clarification has already been submitted and is currently queued for HAMBAK administrator review.', 409);
         }
 
         $note = trim((string)($body['note'] ?? $body['response_note'] ?? ''));
@@ -1656,13 +1693,15 @@ class ModificationController
             Response::error('Please provide an explanation note or attach the requested document.', 422);
         }
 
-        $existingFields = $this->decodeJsonColumn($row['submitted_fields'] ?? null, []);
+        $now = date('Y-m-d H:i:s');
+        $existingFields['query_review_status'] = 'submitted_for_admin_review';
+        $existingFields['customer_query_responded_at'] = $now;
         if ($note !== '') {
             $existingFields['customer_query_response'] = $note;
-            $existingFields['customer_query_responded_at'] = date('Y-m-d H:i:s');
         }
 
         $existingDocs = $this->decodeJsonColumn($row['supporting_documents'] ?? null, []);
+        $attachedDocMeta = [];
         if (!empty($newDocIds)) {
             $onlyIds = array_values(array_unique(array_column($newDocIds, 'id')));
             $phs = [];
@@ -1677,49 +1716,100 @@ class ModificationController
             );
             $existingDocIds = array_column($existingDocs, 'id');
             foreach ($docRows as $dr) {
+                $docEntry = [
+                    'id' => $dr['id'],
+                    'doc_key' => str_replace('modification_', '', (string)$dr['document_type']),
+                    'original_name' => $dr['original_name'],
+                    'mime_type' => $dr['mime_type'],
+                    'file_size' => (int)($dr['file_size'] ?? 0),
+                    'file_url' => '/api/modifications/document/' . $dr['id'],
+                ];
+                $attachedDocMeta[] = ['id' => $dr['id'], 'original_name' => $dr['original_name']];
                 if (!in_array($dr['id'], $existingDocIds, true)) {
-                    $existingDocs[] = [
-                        'id' => $dr['id'],
-                        'doc_key' => str_replace('modification_', '', (string)$dr['document_type']),
-                        'original_name' => $dr['original_name'],
-                        'mime_type' => $dr['mime_type'],
-                        'file_size' => (int)($dr['file_size'] ?? 0),
-                        'file_url' => '/api/modifications/document/' . $dr['id'],
-                    ];
+                    $existingDocs[] = $docEntry;
                 }
             }
         }
+
+        $infoHistory = $this->decodeJsonColumn($row['additional_info_history'] ?? null, []);
+        $infoHistory[] = [
+            'id' => Security::generateUuid(),
+            'submitted_at' => $now,
+            'note' => $note,
+            'documents' => $attachedDocMeta,
+            'review_state' => 'submitted_for_admin_review',
+        ];
 
         $this->db->execute(
             'UPDATE modification_requests
              SET submitted_fields = :sf,
                  supporting_documents = :sd,
-                 status = "processing",
+                 additional_info_history = :aih,
                  updated_at = NOW()
              WHERE id = :id',
             [
                 'sf' => json_encode($existingFields),
                 'sd' => json_encode($existingDocs),
+                'aih' => json_encode($infoHistory),
                 'id' => $row['id'],
             ]
         );
 
+        FootprintService::record([
+            'user_id' => $user['id'],
+            'user_email' => $user['email'] ?? null,
+            'user_name' => $user['full_name'] ?? null,
+            'category' => 'services',
+            'action' => 'CUSTOMER_MODIFICATION_QUERY_RESPONDED',
+            'service_type' => $row['service_key'] ?? 'modification',
+            'reference' => $row['request_number'] ?? $row['id'],
+            'status' => 'processing',
+            'metadata' => [
+                'review_state' => 'submitted_for_admin_review',
+                'documents_attached' => count($attachedDocMeta),
+            ],
+        ]);
+
+        // Notify staff / support desk inbox if configured
+        try {
+            $adminRow = $this->db->fetchOne('SELECT id FROM users WHERE role IN ("superadmin", "admin") ORDER BY created_at ASC LIMIT 1');
+            if ($adminRow) {
+                $this->db->execute(
+                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, action_link, created_at)
+                     VALUES (:id, :uid, :title, :msg, "info", 0, "#modifications", NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'uid' => $adminRow['id'],
+                        'title' => 'Customer Clarification Submitted: ' . ($row['request_number'] ?? $row['id']),
+                        'msg' => 'Customer submitted additional clarification/documents for modification request ' . ($row['request_number'] ?? $row['id']) . '. Manual administrator review required.',
+                    ]
+                );
+            }
+        } catch (Throwable) {
+        }
+
         $updated = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $row['id']]);
         Response::success([
+            'review_state' => 'submitted_for_admin_review',
             'request' => $updated ? $this->formatRequestRow($updated, false) : null,
-        ], 'Additional information submitted. Your request has resumed processing.');
+        ], 'Additional clarification submitted and queued for HAMBAK administrator review.');
     }
 
     /**
      * POST /api/modifications/webhook
-     * Idempotent webhook receiver for 2SureVerify async status updates.
+     * Idempotent webhook receiver for 2SureVerify async status updates (routes enrolment refs automatically).
      */
     public function webhook(Request $request): void
     {
+        $rawInput = file_get_contents('php://input') ?: '';
         $configuredSecret = trim((string)(getenv('TWOSUREVERIFY_WEBHOOK_SECRET') ?: ''));
         if ($configuredSecret !== '') {
-            $rawInput = file_get_contents('php://input') ?: '';
-            $sigHeader = trim((string)($request->header('x-webhook-signature') ?: $request->header('x-signature') ?: ''));
+            $sigHeader = trim((string)(
+                $request->header('x-2sureverify-signature')
+                ?: $request->header('x-webhook-signature')
+                ?: $request->header('x-signature')
+                ?: ''
+            ));
             $authHeader = trim((string)($request->header('authorization') ?: ''));
             $bearer = str_starts_with(strtolower($authHeader), 'bearer ') ? trim(substr($authHeader, 7)) : '';
             $expectedHmac = hash_hmac('sha256', $rawInput, $configuredSecret);
@@ -1731,6 +1821,13 @@ class ModificationController
         }
 
         $body = $request->getBody();
+        if (empty($body) && $rawInput !== '') {
+            $decoded = json_decode($rawInput, true);
+            if (is_array($decoded)) {
+                $body = $decoded;
+            }
+        }
+
         $ref = trim((string)($body['reference'] ?? $body['data']['reference'] ?? $body['request_id'] ?? ''));
         if ($ref === '') {
             Response::error('Reference missing in webhook payload.', 422);
@@ -1741,29 +1838,42 @@ class ModificationController
             ['r1' => $ref, 'r2' => $ref, 'r3' => $ref]
         );
         if (!$row) {
-            Response::notFound('No matching modification request found for reference.');
+            // Single 2SureVerify webhook URL also serves NIN Enrolment orders cleanly
+            $enrolmentController = new EnrolmentController();
+            $enrRes = $enrolmentController->handleWebhookPayload($body);
+            if (!empty($enrRes['matched'])) {
+                Response::success($enrRes);
+            }
+            Response::notFound('No matching modification or enrolment record found for reference.');
         }
 
         $prevStatus = (string)$row['status'];
-        if (in_array($prevStatus, ['completed', 'refunded'], true)) {
-            Response::success(['processed' => false, 'status' => $prevStatus, 'message' => 'Terminal state already recorded.']);
+        $isTerminal = in_array($prevStatus, ['completed', 'refunded'], true);
+        $adapter = new TwoSureVerifyAdapter();
+
+        if ($isTerminal) {
+            // Recover missing official PDF or tracking ID even if completed webhook arrives twice
+            if ($prevStatus === 'completed' && empty($row['result_document_id'])) {
+                ResultDocumentService::syncFromProviderPayload($this->db, 'modification', $row, $body, $adapter->getAuthHeaders());
+            }
+            Response::success(['processed' => false, 'status' => $prevStatus, 'message' => 'Terminal state preserved.']);
         }
 
         $statusRaw = strtolower(trim((string)($body['status'] ?? $body['data']['status'] ?? '')));
-        $remarks = trim((string)($body['message'] ?? $body['remarks'] ?? $body['data']['remarks'] ?? ''));
+        $remarks = trim((string)($body['message'] ?? $body['remarks'] ?? $body['data']['remarks'] ?? $body['data']['admin_note'] ?? ''));
         $newStatus = $prevStatus;
 
-        if (in_array($statusRaw, ['completed', 'complete', 'approved', 'success', 'successful'], true)) {
+        if (in_array($statusRaw, ['completed', 'complete', 'approved', 'success', 'successful', 'done', 'delivered'], true)) {
             $newStatus = 'completed';
         } elseif (in_array($statusRaw, ['processing', 'in_progress'], true)) {
             $newStatus = 'processing';
         } elseif (in_array($statusRaw, ['query', 'query_required', 'info_required'], true)) {
             $newStatus = 'query_required';
-        } elseif (in_array($statusRaw, ['failed', 'rejected', 'declined', 'error'], true)) {
+        } elseif (in_array($statusRaw, ['failed', 'rejected', 'declined', 'error', 'refunded'], true)) {
             $newStatus = 'rejected';
         }
 
-        if (in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference']) && $prevStatus !== 'completed') {
+        if (in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference'])) {
             $this->issueSingleAtomicRefund((string)$row['id'], $remarks ?: 'Provider webhook reported failure', null, 'refunded');
             $newStatus = 'refunded';
         } else {
@@ -1787,11 +1897,31 @@ class ModificationController
             );
         }
 
+        if ($newStatus === 'completed') {
+            $freshForDoc = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
+            $docSync = ResultDocumentService::syncFromProviderPayload($this->db, 'modification', $freshForDoc, $body, $adapter->getAuthHeaders());
+            // If webhook omitted base64 PDF file (e.g. lightweight notification), immediately poll status.php before 4-day window
+            if (empty($docSync['document']) && !empty($row['provider_reference'])) {
+                $polled = $adapter->checkStatus((string)$row['provider_reference']);
+                if (!empty($polled)) {
+                    ResultDocumentService::syncFromProviderPayload($this->db, 'modification', $freshForDoc, $polled, $adapter->getAuthHeaders());
+                }
+            }
+        }
+
+        $updatedRow = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
+
         if ($newStatus !== $prevStatus) {
+            $safeRemarks = $remarks !== '' ? Security::sanitizeCustomerError($remarks, '') : '';
+            $completedNote = !empty($updatedRow['result_document_id'])
+                ? ' Your official PDF result is now ready to view and download in your portal.'
+                : ($safeRemarks ?: 'Status changed to completed.');
             $this->notifyCustomer(
                 (string)$row['user_id'],
                 "{$row['identity_type']} Modification Status: " . strtoupper(str_replace('_', ' ', $newStatus)),
-                "Update on request {$row['request_number']} ({$row['service_name']}): " . ($remarks ?: "Status changed to {$newStatus}."),
+                $newStatus === 'completed'
+                    ? "Great news! Your {$row['service_name']} request ({$row['request_number']}) has been completed.{$completedNote}"
+                    : "Update on request {$row['request_number']} ({$row['service_name']}): " . ($safeRemarks ?: "Status changed to {$newStatus}."),
                 $newStatus === 'completed' ? 'success' : ($newStatus === 'refunded' || $newStatus === 'query_required' ? 'warning' : 'info'),
                 (string)$row['request_number'],
                 ['request_number' => $row['request_number'], 'status' => $newStatus, 'service_name' => $row['service_name']]
@@ -2127,6 +2257,155 @@ class ModificationController
             'request' => $fresh ? $this->formatRequestRow($fresh, true) : null,
             'refund' => $refundRes,
         ], 'Modification request updated successfully.');
+    }
+
+    /**
+     * POST /api/admin/modifications/:id/retry-result
+     * Explicitly retries fetching an official provider PDF/result details from 2SureVerify without altering terminal completed status.
+     */
+    public function adminRetryResultFetch(Request $request, array $params): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        $id = trim((string)($params['id'] ?? ''));
+
+        $row = $this->db->fetchOne(
+            'SELECT mr.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
+             FROM modification_requests mr
+             LEFT JOIN users u ON u.id = mr.user_id
+             WHERE mr.id = :id1 OR mr.request_number = :id2 LIMIT 1',
+            ['id1' => $id, 'id2' => $id]
+        );
+        if (!$row) {
+            Response::notFound('Modification request not found.');
+        }
+
+        $sync = $this->syncProviderStatusForRow($row, (string)$admin['id']);
+        $fresh = $this->db->fetchOne(
+            'SELECT mr.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
+             FROM modification_requests mr
+             LEFT JOIN users u ON u.id = mr.user_id
+             WHERE mr.id = :id LIMIT 1',
+            ['id' => $row['id']]
+        ) ?: $sync['row'];
+
+        FootprintService::record([
+            'user_id' => $admin['id'],
+            'user_email' => $admin['email'] ?? null,
+            'user_name' => $admin['full_name'] ?? null,
+            'category' => 'admin',
+            'action' => 'ADMIN_MODIFICATION_RESULT_RETRY',
+            'service_type' => $row['service_key'],
+            'reference' => $row['request_number'],
+            'status' => !empty($fresh['result_document_id']) ? 'successful' : 'processing',
+            'metadata' => [
+                'has_result_document' => !empty($fresh['result_document_id']),
+                'result_retrieval_status' => $fresh['result_retrieval_status'] ?? null,
+            ],
+        ]);
+
+        Response::success([
+            'updated' => $sync['updated'],
+            'request' => $this->formatRequestRow($fresh, true),
+        ], !empty($fresh['result_document_id'])
+            ? 'Provider result document retrieved and saved securely.'
+            : ($sync['message'] ?? 'Provider checked; no PDF document attached upstream yet.'));
+    }
+
+    /**
+     * POST /api/admin/modifications/:id/result-document
+     * Uploads an official PDF manually sourced from the provider portal (strictly stored as admin_uploaded, is_provider_issued = 0).
+     */
+    public function adminUploadResultDocument(Request $request, array $params): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        $id = trim((string)($params['id'] ?? ''));
+
+        $row = $this->db->fetchOne(
+            'SELECT * FROM modification_requests WHERE id = :id1 OR request_number = :id2 LIMIT 1',
+            ['id1' => $id, 'id2' => $id]
+        );
+        if (!$row) {
+            Response::notFound('Modification request not found.');
+        }
+
+        $file = $_FILES['file'] ?? $_FILES['result_pdf'] ?? [];
+        $trackingId = trim((string)($request->input('tracking_id', '')));
+        $remarks = trim((string)($request->input('provider_remarks', '')));
+        $markCompleted = in_array((string)$request->input('mark_completed', '1'), ['1', 'true', 'yes'], true);
+        $notifyCustomerFlag = in_array((string)$request->input('notify_customer', '1'), ['1', 'true', 'yes'], true);
+
+        $doc = ResultDocumentService::storeAdminUploadedPdf(
+            $this->db,
+            'modification',
+            $row,
+            $file,
+            (string)$admin['id'],
+            $trackingId !== '' ? $trackingId : null
+        );
+
+        $prevStatus = (string)$row['status'];
+        if ($markCompleted && $prevStatus !== 'refunded') {
+            $this->db->execute(
+                'UPDATE modification_requests
+                 SET status = "completed",
+                     provider_remarks = COALESCE(NULLIF(:prem, ""), provider_remarks),
+                     reviewed_by = :rby,
+                     reviewed_at = NOW(),
+                     completed_at = COALESCE(completed_at, NOW()),
+                     updated_at = NOW()
+                 WHERE id = :id AND status != "refunded"',
+                [
+                    'prem' => $remarks,
+                    'rby' => $admin['full_name'] ?? $admin['email'] ?? $admin['id'],
+                    'id' => $row['id'],
+                ]
+            );
+        } elseif ($remarks !== '') {
+            $this->db->execute(
+                'UPDATE modification_requests SET provider_remarks = :prem, updated_at = NOW() WHERE id = :id',
+                ['prem' => $remarks, 'id' => $row['id']]
+            );
+        }
+
+        $fresh = $this->db->fetchOne(
+            'SELECT mr.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
+             FROM modification_requests mr
+             LEFT JOIN users u ON u.id = mr.user_id
+             WHERE mr.id = :id LIMIT 1',
+            ['id' => $row['id']]
+        ) ?: $row;
+
+        FootprintService::record([
+            'user_id' => $admin['id'],
+            'user_email' => $admin['email'] ?? null,
+            'user_name' => $admin['full_name'] ?? null,
+            'category' => 'admin',
+            'action' => 'ADMIN_MODIFICATION_RESULT_UPLOADED',
+            'service_type' => $row['service_key'],
+            'reference' => $row['request_number'],
+            'status' => 'successful',
+            'metadata' => [
+                'document_id' => $doc['id'],
+                'document_source' => 'admin_uploaded',
+                'is_provider_issued' => false,
+                'tracking_id' => $trackingId !== '' ? $trackingId : null,
+            ],
+        ]);
+
+        if ($notifyCustomerFlag) {
+            $this->notifyCustomer(
+                (string)$row['user_id'],
+                "{$row['identity_type']} Modification Result Ready",
+                "Your official result document for {$row['service_name']} ({$row['request_number']}) is now available to preview and download in your dashboard.",
+                'success',
+                (string)$row['request_number'],
+                ['request_number' => $row['request_number'], 'status' => $fresh['status'] ?? 'completed', 'service_name' => $row['service_name']]
+            );
+        }
+
+        Response::success([
+            'request' => $this->formatRequestRow($fresh, true),
+        ], 'Official result document uploaded (Admin-Uploaded) and linked to request.');
     }
 
     /**

@@ -3,7 +3,7 @@
  * Frontend HTTP client for HambakTech server APIs.
  */
 
-import { User, Transaction, VerificationRecord, TelecomOrder, SystemStatusResponse, KycSubmission, ServiceSecurityRule, VirtualAccountItem, ActivityFootprint, FootprintStats, AdminCreateCustomerPayload } from '../types';
+import { User, Transaction, VerificationRecord, TelecomOrder, SystemStatusResponse, KycSubmission, ServiceSecurityRule, VirtualAccountItem, VirtualAccountStateResponse, PaystackDvaAdminStatusResponse, ActivityFootprint, FootprintStats, AdminCreateCustomerPayload } from '../types';
 
 const TOKEN_KEY = 'hambaktech_auth_token';
 
@@ -780,7 +780,18 @@ export const api = {
     success: boolean;
     timestamp: string;
     reports: {
-      funding: { totalFunding: number; paystackFunding: number; manualFunding: number; fundingTransactionsCount: number };
+      funding: {
+        totalFunding: number;
+        paystackFunding: number;
+        paystackDvaNet?: number;
+        paystackDvaGross?: number;
+        paystackDvaFees?: number;
+        paystackDvaCount?: number;
+        paystackDvaAccounts?: number;
+        flutterwaveFunding?: number;
+        manualFunding: number;
+        fundingTransactionsCount: number;
+      };
       sales: { totalServiceSales: number; telecomSales: number; identityVerificationSales: number };
       expenditure: { totalProviderExpenditure: number; telecomProviderCost: number; identityProviderCost: number };
       profit: { grossProfit: number; profitMarginPercent: number };
@@ -788,6 +799,21 @@ export const api = {
     };
   }> {
     return request('/api/wallet/admin/financial-reports');
+  },
+
+  async getAdminPaystackDvaStatus(): Promise<PaystackDvaAdminStatusResponse> {
+    return request('/api/admin/wallet/paystack/dva-status');
+  },
+
+  async requeryAdminPaystackDva(userId: string, date?: string): Promise<{
+    success: boolean;
+    message: string;
+    account: any;
+  }> {
+    return request('/api/admin/wallet/paystack/dva-requery', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, ...(date ? { date } : {}) }),
+    });
   },
 
   // Verification (Identity API)
@@ -2618,6 +2644,7 @@ export const api = {
     };
     active_submission: KycSubmission | null;
     virtual_account: VirtualAccountItem | null;
+    virtual_account_state?: VirtualAccountStateResponse;
     rules: ServiceSecurityRule[];
   }> {
     return request('/api/kyc/status');
@@ -2672,15 +2699,15 @@ export const api = {
     });
   },
 
-  async getVirtualAccount(): Promise<{
-    success: boolean;
-    virtual_account: VirtualAccountItem | null;
-    message?: string;
-    eligible?: boolean;
-    required_level?: number;
-    current_level?: number;
-  }> {
-    return request('/api/kyc/virtual-account');
+  async getVirtualAccount(syncPending: boolean = false): Promise<VirtualAccountStateResponse> {
+    return request(`/api/wallet/virtual-account${syncPending ? '?sync=1' : ''}`);
+  },
+
+  async provisionVirtualAccount(preferredBank?: string): Promise<VirtualAccountStateResponse & { message: string }> {
+    return request('/api/wallet/virtual-account/provision', {
+      method: 'POST',
+      body: JSON.stringify(preferredBank ? { preferred_bank: preferredBank } : {}),
+    });
   },
 
   async getAdminKycSubmissions(params: {
@@ -3236,10 +3263,35 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {
-      throw new Error('Unable to load protected document.');
+      let errMsg = 'Unable to load protected document.';
+      try {
+        const json = await res.json();
+        if (json?.message) {
+          errMsg = sanitizeClientFacingError(String(json.message), url, json);
+        }
+      } catch {
+      }
+      throw new Error(errMsg);
     }
     const blob = await res.blob();
     return URL.createObjectURL(blob);
+  },
+
+  async downloadProtectedFile(url: string, filename: string): Promise<void> {
+    const blobUrl = await this.fetchProtectedDocumentBlob(url);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename || 'document.pdf';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.setTimeout(() => {
+      try {
+        URL.revokeObjectURL(blobUrl);
+      } catch {
+      }
+    }, 5000);
   },
 
   // Admin Modification Endpoints
@@ -3299,6 +3351,30 @@ export const api = {
     return request(`/api/admin/modifications/${encodeURIComponent(id)}/update`, {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async retryAdminModificationResult(id: string): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').ModificationRequestItem;
+  }> {
+    return request(`/api/admin/modifications/${encodeURIComponent(id)}/retry-result`, {
+      method: 'POST',
+    });
+  },
+
+  async uploadAdminModificationResultDocument(
+    id: string,
+    formData: FormData
+  ): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').ModificationRequestItem;
+  }> {
+    return request(`/api/admin/modifications/${encodeURIComponent(id)}/result-document`, {
+      method: 'POST',
+      body: formData,
     });
   },
 
@@ -3514,6 +3590,30 @@ export const api = {
     return request(`/api/admin/enrolments/${encodeURIComponent(id)}/update`, {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async retryAdminEnrolmentResult(id: string): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').EnrolmentOrderItem;
+  }> {
+    return request(`/api/admin/enrolments/${encodeURIComponent(id)}/retry-result`, {
+      method: 'POST',
+    });
+  },
+
+  async uploadAdminEnrolmentResultDocument(
+    id: string,
+    formData: FormData
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').EnrolmentOrderItem;
+  }> {
+    return request(`/api/admin/enrolments/${encodeURIComponent(id)}/result-document`, {
+      method: 'POST',
+      body: formData,
     });
   },
 

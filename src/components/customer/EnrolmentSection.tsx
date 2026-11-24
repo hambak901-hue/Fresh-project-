@@ -1312,10 +1312,16 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                     order.status !== 'refunded' &&
                     order.status !== 'failed' &&
                     order.status !== 'rejected';
+                  const hasResultPdf = Boolean(order.has_result_document && order.result_document?.file_url);
                   return (
                     <tr key={order.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                        {order.order_number}
+                        <div>{order.order_number}</div>
+                        {order.provider_tracking_id && (
+                          <div className="text-[10px] font-mono font-normal text-blue-700 dark:text-emerald-400">
+                            Tracking: {order.provider_tracking_id}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3.5 px-4">
                         <div className="font-semibold text-slate-900 dark:text-white">
@@ -1347,6 +1353,29 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                         {new Date(order.created_at).toLocaleString('en-NG')}
                       </td>
                       <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                        {hasResultPdf && order.result_document && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openProtectedFile(
+                                `res_dl_${order.id}`,
+                                order.result_document!.file_url,
+                                order.result_document!.original_name || `HAMBAK_ENROLMENT_${order.order_number}.pdf`,
+                                order.result_document!.mime_type,
+                                'download'
+                              )
+                            }
+                            disabled={loadingPreviewId === `res_dl_${order.id}`}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-semibold inline-flex items-center gap-1 transition"
+                          >
+                            {loadingPreviewId === `res_dl_${order.id}` ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Download className="w-3 h-3" />
+                            )}
+                            <span>Official PDF</span>
+                          </button>
+                        )}
                         {canPoll && (
                           <button
                             type="button"
@@ -1528,7 +1557,136 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                     {new Date(detailOrder.created_at).toLocaleString('en-NG')}
                   </span>
                 </div>
+                {detailOrder.provider_tracking_id && (
+                  <div>
+                    <span className="text-slate-500 block text-[11px]">Official Tracking ID</span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white mt-0.5 block">
+                      {detailOrder.provider_tracking_id}
+                    </span>
+                  </div>
+                )}
+                {detailOrder.completed_at && (
+                  <div>
+                    <span className="text-slate-500 block text-[11px]">Completed At</span>
+                    <span className="text-slate-800 dark:text-slate-200 mt-0.5 block">
+                      {new Date(detailOrder.completed_at).toLocaleString('en-NG')}
+                    </span>
+                  </div>
+                )}
               </div>
+
+              {/* Official Enrolment Result Document & Details (Strictly Separate from Verification Slips) */}
+              {(detailOrder.has_result_document ||
+                String(detailOrder.status).toLowerCase() === 'completed' ||
+                (detailOrder.result_details && Object.keys(detailOrder.result_details).length > 0)) && (
+                <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/30 space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        Official Enrolment Result Document
+                      </span>
+                      {detailOrder.has_result_document && detailOrder.result_document && (
+                        <span
+                          className={`px-2 py-0.5 rounded border text-[10px] font-bold ${
+                            detailOrder.result_document.is_provider_issued
+                              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                              : 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30'
+                          }`}
+                        >
+                          {detailOrder.result_document.is_provider_issued
+                            ? 'Provider-Issued Official Document'
+                            : 'Admin-Uploaded Official Document'}
+                        </span>
+                      )}
+                    </div>
+
+                    {detailOrder.has_result_document && detailOrder.result_document?.file_url && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openProtectedFile(
+                              `res_prev_${detailOrder.id}`,
+                              detailOrder.result_document!.file_url,
+                              detailOrder.result_document!.original_name ||
+                                `HAMBAK_ENROLMENT_${detailOrder.order_number}.pdf`,
+                              detailOrder.result_document!.mime_type || 'application/pdf',
+                              'preview'
+                            )
+                          }
+                          disabled={loadingPreviewId === `res_prev_${detailOrder.id}`}
+                          className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-300 text-xs font-semibold inline-flex items-center gap-1.5 transition"
+                        >
+                          {loadingPreviewId === `res_prev_${detailOrder.id}` ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Eye className="w-3.5 h-3.5" />
+                          )}
+                          <span>Preview Official PDF</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openProtectedFile(
+                              `res_dl_modal_${detailOrder.id}`,
+                              detailOrder.result_document!.file_url,
+                              detailOrder.result_document!.original_name ||
+                                `HAMBAK_ENROLMENT_${detailOrder.order_number}.pdf`,
+                              detailOrder.result_document!.mime_type || 'application/pdf',
+                              'download'
+                            )
+                          }
+                          disabled={loadingPreviewId === `res_dl_modal_${detailOrder.id}`}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold inline-flex items-center gap-1.5 transition"
+                        >
+                          {loadingPreviewId === `res_dl_modal_${detailOrder.id}` ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
+                          <span>Download Official PDF</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {detailOrder.result_details &&
+                    Object.entries(detailOrder.result_details).some(
+                      ([, v]) => v !== null && v !== undefined && String(v).trim() !== ''
+                    ) && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {Object.entries(detailOrder.result_details)
+                          .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+                          .map(([k, v]) => (
+                            <div
+                              key={k}
+                              className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800"
+                            >
+                              <span className="text-[10px] uppercase text-slate-500 block">
+                                {k.replace(/_/g, ' ')}
+                              </span>
+                              <span className="font-mono text-xs font-semibold text-slate-900 dark:text-white break-words">
+                                {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+
+                  {detailOrder.has_result_document && detailOrder.result_document ? (
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                      File: <span className="font-mono">{detailOrder.result_document.original_name}</span>
+                      {detailOrder.result_document.file_size > 0
+                        ? ` (${formatFileSize(detailOrder.result_document.file_size)})`
+                        : ''}
+                    </p>
+                  ) : String(detailOrder.status).toLowerCase() === 'completed' ? (
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                      This enrolment order is marked <strong>Completed</strong>. No downloadable provider PDF document is available for this order.
+                    </p>
+                  ) : null}
+                </div>
+              )}
 
               {detailOrder.provider_remarks && (
                 <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">

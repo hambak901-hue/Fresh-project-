@@ -22,6 +22,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock,
+  Download,
   Eye,
   EyeOff,
   FileCheck2,
@@ -708,6 +709,42 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
     }
   };
 
+  const handlePreviewResultDocument = async (req: ModificationRequestItem) => {
+    if (!req.result_document?.file_url) return;
+    try {
+      const previewKey = `res_${req.id}`;
+      setLoadingPreviewId(previewKey);
+      setFormError(null);
+      const blobUrl = await api.fetchProtectedDocumentBlob(req.result_document.file_url);
+      setPreviewDoc({
+        name: req.result_document.original_name || `${req.request_number}_result.pdf`,
+        mimeType: req.result_document.mime_type || 'application/pdf',
+        blobUrl,
+        isTemporaryObjectUrl: true,
+      });
+    } catch (err: any) {
+      setFormError(err?.message || 'Unable to load official result document preview.');
+    } finally {
+      setLoadingPreviewId(null);
+    }
+  };
+
+  const handleDownloadResultDocument = async (req: ModificationRequestItem) => {
+    if (!req.result_document?.file_url) return;
+    try {
+      const dlKey = `res_dl_${req.id}`;
+      setLoadingPreviewId(dlKey);
+      setFormError(null);
+      const filename =
+        req.result_document.original_name || `HAMBAK_RESULT_${req.request_number}.pdf`;
+      await api.downloadProtectedFile(req.result_document.file_url, filename);
+    } catch (err: any) {
+      setFormError(err?.message || 'Unable to download official result document.');
+    } finally {
+      setLoadingPreviewId(null);
+    }
+  };
+
   const handleUploadQueryDoc = async (file: File | null) => {
     if (!file) return;
     const allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
@@ -838,6 +875,64 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
               </span>
             </div>
           </div>
+
+          {submittedRequest.provider_tracking_id && (
+            <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-500/30 text-xs flex flex-wrap items-center justify-between gap-2">
+              <span className="text-slate-700 dark:text-slate-200">
+                Official Tracking ID:{' '}
+                <strong className="font-mono text-slate-900 dark:text-white">
+                  {submittedRequest.provider_tracking_id}
+                </strong>
+              </span>
+            </div>
+          )}
+
+          {submittedRequest.has_result_document && submittedRequest.result_document?.file_url ? (
+            <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div>
+                <div className="font-bold text-emerald-800 dark:text-emerald-300">
+                  {submittedRequest.result_document.is_provider_issued
+                    ? 'Provider-Issued Official Document Ready'
+                    : 'Admin-Uploaded Official Document Ready'}
+                </div>
+                <div className="text-[11px] text-slate-600 dark:text-slate-300">
+                  {submittedRequest.result_document.original_name}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handlePreviewResultDocument(submittedRequest)}
+                  disabled={loadingPreviewId === `res_${submittedRequest.id}`}
+                  className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-300 font-semibold inline-flex items-center gap-1.5"
+                >
+                  {loadingPreviewId === `res_${submittedRequest.id}` ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Eye className="w-3.5 h-3.5" />
+                  )}
+                  <span>Preview Official PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadResultDocument(submittedRequest)}
+                  disabled={loadingPreviewId === `res_dl_${submittedRequest.id}`}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-semibold inline-flex items-center gap-1.5"
+                >
+                  {loadingPreviewId === `res_dl_${submittedRequest.id}` ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span>Download Official PDF</span>
+                </button>
+              </div>
+            </div>
+          ) : String(submittedRequest.status).toLowerCase() === 'completed' ? (
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
+              Modification status is completed. No downloadable provider PDF document is available for this request.
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -1708,6 +1803,13 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
             {requests.map(req => {
               const st = getModificationStatusStyle(req.status);
               const isQueryOpen = queryTargetId === req.id;
+              const isCompleted = String(req.status).toLowerCase() === 'completed';
+              const hasResultPdf = Boolean(req.has_result_document && req.result_document?.file_url);
+              const resultEntries = Object.entries(req.result_details || {}).filter(
+                ([, val]) => val !== null && val !== undefined && String(val).trim() !== ''
+              );
+              const awaitingAdminReview = req.query_review_status === 'submitted_for_admin_review';
+              const queryHistory = Array.isArray(req.additional_info_history) ? req.additional_info_history : [];
 
               return (
                 <div
@@ -1723,6 +1825,11 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                         <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${st.classes}`}>
                           {st.label}
                         </span>
+                        {awaitingAdminReview && req.status === 'query_required' && (
+                          <span className="px-2 py-0.5 rounded border border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
+                            Response Submitted — Awaiting Admin Review
+                          </span>
+                        )}
                         <span className="text-[11px] text-slate-500 dark:text-slate-400">
                           {new Date(req.created_at).toLocaleString('en-NG')}
                         </span>
@@ -1740,8 +1847,22 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                             <span>Bank / Type: {req.enrollment_type}</span>
                           </>
                         )}
+                        {req.provider_tracking_id && (
+                          <>
+                            <span>&middot;</span>
+                            <span>
+                              Tracking ID: <strong className="font-mono text-slate-900 dark:text-white">{req.provider_tracking_id}</strong>
+                            </span>
+                          </>
+                        )}
                         <span>&middot;</span>
                         <span>Est: {req.estimated_completion_text}</span>
+                        {req.completed_at && (
+                          <>
+                            <span>&middot;</span>
+                            <span>Completed: {new Date(req.completed_at).toLocaleString('en-NG')}</span>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1784,6 +1905,120 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                     </div>
                   )}
 
+                  {/* Official Result Details & Provider/Admin Result Document */}
+                  {(hasResultPdf || isCompleted || resultEntries.length > 0 || req.provider_tracking_id) && (
+                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            Official Result &amp; Delivery
+                          </span>
+                          {hasResultPdf && req.result_document && (
+                            <span
+                              className={`px-2 py-0.5 rounded border text-[10px] font-bold ${
+                                req.result_document.is_provider_issued
+                                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25'
+                                  : 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/25'
+                              }`}
+                            >
+                              {req.result_document.is_provider_issued
+                                ? 'Provider-Issued Official Document'
+                                : 'Admin-Uploaded Official Document'}
+                            </span>
+                          )}
+                        </div>
+
+                        {hasResultPdf && req.result_document && (
+                          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handlePreviewResultDocument(req)}
+                              disabled={loadingPreviewId === `res_${req.id}`}
+                              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-semibold inline-flex items-center gap-1.5 transition"
+                            >
+                              {loadingPreviewId === `res_${req.id}` ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Eye className="w-3.5 h-3.5" />
+                              )}
+                              <span>Preview Official PDF</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadResultDocument(req)}
+                              disabled={loadingPreviewId === `res_dl_${req.id}`}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold inline-flex items-center gap-1.5 transition"
+                            >
+                              {loadingPreviewId === `res_dl_${req.id}` ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Download className="w-3.5 h-3.5" />
+                              )}
+                              <span>Download Official PDF</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {resultEntries.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                          {resultEntries.map(([key, val]) => (
+                            <div
+                              key={key}
+                              className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800"
+                            >
+                              <span className="text-[10px] uppercase text-slate-500 block">
+                                {key.replace(/_/g, ' ')}
+                              </span>
+                              <span className="font-mono text-xs font-semibold text-slate-900 dark:text-white break-words">
+                                {typeof val === 'object' ? JSON.stringify(val) : String(val)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {hasResultPdf && req.result_document ? (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          File: <span className="font-mono">{req.result_document.original_name}</span>
+                          {req.result_document.file_size > 0
+                            ? ` (${formatFileSize(req.result_document.file_size)})`
+                            : ''}
+                          {req.result_document.created_at
+                            ? ` · Stored ${new Date(req.result_document.created_at).toLocaleString('en-NG')}`
+                            : ''}
+                        </p>
+                      ) : isCompleted ? (
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                          Your modification is marked <strong>Completed</strong>. No downloadable provider PDF document is available for this request.
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {/* Additional Info Submission History */}
+                  {queryHistory.length > 0 && (
+                    <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5 text-[11px]">
+                      <div className="font-bold text-slate-800 dark:text-slate-200">
+                        Submitted Clarification History (For HAMBAK Admin Review)
+                      </div>
+                      {queryHistory.map((entry, idx) => (
+                        <div
+                          key={`${entry.submitted_at}_${idx}`}
+                          className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 mb-0.5">
+                            <span>{entry.submitted_at ? new Date(entry.submitted_at).toLocaleString('en-NG') : 'Submitted'}</span>
+                            <span className="font-semibold text-blue-700 dark:text-blue-300">
+                              {entry.review_status === 'submitted_for_admin_review' ? 'Awaiting Admin Review' : (entry.review_status || 'Recorded')}
+                            </span>
+                          </div>
+                          {entry.note && <p>{entry.note}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Supporting Documents & Query Action Row */}
                   <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -1805,7 +2040,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                       ))}
                     </div>
 
-                    {req.status === 'query_required' && (
+                    {req.status === 'query_required' && !awaitingAdminReview && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1819,14 +2054,25 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                         <span>{isQueryOpen ? 'Close Response' : 'Respond to Query'}</span>
                       </button>
                     )}
+
+                    {req.status === 'query_required' && awaitingAdminReview && (
+                      <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                        Clarification queued for HAMBAK admin review. Duplicate submissions are paused until reviewed.
+                      </span>
+                    )}
                   </div>
 
                   {/* Respond to Admin Query Drawer */}
-                  {isQueryOpen && (
+                  {isQueryOpen && !awaitingAdminReview && (
                     <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-500/40 space-y-3">
-                      <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                        Submit Requested Clarification / Additional Document
-                      </h4>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                          Submit Clarification / Additional Document for Admin Review
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Your note and uploaded documents are delivered to HAMBAK administrators for review and follow-up processing.
+                        </p>
+                      </div>
                       <textarea
                         rows={3}
                         value={queryNote}
@@ -1862,7 +2108,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                           className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition"
                         >
                           {submittingQuery && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                          <span>Send Response</span>
+                          <span>Submit for Admin Review</span>
                         </button>
                       </div>
 

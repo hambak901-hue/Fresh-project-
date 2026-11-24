@@ -21,6 +21,7 @@ use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\PinSecurityService;
 use HambakTech\Services\ReferralEngineService;
+use HambakTech\Services\ResultDocumentService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Verification\VeripineAdapter;
 
@@ -166,6 +167,21 @@ class VerificationController
                         'badge' => 'Virtual NIN',
                         'watermark_text' => 'SAMPLE SPECIMEN',
                     ],
+                    [
+                        'id' => 'tpl_nin_special',
+                        'slip_code' => 'ninSpecial',
+                        'name' => 'Special Slip',
+                        'category' => 'NIN',
+                        'price' => 550.00,
+                        'demo_image_url' => '/assets/aistudio/IMG_0603_1ff5c6a0.jpeg',
+                        'description' => 'Official Special NIN Slip PDF issued via 2SureVerify.',
+                        'supported_service' => 'all_nin',
+                        'is_active' => 1,
+                        'display_order' => 6,
+                        'is_recommended' => 0,
+                        'badge' => 'Special Slip',
+                        'watermark_text' => 'SAMPLE SPECIMEN',
+                    ],
                 ];
 
                 foreach ($ninDefaults as $d) {
@@ -176,6 +192,18 @@ class VerificationController
                         $d
                     );
                 }
+            }
+
+            // Guarantee ninSpecial exists non-destructively even on pre-seeded databases
+            $specialExists = $db->fetchOne(
+                'SELECT id FROM slip_templates WHERE LOWER(slip_code) = "ninspecial" OR id = "tpl_nin_special" LIMIT 1'
+            );
+            if (!$specialExists) {
+                $db->execute(
+                    'INSERT IGNORE INTO slip_templates
+                     (id, slip_code, name, category, price, demo_image_url, description, supported_service, is_active, display_order, is_recommended, badge, watermark_text)
+                     VALUES ("tpl_nin_special", "ninSpecial", "Special Slip", "NIN", 550.00, "/assets/aistudio/IMG_0603_1ff5c6a0.jpeg", "Official Special NIN Slip PDF issued via 2SureVerify.", "all_nin", 1, 6, 0, "Special Slip", "SAMPLE SPECIMEN")'
+                );
             }
 
             // Seed canonical BVN Slip Templates (BVN Basic, Advanced Stamp, Plastic BVN, Bank BVN)
@@ -1764,36 +1792,50 @@ class VerificationController
     {
         $user = Auth::requireAuth($request);
         $id = trim((string)($params['id'] ?? ''));
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isStaff = Auth::isAdmin($user) && Auth::hasPermission($user, 'services');
 
         $record = $this->db->fetchOne('SELECT id, user_id, type, service_key, reference, result_data FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1', ['id' => $id, 'ref' => $id]);
         if (!$record) {
             Response::notFound('Verification record not found.');
         }
-        if (!$isAdmin && $record['user_id'] !== $user['id']) {
+        if (!$isStaff && $record['user_id'] !== $user['id']) {
             Response::forbidden('Unauthorized access to verification document.');
         }
 
         $decoded = !empty($record['result_data']) ? json_decode((string)$record['result_data'], true) : null;
         $b64 = is_array($decoded) ? (string)($decoded['pdf_base64'] ?? '') : '';
-        if ($b64 === '') {
-            Response::notFound('Original provider PDF document is not attached to this record.');
+        $binary = null;
+
+        if ($b64 !== '') {
+            $validated = ResultDocumentService::decodeAndValidatePdfBase64($b64, 'application/pdf');
+            if ($validated['ok'] && is_string($validated['bytes'])) {
+                $binary = $validated['bytes'];
+            }
         }
-        $cleanB64 = preg_replace('/^data:application\/pdf;base64,/i', '', trim($b64)) ?? '';
-        $binary = base64_decode($cleanB64, true);
-        if ($binary === false || $binary === '') {
-            Response::error('Stored PDF document could not be decoded.', 500);
+
+        if ($binary === null && is_array($decoded) && !empty($decoded['pdf_url']) && is_string($decoded['pdf_url'])) {
+            $adapter = new TwoSureVerifyAdapter();
+            $fetched = ResultDocumentService::downloadRemotePdfSafely($decoded['pdf_url'], $adapter->getAuthHeaders());
+            if ($fetched['ok'] && is_string($fetched['bytes'])) {
+                $binary = $fetched['bytes'];
+            }
+        }
+
+        if ($binary === null) {
+            Response::notFound('Original provider PDF document is not attached to this record.');
         }
 
         [$isBvnDoc] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
         $prefix = $isBvnDoc ? 'HAMBAKTECH_BVN_SLIP_' : 'HAMBAKTECH_NIN_SLIP_';
-        $safeRef = preg_replace('/[^A-Za-z0-9_-]/', '_', (string)($record['reference'] ?: $record['id']));
+        $safeFilename = ResultDocumentService::sanitizePdfFilename($prefix . (string)($record['reference'] ?: $record['id']) . '.pdf');
+
         header('Content-Type: application/pdf');
-        header('Content-Disposition: attachment; filename="' . $prefix . $safeRef . '.pdf"');
+        header('Content-Disposition: attachment; filename="' . $safeFilename . '"');
         header('Content-Length: ' . strlen($binary));
         header('Cache-Control: private, no-store, no-cache, must-revalidate');
         header('Pragma: no-cache');
         header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
         echo $binary;
         exit;
     }

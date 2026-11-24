@@ -528,6 +528,7 @@ class AccountingService
             $revenue = 0.0;
             $cost = 0.0;
             $fee = 0.0;
+            $grossOut = $amount;
             $expense = 0.0;
             $liabilityDelta = 0.0;
             $paymentChannel = $gateway !== '' ? $gateway : 'wallet';
@@ -582,11 +583,21 @@ class AccountingService
                     $liabilityDelta = $isCustomer ? $amount : 0.0;
 
                     if ($gateway === 'paystack') {
-                        $paymentChannel = 'paystack';
+                        $paymentChannel = (is_array($metaArr) && ($metaArr['funding_method'] ?? '') === 'paystack_dva')
+                            ? 'paystack_dva'
+                            : 'paystack';
                         $accountCode = 'GATEWAY_PAYSTACK';
                         $reconcileStatus = 'unreconciled';
                         $recordedFee = isset($payByRef[$ref]['fee']) ? (float)$payByRef[$ref]['fee'] : 0.0;
-                        $fee = $recordedFee > 0 ? $recordedFee : $this->estimateGatewayFee('paystack', $amount, $cfg);
+                        $metaFee = is_array($metaArr) ? (float)($metaArr['paystack_fee'] ?? $metaArr['gateway_fee'] ?? 0) : 0.0;
+                        $metaGross = is_array($metaArr) ? (float)($metaArr['gross_amount'] ?? 0) : 0.0;
+                        if ($metaGross > 0) {
+                            $grossOut = $metaGross;
+                        }
+                        $actualFee = $recordedFee > 0 ? $recordedFee : ($metaFee > 0 ? $metaFee : $this->estimateGatewayFee('paystack', $grossOut, $cfg));
+                        $feeBearer = is_array($metaArr) ? strtolower((string)($metaArr['fee_bearer'] ?? '')) : '';
+                        // If customer bore the Paystack fee, net wallet credit ($amount) already excludes the fee so platform net impact is 0 rather than double-deducted
+                        $fee = ($feeBearer === 'customer') ? 0.0 : $actualFee;
                     } elseif ($gateway === 'flutterwave') {
                         $paymentChannel = 'flutterwave';
                         $accountCode = 'GATEWAY_FLUTTERWAVE';
@@ -765,7 +776,7 @@ class AccountingService
                 'title' => mb_substr($title, 0, 190),
                 'desc' => (string)($tx['description'] ?? ''),
                 'ref' => $ref !== '' ? $ref : (string)$tx['id'],
-                'gross' => number_format($amount, 2, '.', ''),
+                'gross' => number_format($grossOut, 2, '.', ''),
                 'rev' => number_format($revenue, 2, '.', ''),
                 'cost' => number_format($cost, 2, '.', ''),
                 'fee' => number_format($fee, 2, '.', ''),

@@ -29,6 +29,7 @@ use HambakTech\Services\FootprintService;
 use HambakTech\Services\MailService;
 use HambakTech\Services\PinSecurityService;
 use HambakTech\Services\ReferralEngineService;
+use HambakTech\Services\ResultDocumentService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 
 class EnrolmentController
@@ -251,7 +252,9 @@ class EnrolmentController
         $providerCost = (float)($row['provider_cost'] ?? 0);
         $profit = (float)($row['profit'] ?? ($customerPrice - $providerCost));
 
-        $item = [
+        $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $row, 'enrolment', $isAdmin);
+
+        $item = array_merge([
             'id' => (string)($row['id'] ?? ''),
             'order_number' => (string)($row['order_number'] ?? ''),
             'user_id' => (string)($row['user_id'] ?? ''),
@@ -273,7 +276,7 @@ class EnrolmentController
             'completed_at' => $row['completed_at'] ?? null,
             'created_at' => $row['created_at'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
-        ];
+        ], $resultMeta);
 
         if ($isAdmin) {
             $item['provider_reference'] = $row['provider_reference'] ?? null;
@@ -661,24 +664,39 @@ class EnrolmentController
             Response::notFound('Supporting document not found.');
         }
 
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
-        if (!$isAdmin && $doc['user_id'] !== $user['id']) {
+        $isStaff = Auth::isAdmin($user) && Auth::hasPermission($user, 'services');
+        if (!$isStaff && $doc['user_id'] !== $user['id']) {
             Response::forbidden('Unauthorized access to document.');
         }
 
-        $path = (string)($doc['file_path'] ?? '');
-        if ($path === '' || !is_file($path)) {
+        $storageBase = realpath(dirname(__DIR__) . '/storage');
+        $path = realpath((string)($doc['file_path'] ?? ''));
+        if ($storageBase === false || $path === false || !str_starts_with($path, $storageBase . DIRECTORY_SEPARATOR) || !is_file($path)) {
             Response::notFound('Document file missing from storage.');
         }
 
+        $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename((string)($doc['original_name'] ?? 'document'))) ?: 'document';
+
         header('Content-Type: ' . ($doc['mime_type'] ?: 'application/octet-stream'));
         header('Content-Length: ' . filesize($path));
-        header('Content-Disposition: inline; filename="' . basename((string)$doc['original_name']) . '"');
+        header('Content-Disposition: inline; filename="' . $safeName . '"');
         header('Cache-Control: private, no-store, no-cache, must-revalidate');
         header('Pragma: no-cache');
         header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
         readfile($path);
         exit;
+    }
+
+    /**
+     * GET /api/enrolments/:id/result-document
+     */
+    public function downloadResultDocument(Request $request, array $params): void
+    {
+        $user = Auth::requireAuth($request);
+        $id = trim((string)($params['id'] ?? ''));
+        $forceDownload = in_array((string)$request->query('download', ''), ['1', 'true', 'yes'], true);
+        ResultDocumentService::streamResultDocument($this->db, $user, 'enrolment', $id, $forceDownload);
     }
 
     /**
@@ -687,23 +705,29 @@ class EnrolmentController
     public function getSampleDocument(Request $request, array $params): void
     {
         $user = Auth::requireAuth($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isStaff = Auth::isAdmin($user) && Auth::hasPermission($user, 'services');
         $id = trim((string)($params['id'] ?? ''));
 
         $sample = $this->db->fetchOne('SELECT * FROM enrolment_sample_documents WHERE id = :id LIMIT 1', ['id' => $id]);
-        if (!$sample || (!$isAdmin && empty($sample['is_active']))) {
+        if (!$sample || (!$isStaff && empty($sample['is_active']))) {
             Response::notFound('Sample document not found.');
         }
 
-        $path = (string)($sample['file_path'] ?? '');
-        if ($path === '' || !is_file($path)) {
+        $storageBase = realpath(dirname(__DIR__) . '/storage');
+        $path = realpath((string)($sample['file_path'] ?? ''));
+        if ($storageBase === false || $path === false || !str_starts_with($path, $storageBase . DIRECTORY_SEPARATOR) || !is_file($path)) {
             Response::notFound('Sample document file missing from storage.');
         }
 
+        $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename((string)($sample['original_name'] ?? 'sample'))) ?: 'sample';
+
         header('Content-Type: ' . ($sample['mime_type'] ?: 'application/octet-stream'));
         header('Content-Length: ' . filesize($path));
-        header('Content-Disposition: inline; filename="' . basename((string)$sample['original_name']) . '"');
+        header('Content-Disposition: inline; filename="' . $safeName . '"');
+        header('Cache-Control: private, no-store, no-cache, must-revalidate');
+        header('Pragma: no-cache');
         header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
         readfile($path);
         exit;
     }
@@ -1311,22 +1335,25 @@ class EnrolmentController
         }
 
         $prevStatus = (string)$row['status'];
+        $isTerminal = in_array($prevStatus, ['completed', 'refunded'], true);
         $newStatus = $prevStatus;
 
-        if (in_array($rawStatus, ['completed', 'complete', 'approved', 'success', 'successful', 'done'], true)) {
-            $newStatus = 'completed';
-        } elseif (in_array($rawStatus, ['processing', 'in_progress', 'in-progress', 'reviewing'], true)) {
-            $newStatus = 'processing';
-        } elseif (in_array($rawStatus, ['query', 'query_required', 'info_required', 'action_required'], true)) {
-            $newStatus = 'query_required';
-        } elseif (in_array($rawStatus, ['pending', 'queued', 'submitted'], true)) {
-            $newStatus = 'pending';
-        } elseif (in_array($rawStatus, ['failed', 'rejected', 'declined', 'cancelled', 'canceled'], true) && !empty($res['success'])) {
-            $newStatus = 'rejected';
+        if (!$isTerminal) {
+            if (in_array($rawStatus, ['completed', 'complete', 'approved', 'success', 'successful', 'done', 'delivered'], true)) {
+                $newStatus = 'completed';
+            } elseif (in_array($rawStatus, ['processing', 'in_progress', 'in-progress', 'reviewing'], true)) {
+                $newStatus = 'processing';
+            } elseif (in_array($rawStatus, ['query', 'query_required', 'info_required', 'action_required'], true)) {
+                $newStatus = 'query_required';
+            } elseif (in_array($rawStatus, ['pending', 'queued', 'submitted'], true)) {
+                $newStatus = 'pending';
+            } elseif (($rawStatus === 'refunded' || in_array($rawStatus, ['failed', 'rejected', 'declined', 'cancelled', 'canceled'], true)) && !empty($res['success'])) {
+                $newStatus = 'rejected';
+            }
         }
 
         $refundInfo = null;
-        if (in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference']) && $prevStatus !== 'completed') {
+        if (!$isTerminal && in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference'])) {
             $refundInfo = $this->issueSingleAtomicRefund(
                 (string)$row['id'],
                 $remarks ?: 'Provider marked order as ' . $newStatus,
@@ -1334,7 +1361,7 @@ class EnrolmentController
                 'refunded'
             );
             $newStatus = !empty($refundInfo['refunded']) ? 'refunded' : 'failed';
-        } else {
+        } elseif (!$isTerminal) {
             $this->db->execute(
                 'UPDATE enrolment_orders
                  SET status = :st,
@@ -1343,7 +1370,7 @@ class EnrolmentController
                      provider_response = :pres,
                      completed_at = CASE WHEN :st2 = "completed" AND completed_at IS NULL THEN NOW() ELSE completed_at END,
                      updated_at = NOW()
-                 WHERE id = :id',
+                 WHERE id = :id AND status NOT IN ("completed", "refunded")',
                 [
                     'st' => $newStatus,
                     'pst' => $rawStatus ?: $row['provider_status'],
@@ -1353,6 +1380,11 @@ class EnrolmentController
                     'id' => $row['id'],
                 ]
             );
+        }
+
+        if ($newStatus === 'completed' || $prevStatus === 'completed') {
+            $freshForDoc = $this->db->fetchOne('SELECT * FROM enrolment_orders WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
+            ResultDocumentService::syncFromProviderPayload($this->db, 'enrolment', $freshForDoc, $res, $adapter->getAuthHeaders());
         }
 
         $updatedRow = $this->db->fetchOne('SELECT * FROM enrolment_orders WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
@@ -1369,7 +1401,7 @@ class EnrolmentController
             $msgMap = [
                 'processing' => "Your {$row['service_name']} order ({$row['order_number']}) is now actively processing." . ($safeRemarks ? " Note: {$safeRemarks}" : ''),
                 'query_required' => "Action required for {$row['order_number']}: " . ($safeRemarks ?: 'Please contact support with requested details/documents.'),
-                'completed' => "Great news! Your {$row['service_name']} order ({$row['order_number']}) has been completed." . ($safeRemarks ? " Details: {$safeRemarks}" : ''),
+                'completed' => "Great news! Your {$row['service_name']} order ({$row['order_number']}) has been completed." . (!empty($updatedRow['result_document_id']) ? ' Your official result PDF is now ready in your portal.' : ($safeRemarks ? " Details: {$safeRemarks}" : '')),
                 'refunded' => "Your {$row['service_name']} order ({$row['order_number']}) was not approved and ₦" . number_format((float)$row['customer_price'], 2) . " has been refunded to your wallet.",
                 'failed' => "Your {$row['service_name']} order ({$row['order_number']}) could not be completed. Your refund is being processed.",
             ];
@@ -1417,7 +1449,7 @@ class EnrolmentController
     public function pollStatus(Request $request, array $params): void
     {
         $user = Auth::requireAuth($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isStaff = Auth::isAdmin($user) && Auth::hasPermission($user, 'services');
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -1427,17 +1459,171 @@ class EnrolmentController
         if (!$row) {
             Response::notFound('Enrolment order not found.');
         }
-        if (!$isAdmin && $row['user_id'] !== $user['id']) {
+        if (!$isStaff && $row['user_id'] !== $user['id']) {
             Response::forbidden('Unauthorized access to enrolment order.');
         }
 
-        $sync = $this->syncProviderStatusForRow($row, $isAdmin ? $user['id'] : null);
+        $sync = $this->syncProviderStatusForRow($row, $isStaff ? (string)$user['id'] : null);
 
         Response::success([
             'updated' => $sync['updated'],
-            'order' => $this->formatOrderRow($sync['row'], $isAdmin),
+            'order' => $this->formatOrderRow($sync['row'], $isStaff),
             'refund' => $sync['refund'] ?? null,
         ], $sync['message']);
+    }
+
+    /**
+     * POST /api/enrolments/webhook
+     */
+    public function webhook(Request $request): void
+    {
+        $rawInput = file_get_contents('php://input') ?: '';
+        $configuredSecret = trim((string)(getenv('TWOSUREVERIFY_WEBHOOK_SECRET') ?: ''));
+        if ($configuredSecret !== '') {
+            $sigHeader = trim((string)(
+                $request->header('x-2sureverify-signature')
+                ?: $request->header('x-webhook-signature')
+                ?: $request->header('x-signature')
+                ?: ''
+            ));
+            $authHeader = trim((string)($request->header('authorization') ?: ''));
+            $bearer = str_starts_with(strtolower($authHeader), 'bearer ') ? trim(substr($authHeader, 7)) : '';
+            $expectedHmac = hash_hmac('sha256', $rawInput, $configuredSecret);
+            $validSig = ($sigHeader !== '' && (hash_equals($configuredSecret, $sigHeader) || hash_equals($expectedHmac, strtolower($sigHeader))))
+                || ($bearer !== '' && hash_equals($configuredSecret, $bearer));
+            if (!$validSig) {
+                Response::unauthorized('Invalid webhook signature.');
+            }
+        }
+
+        $body = $request->getBody();
+        if (empty($body) && $rawInput !== '') {
+            $decoded = json_decode($rawInput, true);
+            if (is_array($decoded)) {
+                $body = $decoded;
+            }
+        }
+
+        $res = $this->handleWebhookPayload($body);
+        if (empty($res['matched'])) {
+            Response::notFound('No matching enrolment order found for reference.');
+        }
+        Response::success($res);
+    }
+
+    public function handleWebhookPayload(array $body): array
+    {
+        $ref = trim((string)($body['reference'] ?? $body['data']['reference'] ?? $body['request_id'] ?? ''));
+        if ($ref === '') {
+            return ['matched' => false, 'processed' => false];
+        }
+
+        $row = $this->db->fetchOne(
+            'SELECT * FROM enrolment_orders WHERE provider_reference = :r1 OR payment_reference = :r2 OR order_number = :r3 LIMIT 1',
+            ['r1' => $ref, 'r2' => $ref, 'r3' => $ref]
+        );
+        if (!$row) {
+            return ['matched' => false, 'processed' => false];
+        }
+
+        $prevStatus = (string)$row['status'];
+        $isTerminal = in_array($prevStatus, ['completed', 'refunded'], true);
+        $adapter = new TwoSureVerifyAdapter();
+
+        if ($isTerminal) {
+            if ($prevStatus === 'completed' && empty($row['result_document_id'])) {
+                ResultDocumentService::syncFromProviderPayload($this->db, 'enrolment', $row, $body, $adapter->getAuthHeaders());
+            }
+            return ['matched' => true, 'processed' => false, 'status' => $prevStatus, 'message' => 'Terminal state preserved.'];
+        }
+
+        $statusRaw = strtolower(trim((string)($body['status'] ?? $body['data']['status'] ?? '')));
+        $remarks = trim((string)($body['message'] ?? $body['remarks'] ?? $body['data']['remarks'] ?? $body['data']['admin_note'] ?? ''));
+        $newStatus = $prevStatus;
+
+        if (in_array($statusRaw, ['completed', 'complete', 'approved', 'success', 'successful', 'done', 'delivered'], true)) {
+            $newStatus = 'completed';
+        } elseif (in_array($statusRaw, ['processing', 'in_progress'], true)) {
+            $newStatus = 'processing';
+        } elseif (in_array($statusRaw, ['query', 'query_required', 'info_required'], true)) {
+            $newStatus = 'query_required';
+        } elseif (in_array($statusRaw, ['failed', 'rejected', 'declined', 'error', 'refunded'], true)) {
+            $newStatus = 'rejected';
+        }
+
+        if (in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference'])) {
+            $this->issueSingleAtomicRefund((string)$row['id'], $remarks ?: 'Provider webhook reported failure', null, 'refunded');
+            $newStatus = 'refunded';
+        } else {
+            $this->db->execute(
+                'UPDATE enrolment_orders
+                 SET status = :st,
+                     provider_status = COALESCE(NULLIF(:pst, ""), provider_status),
+                     provider_remarks = COALESCE(NULLIF(:prem, ""), provider_remarks),
+                     provider_response = :pres,
+                     completed_at = CASE WHEN :st2 = "completed" AND completed_at IS NULL THEN NOW() ELSE completed_at END,
+                     updated_at = NOW()
+                 WHERE id = :id AND status NOT IN ("completed", "refunded")',
+                [
+                    'st' => $newStatus,
+                    'pst' => $statusRaw,
+                    'prem' => $remarks,
+                    'pres' => json_encode($body),
+                    'st2' => $newStatus,
+                    'id' => $row['id'],
+                ]
+            );
+        }
+
+        if ($newStatus === 'completed') {
+            $freshForDoc = $this->db->fetchOne('SELECT * FROM enrolment_orders WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
+            $docSync = ResultDocumentService::syncFromProviderPayload($this->db, 'enrolment', $freshForDoc, $body, $adapter->getAuthHeaders());
+            if (empty($docSync['document']) && !empty($row['provider_reference'])) {
+                $polled = $adapter->checkStatus((string)$row['provider_reference']);
+                if (!empty($polled)) {
+                    ResultDocumentService::syncFromProviderPayload($this->db, 'enrolment', $freshForDoc, $polled, $adapter->getAuthHeaders());
+                }
+            }
+        }
+
+        $updatedRow = $this->db->fetchOne('SELECT * FROM enrolment_orders WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
+
+        if ($newStatus !== $prevStatus) {
+            $safeRemarks = $remarks !== '' ? Security::sanitizeCustomerError($remarks, '') : '';
+            $completedNote = !empty($updatedRow['result_document_id'])
+                ? ' Your official PDF result is now ready in your portal.'
+                : ($safeRemarks ?: 'Status changed to completed.');
+            $this->notifyCustomer(
+                (string)$row['user_id'],
+                "{$row['service_name']} Status: " . strtoupper(str_replace('_', ' ', $newStatus)),
+                $newStatus === 'completed'
+                    ? "Great news! Your {$row['service_name']} order ({$row['order_number']}) has been completed.{$completedNote}"
+                    : "Update on order {$row['order_number']} ({$row['service_name']}): " . ($safeRemarks ?: "Status changed to {$newStatus}."),
+                $newStatus === 'completed' ? 'success' : ($newStatus === 'refunded' || $newStatus === 'query_required' ? 'warning' : 'info'),
+                (string)$row['order_number'],
+                ['order_number' => $row['order_number'], 'status' => $newStatus, 'service_name' => $row['service_name']]
+            );
+            try {
+                $refEngine = new ReferralEngineService($this->db);
+                $srcRef = (string)($row['payment_reference'] ?: $row['order_number']);
+                if ($newStatus === 'completed') {
+                    $refEngine->recordQualifyingTransaction([
+                        'user_id' => (string)$row['user_id'],
+                        'service_category' => 'enrolment',
+                        'service_key' => (string)$row['service_key'],
+                        'source_reference' => $srcRef,
+                        'gross_amount' => (float)$row['customer_price'],
+                        'wholesale_cost' => (float)$row['provider_cost'],
+                        'gateway_fee' => 0.0,
+                    ]);
+                } elseif ($newStatus === 'refunded') {
+                    $refEngine->reverseRewardsForSource($srcRef, 'Enrolment refunded via webhook');
+                }
+            } catch (Throwable) {
+            }
+        }
+
+        return ['matched' => true, 'processed' => true, 'status' => $newStatus];
     }
 
     // =========================================================================
@@ -1751,6 +1937,153 @@ class EnrolmentController
             'order' => $fresh ? $this->formatOrderRow($fresh, true) : null,
             'refund' => $refundRes,
         ], 'Enrolment order updated successfully.');
+    }
+
+    /**
+     * POST /api/admin/enrolments/:id/retry-result
+     */
+    public function adminRetryResultFetch(Request $request, array $params): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        $id = trim((string)($params['id'] ?? ''));
+
+        $row = $this->db->fetchOne(
+            'SELECT eo.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
+             FROM enrolment_orders eo
+             LEFT JOIN users u ON u.id = eo.user_id
+             WHERE eo.id = :id1 OR eo.order_number = :id2 LIMIT 1',
+            ['id1' => $id, 'id2' => $id]
+        );
+        if (!$row) {
+            Response::notFound('Enrolment order not found.');
+        }
+
+        $sync = $this->syncProviderStatusForRow($row, (string)$admin['id']);
+        $fresh = $this->db->fetchOne(
+            'SELECT eo.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
+             FROM enrolment_orders eo
+             LEFT JOIN users u ON u.id = eo.user_id
+             WHERE eo.id = :id LIMIT 1',
+            ['id' => $row['id']]
+        ) ?: $sync['row'];
+
+        FootprintService::record([
+            'user_id' => $admin['id'],
+            'user_email' => $admin['email'] ?? null,
+            'user_name' => $admin['full_name'] ?? null,
+            'category' => 'admin',
+            'action' => 'ADMIN_ENROLMENT_RESULT_RETRY',
+            'service_type' => $row['service_key'],
+            'reference' => $row['order_number'],
+            'status' => !empty($fresh['result_document_id']) ? 'successful' : 'processing',
+            'metadata' => [
+                'has_result_document' => !empty($fresh['result_document_id']),
+                'result_retrieval_status' => $fresh['result_retrieval_status'] ?? null,
+            ],
+        ]);
+
+        Response::success([
+            'updated' => $sync['updated'],
+            'order' => $this->formatOrderRow($fresh, true),
+        ], !empty($fresh['result_document_id'])
+            ? 'Provider result document retrieved and saved securely.'
+            : ($sync['message'] ?? 'Provider checked; no PDF document attached upstream yet.'));
+    }
+
+    /**
+     * POST /api/admin/enrolments/:id/result-document
+     */
+    public function adminUploadResultDocument(Request $request, array $params): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        $id = trim((string)($params['id'] ?? ''));
+
+        $row = $this->db->fetchOne(
+            'SELECT * FROM enrolment_orders WHERE id = :id1 OR order_number = :id2 LIMIT 1',
+            ['id1' => $id, 'id2' => $id]
+        );
+        if (!$row) {
+            Response::notFound('Enrolment order not found.');
+        }
+
+        $file = $_FILES['file'] ?? $_FILES['result_pdf'] ?? [];
+        $trackingId = trim((string)($request->input('tracking_id', '')));
+        $remarks = trim((string)($request->input('provider_remarks', '')));
+        $markCompleted = in_array((string)$request->input('mark_completed', '1'), ['1', 'true', 'yes'], true);
+        $notifyCustomerFlag = in_array((string)$request->input('notify_customer', '1'), ['1', 'true', 'yes'], true);
+
+        $doc = ResultDocumentService::storeAdminUploadedPdf(
+            $this->db,
+            'enrolment',
+            $row,
+            $file,
+            (string)$admin['id'],
+            $trackingId !== '' ? $trackingId : null
+        );
+
+        $prevStatus = (string)$row['status'];
+        if ($markCompleted && $prevStatus !== 'refunded') {
+            $this->db->execute(
+                'UPDATE enrolment_orders
+                 SET status = "completed",
+                     provider_remarks = COALESCE(NULLIF(:prem, ""), provider_remarks),
+                     reviewed_by = :rby,
+                     reviewed_at = NOW(),
+                     completed_at = COALESCE(completed_at, NOW()),
+                     updated_at = NOW()
+                 WHERE id = :id AND status != "refunded"',
+                [
+                    'prem' => $remarks,
+                    'rby' => $admin['full_name'] ?? $admin['email'] ?? $admin['id'],
+                    'id' => $row['id'],
+                ]
+            );
+        } elseif ($remarks !== '') {
+            $this->db->execute(
+                'UPDATE enrolment_orders SET provider_remarks = :prem, updated_at = NOW() WHERE id = :id',
+                ['prem' => $remarks, 'id' => $row['id']]
+            );
+        }
+
+        $fresh = $this->db->fetchOne(
+            'SELECT eo.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
+             FROM enrolment_orders eo
+             LEFT JOIN users u ON u.id = eo.user_id
+             WHERE eo.id = :id LIMIT 1',
+            ['id' => $row['id']]
+        ) ?: $row;
+
+        FootprintService::record([
+            'user_id' => $admin['id'],
+            'user_email' => $admin['email'] ?? null,
+            'user_name' => $admin['full_name'] ?? null,
+            'category' => 'admin',
+            'action' => 'ADMIN_ENROLMENT_RESULT_UPLOADED',
+            'service_type' => $row['service_key'],
+            'reference' => $row['order_number'],
+            'status' => 'successful',
+            'metadata' => [
+                'document_id' => $doc['id'],
+                'document_source' => 'admin_uploaded',
+                'is_provider_issued' => false,
+                'tracking_id' => $trackingId !== '' ? $trackingId : null,
+            ],
+        ]);
+
+        if ($notifyCustomerFlag) {
+            $this->notifyCustomer(
+                (string)$row['user_id'],
+                "{$row['service_name']} Result Ready",
+                "Your official result document for {$row['service_name']} ({$row['order_number']}) is now available to preview and download in your dashboard.",
+                'success',
+                (string)$row['order_number'],
+                ['order_number' => $row['order_number'], 'status' => $fresh['status'] ?? 'completed', 'service_name' => $row['service_name']]
+            );
+        }
+
+        Response::success([
+            'order' => $this->formatOrderRow($fresh, true),
+        ], 'Official result document uploaded (Admin-Uploaded) and linked to order.');
     }
 
     /**

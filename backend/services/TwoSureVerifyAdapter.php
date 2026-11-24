@@ -141,7 +141,7 @@ class TwoSureVerifyAdapter extends BaseProviderAdapter implements ServiceProvide
         if ($type === 'VNIN' || str_contains($name, 'vnin')) {
             return 'vnin';
         }
-        if ($type === 'VIP' || str_contains($name, 'vip')) {
+        if ($type === 'VIP' || $type === 'SPECIAL' || str_contains($name, 'vip') || str_contains($name, 'special')) {
             return 'vip';
         }
 
@@ -171,6 +171,9 @@ class TwoSureVerifyAdapter extends BaseProviderAdapter implements ServiceProvide
         }
         if ($type === 'VNIN' || str_contains($name, 'vnin')) {
             return 'ninVnin';
+        }
+        if ($type === 'SPECIAL' || str_contains($name, 'special')) {
+            return 'ninSpecial';
         }
         if ($type === 'VIP' || str_contains($name, 'vip')) {
             return 'ninVip';

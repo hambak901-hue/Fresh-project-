@@ -16,6 +16,7 @@ use HambakTech\Core\Request;
 use HambakTech\Core\Response;
 use HambakTech\Core\Security;
 use HambakTech\Core\Auth;
+use HambakTech\Core\SchemaSync;
 use HambakTech\Services\WalletService;
 use HambakTech\Services\FootprintService;
 use HambakTech\Services\MailService;
@@ -32,6 +33,7 @@ class WalletController
     public function __construct()
     {
         $this->db = Database::getInstance();
+        SchemaSync::syncPaystackDvaSchema($this->db);
         $this->walletService = new WalletService();
         $this->paystack = new PaystackAdapter();
     }
@@ -49,11 +51,17 @@ class WalletController
         $gwCfg = [
             'active_gateway' => 'paystack',
             'enable_paystack' => true,
+            'enable_paystack_dva' => true,
+            'paystack_dva_preferred_bank' => 'wema-bank',
+            'dva_fee_bearer' => 'customer',
             'enable_bank_transfer' => false,
+        ];
+        $custDashCfg = [
+            'enable_virtual_accounts' => true,
         ];
         try {
             $rows = $this->db->fetchAll(
-                'SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("wallet_settings","payment_gateways_settings","active_payment_gateway")'
+                'SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("wallet_settings","payment_gateways_settings","active_payment_gateway","customer_dashboard_settings")'
             );
             $kv = [];
             foreach ($rows as $r) {
@@ -71,6 +79,12 @@ class WalletController
                     $gwCfg = array_merge($gwCfg, $dec);
                 }
             }
+            if (!empty($kv['customer_dashboard_settings'])) {
+                $dec = json_decode((string)$kv['customer_dashboard_settings'], true);
+                if (is_array($dec)) {
+                    $custDashCfg = array_merge($custDashCfg, $dec);
+                }
+            }
         } catch (Throwable) {
         }
         $walletCfg['manual_funding_enabled'] = false;
@@ -82,6 +96,16 @@ class WalletController
 
         $gwCfg['enable_bank_transfer'] = false;
         $gwCfg['active_gateway'] = 'paystack';
+        $gwCfg['enable_paystack_dva'] = array_key_exists('enable_paystack_dva', $gwCfg)
+            ? (bool)$gwCfg['enable_paystack_dva']
+            : true;
+        $gwCfg['enable_virtual_accounts'] = array_key_exists('enable_virtual_accounts', $custDashCfg)
+            ? (bool)$custDashCfg['enable_virtual_accounts']
+            : true;
+        $gwCfg['paystack_dva_preferred_bank'] = trim((string)($gwCfg['paystack_dva_preferred_bank'] ?? 'wema-bank')) ?: 'wema-bank';
+        $gwCfg['dva_fee_bearer'] = strtolower(trim((string)($gwCfg['dva_fee_bearer'] ?? 'customer'))) === 'merchant'
+            ? 'merchant'
+            : 'customer';
 
         return ['wallet' => $walletCfg, 'gateways' => $gwCfg];
     }
@@ -667,23 +691,159 @@ class WalletController
         }
 
         $payload = json_decode($rawBody, true) ?: [];
-        $event = $payload['event'] ?? '';
+        $event = trim((string)($payload['event'] ?? ''));
+        $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
 
+        // -----------------------------------------------------------------
+        // Event 1: Paystack Customer Identification Results
+        // -----------------------------------------------------------------
+        if ($event === 'customeridentification.success' || $event === 'customeridentification.failed') {
+            $custCode = trim((string)($data['customer_code'] ?? ''));
+            $email = strtolower(trim((string)($data['email'] ?? '')));
+            $isSuccess = ($event === 'customeridentification.success');
+            $reason = $isSuccess ? null : trim((string)($data['reason'] ?? 'Customer identity validation failed with payment partner.'));
+
+            $va = null;
+            if ($custCode !== '') {
+                $va = $this->db->fetchOne('SELECT * FROM customer_virtual_accounts WHERE paystack_customer_code = :cc LIMIT 1', ['cc' => $custCode]);
+            }
+            if (!$va && $email !== '') {
+                $uRow = $this->db->fetchOne('SELECT id FROM users WHERE LOWER(email) = :em LIMIT 1', ['em' => $email]);
+                if ($uRow) {
+                    $va = $this->db->fetchOne('SELECT * FROM customer_virtual_accounts WHERE user_id = :uid LIMIT 1', ['uid' => $uRow['id']]);
+                }
+            }
+            if ($va) {
+                $this->db->execute(
+                    'UPDATE customer_virtual_accounts
+                        SET kyc_validation_status = :kvs,
+                            assignment_status = CASE WHEN :failed1 = 1 AND assignment_status != "assigned" THEN "failed" ELSE assignment_status END,
+                            failure_reason = CASE WHEN :failed2 = 1 THEN :reason ELSE failure_reason END,
+                            raw_assignment_payload = :raw,
+                            updated_at = NOW()
+                      WHERE id = :id',
+                    [
+                        'kvs' => $isSuccess ? 'verified' : 'failed',
+                        'failed1' => $isSuccess ? 0 : 1,
+                        'failed2' => $isSuccess ? 0 : 1,
+                        'reason' => $reason,
+                        'raw' => Security::sanitizeProviderLogPayload($data, 12000),
+                        'id' => $va['id'],
+                    ]
+                );
+            }
+            Response::success(['status' => 'processed', 'event' => $event]);
+            return;
+        }
+
+        // -----------------------------------------------------------------
+        // Event 2: Paystack Dedicated Virtual Account Assignment Result
+        // -----------------------------------------------------------------
+        if ($event === 'dedicatedaccount.assign.success' || $event === 'dedicatedaccount.assign.failed') {
+            $customerObj = is_array($data['customer'] ?? null) ? $data['customer'] : [];
+            $custCode = trim((string)($customerObj['customer_code'] ?? ($data['customer_code'] ?? '')));
+            $custEmail = strtolower(trim((string)($customerObj['email'] ?? ($data['email'] ?? ''))));
+            $dvaObj = is_array($data['dedicated_account'] ?? null) ? $data['dedicated_account'] : [];
+
+            $userRow = null;
+            if ($custCode !== '') {
+                $vaMatch = $this->db->fetchOne('SELECT user_id FROM customer_virtual_accounts WHERE paystack_customer_code = :cc LIMIT 1', ['cc' => $custCode]);
+                if ($vaMatch && !empty($vaMatch['user_id'])) {
+                    $userRow = $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE id = :uid LIMIT 1', ['uid' => $vaMatch['user_id']]);
+                }
+            }
+            if (!$userRow && $custEmail !== '') {
+                $userRow = $this->db->fetchOne('SELECT id, email, full_name FROM users WHERE LOWER(email) = :em LIMIT 1', ['em' => $custEmail]);
+            }
+
+            if ($userRow) {
+                if ($event === 'dedicatedaccount.assign.success' && !empty($dvaObj['account_number'])) {
+                    $saved = $this->persistPaystackDvaAssignment($userRow['id'], $custCode, $dvaObj, 'verified', $data);
+                    if ($saved && ($saved['assignment_status'] ?? '') === 'assigned') {
+                        try {
+                            $this->db->execute(
+                                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                                 VALUES (:id, :uid, "Dedicated Bank Account Ready", :msg, "success", 0, NOW())',
+                                [
+                                    'id' => Security::generateUuid(),
+                                    'uid' => $userRow['id'],
+                                    'msg' => "Your dedicated {$saved['bank_name']} funding account ({$saved['account_number']}) is now active. Bank transfers to this account automatically credit your wallet.",
+                                ]
+                            );
+                        } catch (Throwable) {
+                        }
+                        FootprintService::record([
+                            'user_id' => $userRow['id'],
+                            'user_email' => $userRow['email'] ?? null,
+                            'user_name' => $userRow['full_name'] ?? null,
+                            'category' => 'wallet',
+                            'action' => 'DVA_ASSIGNED',
+                            'service_type' => 'paystack_dva',
+                            'reference' => 'PSK_DVA_' . ($saved['dedicated_account_id'] ?? $saved['account_number']),
+                            'provider' => 'paystack',
+                            'status' => 'successful',
+                            'metadata' => [
+                                'bank_name' => $saved['bank_name'],
+                                'account_number' => $saved['account_number'],
+                            ],
+                        ]);
+                    }
+                } else {
+                    $failMsg = trim((string)($data['reason'] ?? ($data['message'] ?? 'Paystack could not assign a dedicated account for this profile.')));
+                    $existingVa = $this->db->fetchOne('SELECT id, assignment_status FROM customer_virtual_accounts WHERE user_id = :uid LIMIT 1', ['uid' => $userRow['id']]);
+                    if ($existingVa && ($existingVa['assignment_status'] ?? '') !== 'assigned') {
+                        $this->db->execute(
+                            'UPDATE customer_virtual_accounts
+                                SET provider = "paystack",
+                                    paystack_customer_code = COALESCE(:cc, paystack_customer_code),
+                                    account_status = "inactive",
+                                    assignment_status = "failed",
+                                    failure_reason = :reason,
+                                    raw_assignment_payload = :raw,
+                                    updated_at = NOW()
+                              WHERE id = :id',
+                            [
+                                'cc' => $custCode ?: null,
+                                'reason' => $failMsg,
+                                'raw' => Security::sanitizeProviderLogPayload($data, 12000),
+                                'id' => $existingVa['id'],
+                            ]
+                        );
+                    }
+                }
+            }
+            Response::success(['status' => 'processed', 'event' => $event]);
+            return;
+        }
+
+        // -----------------------------------------------------------------
+        // Event 3: Charge Success (Distinguish DVA Transfers vs Checkout)
+        // -----------------------------------------------------------------
         if ($event === 'charge.success') {
-            $data = $payload['data'] ?? [];
             $reference = trim((string)($data['reference'] ?? ''));
             $amountInKobo = (float)($data['amount'] ?? 0);
             $amount = round($amountInKobo / 100, 2);
-            $feeAmount = round(((float)($data['fees'] ?? 0)) / 100, 2);
+            $feeAmount = max(0.0, round(((float)($data['fees'] ?? 0)) / 100, 2));
             $currency = strtoupper(trim((string)($data['currency'] ?? 'NGN')));
-            $email = strtolower(trim((string)($data['customer']['email'] ?? '')));
+            $channel = strtolower(trim((string)($data['channel'] ?? '')));
+            $auth = is_array($data['authorization'] ?? null) ? $data['authorization'] : [];
+            $meta = is_array($data['metadata'] ?? null) ? $data['metadata'] : [];
+            $receiverAccNo = trim((string)($auth['receiver_bank_account_number'] ?? ($meta['receiver_account_number'] ?? '')));
+            $isDvaTransfer = ($channel === 'dedicated_nuban') || ($receiverAccNo !== '');
 
             if (empty($reference) || $amount <= 0 || $currency !== 'NGN') {
                 Response::success(['status' => 'ignored_invalid_payload']);
                 return;
             }
 
-            // Prioritize payment_records.reference first to avoid cross-account email mismatch
+            if ($isDvaTransfer) {
+                $dvaSettlement = $this->settlePaystackDvaCharge($data, $event);
+                Response::success($dvaSettlement);
+                return;
+            }
+
+            // Standard Paystack Merchant Checkout settlement (preserved)
+            $email = strtolower(trim((string)($data['customer']['email'] ?? '')));
             $recordMatch = $this->db->fetchOne('SELECT user_id FROM payment_records WHERE reference = :ref LIMIT 1', ['ref' => $reference]);
             $user = null;
             if ($recordMatch && !empty($recordMatch['user_id'])) {
@@ -901,32 +1061,925 @@ class WalletController
     }
 
     /**
-     * 12. GET /api/wallet/virtual-account (Future Dedicated Virtual Account Architecture)
+     * 12. GET /api/wallet/virtual-account
+     * Returns the customer's Paystack Dedicated Virtual Account state cleanly.
+     * Reuses assigned account idempotently; NEVER triggers duplicate Paystack creation on GET/refresh.
      */
     public function virtualAccount(Request $request): void
     {
         $user = Auth::requireAuth($request);
+        $syncPending = ((string)$request->query('sync', '0')) === '1';
+        $state = $this->buildVirtualAccountPayloadForUser($user, $syncPending);
+        Response::success($state);
+    }
 
-        $va = $this->db->fetchOne(
-            'SELECT * FROM customer_virtual_accounts WHERE user_id = :uid',
-            ['uid' => $user['id']]
+    /**
+     * 13. POST /api/wallet/virtual-account/provision
+     * Requests a Paystack Dedicated Virtual Account directly from Paystack's official API
+     * for an eligible HAMBAK customer, reusing any existing assigned/pending account idempotently.
+     */
+    public function provisionVirtualAccount(Request $request): void
+    {
+        $user = Auth::requireVerifiedEmail($request);
+        $preferredBank = trim((string)$request->input('preferred_bank', ''));
+        $res = $this->requestPaystackDvaForUser($user, $preferredBank ?: null);
+
+        if (!empty($res['error'])) {
+            Response::error((string)$res['error'], (int)($res['http_status'] ?? 400));
+            return;
+        }
+
+        Response::success($res['payload'], (string)($res['message'] ?? 'Dedicated virtual account status updated.'));
+    }
+
+    /**
+     * 14. GET /api/admin/wallet/paystack/dva-status
+     * Read-only Admin visibility into Paystack DVA business eligibility, Paystack-generated accounts,
+     * and automated inbound webhook settlements (no manual account creation or manual approvals).
+     */
+    public function adminDvaStatus(Request $request): void
+    {
+        Auth::requirePermission($request, 'wallet');
+        $policy = $this->getWalletPolicy();
+        $capability = $this->paystack->checkDvaCapability();
+
+        $accounts = [];
+        try {
+            $accounts = $this->db->fetchAll(
+                'SELECT va.id, va.user_id, va.provider, va.paystack_customer_code, va.dedicated_account_id,
+                        va.account_number, va.account_name, va.bank_name, va.bank_slug, va.currency,
+                        va.account_status, va.kyc_validation_status, va.assignment_status,
+                        va.failure_reason, va.total_inflow, va.last_funding_at, va.created_at, va.updated_at,
+                        u.full_name AS customer_name, u.email AS customer_email,
+                        COALESCE(u.kyc_level, u.tier, 1) AS kyc_level
+                 FROM customer_virtual_accounts va
+                 LEFT JOIN users u ON u.id = va.user_id
+                 WHERE va.provider = "paystack"
+                 ORDER BY va.updated_at DESC, va.created_at DESC
+                 LIMIT 200'
+            );
+            foreach ($accounts as &$acc) {
+                $acc['total_inflow'] = (float)($acc['total_inflow'] ?? 0);
+                $acc['kyc_level'] = (int)($acc['kyc_level'] ?? 1);
+            }
+        } catch (Throwable) {
+        }
+
+        $settlements = [];
+        $totals = [
+            'assigned_accounts' => 0,
+            'pending_accounts' => 0,
+            'failed_accounts' => 0,
+            'settled_count' => 0,
+            'under_review_count' => 0,
+            'total_gross' => 0.0,
+            'total_paystack_fees' => 0.0,
+            'total_net_credited' => 0.0,
+        ];
+        try {
+            foreach ($accounts as $acc) {
+                $as = (string)($acc['assignment_status'] ?? '');
+                if ($as === 'assigned' && ($acc['account_status'] ?? '') === 'active') {
+                    $totals['assigned_accounts']++;
+                } elseif ($as === 'pending') {
+                    $totals['pending_accounts']++;
+                } elseif ($as === 'failed') {
+                    $totals['failed_accounts']++;
+                }
+            }
+
+            $agg = $this->db->fetchOne(
+                'SELECT
+                    COUNT(CASE WHEN settlement_status = "settled" THEN 1 END) AS settled_count,
+                    COUNT(CASE WHEN settlement_status = "under_review" THEN 1 END) AS under_review_count,
+                    COALESCE(SUM(CASE WHEN settlement_status = "settled" THEN gross_amount ELSE 0 END), 0) AS total_gross,
+                    COALESCE(SUM(CASE WHEN settlement_status = "settled" THEN paystack_fee ELSE 0 END), 0) AS total_paystack_fees,
+                    COALESCE(SUM(CASE WHEN settlement_status = "settled" THEN net_credit_amount ELSE 0 END), 0) AS total_net_credited
+                 FROM paystack_dva_settlements'
+            );
+            if ($agg) {
+                $totals['settled_count'] = (int)$agg['settled_count'];
+                $totals['under_review_count'] = (int)$agg['under_review_count'];
+                $totals['total_gross'] = (float)$agg['total_gross'];
+                $totals['total_paystack_fees'] = (float)$agg['total_paystack_fees'];
+                $totals['total_net_credited'] = (float)$agg['total_net_credited'];
+            }
+
+            $settlements = $this->db->fetchAll(
+                'SELECT s.*, u.full_name AS customer_name, u.email AS customer_email
+                 FROM paystack_dva_settlements s
+                 LEFT JOIN users u ON u.id = s.user_id
+                 ORDER BY s.created_at DESC
+                 LIMIT 100'
+            );
+            foreach ($settlements as &$st) {
+                $st['gross_amount'] = (float)$st['gross_amount'];
+                $st['paystack_fee'] = (float)$st['paystack_fee'];
+                $st['net_credit_amount'] = (float)$st['net_credit_amount'];
+                unset($st['raw_payload']);
+            }
+        } catch (Throwable) {
+        }
+
+        Response::success([
+            'capability' => $capability,
+            'policy' => [
+                'enable_paystack_dva' => (bool)$policy['gateways']['enable_paystack_dva'],
+                'enable_virtual_accounts' => (bool)$policy['gateways']['enable_virtual_accounts'],
+                'preferred_bank' => $policy['gateways']['paystack_dva_preferred_bank'],
+                'fee_bearer' => $policy['gateways']['dva_fee_bearer'],
+            ],
+            'totals' => $totals,
+            'accounts' => $accounts,
+            'settlements' => $settlements,
+        ]);
+    }
+
+    /**
+     * 15. POST /api/admin/wallet/paystack/dva-requery
+     * Requeries Paystack API for an existing Paystack-generated DVA status or pending inbound transfer.
+     * Does NOT manually create accounts or manually credit balances.
+     */
+    public function adminRequeryDva(Request $request): void
+    {
+        Auth::requirePermission($request, 'wallet');
+        $userId = trim((string)$request->input('user_id', ''));
+        $date = trim((string)$request->input('date', ''));
+
+        if ($userId === '') {
+            Response::error('Customer user_id is required.', 422);
+            return;
+        }
+        if (!$this->paystack->hasSecretKey()) {
+            Response::error('Paystack secret key is not configured.', 400);
+            return;
+        }
+
+        $va = $this->db->fetchOne('SELECT * FROM customer_virtual_accounts WHERE user_id = :uid LIMIT 1', ['uid' => $userId]);
+        if (!$va) {
+            Response::error('No Paystack DVA request record found for this customer.', 404);
+            return;
+        }
+
+        try {
+            $syncMsg = 'Synced Paystack DVA state.';
+            if (!empty($va['paystack_customer_code'])) {
+                $fetched = $this->paystack->fetchDedicatedAccountsByCustomer((string)$va['paystack_customer_code']);
+                $activeDva = $this->pickConfirmedDvaFromList($fetched['accounts'] ?? []);
+                if ($activeDva) {
+                    $this->persistPaystackDvaAssignment($userId, (string)$va['paystack_customer_code'], $activeDva, 'verified', $activeDva);
+                    $va = $this->db->fetchOne('SELECT * FROM customer_virtual_accounts WHERE user_id = :uid LIMIT 1', ['uid' => $userId]) ?: $va;
+                    $syncMsg = 'Confirmed Paystack dedicated account synced.';
+                }
+            }
+
+            if (!empty($va['account_number']) && !empty($va['bank_slug'])) {
+                $rq = $this->paystack->requeryDedicatedAccount(
+                    (string)$va['account_number'],
+                    (string)$va['bank_slug'],
+                    $date ?: gmdate('Y-m-d')
+                );
+                if (!empty($rq['message'])) {
+                    $syncMsg = $rq['message'];
+                }
+            }
+
+            Response::success(['account' => $va], $syncMsg);
+        } catch (Throwable $e) {
+            Security::logPrivateError('PaystackAdminDvaRequery', $e, ['user_id' => $userId]);
+            Response::error('Unable to sync Paystack dedicated account status right now.', 502);
+        }
+    }
+
+    // =========================================================================
+    // PAYSTACK DVA INTERNAL ORCHESTRATION & SETTLEMENT HELPERS
+    // =========================================================================
+
+    public function buildVirtualAccountPayloadForUser(array $user, bool $syncPending = false): array
+    {
+        $policy = $this->getWalletPolicy();
+        $gw = $policy['gateways'];
+        $currentLevel = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
+        $emailVerified = !empty($user['email_verified']) || empty($user['email_verification_required']);
+        $isActive = (($user['status'] ?? 'active') === 'active');
+        $dvaFeatureOn = !empty($gw['enable_paystack']) && !empty($gw['enable_paystack_dva']) && !empty($gw['enable_virtual_accounts']);
+        $eligible = $dvaFeatureOn && $emailVerified && $isActive && $currentLevel >= 2;
+
+        $va = $this->db->fetchOne('SELECT * FROM customer_virtual_accounts WHERE user_id = :uid LIMIT 1', ['uid' => $user['id']]);
+
+        // Only query Paystack for an ALREADY-pending assignment (never create a new account on GET)
+        if (
+            $syncPending
+            && $va
+            && ($va['provider'] ?? '') === 'paystack'
+            && ($va['assignment_status'] ?? '') === 'pending'
+            && $this->paystack->hasSecretKey()
+        ) {
+            try {
+                $lookupId = !empty($va['paystack_customer_code'])
+                    ? (string)$va['paystack_customer_code']
+                    : strtolower(trim((string)($user['email'] ?? '')));
+                if ($lookupId !== '') {
+                    $fetched = $this->paystack->fetchDedicatedAccountsByCustomer($lookupId);
+                    $confirmed = $this->pickConfirmedDvaFromList($fetched['accounts'] ?? []);
+                    if ($confirmed) {
+                        $custCode = trim((string)($fetched['customer']['customer_code'] ?? $va['paystack_customer_code'] ?? ''));
+                        $va = $this->persistPaystackDvaAssignment((string)$user['id'], $custCode, $confirmed, 'verified', $confirmed) ?: $va;
+                    }
+                }
+            } catch (Throwable $e) {
+                Security::logPrivateError('PaystackDvaPendingSync', $e, ['user_id' => $user['id']]);
+            }
+        }
+
+        $isConfirmedActive = $va
+            && ($va['provider'] ?? '') === 'paystack'
+            && ($va['account_status'] ?? '') === 'active'
+            && ($va['assignment_status'] ?? '') === 'assigned'
+            && !empty($va['account_number'])
+            && !empty($va['bank_name']);
+
+        $assignmentStatus = $va ? (string)($va['assignment_status'] ?? 'not_requested') : 'not_requested';
+        if ($isConfirmedActive) {
+            $assignmentStatus = 'assigned';
+        } elseif ($va && ($va['provider'] ?? '') !== 'paystack' && ($va['account_status'] ?? '') !== 'active') {
+            $assignmentStatus = 'not_requested';
+        }
+
+        $publicVa = $isConfirmedActive ? [
+            'id' => $va['id'],
+            'user_id' => $va['user_id'],
+            'provider' => 'paystack',
+            'paystack_customer_code' => $va['paystack_customer_code'] ?? null,
+            'dedicated_account_id' => isset($va['dedicated_account_id']) ? (int)$va['dedicated_account_id'] : null,
+            'account_number' => $va['account_number'],
+            'account_name' => $va['account_name'] ?: ($user['full_name'] ?? 'HambakTech Customer'),
+            'bank_name' => $va['bank_name'],
+            'bank_slug' => $va['bank_slug'] ?? null,
+            'bank_code' => $va['bank_slug'] ?? '',
+            'currency' => $va['currency'] ?? 'NGN',
+            'status' => 'active',
+            'account_status' => 'active',
+            'assignment_status' => 'assigned',
+            'kyc_validation_status' => $va['kyc_validation_status'] ?? 'verified',
+            'total_inflow' => (float)($va['total_inflow'] ?? 0),
+            'last_funding_at' => $va['last_funding_at'] ?? null,
+            'assigned_at' => $va['updated_at'] ?? $va['created_at'],
+        ] : null;
+
+        $msg = 'Upgrade to KYC Level 2 to qualify for an automatic Paystack dedicated bank account.';
+        if (!$dvaFeatureOn) {
+            $msg = 'Dedicated virtual account provisioning is currently disabled.';
+        } elseif (!$emailVerified) {
+            $msg = 'Please verify your email address before requesting a dedicated bank account.';
+        } elseif ($isConfirmedActive) {
+            $msg = 'Paystack dedicated virtual account active. Transfers automatically credit your wallet after applicable Paystack charges.';
+        } elseif ($assignmentStatus === 'pending') {
+            $msg = 'Your Paystack dedicated account request is awaiting confirmation from Paystack.';
+        } elseif ($assignmentStatus === 'failed') {
+            $msg = !empty($va['failure_reason'])
+                ? (string)$va['failure_reason']
+                : 'Your previous account assignment could not be completed. You may retry when ready.';
+        } elseif ($eligible) {
+            $msg = 'You qualify for a Paystack dedicated NGN bank account. Request yours to receive transfers directly into your wallet.';
+        }
+
+        return [
+            'has_virtual_account' => $isConfirmedActive,
+            'dva_enabled' => $dvaFeatureOn,
+            'paystack_configured' => $this->paystack->hasSecretKey(),
+            'eligible' => $eligible,
+            'email_verified' => $emailVerified,
+            'required_level' => 2,
+            'current_level' => $currentLevel,
+            'status' => $isConfirmedActive ? 'active' : ($assignmentStatus === 'pending' ? 'pending' : ($currentLevel < 2 ? 'pending_kyc' : 'unassigned')),
+            'assignment_status' => $assignmentStatus,
+            'kyc_validation_status' => $va['kyc_validation_status'] ?? ($currentLevel >= 2 ? 'verified' : 'unverified'),
+            'failure_reason' => ($assignmentStatus === 'failed') ? ($va['failure_reason'] ?? null) : null,
+            'fee_bearer' => $gw['dva_fee_bearer'],
+            'preferred_bank' => $gw['paystack_dva_preferred_bank'],
+            'virtual_account' => $publicVa,
+            'account_number' => $publicVa['account_number'] ?? null,
+            'account_name' => $publicVa['account_name'] ?? null,
+            'bank_name' => $publicVa['bank_name'] ?? null,
+            'message' => $msg,
+        ];
+    }
+
+    public function requestPaystackDvaForUser(array $user, ?string $preferredBankOverride = null): array
+    {
+        $policy = $this->getWalletPolicy();
+        $gw = $policy['gateways'];
+
+        if (empty($gw['enable_paystack']) || empty($gw['enable_paystack_dva']) || empty($gw['enable_virtual_accounts'])) {
+            return ['error' => 'Paystack dedicated virtual accounts are not enabled on this platform right now.', 'http_status' => 403];
+        }
+        if ((int)($user['kyc_level'] ?? $user['tier'] ?? 1) < 2) {
+            return ['error' => 'Complete KYC Level 2 verification before requesting a dedicated bank account.', 'http_status' => 403];
+        }
+        if (!$this->paystack->hasSecretKey()) {
+            return ['error' => 'Paystack dedicated virtual account service is temporarily unavailable. Please use Paystack Instant Checkout or contact support.', 'http_status' => 503];
+        }
+
+        $preferredBank = $preferredBankOverride ?: (string)$gw['paystack_dva_preferred_bank'];
+        if (!in_array($preferredBank, ['wema-bank', 'titan-paystack'], true)) {
+            $preferredBank = 'wema-bank';
+        }
+
+        // Step 1: Atomic idempotency lock check inside transaction (never hold lock over HTTP calls)
+        $lockOutcome = $this->db->withTransaction(function (Database $db) use ($user) {
+            $existing = $db->fetchOne('SELECT * FROM customer_virtual_accounts WHERE user_id = :uid FOR UPDATE', ['uid' => $user['id']]);
+            if (
+                $existing
+                && ($existing['provider'] ?? '') === 'paystack'
+                && ($existing['assignment_status'] ?? '') === 'assigned'
+                && ($existing['account_status'] ?? '') === 'active'
+                && !empty($existing['account_number'])
+            ) {
+                return ['action' => 'already_assigned', 'row' => $existing];
+            }
+
+            if (
+                $existing
+                && ($existing['provider'] ?? '') === 'paystack'
+                && ($existing['assignment_status'] ?? '') === 'pending'
+            ) {
+                $updatedTs = strtotime((string)($existing['updated_at'] ?? $existing['created_at'] ?? '')) ?: 0;
+                if ($updatedTs > (time() - 25)) {
+                    return ['action' => 'already_pending', 'row' => $existing];
+                }
+            }
+
+            if ($existing) {
+                $db->execute(
+                    'UPDATE customer_virtual_accounts
+                        SET provider = "paystack",
+                            account_status = "pending_approval",
+                            assignment_status = "pending",
+                            failure_reason = NULL,
+                            updated_at = NOW()
+                      WHERE id = :id',
+                    ['id' => $existing['id']]
+                );
+            } else {
+                $db->execute(
+                    'INSERT INTO customer_virtual_accounts
+                        (id, user_id, provider, order_ref, account_number, account_name, bank_name, account_status, kyc_validation_status, assignment_status, created_at, updated_at)
+                     VALUES
+                        (:id, :uid, "paystack", :oref, "", :aname, "", "pending_approval", "pending", "pending", NOW(), NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'uid' => $user['id'],
+                        'oref' => 'PSK_DVA_REQ_' . strtoupper(substr(str_replace('-', '', $user['id']), 0, 12)),
+                        'aname' => mb_substr((string)($user['full_name'] ?? 'HambakTech Customer'), 0, 180),
+                    ]
+                );
+            }
+
+            return ['action' => 'proceed', 'row' => $existing];
+        });
+
+        if ($lockOutcome['action'] === 'already_assigned') {
+            return [
+                'payload' => $this->buildVirtualAccountPayloadForUser($user, false),
+                'message' => 'Your existing Paystack dedicated bank account is active.',
+            ];
+        }
+
+        if ($lockOutcome['action'] === 'already_pending') {
+            return [
+                'payload' => $this->buildVirtualAccountPayloadForUser($user, true),
+                'message' => 'Account assignment is in progress and awaiting Paystack confirmation.',
+            ];
+        }
+
+        // Step 2: Check existing Paystack customer/accounts first & request official DVA via Paystack API
+        try {
+            [$firstName, $lastName] = $this->splitFullName((string)($user['full_name'] ?? ''));
+            $phone = $this->normalizeNigerianPhone((string)($user['phone_number'] ?? ''));
+
+            // A. Create or fetch Paystack customer
+            $custRes = $this->paystack->createOrFetchCustomer([
+                'email' => $user['email'],
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'phone' => $phone,
+                'reference' => $user['id'],
+                'metadata' => ['hambak_user_id' => $user['id']],
+            ]);
+
+            if (empty($custRes['ok']) || empty($custRes['customer']['customer_code'])) {
+                throw new RuntimeException((string)($custRes['message'] ?? 'Unable to register customer profile with Paystack.'));
+            }
+
+            $psCustomer = $custRes['customer'];
+            $custCode = (string)$psCustomer['customer_code'];
+            $custNumericId = isset($psCustomer['id']) ? (int)$psCustomer['id'] : null;
+
+            $this->db->execute(
+                'UPDATE customer_virtual_accounts SET paystack_customer_code = :cc, updated_at = NOW() WHERE user_id = :uid',
+                ['cc' => $custCode, 'uid' => $user['id']]
+            );
+
+            // B. Reuse existing active DVA if Paystack already generated one for this customer
+            $existingRemote = $this->paystack->fetchDedicatedAccountsByCustomer($custCode, $custNumericId);
+            $confirmedRemote = $this->pickConfirmedDvaFromList($existingRemote['accounts'] ?? []);
+            if ($confirmedRemote) {
+                $this->persistPaystackDvaAssignment((string)$user['id'], $custCode, $confirmedRemote, 'verified', $confirmedRemote);
+                return [
+                    'payload' => $this->buildVirtualAccountPayloadForUser($user, false),
+                    'message' => 'Dedicated virtual account confirmed and linked to your wallet.',
+                ];
+            }
+
+            // C. Request new DVA directly from Paystack
+            $createRes = $this->paystack->createDedicatedAccount($custCode, $preferredBank);
+            $dvaData = is_array($createRes['data'] ?? null) ? $createRes['data'] : [];
+
+            if (!empty($createRes['ok']) && !empty($dvaData['account_number']) && !empty($dvaData['assigned'])) {
+                $this->persistPaystackDvaAssignment((string)$user['id'], $custCode, $dvaData, 'verified', $dvaData);
+                FootprintService::record([
+                    'user_id' => $user['id'],
+                    'user_email' => $user['email'] ?? null,
+                    'user_name' => $user['full_name'] ?? null,
+                    'category' => 'wallet',
+                    'action' => 'DVA_ASSIGNED',
+                    'service_type' => 'paystack_dva',
+                    'reference' => 'PSK_DVA_' . ($dvaData['id'] ?? $custCode),
+                    'provider' => 'paystack',
+                    'status' => 'successful',
+                    'metadata' => ['bank_name' => $dvaData['bank']['name'] ?? ''],
+                ]);
+                return [
+                    'payload' => $this->buildVirtualAccountPayloadForUser($user, false),
+                    'message' => 'Dedicated virtual account generated by Paystack and ready for transfers.',
+                ];
+            }
+
+            // If Paystack reports assignment queued or requires single-step assign
+            if (!empty($createRes['ok'])) {
+                return [
+                    'payload' => $this->buildVirtualAccountPayloadForUser($user, false),
+                    'message' => 'Dedicated account request submitted to Paystack. Your account number will appear once Paystack confirms assignment.',
+                ];
+            }
+
+            // Try Single-Step Assign endpoint (POST /dedicated_account/assign)
+            $assignRes = $this->paystack->assignDedicatedVirtualAccount([
+                'email' => $user['email'],
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'phone' => $phone,
+                'preferred_bank' => $preferredBank,
+            ]);
+
+            if (!empty($assignRes['ok'])) {
+                $assignData = is_array($assignRes['data'] ?? null) ? $assignRes['data'] : [];
+                if (!empty($assignData['account_number']) && !empty($assignData['assigned'])) {
+                    $this->persistPaystackDvaAssignment((string)$user['id'], $custCode, $assignData, 'verified', $assignData);
+                    return [
+                        'payload' => $this->buildVirtualAccountPayloadForUser($user, false),
+                        'message' => 'Dedicated virtual account generated by Paystack and ready for transfers.',
+                    ];
+                }
+                return [
+                    'payload' => $this->buildVirtualAccountPayloadForUser($user, false),
+                    'message' => 'Dedicated account assignment is in progress with Paystack. Please check back in a moment.',
+                ];
+            }
+
+            // Paystack declined (e.g., DVA not enabled on merchant account or customer identification required)
+            $rawMsg = (string)($assignRes['message'] ?? $createRes['message'] ?? 'Paystack could not provision a dedicated account.');
+            $safeCustomerMsg = $this->mapPaystackDvaErrorToSafeMessage($rawMsg);
+
+            $this->db->execute(
+                'UPDATE customer_virtual_accounts
+                    SET account_status = "inactive",
+                        assignment_status = "failed",
+                        failure_reason = :reason,
+                        updated_at = NOW()
+                  WHERE user_id = :uid AND assignment_status != "assigned"',
+                ['reason' => $safeCustomerMsg, 'uid' => $user['id']]
+            );
+
+            Security::logPrivateError('PaystackDvaProvisionRejected', new RuntimeException($rawMsg), [
+                'user_id' => $user['id'],
+                'paystack_customer_code' => $custCode,
+                'create_status' => $createRes['status_code'] ?? 0,
+                'assign_status' => $assignRes['status_code'] ?? 0,
+            ]);
+
+            return ['error' => $safeCustomerMsg, 'http_status' => 503];
+        } catch (Throwable $e) {
+            Security::logPrivateError('PaystackDvaProvisionException', $e, ['user_id' => $user['id']]);
+            $this->db->execute(
+                'UPDATE customer_virtual_accounts
+                    SET account_status = "inactive",
+                        assignment_status = "failed",
+                        failure_reason = :reason,
+                        updated_at = NOW()
+                  WHERE user_id = :uid AND assignment_status != "assigned"',
+                [
+                    'reason' => 'Dedicated account provisioning is temporarily unavailable. Please use Paystack Instant Checkout or try again later.',
+                    'uid' => $user['id'],
+                ]
+            );
+            return [
+                'error' => 'We could not provision your dedicated bank account at this time. Please use Paystack Instant Checkout or try again later.',
+                'http_status' => 503,
+            ];
+        }
+    }
+
+    private function pickConfirmedDvaFromList(array $accounts): ?array
+    {
+        foreach ($accounts as $acc) {
+            if (!is_array($acc)) {
+                continue;
+            }
+            $hasNum = !empty($acc['account_number']) && preg_match('/^\d{10}$/', trim((string)$acc['account_number']));
+            $isActive = !array_key_exists('active', $acc) || !empty($acc['active']);
+            $isAssigned = !array_key_exists('assigned', $acc) || !empty($acc['assigned']);
+            if ($hasNum && $isActive && $isAssigned && !empty($acc['bank']['name'])) {
+                return $acc;
+            }
+        }
+        return null;
+    }
+
+    private function persistPaystackDvaAssignment(string $userId, ?string $customerCode, array $dvaObj, string $kycValidationStatus = 'verified', mixed $rawPayload = null): ?array
+    {
+        $accNum = preg_replace('/\D/', '', (string)($dvaObj['account_number'] ?? ''));
+        $bankObj = is_array($dvaObj['bank'] ?? null) ? $dvaObj['bank'] : [];
+        $bankName = trim((string)($bankObj['name'] ?? ''));
+        if ($accNum === '' || $bankName === '') {
+            return null;
+        }
+
+        $dedicatedId = isset($dvaObj['id']) ? (int)$dvaObj['id'] : null;
+        $bankId = isset($bankObj['id']) ? (int)$bankObj['id'] : null;
+        $bankSlug = trim((string)($bankObj['slug'] ?? '')) ?: null;
+        $accName = trim((string)($dvaObj['account_name'] ?? '')) ?: null;
+        $currency = strtoupper(trim((string)($dvaObj['currency'] ?? 'NGN'))) ?: 'NGN';
+        $isAssigned = (!array_key_exists('assigned', $dvaObj) || !empty($dvaObj['assigned']))
+            && (!array_key_exists('active', $dvaObj) || !empty($dvaObj['active']));
+
+        $orderRef = 'PSK_DVA_' . ($dedicatedId ? (string)$dedicatedId : $accNum);
+        $rawJson = $rawPayload ? Security::sanitizeProviderLogPayload($rawPayload, 12000) : null;
+
+        $this->db->execute(
+            'INSERT INTO customer_virtual_accounts
+                (id, user_id, provider, paystack_customer_code, dedicated_account_id, order_ref, account_number, account_name, bank_name, bank_id, bank_slug, currency, account_status, kyc_validation_status, assignment_status, failure_reason, raw_assignment_payload, created_at, updated_at)
+             VALUES
+                (:id, :uid, "paystack", :cc, :did, :oref, :anum, :aname, :bname, :bid, :bslug, :curr, :ast, :kvs, :asst, NULL, :raw, NOW(), NOW())
+             ON DUPLICATE KEY UPDATE
+                provider = "paystack",
+                paystack_customer_code = COALESCE(VALUES(paystack_customer_code), paystack_customer_code),
+                dedicated_account_id = COALESCE(VALUES(dedicated_account_id), dedicated_account_id),
+                order_ref = VALUES(order_ref),
+                account_number = VALUES(account_number),
+                account_name = COALESCE(VALUES(account_name), account_name),
+                bank_name = VALUES(bank_name),
+                bank_id = COALESCE(VALUES(bank_id), bank_id),
+                bank_slug = COALESCE(VALUES(bank_slug), bank_slug),
+                currency = VALUES(currency),
+                account_status = VALUES(account_status),
+                kyc_validation_status = VALUES(kyc_validation_status),
+                assignment_status = VALUES(assignment_status),
+                failure_reason = NULL,
+                raw_assignment_payload = COALESCE(VALUES(raw_assignment_payload), raw_assignment_payload),
+                updated_at = NOW()',
+            [
+                'id' => Security::generateUuid(),
+                'uid' => $userId,
+                'cc' => $customerCode ?: null,
+                'did' => $dedicatedId,
+                'oref' => $orderRef,
+                'anum' => $accNum,
+                'aname' => $accName,
+                'bname' => $bankName,
+                'bid' => $bankId,
+                'bslug' => $bankSlug,
+                'curr' => $currency,
+                'ast' => $isAssigned ? 'active' : 'pending_approval',
+                'kvs' => $kycValidationStatus,
+                'asst' => $isAssigned ? 'assigned' : 'pending',
+                'raw' => $rawJson,
+            ]
         );
 
-        if ($va) {
-            Response::success([
-                'has_virtual_account' => true,
-                'account_number' => $va['account_number'],
-                'bank_name' => $va['bank_name'],
-                'status' => $va['account_status'],
-                'created_at' => $va['created_at'],
-            ]);
-        } else {
-            Response::success([
-                'has_virtual_account' => false,
-                'status' => 'pending_activation',
-                'message' => 'Dedicated NGN virtual accounts will be activated once business regulatory approvals are completed.',
-                'bankDetails' => null,
-            ]);
+        return $this->db->fetchOne('SELECT * FROM customer_virtual_accounts WHERE user_id = :uid LIMIT 1', ['uid' => $userId]);
+    }
+
+    private function settlePaystackDvaCharge(array $data, string $event): array
+    {
+        $reference = trim((string)($data['reference'] ?? ''));
+        $txIdNum = isset($data['id']) ? (int)$data['id'] : null;
+        $grossAmount = round(((float)($data['amount'] ?? 0)) / 100, 2);
+        $paystackFee = max(0.0, round(((float)($data['fees'] ?? 0)) / 100, 2));
+        $currency = strtoupper(trim((string)($data['currency'] ?? 'NGN')));
+
+        $auth = is_array($data['authorization'] ?? null) ? $data['authorization'] : [];
+        $meta = is_array($data['metadata'] ?? null) ? $data['metadata'] : [];
+        $custObj = is_array($data['customer'] ?? null) ? $data['customer'] : [];
+
+        $receiverAccount = preg_replace('/\D/', '', (string)($auth['receiver_bank_account_number'] ?? ($meta['receiver_account_number'] ?? '')));
+        $custCode = trim((string)($custObj['customer_code'] ?? ''));
+        $dedicatedAccId = isset($meta['dedicated_account_id']) ? (int)$meta['dedicated_account_id'] : (isset($auth['dedicated_account_id']) ? (int)$auth['dedicated_account_id'] : null);
+
+        $senderBank = trim((string)($auth['sender_bank'] ?? ($auth['bank'] ?? 'Bank Transfer')));
+        $senderName = trim((string)($auth['sender_name'] ?? ($meta['sender_name'] ?? '')));
+        $senderNumRaw = preg_replace('/\D/', '', (string)($auth['sender_bank_account_number'] ?? ''));
+        $senderMasked = $senderNumRaw !== '' ? ('******' . substr($senderNumRaw, -4)) : null;
+        $sessionId = trim((string)($auth['narration'] ?? ($data['receipt_number'] ?? ($meta['session_id'] ?? ''))));
+
+        $policy = $this->getWalletPolicy();
+        $feeBearer = strtolower((string)($policy['gateways']['dva_fee_bearer'] ?? 'customer')) === 'merchant' ? 'merchant' : 'customer';
+        $netCredit = ($feeBearer === 'merchant')
+            ? $grossAmount
+            : round(max(0.0, $grossAmount - $paystackFee), 2);
+
+        if ($netCredit <= 0) {
+            return ['status' => 'ignored_non_positive_net_amount'];
         }
+
+        // Strict DVA account resolution — match assigned active customer_virtual_accounts only
+        $va = null;
+        if ($receiverAccount !== '') {
+            $va = $this->db->fetchOne(
+                'SELECT * FROM customer_virtual_accounts
+                  WHERE provider = "paystack" AND account_number = :acc AND account_status = "active"
+                  LIMIT 1',
+                ['acc' => $receiverAccount]
+            );
+        }
+        if (!$va && $dedicatedAccId) {
+            $va = $this->db->fetchOne(
+                'SELECT * FROM customer_virtual_accounts
+                  WHERE provider = "paystack" AND dedicated_account_id = :did AND account_status = "active"
+                  LIMIT 1',
+                ['did' => $dedicatedAccId]
+            );
+        }
+
+        if (!$va) {
+            // Record safely for audit review without crediting any unverified user
+            try {
+                $this->db->execute(
+                    'INSERT IGNORE INTO paystack_dva_settlements
+                        (id, user_id, virtual_account_id, paystack_reference, paystack_transaction_id, dedicated_account_id, account_number, paystack_customer_code, gross_amount, paystack_fee, net_credit_amount, fee_bearer, currency, sender_bank, sender_account_name, sender_account_number_masked, session_id, settlement_status, raw_payload, created_at)
+                     VALUES
+                        (:id, NULL, NULL, :ref, :tid, :did, :acc, :cc, :gross, :fee, :net, :fb, :curr, :sb, :sn, :sm, :sid, "under_review", :raw, NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'ref' => $reference,
+                        'tid' => $txIdNum,
+                        'did' => $dedicatedAccId,
+                        'acc' => $receiverAccount ?: 'UNKNOWN',
+                        'cc' => $custCode ?: null,
+                        'gross' => $grossAmount,
+                        'fee' => $paystackFee,
+                        'net' => $netCredit,
+                        'fb' => $feeBearer,
+                        'curr' => $currency,
+                        'sb' => $senderBank ?: null,
+                        'sn' => $senderName ?: null,
+                        'sm' => $senderMasked,
+                        'sid' => $sessionId ?: null,
+                        'raw' => Security::sanitizeProviderLogPayload($data, 12000),
+                    ]
+                );
+            } catch (Throwable) {
+            }
+            return ['status' => 'under_review_unmatched_dva'];
+        }
+
+        $bankLabel = $va['bank_name'] ?: 'Paystack Partner Bank';
+        $accNumLabel = $va['account_number'] ?: $receiverAccount;
+
+        $settlement = $this->db->withTransaction(function (Database $db) use ($va, $reference, $txIdNum, $dedicatedAccId, $accNumLabel, $custCode, $grossAmount, $paystackFee, $netCredit, $feeBearer, $currency, $senderBank, $senderName, $senderMasked, $sessionId, $bankLabel, $event, $data) {
+            // Replay/duplicate webhook check locked on paystack_dva_settlements & transactions
+            $dupSettle = $db->fetchOne(
+                'SELECT id, settlement_status FROM paystack_dva_settlements WHERE paystack_reference = :ref FOR UPDATE',
+                ['ref' => $reference]
+            );
+            if ($dupSettle && $dupSettle['settlement_status'] === 'settled') {
+                return ['already_settled' => true];
+            }
+
+            $dupTx = $db->fetchOne(
+                'SELECT id, status FROM transactions WHERE reference = :ref FOR UPDATE',
+                ['ref' => $reference]
+            );
+            if ($dupTx && $dupTx['status'] === 'successful') {
+                return ['already_settled' => true];
+            }
+
+            $tx = $this->walletService->credit(
+                (string)$va['user_id'],
+                $netCredit,
+                'funding',
+                $reference,
+                "Dedicated Bank Transfer Credit ({$bankLabel} • {$accNumLabel})",
+                'paystack',
+                [
+                    'funding_method' => 'paystack_dva',
+                    'webhook_event' => $event,
+                    'channel' => 'dedicated_nuban',
+                    'gross_amount' => $grossAmount,
+                    'paystack_fee' => $paystackFee,
+                    'gateway_fee' => $paystackFee,
+                    'net_credit_amount' => $netCredit,
+                    'fee_bearer' => $feeBearer,
+                    'dedicated_account_number' => $accNumLabel,
+                    'dedicated_bank_name' => $bankLabel,
+                    'sender_bank' => $senderBank,
+                    'sender_account_name' => $senderName,
+                ]
+            );
+
+            $db->execute(
+                'INSERT INTO paystack_dva_settlements
+                    (id, user_id, virtual_account_id, paystack_reference, paystack_transaction_id, dedicated_account_id, account_number, paystack_customer_code, gross_amount, paystack_fee, net_credit_amount, fee_bearer, currency, sender_bank, sender_account_name, sender_account_number_masked, session_id, settlement_status, wallet_transaction_id, raw_payload, created_at)
+                 VALUES
+                    (:id, :uid, :vaid, :ref, :tid, :did, :acc, :cc, :gross, :fee, :net, :fb, :curr, :sb, :sn, :sm, :sid, "settled", :wtx, :raw, NOW())
+                 ON DUPLICATE KEY UPDATE
+                    settlement_status = "settled",
+                    wallet_transaction_id = VALUES(wallet_transaction_id),
+                    net_credit_amount = VALUES(net_credit_amount),
+                    paystack_fee = VALUES(paystack_fee)',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $va['user_id'],
+                    'vaid' => $va['id'],
+                    'ref' => $reference,
+                    'tid' => $txIdNum,
+                    'did' => $dedicatedAccId ?: ($va['dedicated_account_id'] ?? null),
+                    'acc' => $accNumLabel,
+                    'cc' => $custCode ?: ($va['paystack_customer_code'] ?? null),
+                    'gross' => $grossAmount,
+                    'fee' => $paystackFee,
+                    'net' => $netCredit,
+                    'fb' => $feeBearer,
+                    'curr' => $currency,
+                    'sb' => $senderBank ?: null,
+                    'sn' => $senderName ?: null,
+                    'sm' => $senderMasked,
+                    'sid' => $sessionId ?: null,
+                    'wtx' => $tx['id'] ?? null,
+                    'raw' => Security::sanitizeProviderLogPayload($data, 12000),
+                ]
+            );
+
+            $db->execute(
+                'INSERT INTO payment_records (id, user_id, gateway, reference, amount, fee, status, paid_at, raw_response, created_at)
+                 VALUES (:id, :uid, "paystack", :ref, :amt, :fee, "successful", NOW(), :raw, NOW())
+                 ON DUPLICATE KEY UPDATE status = "successful", fee = VALUES(fee), paid_at = NOW()',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $va['user_id'],
+                    'ref' => $reference,
+                    'amt' => $netCredit,
+                    'fee' => $paystackFee,
+                    'raw' => Security::sanitizeProviderLogPayload($data, 12000),
+                ]
+            );
+
+            $db->execute(
+                'UPDATE customer_virtual_accounts
+                    SET total_inflow = total_inflow + :net,
+                        last_funding_at = NOW(),
+                        updated_at = NOW()
+                  WHERE id = :vaid',
+                ['net' => $netCredit, 'vaid' => $va['id']]
+            );
+
+            return ['already_settled' => false, 'tx' => $tx];
+        });
+
+        if (!empty($settlement['already_settled'])) {
+            return ['status' => 'already_settled', 'reference' => $reference];
+        }
+
+        $tx = $settlement['tx'];
+
+        try {
+            (new AccountingService($this->db))->syncWebsiteTransactions();
+        } catch (Throwable) {
+        }
+
+        try {
+            $netFmt = '₦' . number_format($netCredit, 2);
+            $grossFmt = '₦' . number_format($grossAmount, 2);
+            $feeFmt = '₦' . number_format($paystackFee, 2);
+            $this->db->execute(
+                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                 VALUES (:id, :uid, "Bank Transfer Credited", :msg, "success", 0, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $va['user_id'],
+                    'msg' => "Transfer of {$grossFmt} to {$bankLabel} ({$accNumLabel}) confirmed. Net wallet credit: {$netFmt} (Paystack fee: {$feeFmt}). Ref: {$reference}.",
+                ]
+            );
+        } catch (Throwable) {
+        }
+
+        try {
+            $uRow = $this->db->fetchOne('SELECT email, full_name FROM users WHERE id = :uid LIMIT 1', ['uid' => $va['user_id']]);
+            FootprintService::record([
+                'user_id' => $va['user_id'],
+                'user_email' => $uRow['email'] ?? null,
+                'user_name' => $uRow['full_name'] ?? null,
+                'category' => 'wallet',
+                'action' => 'DVA_TRANSFER_CREDITED',
+                'service_type' => 'paystack_dva',
+                'reference' => $reference,
+                'provider' => 'paystack',
+                'status' => 'successful',
+                'amount' => $netCredit,
+                'metadata' => [
+                    'gross_amount' => $grossAmount,
+                    'paystack_fee' => $paystackFee,
+                    'net_credit_amount' => $netCredit,
+                    'fee_bearer' => $feeBearer,
+                ],
+            ]);
+
+            if ($uRow && !empty($uRow['email'])) {
+                $mailer = new MailService();
+                $safeName = htmlspecialchars((string)($uRow['full_name'] ?: 'Customer'), ENT_QUOTES, 'UTF-8');
+                $balFmt = '₦' . number_format((float)($tx['balance_after'] ?? 0), 2);
+                $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
+                    . "<h2 style='margin:0 0 12px;color:#059669;'>Wallet Credited: {$netFmt}</h2>"
+                    . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
+                    . "<p style='color:#334155;'>Your inbound bank transfer to your dedicated Paystack account has been automatically settled into your HAMBAKTECH wallet.</p>"
+                    . "<div style='background:#f8fafc;border:1px solid #e2e8f0;padding:14px;border-radius:8px;margin:14px 0;font-size:13px;color:#334155;line-height:1.7;'>"
+                    . "<div><strong>Dedicated Account:</strong> {$bankLabel} &bull; <code>{$accNumLabel}</code></div>"
+                    . "<div><strong>Transfer Amount (Gross):</strong> {$grossFmt}</div>"
+                    . "<div><strong>Paystack Processing Charge:</strong> {$feeFmt}" . ($feeBearer === 'merchant' ? ' (Covered by merchant)' : '') . "</div>"
+                    . "<div><strong>Net Wallet Credit:</strong> <strong style='color:#059669;'>{$netFmt}</strong></div>"
+                    . "<div><strong>Reference:</strong> <code>{$reference}</code></div>"
+                    . "<div><strong>New Wallet Balance:</strong> {$balFmt}</div></div></div>";
+                $mailer->send(
+                    (string)$uRow['email'],
+                    (string)($uRow['full_name'] ?: 'Customer'),
+                    "Dedicated Account Deposit Confirmed ({$netFmt}) — HAMBAKTECH",
+                    $html,
+                    null,
+                    MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'DVA_WEBHOOK_CREDIT_EMAIL']
+                );
+            }
+        } catch (Throwable) {
+        }
+
+        return [
+            'status' => 'settled',
+            'reference' => $reference,
+            'gross_amount' => $grossAmount,
+            'paystack_fee' => $paystackFee,
+            'net_credit_amount' => $netCredit,
+        ];
+    }
+
+    private function splitFullName(string $fullName): array
+    {
+        $clean = preg_replace('/\s+/', ' ', trim($fullName)) ?? '';
+        if ($clean === '') {
+            return ['Hambak', 'Customer'];
+        }
+        $parts = explode(' ', $clean, 2);
+        $first = trim($parts[0]) ?: 'Hambak';
+        $last = isset($parts[1]) && trim($parts[1]) !== '' ? trim($parts[1]) : $first;
+        return [$first, $last];
+    }
+
+    private function normalizeNigerianPhone(string $phone): string
+    {
+        $digits = preg_replace('/\D/', '', $phone) ?? '';
+        if ($digits === '') {
+            return '';
+        }
+        if (str_starts_with($digits, '234') && strlen($digits) >= 13) {
+            return '+' . $digits;
+        }
+        if (str_starts_with($digits, '0') && strlen($digits) === 11) {
+            return '+234' . substr($digits, 1);
+        }
+        if (strlen($digits) === 10) {
+            return '+234' . $digits;
+        }
+        return '+' . $digits;
+    }
+
+    private function mapPaystackDvaErrorToSafeMessage(string $rawMsg): string
+    {
+        $lower = strtolower($rawMsg);
+        if (str_contains($lower, 'not enabled') || str_contains($lower, 'registered business') || str_contains($lower, 'feature') || str_contains($lower, 'not available')) {
+            return 'Dedicated virtual accounts are not yet enabled on the payment gateway merchant profile. Please fund your wallet via Paystack Instant Checkout.';
+        }
+        if (str_contains($lower, 'identification') || str_contains($lower, 'bvn') || str_contains($lower, 'validate')) {
+            return 'Paystack requires additional customer bank verification before assigning a dedicated account. Please fund via Paystack Instant Checkout or contact support.';
+        }
+        return 'We could not generate your dedicated bank account at this time. Please use Paystack Instant Checkout or try again later.';
     }
 }

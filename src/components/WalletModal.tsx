@@ -20,9 +20,11 @@ import {
   AlertCircle,
   CheckCircle2,
   Lock,
+  Building,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import { VirtualAccountStateResponse } from '../types';
 import confetti from 'canvas-confetti';
 
 interface WalletModalProps {
@@ -37,6 +39,9 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
   const [verifyingOnline, setVerifyingOnline] = useState<boolean>(false);
   const [copiedDynAcc, setCopiedDynAcc] = useState<boolean>(false);
   const [summary, setSummary] = useState<any>(null);
+  const [vaState, setVaState] = useState<VirtualAccountStateResponse | null>(null);
+  const [vaProvisioning, setVaProvisioning] = useState<boolean>(false);
+  const [copiedDva, setCopiedDva] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [pendingCheckout, setPendingCheckout] = useState<{
@@ -69,10 +74,29 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
 
   const loadSummary = async () => {
     try {
-      const data = await api.getWalletSummary();
+      const [data, va] = await Promise.all([
+        api.getWalletSummary(),
+        api.getVirtualAccount(false).catch(() => null),
+      ]);
       setSummary(data);
+      if (va) setVaState(va);
     } catch (err) {
       console.error('Failed to load wallet summary:', err);
+    }
+  };
+
+  const handleProvisionDva = async () => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setVaProvisioning(true);
+    try {
+      const res = await api.provisionVirtualAccount();
+      setVaState(res);
+      setSuccessMessage(res.message || 'Dedicated account request submitted to Paystack.');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Unable to generate dedicated account at this time.');
+    } finally {
+      setVaProvisioning(false);
     }
   };
 
@@ -449,6 +473,74 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
                   </>
                 )}
               </button>
+
+              {/* Dedicated Personal Bank Account (Paystack DVA) */}
+              {vaState?.dva_enabled && (
+                <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-200 flex items-center gap-1.5">
+                      <Building className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Dedicated Bank Account (Paystack)</span>
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {vaState.has_virtual_account
+                        ? 'ACTIVE'
+                        : vaState.assignment_status === 'pending'
+                        ? 'PENDING'
+                        : vaState.eligible
+                        ? 'AVAILABLE'
+                        : 'TIER 2 KYC'}
+                    </span>
+                  </div>
+
+                  {vaState.has_virtual_account && vaState.virtual_account ? (
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <div>
+                        <div className="text-[11px] text-slate-400">
+                          {vaState.virtual_account.bank_name} &bull; {vaState.virtual_account.account_name}
+                        </div>
+                        <div className="text-sm font-black font-mono text-emerald-400 tracking-wider">
+                          {vaState.virtual_account.account_number}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText?.(vaState.virtual_account!.account_number).catch(() => {});
+                          setCopiedDva(true);
+                          setTimeout(() => setCopiedDva(false), 2000);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold flex items-center gap-1"
+                      >
+                        {copiedDva ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedDva ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    </div>
+                  ) : vaState.assignment_status === 'pending' ? (
+                    <p className="text-[11px] text-amber-300">
+                      Awaiting Paystack confirmation for your dedicated account assignment.
+                    </p>
+                  ) : vaState.eligible ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-400">
+                        Get a personal Paystack account number for direct transfers.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleProvisionDva}
+                        disabled={vaProvisioning}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white text-[11px] font-bold shrink-0"
+                      >
+                        {vaProvisioning ? 'Requesting...' : 'Generate'}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500">
+                      {vaState.message || 'Complete Level 2 KYC to unlock a dedicated Paystack bank account.'}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

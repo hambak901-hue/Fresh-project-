@@ -154,6 +154,9 @@ class SettingsController
                     'active_gateway' => 'paystack',
                     'enable_paystack' => true,
                     'paystack_charge_percent' => 1.5,
+                    'enable_paystack_dva' => true,
+                    'paystack_dva_preferred_bank' => 'wema-bank',
+                    'dva_fee_bearer' => 'customer',
                 ], is_array($settingsMap['payment_gateways_settings'] ?? null) ? $settingsMap['payment_gateways_settings'] : []);
                 unset($pg['enable_flutterwave'], $pg['flutterwave_charge_percent'], $pg['enable_bank_transfer']);
                 $pg['active_gateway'] = 'paystack';
@@ -367,6 +370,11 @@ class SettingsController
         } elseif ($category === 'payment_gateways') {
             unset($settingsData['enable_flutterwave'], $settingsData['flutterwave_charge_percent'], $settingsData['enable_bank_transfer']);
             $settingsData['active_gateway'] = 'paystack';
+            $settingsData['enable_paystack_dva'] = array_key_exists('enable_paystack_dva', $settingsData) ? (bool)$settingsData['enable_paystack_dva'] : true;
+            $bankPref = trim((string)($settingsData['paystack_dva_preferred_bank'] ?? 'wema-bank'));
+            $settingsData['paystack_dva_preferred_bank'] = in_array($bankPref, ['wema-bank', 'titan-paystack'], true) ? $bankPref : 'wema-bank';
+            $feeBearer = strtolower(trim((string)($settingsData['dva_fee_bearer'] ?? 'customer')));
+            $settingsData['dva_fee_bearer'] = in_array($feeBearer, ['customer', 'merchant'], true) ? $feeBearer : 'customer';
         }
 
         $settingKey = $category . '_settings';

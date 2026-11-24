@@ -40,6 +40,7 @@ import {
   ShieldCheck,
   Trash2,
   TrendingUp,
+  Upload,
   X,
 } from 'lucide-react';
 
@@ -86,6 +87,13 @@ export const ModificationManagement: React.FC = () => {
   const [adminNotesVal, setAdminNotesVal] = useState<string>('');
   const [estCompletionVal, setEstCompletionVal] = useState<string>('');
   const [savingUpdate, setSavingUpdate] = useState<boolean>(false);
+  const [retryingResultId, setRetryingResultId] = useState<string | null>(null);
+  const [adminResultFile, setAdminResultFile] = useState<File | null>(null);
+  const [adminResultTrackingId, setAdminResultTrackingId] = useState<string>('');
+  const [adminResultRemarks, setAdminResultRemarks] = useState<string>('');
+  const [adminResultMarkCompleted, setAdminResultMarkCompleted] = useState<boolean>(true);
+  const [adminResultNotifyCustomer, setAdminResultNotifyCustomer] = useState<boolean>(true);
+  const [uploadingResultPdf, setUploadingResultPdf] = useState<boolean>(false);
 
   // Protected Document Preview Modal
   const [docPreview, setDocPreview] = useState<{
@@ -212,6 +220,11 @@ export const ModificationManagement: React.FC = () => {
     setProviderRemarksVal(req.provider_remarks || '');
     setAdminNotesVal(req.admin_notes || '');
     setEstCompletionVal(req.estimated_completion_text || '');
+    setAdminResultFile(null);
+    setAdminResultTrackingId(req.provider_tracking_id || '');
+    setAdminResultRemarks('');
+    setAdminResultMarkCompleted(true);
+    setAdminResultNotifyCustomer(true);
     try {
       setLoadingDetail(true);
       const res = await api.getAdminModificationDetail(req.id);
@@ -221,6 +234,7 @@ export const ModificationManagement: React.FC = () => {
         setProviderRemarksVal(res.request.provider_remarks || '');
         setAdminNotesVal(res.request.admin_notes || '');
         setEstCompletionVal(res.request.estimated_completion_text || '');
+        setAdminResultTrackingId(res.request.provider_tracking_id || '');
       }
     } catch {
     } finally {
@@ -283,6 +297,85 @@ export const ModificationManagement: React.FC = () => {
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Unable to load supporting document.');
+    } finally {
+      setLoadingDocId(null);
+    }
+  };
+
+  const handleRetryResultFetch = async (id: string) => {
+    try {
+      setRetryingResultId(id);
+      setErrorMsg(null);
+      setFeedbackMsg(null);
+      const res = await api.retryAdminModificationResult(id);
+      if (res?.success && res.request) {
+        setFeedbackMsg(res.message);
+        setSelectedRequest(res.request);
+        setUpdateStatusVal(res.request.status);
+        setProviderRemarksVal(res.request.provider_remarks || '');
+        setAdminResultTrackingId(res.request.provider_tracking_id || '');
+        await loadRequests();
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Unable to retry provider result fetch.');
+    } finally {
+      setRetryingResultId(null);
+    }
+  };
+
+  const handleAdminUploadResultPdf = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRequest || !adminResultFile) {
+      setErrorMsg('Please select a valid PDF document before uploading.');
+      return;
+    }
+    try {
+      setUploadingResultPdf(true);
+      setErrorMsg(null);
+      setFeedbackMsg(null);
+      const fd = new FormData();
+      fd.append('file', adminResultFile);
+      if (adminResultTrackingId.trim()) fd.append('tracking_id', adminResultTrackingId.trim());
+      if (adminResultRemarks.trim()) fd.append('remarks', adminResultRemarks.trim());
+      fd.append('mark_completed', adminResultMarkCompleted ? '1' : '0');
+      fd.append('notify_customer', adminResultNotifyCustomer ? '1' : '0');
+
+      const res = await api.uploadAdminModificationResultDocument(selectedRequest.id, fd);
+      if (res?.success && res.request) {
+        setFeedbackMsg(res.message || 'Official result PDF uploaded cleanly.');
+        setSelectedRequest(res.request);
+        setUpdateStatusVal(res.request.status);
+        setProviderRemarksVal(res.request.provider_remarks || '');
+        setAdminResultFile(null);
+        await loadRequests();
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Unable to upload official result PDF.');
+    } finally {
+      setUploadingResultPdf(false);
+    }
+  };
+
+  const handleResultDocAction = async (req: ModificationRequestItem, mode: 'preview' | 'download') => {
+    if (!req.result_document?.file_url) return;
+    try {
+      const key = `res_${mode}_${req.id}`;
+      setLoadingDocId(key);
+      if (mode === 'download') {
+        await api.downloadProtectedFile(
+          req.result_document.file_url,
+          req.result_document.original_name || `HAMBAK_RESULT_${req.request_number}.pdf`
+        );
+      } else {
+        const blobUrl = await api.fetchProtectedDocumentBlob(req.result_document.file_url);
+        setDocPreview({
+          name: req.result_document.original_name || `${req.request_number}_result.pdf`,
+          mimeType: req.result_document.mime_type || 'application/pdf',
+          blobUrl,
+        });
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Unable to access official result document.');
     } finally {
       setLoadingDocId(null);
     }
@@ -1214,6 +1307,196 @@ export const ModificationManagement: React.FC = () => {
                     ))}
                   </div>
                 )}
+              </div>
+
+              {/* Additional Info History (Customer Query Responses) */}
+              {Array.isArray(selectedRequest.additional_info_history) &&
+                selectedRequest.additional_info_history.length > 0 && (
+                  <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-500/30 space-y-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="font-bold text-slate-900 dark:text-white">
+                        Customer Clarification History
+                      </h4>
+                      {selectedRequest.query_review_status && (
+                        <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-bold">
+                          {selectedRequest.query_review_status}
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      {selectedRequest.additional_info_history.map((entry, idx) => (
+                        <div
+                          key={`${entry.submitted_at}_${idx}`}
+                          className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-slate-800 text-slate-700 dark:text-slate-300"
+                        >
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 mb-0.5">
+                            <span>{entry.submitted_at ? new Date(entry.submitted_at).toLocaleString('en-NG') : 'Submitted'}</span>
+                            <span>{entry.review_status || 'submitted_for_admin_review'}</span>
+                          </div>
+                          {entry.note && <p>{entry.note}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {/* Phase 2: Official Result Retrieval, Tracking ID & Manual Admin PDF Upload */}
+              <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/30 space-y-3 text-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h4 className="font-bold text-slate-900 dark:text-white">
+                      Official Provider Result &amp; Document Delivery
+                    </h4>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                      Status: <span className="font-mono font-semibold">{selectedRequest.result_retrieval_status || 'not_fetched'}</span>
+                      {selectedRequest.provider_tracking_id ? ` · Tracking ID: ${selectedRequest.provider_tracking_id}` : ''}
+                    </p>
+                  </div>
+                  {selectedRequest.provider_reference && (
+                    <button
+                      type="button"
+                      onClick={() => handleRetryResultFetch(selectedRequest.id)}
+                      disabled={retryingResultId === selectedRequest.id}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-semibold inline-flex items-center gap-1.5 shrink-0 transition"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${retryingResultId === selectedRequest.id ? 'animate-spin' : ''}`} />
+                      <span>{retryingResultId === selectedRequest.id ? 'Fetching...' : 'Retry Provider Result Fetch'}</span>
+                    </button>
+                  )}
+                </div>
+
+                {selectedRequest.result_retrieval_error && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 text-[11px]">
+                    <strong>Last Retrieval Error:</strong> {selectedRequest.result_retrieval_error}
+                  </div>
+                )}
+
+                {selectedRequest.result_details && Object.keys(selectedRequest.result_details).length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {Object.entries(selectedRequest.result_details).map(([k, v]) => (
+                      <div key={k} className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] uppercase text-slate-500 block">{k.replace(/_/g, ' ')}</span>
+                        <span className="font-mono font-semibold text-slate-900 dark:text-white break-words">
+                          {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {selectedRequest.has_result_document && selectedRequest.result_document ? (
+                  <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className={`px-2 py-0.5 rounded border text-[10px] font-bold ${
+                            selectedRequest.result_document.is_provider_issued
+                              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                              : 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30'
+                          }`}
+                        >
+                          {selectedRequest.result_document.is_provider_issued
+                            ? 'Provider-Issued Official Document'
+                            : 'Admin-Uploaded Official Document'}
+                        </span>
+                        <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300 truncate">
+                          {selectedRequest.result_document.original_name}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleResultDocAction(selectedRequest, 'preview')}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-semibold inline-flex items-center gap-1"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleResultDocAction(selectedRequest, 'download')}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-semibold inline-flex items-center gap-1"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                    No official PDF document is stored yet for this request.
+                  </p>
+                )}
+
+                <form
+                  onSubmit={handleAdminUploadResultPdf}
+                  className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5"
+                >
+                  <div className="font-bold text-slate-900 dark:text-white">
+                    Upload Official Result PDF (Strictly Labeled: Admin-Uploaded Official Document)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                        Official PDF File (Max 15MB)
+                      </label>
+                      <input
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        onChange={e => setAdminResultFile(e.target.files?.[0] || null)}
+                        className="w-full text-[11px] text-slate-700 dark:text-slate-300 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                        Tracking ID (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={adminResultTrackingId}
+                        onChange={e => setAdminResultTrackingId(e.target.value)}
+                        placeholder="e.g. NIMC/2SURE Tracking ID"
+                        className="w-full px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={adminResultRemarks}
+                    onChange={e => setAdminResultRemarks(e.target.value)}
+                    placeholder="Optional customer-visible delivery remarks..."
+                    className="w-full px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-4 text-[11px] text-slate-700 dark:text-slate-300">
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={adminResultMarkCompleted}
+                          onChange={e => setAdminResultMarkCompleted(e.target.checked)}
+                        />
+                        <span>Mark Completed</span>
+                      </label>
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={adminResultNotifyCustomer}
+                          onChange={e => setAdminResultNotifyCustomer(e.target.checked)}
+                        />
+                        <span>Notify Customer</span>
+                      </label>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={uploadingResultPdf || !adminResultFile}
+                      className="px-3.5 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold inline-flex items-center gap-1.5"
+                    >
+                      {uploadingResultPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      <span>Upload Admin Result PDF</span>
+                    </button>
+                  </div>
+                </form>
               </div>
 
               {/* Admin Update Form */}

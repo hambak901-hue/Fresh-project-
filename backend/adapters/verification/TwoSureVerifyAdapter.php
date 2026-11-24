@@ -1510,6 +1510,17 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         ];
     }
 
+    public function getAuthHeaders(): array
+    {
+        if (empty($this->apiKey)) {
+            return [];
+        }
+        return [
+            'Authorization: Bearer ' . $this->apiKey,
+            'X-Api-Key: ' . $this->apiKey,
+        ];
+    }
+
     /**
      * Poll 2SureVerify /api/v1/status.php?reference=... for an existing modification request.
      */
@@ -1598,12 +1609,18 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             $mapped = 'pending';
         }
 
+        $extracted = \HambakTech\Services\ResultDocumentService::extractProviderResult($decoded);
+
         return [
             'success' => $statusCode >= 200 && $statusCode < 300,
             'code' => $statusCode,
             'status' => $mapped,
             'provider_status' => $rawStatus ?: ($isPending ? 'pending' : 'unknown'),
             'remarks' => $remarks,
+            'tracking_id' => $extracted['tracking_id'],
+            'extracted_files' => $extracted['extracted_files'],
+            'result_urls' => $extracted['result_urls'],
+            'result_details' => $extracted['result_details'],
             'data' => $nested,
             'raw' => $decoded,
         ];

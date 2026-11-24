@@ -480,7 +480,7 @@ class Security
         // Non-JSON string: strip base64 data URIs, bearer tokens, and raw 11-digit NIN/BVN sequences where labelled
         $sanitizedStr = preg_replace('/data:[a-z0-9\/+-]+;base64,[A-Za-z0-9+\/=_-]+/i', '[REDACTED_BASE64_URI]', $raw) ?? $raw;
         $sanitizedStr = preg_replace('/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]{10,}/i', '$1 [REDACTED_TOKEN]', $sanitizedStr) ?? $sanitizedStr;
-        $sanitizedStr = preg_replace('/("(?:nin|bvn|vnin|api_?key|secret(?:_?key)?|token|password|pin|telephoneno|phone(?:_?number)?|mobile|photo|image|pdf_base64|report_image_base64)"\s*:\s*")([^"]*)(")/i', '$1[REDACTED]$3', $sanitizedStr) ?? $sanitizedStr;
+        $sanitizedStr = preg_replace('/("(?:nin|bvn|vnin|api_?key|secret(?:_?key)?|token|password|pin|telephoneno|phone(?:_?number)?|mobile|photo|image|pdf_base64|report_pdf_base64|certificate_base64|publication_base64|slip_pdf_base64|document_base64|result_pdf_base64|report_image_base64|file_bytes)"\s*:\s*")([^"]*)(")/i', '$1[REDACTED]$3', $sanitizedStr) ?? $sanitizedStr;
 
         if (strlen($sanitizedStr) > 512 && preg_match('/^[A-Za-z0-9+\/=_-]{512,}$/', $sanitizedStr) === 1) {
             return '[REDACTED_BASE64:' . strlen($sanitizedStr) . 'B]';
@@ -536,9 +536,11 @@ class Security
         }
 
         $binaryKeys = [
-            'pdf_base64', 'report_image_base64', 'slip_image', 'slip_pdf', 'photo', 'passport',
-            'passport_photo', 'base64image', 'signature', 'image', 'avatar', 'document',
-            'file_data', 'content_base64', 'qr_code', 'qrcode', 'barcode', 'headdoc',
+            'pdf_base64', 'report_pdf_base64', 'certificate_base64', 'publication_base64',
+            'slip_pdf_base64', 'document_base64', 'result_pdf_base64', 'report_image_base64',
+            'slip_image', 'slip_pdf', 'photo', 'passport', 'passport_photo', 'base64image',
+            'signature', 'image', 'avatar', 'document', 'file_data', 'file_bytes',
+            'content_base64', 'qr_code', 'qrcode', 'barcode', 'headdoc',
         ];
         if (in_array($kl, $binaryKeys, true) || str_contains($kl, '_base64') || str_contains($kl, 'image_base64') || str_contains($kl, 'photo')) {
             if ($value === null || $value === '') {

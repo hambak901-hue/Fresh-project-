@@ -1043,11 +1043,41 @@ class AdminController
         $grossProfit = $telecomProfit + ($identitySales - $identityCost);
         $profitMargin = $totalSales > 0 ? round(($grossProfit / $totalSales) * 100, 2) : 0;
 
+        $dvaStats = ['gross' => 0.0, 'fees' => 0.0, 'net' => 0.0, 'count' => 0, 'assigned_accounts' => 0];
+        try {
+            $dvaRow = $this->db->fetchOne(
+                'SELECT
+                    COUNT(CASE WHEN settlement_status = "settled" THEN 1 END) as cnt,
+                    COALESCE(SUM(CASE WHEN settlement_status = "settled" THEN gross_amount ELSE 0 END), 0) as gross_sum,
+                    COALESCE(SUM(CASE WHEN settlement_status = "settled" THEN paystack_fee ELSE 0 END), 0) as fee_sum,
+                    COALESCE(SUM(CASE WHEN settlement_status = "settled" THEN net_credit_amount ELSE 0 END), 0) as net_sum
+                 FROM paystack_dva_settlements'
+            );
+            $vaCountRow = $this->db->fetchOne(
+                'SELECT COUNT(*) as cnt FROM customer_virtual_accounts WHERE provider = "paystack" AND assignment_status = "assigned" AND account_status = "active"'
+            );
+            if ($dvaRow) {
+                $dvaStats = [
+                    'gross' => (float)($dvaRow['gross_sum'] ?? 0),
+                    'fees' => (float)($dvaRow['fee_sum'] ?? 0),
+                    'net' => (float)($dvaRow['net_sum'] ?? 0),
+                    'count' => (int)($dvaRow['cnt'] ?? 0),
+                    'assigned_accounts' => (int)($vaCountRow['cnt'] ?? 0),
+                ];
+            }
+        } catch (Throwable) {
+        }
+
         Response::success([
             'reports' => [
                 'funding' => [
                     'totalFunding' => (float)($fundingStats['total_funding'] ?? 0),
                     'paystackFunding' => (float)($fundingStats['paystack_funding'] ?? 0),
+                    'paystackDvaNet' => $dvaStats['net'],
+                    'paystackDvaGross' => $dvaStats['gross'],
+                    'paystackDvaFees' => $dvaStats['fees'],
+                    'paystackDvaCount' => $dvaStats['count'],
+                    'paystackDvaAccounts' => $dvaStats['assigned_accounts'],
                     'flutterwaveFunding' => (float)($fundingStats['flutterwave_funding'] ?? 0),
                     'manualFunding' => (float)($fundingStats['manual_funding'] ?? 0),
                     'totalRefunds' => (float)($fundingStats['total_refunds'] ?? 0),
@@ -4924,6 +4954,14 @@ class AdminController
                 'UPDATE users SET kyc_status = "verified", tier = GREATEST(tier, :t), kyc_level = GREATEST(kyc_level, :kl), updated_at = NOW() WHERE id = :uid',
                 ['t' => $targetLevel, 'kl' => $targetLevel, 'uid' => $sub['user_id']]
             );
+            // Best-effort automatic Paystack DVA provisioning when customer reaches KYC Tier 2+
+            try {
+                $promotedUser = $this->db->fetchOne('SELECT * FROM users WHERE id = :uid LIMIT 1', ['uid' => $sub['user_id']]);
+                if ($promotedUser && !empty($promotedUser['email_verified'])) {
+                    (new WalletController())->requestPaystackDvaForUser($promotedUser);
+                }
+            } catch (Throwable) {
+            }
         } elseif ($action === 'reject') {
             $this->db->execute(
                 'UPDATE users SET kyc_status = "rejected", updated_at = NOW() WHERE id = :uid',

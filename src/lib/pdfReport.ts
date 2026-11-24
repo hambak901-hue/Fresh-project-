@@ -177,7 +177,21 @@ export function extractVerificationReport(record: any): NormalizedIdentityReport
     : new Date().toLocaleString('en-NG');
 
   const status = cleanField(record?.status) || 'VERIFIED';
-  const rawSlipType = cleanField(record?.slip_name ?? record?.slip_type ?? nested.slip_type);
+  const SLIP_CODE_LABELS: Record<string, string> = {
+    ninBasic: 'Basic NIN Slip',
+    ninRegular: 'Regular NIN Slip',
+    ninStandard: 'Standard NIN Slip',
+    ninPremium: 'Premium NIN Slip',
+    ninVnin: 'vNIN Verification Slip',
+    ninSpecial: 'Special NIN Slip',
+    bvnBasic: 'Basic BVN Slip',
+    bvnPremium: 'Premium BVN Slip',
+    bvnAdvanced: 'Advanced BVN Slip',
+  };
+  const rawSlipName = cleanField(record?.slip_name);
+  const rawSlipCode = cleanField(record?.slip_type ?? nested.slip_type);
+  const mappedFromCode = rawSlipCode && SLIP_CODE_LABELS[rawSlipCode] ? SLIP_CODE_LABELS[rawSlipCode] : rawSlipCode;
+  const rawSlipType = rawSlipName || mappedFromCode;
   const slipTypeName =
     rawSlipType &&
     !(isBvnReport && rawSlipType.toLowerCase().startsWith('nin')) &&
@@ -256,15 +270,39 @@ export async function downloadVerificationReportPdf(
   const report = extractVerificationReport(record);
 
   if (report.pdfUrl) {
-    const a = document.createElement('a');
-    a.href = report.pdfUrl;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.download = `${report.isBvnReport ? 'HAMBAKTECH_ORIGINAL_BVN_SLIP_' : 'HAMBAKTECH_ORIGINAL_NIN_SLIP_'}${report.bvn || report.nin || report.reference}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    return 'original_provider_pdf';
+    const filename = `${report.isBvnReport ? 'HAMBAKTECH_ORIGINAL_BVN_SLIP_' : 'HAMBAKTECH_ORIGINAL_NIN_SLIP_'}${report.bvn || report.nin || report.reference}.pdf`;
+    if (report.pdfUrl.startsWith('/api/')) {
+      try {
+        const token = localStorage.getItem('hambaktech_auth_token');
+        const resp = await fetch(report.pdfUrl, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+          return 'original_provider_pdf';
+        }
+      } catch (err) {
+        console.warn('Protected PDF fetch failed, falling back:', err);
+      }
+    } else {
+      const a = document.createElement('a');
+      a.href = report.pdfUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return 'original_provider_pdf';
+    }
   }
 
   if (report.pdfBase64) {

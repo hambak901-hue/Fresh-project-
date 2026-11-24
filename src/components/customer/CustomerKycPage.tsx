@@ -22,7 +22,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { User, KycSubmission, ServiceSecurityRule, VirtualAccountItem } from '../../types';
+import { User, KycSubmission, ServiceSecurityRule, VirtualAccountItem, VirtualAccountStateResponse } from '../../types';
 
 interface CustomerKycPageProps {
   user: User;
@@ -34,6 +34,9 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [activeSubmission, setActiveSubmission] = useState<KycSubmission | null>(null);
   const [virtualAccount, setVirtualAccount] = useState<VirtualAccountItem | null>(null);
+  const [virtualAccountState, setVirtualAccountState] = useState<VirtualAccountStateResponse | null>(null);
+  const [vaLoading, setVaLoading] = useState<boolean>(false);
+  const [vaActionMsg, setVaActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [rules, setRules] = useState<ServiceSecurityRule[]>([]);
   const [levelInfo, setLevelInfo] = useState<any>(null);
   const [copiedAccount, setCopiedAccount] = useState<boolean>(false);
@@ -83,6 +86,15 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
       if (res.success) {
         setActiveSubmission(res.active_submission);
         setVirtualAccount(res.virtual_account);
+        if (res.virtual_account_state) {
+          setVirtualAccountState(res.virtual_account_state);
+        } else {
+          try {
+            const vaRes = await api.getVirtualAccount();
+            setVirtualAccountState(vaRes);
+            if (vaRes.virtual_account) setVirtualAccount(vaRes.virtual_account);
+          } catch {}
+        }
         setRules(res.rules || []);
         setLevelInfo(res.level_info);
         if (res.user) {
@@ -100,6 +112,46 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
       setErrorMessage(err.message || 'Failed to retrieve KYC status.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRequestPaystackDva = async () => {
+    setVaLoading(true);
+    setVaActionMsg(null);
+    try {
+      const res = await api.provisionVirtualAccount();
+      setVirtualAccountState(res);
+      setVirtualAccount(res.virtual_account || null);
+      setVaActionMsg({
+        type: 'success',
+        text: res.message || (res.has_virtual_account
+          ? 'Your Paystack dedicated bank account is active.'
+          : 'Paystack dedicated account request submitted and awaiting confirmation.')
+      });
+    } catch (err: any) {
+      setVaActionMsg({ type: 'error', text: err.message || 'Unable to request dedicated account from Paystack right now.' });
+    } finally {
+      setVaLoading(false);
+    }
+  };
+
+  const handleSyncPaystackDva = async () => {
+    setVaLoading(true);
+    setVaActionMsg(null);
+    try {
+      const res = await api.getVirtualAccount(true);
+      setVirtualAccountState(res);
+      setVirtualAccount(res.virtual_account || null);
+      setVaActionMsg({
+        type: 'success',
+        text: res.has_virtual_account
+          ? 'Paystack dedicated account confirmed and active.'
+          : 'Still awaiting confirmation from Paystack.'
+      });
+    } catch (err: any) {
+      setVaActionMsg({ type: 'error', text: err.message || 'Could not sync Paystack status.' });
+    } finally {
+      setVaLoading(false);
     }
   };
 
@@ -352,40 +404,42 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Building className="w-5 h-5 text-emerald-400" />
-                <h3 className="font-bold text-white text-base">Virtual Bank Account</h3>
+                <h3 className="font-bold text-white text-base">Paystack Dedicated Account</h3>
               </div>
               <span className={`px-2 py-0.5 text-[11px] rounded-full uppercase tracking-wider font-mono font-bold ${
-                virtualAccount?.status === 'active'
+                virtualAccount?.status === 'active' && virtualAccount?.account_number
                   ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  : virtualAccountState?.assignment_status === 'pending'
+                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                   : currentLevel < 2
                   ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                   : 'bg-slate-800 text-slate-400'
               }`}>
-                {virtualAccount?.status === 'active' ? 'Active' : currentLevel < 2 ? 'Requires Level 2' : 'Pending Provision'}
+                {virtualAccount?.status === 'active' && virtualAccount?.account_number
+                  ? 'Active'
+                  : virtualAccountState?.assignment_status === 'pending'
+                  ? 'Awaiting Paystack Confirmation'
+                  : currentLevel < 2
+                  ? 'Requires Level 2'
+                  : 'Eligible'}
               </span>
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              Individually assigned dedicated NUBAN account. Inbound bank transfers instantly credit your HambakTech wallet.
+              Dedicated bank account generated directly by Paystack. Inbound bank transfers automatically credit your HambakTech wallet via verified webhooks.
             </p>
 
-            {currentLevel < 2 ? (
-              <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-semibold text-amber-400">
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>Level 2 KYC Required</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  CBN compliance guidelines mandate verified NIN/BVN identity before a personalized virtual account can be allocated to your profile.
-                </p>
-                <button
-                  onClick={() => setSelectedTargetLevel(2)}
-                  className="w-full mt-2 py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-semibold transition flex items-center justify-center gap-1.5"
-                >
-                  Apply for Level 2 Below <ChevronRight className="w-3.5 h-3.5" />
-                </button>
+            {vaActionMsg && (
+              <div className={`p-3 rounded-xl text-[11px] border ${
+                vaActionMsg.type === 'success'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+              }`}>
+                {vaActionMsg.text}
               </div>
-            ) : virtualAccount?.status === 'active' ? (
+            )}
+
+            {virtualAccount?.status === 'active' && virtualAccount?.account_number ? (
               <div className="space-y-3 p-4 rounded-2xl bg-slate-800/50 border border-slate-700/60 font-mono">
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase tracking-wider">Bank Name</span>
@@ -402,6 +456,7 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
                       {virtualAccount.account_number}
                     </span>
                     <button
+                      type="button"
                       onClick={() => handleCopyAccount(virtualAccount.account_number)}
                       className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition"
                       title="Copy account number"
@@ -412,19 +467,74 @@ export function CustomerKycPage({ user, onRefreshUser }: CustomerKycPageProps) {
                 </div>
                 <div className="pt-2 border-t border-slate-700/50 flex justify-between text-[11px] text-slate-400">
                   <span>Total Inflows:</span>
-                  <span className="text-slate-200 font-bold">₦{virtualAccount.total_inflow.toLocaleString()}</span>
+                  <span className="text-slate-200 font-bold">₦{Number(virtualAccount.total_inflow || 0).toLocaleString()}</span>
                 </div>
+              </div>
+            ) : currentLevel < 2 ? (
+              <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-amber-400">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>Level 2 KYC Required</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  CBN compliance guidelines mandate verified NIN/BVN identity before Paystack can allocate a dedicated virtual account to your profile.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTargetLevel(2)}
+                  className="w-full mt-2 py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-semibold transition flex items-center justify-center gap-1.5"
+                >
+                  Apply for Level 2 Below <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : virtualAccountState?.assignment_status === 'pending' ? (
+              <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-3 text-xs">
+                <div className="flex items-center gap-2 text-amber-300 font-semibold">
+                  <Clock className="w-4 h-4 shrink-0 animate-pulse" />
+                  <span>Awaiting Paystack Confirmation</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Your dedicated account assignment has been requested from Paystack. Your NUBAN will appear here once Paystack confirms assignment.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSyncPaystackDva}
+                  disabled={vaLoading}
+                  className="w-full py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-60 text-amber-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${vaLoading ? 'animate-spin' : ''}`} />
+                  <span>Check Paystack Status</span>
+                </button>
+              </div>
+            ) : virtualAccountState?.eligible ? (
+              <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-700/70 space-y-3 text-xs">
+                <div className="text-slate-200 font-semibold">Ready for Paystack Account Generation</div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Your identity meets eligibility rules. Request your permanent dedicated bank account directly from Paystack.
+                </p>
+                {virtualAccountState.failure_reason && (
+                  <p className="text-[11px] text-rose-400">{virtualAccountState.failure_reason}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={handleRequestPaystackDva}
+                  disabled={vaLoading}
+                  className="w-full py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${vaLoading ? 'animate-spin' : ''}`} />
+                  <span>{vaLoading ? 'Requesting Paystack...' : 'Generate Dedicated Account'}</span>
+                </button>
               </div>
             ) : (
               <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-800 text-xs text-slate-400">
-                Identity verified! Virtual account will be provisioned automatically upon provider webhook acknowledgment.
+                {virtualAccountState?.message || 'Complete email verification and Paystack DVA readiness to generate your dedicated virtual account.'}
               </div>
             )}
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500 font-mono">
-            <span>Automated Settlement</span>
-            <span>Zero Processing Delay</span>
+            <span>Paystack Webhook Settlement</span>
+            <span>Single Wallet Ledger</span>
           </div>
         </div>
 

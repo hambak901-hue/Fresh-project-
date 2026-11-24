@@ -55,6 +55,318 @@ class PaystackAdapter implements PaymentGatewayInterface
         return !empty($this->secretKey) ? 'active' : 'unconfigured';
     }
 
+    public function hasSecretKey(): bool
+    {
+        return !empty($this->secretKey);
+    }
+
+    /**
+     * Generic authenticated Paystack API HTTP helper with sanitized provider audit logging.
+     *
+     * @return array{ok: bool, status_code: int, message: string, data: mixed, raw: mixed}
+     */
+    private function apiRequest(string $method, string $path, ?array $payload = null, ?string $ref = null): array
+    {
+        if (empty($this->secretKey)) {
+            throw new RuntimeException('Paystack Secret Key is not configured.');
+        }
+
+        $cleanPath = '/' . ltrim($path, '/');
+        $url = "{$this->baseUrl}{$cleanPath}";
+        $ch = curl_init($url);
+        $startTime = microtime(true);
+
+        $headers = [
+            "Authorization: Bearer {$this->secretKey}",
+            'Accept: application/json',
+        ];
+
+        $upperMethod = strtoupper($method);
+        $opts = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => $this->timeout,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ];
+
+        if ($upperMethod === 'POST') {
+            $opts[CURLOPT_POST] = true;
+            $opts[CURLOPT_POSTFIELDS] = json_encode($payload ?? []);
+            $headers[] = 'Content-Type: application/json';
+        } elseif ($upperMethod !== 'GET') {
+            $opts[CURLOPT_CUSTOMREQUEST] = $upperMethod;
+            if ($payload !== null) {
+                $opts[CURLOPT_POSTFIELDS] = json_encode($payload);
+                $headers[] = 'Content-Type: application/json';
+            }
+        }
+
+        $opts[CURLOPT_HTTPHEADER] = $headers;
+        curl_setopt_array($ch, $opts);
+
+        $rawResponse = curl_exec($ch);
+        $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
+        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        $parsed = json_decode((string)$rawResponse, true);
+        $this->logCall($cleanPath, $upperMethod, $statusCode, $payload ?? [], $parsed ?: $rawResponse, $latencyMs, $ref);
+
+        if ($rawResponse === false) {
+            throw new RuntimeException("Paystack communication failure: {$curlError}");
+        }
+
+        $ok = ($statusCode >= 200 && $statusCode < 300) && !empty($parsed['status']);
+        $message = is_array($parsed)
+            ? (string)($parsed['message'] ?? ($ok ? 'OK' : "Paystack HTTP {$statusCode}"))
+            : "Paystack HTTP {$statusCode}";
+
+        return [
+            'ok' => $ok,
+            'status_code' => $statusCode,
+            'message' => $message,
+            'data' => is_array($parsed) ? ($parsed['data'] ?? null) : null,
+            'raw' => $parsed,
+        ];
+    }
+
+    /**
+     * Check whether this Paystack business account has Dedicated Virtual Accounts (DVA) enabled
+     * and fetch available bank providers via GET /dedicated_account/available_providers.
+     */
+    public function checkDvaCapability(): array
+    {
+        if (empty($this->secretKey)) {
+            return [
+                'configured' => false,
+                'capable' => false,
+                'reason' => 'missing_secret_key',
+                'message' => 'PAYSTACK_SECRET_KEY is not configured in this environment.',
+                'providers' => [],
+            ];
+        }
+
+        try {
+            $res = $this->apiRequest('GET', '/dedicated_account/available_providers', null, 'DVA_CAPABILITY_CHECK');
+            $providers = is_array($res['data']) ? $res['data'] : [];
+            $capable = $res['ok'] && count($providers) > 0;
+
+            return [
+                'configured' => true,
+                'capable' => $capable,
+                'status_code' => $res['status_code'],
+                'reason' => $capable ? 'enabled' : ($res['ok'] ? 'no_providers_returned' : 'paystack_feature_disabled'),
+                'message' => $res['message'],
+                'providers' => $providers,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'configured' => true,
+                'capable' => false,
+                'reason' => 'api_error',
+                'message' => $e->getMessage(),
+                'providers' => [],
+            ];
+        }
+    }
+
+    /**
+     * Fetch a Paystack customer record by email or customer code (GET /customer/{email_or_code}).
+     */
+    public function fetchCustomer(string $emailOrCode): ?array
+    {
+        $res = $this->apiRequest('GET', '/customer/' . rawurlencode(trim($emailOrCode)), null, $emailOrCode);
+        if ($res['ok'] && is_array($res['data'])) {
+            return $res['data'];
+        }
+        return null;
+    }
+
+    /**
+     * Create or fetch an existing Paystack Customer (POST /customer -> fallback GET /customer/{email}).
+     */
+    public function createOrFetchCustomer(array $userData): array
+    {
+        $email = strtolower(trim((string)($userData['email'] ?? '')));
+        if ($email === '') {
+            throw new RuntimeException('Customer email is required for Paystack customer creation.');
+        }
+
+        $payload = array_filter([
+            'email' => $email,
+            'first_name' => trim((string)($userData['first_name'] ?? 'Customer')) ?: 'Customer',
+            'last_name' => trim((string)($userData['last_name'] ?? 'User')) ?: 'User',
+            'phone' => trim((string)($userData['phone'] ?? '')),
+            'metadata' => $userData['metadata'] ?? null,
+        ], static fn($v) => $v !== null && $v !== '');
+
+        $res = $this->apiRequest('POST', '/customer', $payload, $userData['reference'] ?? $email);
+        if ($res['ok'] && is_array($res['data']) && !empty($res['data']['customer_code'])) {
+            return [
+                'ok' => true,
+                'customer' => $res['data'],
+                'message' => $res['message'],
+            ];
+        }
+
+        // If already exists or update needed, fetch by email
+        $existing = $this->fetchCustomer($email);
+        if ($existing && !empty($existing['customer_code'])) {
+            return [
+                'ok' => true,
+                'customer' => $existing,
+                'message' => 'Existing Paystack customer fetched.',
+            ];
+        }
+
+        return [
+            'ok' => false,
+            'customer' => null,
+            'status_code' => $res['status_code'],
+            'message' => $res['message'],
+        ];
+    }
+
+    /**
+     * Validate Customer Identification with Paystack (POST /customer/{code}/identification).
+     */
+    public function validateCustomerIdentification(string $customerCode, array $kycData): array
+    {
+        $payload = array_filter([
+            'country' => 'NG',
+            'type' => (string)($kycData['type'] ?? 'bank_account'),
+            'account_number' => $kycData['account_number'] ?? null,
+            'bvn' => $kycData['bvn'] ?? null,
+            'bank_code' => $kycData['bank_code'] ?? null,
+            'first_name' => $kycData['first_name'] ?? null,
+            'last_name' => $kycData['last_name'] ?? null,
+        ], static fn($v) => $v !== null && $v !== '');
+
+        return $this->apiRequest(
+            'POST',
+            '/customer/' . rawurlencode($customerCode) . '/identification',
+            $payload,
+            $customerCode
+        );
+    }
+
+    /**
+     * Official Paystack Single-Step Dedicated Virtual Account Assignment (POST /dedicated_account/assign).
+     * Creates/identifies the customer and queues DVA assignment asynchronously (notified via webhook).
+     */
+    public function assignDedicatedVirtualAccount(array $payload): array
+    {
+        $clean = array_filter([
+            'email' => strtolower(trim((string)($payload['email'] ?? ''))),
+            'first_name' => trim((string)($payload['first_name'] ?? '')),
+            'last_name' => trim((string)($payload['last_name'] ?? '')),
+            'phone' => trim((string)($payload['phone'] ?? '')),
+            'preferred_bank' => trim((string)($payload['preferred_bank'] ?? 'wema-bank')),
+            'country' => 'NG',
+            'account_number' => !empty($payload['account_number']) ? trim((string)$payload['account_number']) : null,
+            'bvn' => !empty($payload['bvn']) ? preg_replace('/\D/', '', (string)$payload['bvn']) : null,
+            'bank_code' => !empty($payload['bank_code']) ? trim((string)$payload['bank_code']) : null,
+            'subaccount' => !empty($payload['subaccount']) ? trim((string)$payload['subaccount']) : null,
+            'split_code' => !empty($payload['split_code']) ? trim((string)$payload['split_code']) : null,
+        ], static fn($v) => $v !== null && $v !== '');
+
+        return $this->apiRequest(
+            'POST',
+            '/dedicated_account/assign',
+            $clean,
+            $clean['email'] ?? null
+        );
+    }
+
+    /**
+     * Two-Step Create Dedicated Virtual Account for an identified customer (POST /dedicated_account).
+     */
+    public function createDedicatedAccount(string $customerCode, ?string $preferredBank = null): array
+    {
+        $payload = array_filter([
+            'customer' => trim($customerCode),
+            'preferred_bank' => $preferredBank ? trim($preferredBank) : null,
+        ], static fn($v) => $v !== null && $v !== '');
+
+        return $this->apiRequest('POST', '/dedicated_account', $payload, $customerCode);
+    }
+
+    /**
+     * Fetch Dedicated Accounts assigned to a Paystack customer (GET /dedicated_account?customer=ID or GET /customer/CODE).
+     */
+    public function fetchDedicatedAccountsByCustomer(string $customerIdOrCode, ?int $customerNumericId = null): array
+    {
+        $customerData = null;
+        if (str_starts_with($customerIdOrCode, 'CUS_') || str_contains($customerIdOrCode, '@')) {
+            $customerData = $this->fetchCustomer($customerIdOrCode);
+            if ($customerData && !empty($customerData['id'])) {
+                $customerNumericId = (int)$customerData['id'];
+            }
+        } elseif (is_numeric($customerIdOrCode)) {
+            $customerNumericId = (int)$customerIdOrCode;
+        }
+
+        if ($customerNumericId && $customerNumericId > 0) {
+            $res = $this->apiRequest('GET', '/dedicated_account?customer=' . $customerNumericId . '&active=true', null, (string)$customerNumericId);
+            if ($res['ok'] && is_array($res['data'])) {
+                return [
+                    'ok' => true,
+                    'customer' => $customerData,
+                    'accounts' => $res['data'],
+                    'message' => $res['message'],
+                ];
+            }
+        }
+
+        $fallbackAccounts = [];
+        if (is_array($customerData)) {
+            if (!empty($customerData['dedicated_accounts']) && is_array($customerData['dedicated_accounts'])) {
+                $fallbackAccounts = $customerData['dedicated_accounts'];
+            } elseif (!empty($customerData['dedicated_account']) && is_array($customerData['dedicated_account'])) {
+                $fallbackAccounts = [$customerData['dedicated_account']];
+            }
+        }
+
+        return [
+            'ok' => $customerData !== null,
+            'customer' => $customerData,
+            'accounts' => $fallbackAccounts,
+            'message' => $customerData ? 'Customer fetched.' : 'Customer not found on Paystack.',
+        ];
+    }
+
+    /**
+     * Fetch single dedicated account by Paystack numeric ID (GET /dedicated_account/{id}).
+     */
+    public function fetchDedicatedAccount(int $dedicatedAccountId): array
+    {
+        return $this->apiRequest('GET', '/dedicated_account/' . $dedicatedAccountId, null, (string)$dedicatedAccountId);
+    }
+
+    /**
+     * Requery a Dedicated Virtual Account for pending bank transfer notifications (GET /dedicated_account/requery).
+     */
+    public function requeryDedicatedAccount(string $accountNumber, string $providerSlug, ?string $date = null): array
+    {
+        $params = [
+            'account_number' => trim($accountNumber),
+            'provider_slug' => trim($providerSlug),
+        ];
+        if ($date && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            $params['date'] = $date;
+        }
+        $qs = http_build_query($params);
+        return $this->apiRequest('GET', '/dedicated_account/requery?' . $qs, null, $accountNumber);
+    }
+
+    /**
+     * Deactivate a Dedicated Virtual Account (DELETE /dedicated_account/{id}).
+     */
+    public function deactivateDedicatedAccount(int $dedicatedAccountId): array
+    {
+        return $this->apiRequest('DELETE', '/dedicated_account/' . $dedicatedAccountId, null, (string)$dedicatedAccountId);
+    }
+
     /**
      * Initialize Paystack Checkout Transaction
      * POST https://api.paystack.co/transaction/initialize

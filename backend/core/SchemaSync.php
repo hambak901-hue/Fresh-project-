@@ -655,14 +655,56 @@ class SchemaSync
             'customer_virtual_accounts' => 'CREATE TABLE IF NOT EXISTS customer_virtual_accounts (
                 id VARCHAR(36) PRIMARY KEY,
                 user_id VARCHAR(36) NOT NULL UNIQUE,
-                provider VARCHAR(50) NOT NULL DEFAULT "flutterwave",
+                provider VARCHAR(50) NOT NULL DEFAULT "paystack",
+                paystack_customer_code VARCHAR(100) NULL,
+                dedicated_account_id BIGINT NULL,
                 order_ref VARCHAR(100) NOT NULL UNIQUE,
                 flw_ref VARCHAR(100) NULL,
-                account_number VARCHAR(30) NOT NULL,
-                bank_name VARCHAR(100) NOT NULL,
+                account_number VARCHAR(30) NOT NULL DEFAULT "",
+                account_name VARCHAR(191) NULL,
+                bank_name VARCHAR(100) NOT NULL DEFAULT "",
+                bank_id INT NULL,
+                bank_slug VARCHAR(80) NULL,
+                currency VARCHAR(10) NOT NULL DEFAULT "NGN",
                 account_status ENUM("active", "inactive", "pending_approval") NOT NULL DEFAULT "pending_approval",
+                kyc_validation_status ENUM("unverified", "pending", "verified", "failed") NOT NULL DEFAULT "unverified",
+                assignment_status ENUM("not_requested", "pending", "assigned", "failed", "deactivated") NOT NULL DEFAULT "not_requested",
+                failure_reason TEXT NULL,
+                total_inflow DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                last_funding_at DATETIME NULL,
+                raw_assignment_payload JSON NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_va_account (account_number)
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_va_account (account_number),
+                INDEX idx_va_paystack_customer (paystack_customer_code),
+                INDEX idx_va_dedicated_id (dedicated_account_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'paystack_dva_settlements' => 'CREATE TABLE IF NOT EXISTS paystack_dva_settlements (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NULL,
+                virtual_account_id VARCHAR(36) NULL,
+                paystack_reference VARCHAR(120) NOT NULL UNIQUE,
+                paystack_transaction_id BIGINT NULL,
+                dedicated_account_id BIGINT NULL,
+                account_number VARCHAR(30) NOT NULL,
+                paystack_customer_code VARCHAR(100) NULL,
+                gross_amount DECIMAL(15, 2) NOT NULL,
+                paystack_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                net_credit_amount DECIMAL(15, 2) NOT NULL,
+                fee_bearer ENUM("customer", "merchant") NOT NULL DEFAULT "customer",
+                currency VARCHAR(10) NOT NULL DEFAULT "NGN",
+                sender_bank VARCHAR(120) NULL,
+                sender_account_name VARCHAR(191) NULL,
+                sender_account_number_masked VARCHAR(40) NULL,
+                session_id VARCHAR(120) NULL,
+                settlement_status ENUM("settled", "under_review", "failed") NOT NULL DEFAULT "settled",
+                wallet_transaction_id VARCHAR(36) NULL,
+                raw_payload JSON NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_dva_settle_user (user_id, created_at),
+                INDEX idx_dva_settle_acc (account_number),
+                INDEX idx_dva_settle_status (settlement_status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
 
             'broadcasts' => 'CREATE TABLE IF NOT EXISTS broadcasts (
@@ -1017,6 +1059,34 @@ class SchemaSync
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_esd_skey (service_key)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'identity_result_documents' => 'CREATE TABLE IF NOT EXISTS identity_result_documents (
+                id VARCHAR(36) PRIMARY KEY,
+                domain ENUM("modification", "enrolment", "verification") NOT NULL,
+                record_id VARCHAR(36) NOT NULL,
+                user_id VARCHAR(36) NOT NULL,
+                document_source ENUM("provider_base64", "provider_url", "provider_binary", "admin_uploaded") NOT NULL,
+                is_provider_issued TINYINT(1) NOT NULL DEFAULT 1,
+                original_name VARCHAR(255) NOT NULL,
+                stored_name VARCHAR(255) NOT NULL,
+                file_path VARCHAR(500) NOT NULL,
+                mime_type VARCHAR(100) NOT NULL DEFAULT "application/pdf",
+                file_size INT NOT NULL DEFAULT 0,
+                sha256_hash VARCHAR(64) NOT NULL,
+                provider_document_ref VARCHAR(150) NULL,
+                provider_reference VARCHAR(150) NULL,
+                tracking_id VARCHAR(150) NULL,
+                uploaded_by VARCHAR(36) NULL,
+                retrieval_status ENUM("ready", "pending", "failed", "unavailable") NOT NULL DEFAULT "ready",
+                retrieval_error TEXT NULL,
+                retrieved_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_ird_domain_record (domain, record_id),
+                INDEX idx_ird_user (user_id),
+                INDEX idx_ird_sha256 (sha256_hash),
+                INDEX idx_ird_tracking (tracking_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
         ];
 
         foreach ($tableDefinitions as $name => $sql) {
@@ -1158,9 +1228,41 @@ class SchemaSync
                 'endpoint' => 'ADD COLUMN endpoint VARCHAR(150) NOT NULL DEFAULT ""',
                 'refund_reference' => 'ADD COLUMN refund_reference VARCHAR(120) NULL',
                 'provider_response' => 'ADD COLUMN provider_response JSON NULL',
+                'result_document_id' => 'ADD COLUMN result_document_id VARCHAR(36) NULL',
+                'result_source' => 'ADD COLUMN result_source VARCHAR(32) NULL',
+                'provider_tracking_id' => 'ADD COLUMN provider_tracking_id VARCHAR(150) NULL',
+                'result_payload' => 'ADD COLUMN result_payload JSON NULL',
+                'result_retrieval_status' => 'ADD COLUMN result_retrieval_status VARCHAR(32) NULL',
+                'result_retrieval_error' => 'ADD COLUMN result_retrieval_error TEXT NULL',
+                'result_retrieved_at' => 'ADD COLUMN result_retrieved_at DATETIME NULL',
+                'additional_info_history' => 'ADD COLUMN additional_info_history JSON NULL',
                 'reviewed_by' => 'ADD COLUMN reviewed_by VARCHAR(100) NULL',
                 'reviewed_at' => 'ADD COLUMN reviewed_at DATETIME NULL',
                 'estimated_completion_text' => 'ADD COLUMN estimated_completion_text VARCHAR(150) NULL',
+            ],
+            'enrolment_orders' => [
+                'result_document_id' => 'ADD COLUMN result_document_id VARCHAR(36) NULL',
+                'result_source' => 'ADD COLUMN result_source VARCHAR(32) NULL',
+                'provider_tracking_id' => 'ADD COLUMN provider_tracking_id VARCHAR(150) NULL',
+                'result_payload' => 'ADD COLUMN result_payload JSON NULL',
+                'result_retrieval_status' => 'ADD COLUMN result_retrieval_status VARCHAR(32) NULL',
+                'result_retrieval_error' => 'ADD COLUMN result_retrieval_error TEXT NULL',
+                'result_retrieved_at' => 'ADD COLUMN result_retrieved_at DATETIME NULL',
+            ],
+            'customer_virtual_accounts' => [
+                'paystack_customer_code' => 'ADD COLUMN paystack_customer_code VARCHAR(100) NULL AFTER provider',
+                'dedicated_account_id' => 'ADD COLUMN dedicated_account_id BIGINT NULL AFTER paystack_customer_code',
+                'bank_id' => 'ADD COLUMN bank_id INT NULL AFTER bank_name',
+                'bank_slug' => 'ADD COLUMN bank_slug VARCHAR(80) NULL AFTER bank_id',
+                'account_name' => 'ADD COLUMN account_name VARCHAR(191) NULL AFTER account_number',
+                'currency' => 'ADD COLUMN currency VARCHAR(10) NOT NULL DEFAULT "NGN" AFTER bank_slug',
+                'kyc_validation_status' => 'ADD COLUMN kyc_validation_status ENUM("unverified", "pending", "verified", "failed") NOT NULL DEFAULT "unverified" AFTER account_status',
+                'assignment_status' => 'ADD COLUMN assignment_status ENUM("not_requested", "pending", "assigned", "failed", "deactivated") NOT NULL DEFAULT "not_requested" AFTER kyc_validation_status',
+                'failure_reason' => 'ADD COLUMN failure_reason TEXT NULL AFTER assignment_status',
+                'total_inflow' => 'ADD COLUMN total_inflow DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER failure_reason',
+                'last_funding_at' => 'ADD COLUMN last_funding_at DATETIME NULL AFTER total_inflow',
+                'raw_assignment_payload' => 'ADD COLUMN raw_assignment_payload JSON NULL AFTER last_funding_at',
+                'updated_at' => 'ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at',
             ],
         ];
 
@@ -1337,6 +1439,10 @@ class SchemaSync
                  ("set_id_auto_fb", "identity_auto_fallback", "1", "providers", "Enable Automatic Identity Provider Failover"),
                  ("set_act_tel", "active_telecom_provider", "ulamadata", "providers", "Active Telecom VTU Provider")'
             );
+            $db->execute(
+                'INSERT IGNORE INTO slip_templates (id, slip_code, name, category, price, demo_image_url, description, supported_service, is_active, display_order, is_recommended, badge, watermark_text)
+                 VALUES ("tpl_nin_special", "ninSpecial", "Special Slip", "NIN", 550.00, "/assets/aistudio/IMG_0603_1ff5c6a0.jpeg", "Official Special NIN Slip PDF issued via 2SureVerify.", "all_nin", 1, 6, 0, "Special Slip", "DEMO SPECIMEN - SAMPLE PREVIEW ONLY")'
+            );
         } catch (Throwable $e) {
             $errors[] = 'seed_defaults => ' . $e->getMessage();
         }
@@ -1383,6 +1489,73 @@ class SchemaSync
             'applied' => $applied,
             'errors' => $errors,
         ];
+    }
+
+    public static function syncPaystackDvaSchema(Database $db, bool $force = false): void
+    {
+        static $synced = false;
+        if ($synced && !$force) {
+            return;
+        }
+        $synced = true;
+
+        try {
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS paystack_dva_settlements (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NULL,
+                    virtual_account_id VARCHAR(36) NULL,
+                    paystack_reference VARCHAR(120) NOT NULL UNIQUE,
+                    paystack_transaction_id BIGINT NULL,
+                    dedicated_account_id BIGINT NULL,
+                    account_number VARCHAR(30) NOT NULL,
+                    paystack_customer_code VARCHAR(100) NULL,
+                    gross_amount DECIMAL(15, 2) NOT NULL,
+                    paystack_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                    net_credit_amount DECIMAL(15, 2) NOT NULL,
+                    fee_bearer ENUM("customer", "merchant") NOT NULL DEFAULT "customer",
+                    currency VARCHAR(10) NOT NULL DEFAULT "NGN",
+                    sender_bank VARCHAR(120) NULL,
+                    sender_account_name VARCHAR(191) NULL,
+                    sender_account_number_masked VARCHAR(40) NULL,
+                    session_id VARCHAR(120) NULL,
+                    settlement_status ENUM("settled", "under_review", "failed") NOT NULL DEFAULT "settled",
+                    wallet_transaction_id VARCHAR(36) NULL,
+                    raw_payload JSON NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_dva_settle_user (user_id, created_at),
+                    INDEX idx_dva_settle_acc (account_number),
+                    INDEX idx_dva_settle_status (settlement_status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+
+            $vaCols = [
+                'paystack_customer_code' => 'ADD COLUMN paystack_customer_code VARCHAR(100) NULL AFTER provider',
+                'dedicated_account_id' => 'ADD COLUMN dedicated_account_id BIGINT NULL AFTER paystack_customer_code',
+                'bank_id' => 'ADD COLUMN bank_id INT NULL AFTER bank_name',
+                'bank_slug' => 'ADD COLUMN bank_slug VARCHAR(80) NULL AFTER bank_id',
+                'account_name' => 'ADD COLUMN account_name VARCHAR(191) NULL AFTER account_number',
+                'currency' => 'ADD COLUMN currency VARCHAR(10) NOT NULL DEFAULT "NGN" AFTER bank_slug',
+                'kyc_validation_status' => 'ADD COLUMN kyc_validation_status ENUM("unverified", "pending", "verified", "failed") NOT NULL DEFAULT "unverified" AFTER account_status',
+                'assignment_status' => 'ADD COLUMN assignment_status ENUM("not_requested", "pending", "assigned", "failed", "deactivated") NOT NULL DEFAULT "not_requested" AFTER kyc_validation_status',
+                'failure_reason' => 'ADD COLUMN failure_reason TEXT NULL AFTER assignment_status',
+                'total_inflow' => 'ADD COLUMN total_inflow DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER failure_reason',
+                'last_funding_at' => 'ADD COLUMN last_funding_at DATETIME NULL AFTER total_inflow',
+                'raw_assignment_payload' => 'ADD COLUMN raw_assignment_payload JSON NULL AFTER last_funding_at',
+                'updated_at' => 'ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at',
+            ];
+
+            foreach ($vaCols as $col => $alterClause) {
+                $exists = $db->fetchOne(
+                    'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "customer_virtual_accounts" AND COLUMN_NAME = :col',
+                    ['col' => $col]
+                );
+                if (!$exists) {
+                    $db->execute("ALTER TABLE `customer_virtual_accounts` {$alterClause}");
+                }
+            }
+        } catch (Throwable) {
+        }
     }
 
     public static function syncModificationCatalog(Database $db, bool $force = false): array
@@ -1474,6 +1647,55 @@ class SchemaSync
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
             );
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS identity_result_documents (
+                    id VARCHAR(36) PRIMARY KEY,
+                    domain ENUM("modification", "enrolment", "verification") NOT NULL,
+                    record_id VARCHAR(36) NOT NULL,
+                    user_id VARCHAR(36) NOT NULL,
+                    document_source ENUM("provider_base64", "provider_url", "provider_binary", "admin_uploaded") NOT NULL,
+                    is_provider_issued TINYINT(1) NOT NULL DEFAULT 1,
+                    original_name VARCHAR(255) NOT NULL,
+                    stored_name VARCHAR(255) NOT NULL,
+                    file_path VARCHAR(500) NOT NULL,
+                    mime_type VARCHAR(100) NOT NULL DEFAULT "application/pdf",
+                    file_size INT NOT NULL DEFAULT 0,
+                    sha256_hash VARCHAR(64) NOT NULL,
+                    provider_document_ref VARCHAR(150) NULL,
+                    provider_reference VARCHAR(150) NULL,
+                    tracking_id VARCHAR(150) NULL,
+                    uploaded_by VARCHAR(36) NULL,
+                    retrieval_status ENUM("ready", "pending", "failed", "unavailable") NOT NULL DEFAULT "ready",
+                    retrieval_error TEXT NULL,
+                    retrieved_at DATETIME NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_ird_domain_record (domain, record_id),
+                    INDEX idx_ird_user (user_id),
+                    INDEX idx_ird_sha256 (sha256_hash),
+                    INDEX idx_ird_tracking (tracking_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+            $modResultCols = [
+                'result_document_id' => 'ADD COLUMN result_document_id VARCHAR(36) NULL',
+                'result_source' => 'ADD COLUMN result_source VARCHAR(32) NULL',
+                'provider_tracking_id' => 'ADD COLUMN provider_tracking_id VARCHAR(150) NULL',
+                'result_payload' => 'ADD COLUMN result_payload JSON NULL',
+                'result_retrieval_status' => 'ADD COLUMN result_retrieval_status VARCHAR(32) NULL',
+                'result_retrieval_error' => 'ADD COLUMN result_retrieval_error TEXT NULL',
+                'result_retrieved_at' => 'ADD COLUMN result_retrieved_at DATETIME NULL',
+                'additional_info_history' => 'ADD COLUMN additional_info_history JSON NULL',
+            ];
+            foreach ($modResultCols as $col => $clause) {
+                $exists = $db->fetchOne(
+                    'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "modification_requests" AND COLUMN_NAME = :col',
+                    ['col' => $col]
+                );
+                if (!$exists) {
+                    $db->execute("ALTER TABLE modification_requests {$clause}");
+                    $applied[] = "col:modification_requests.{$col}";
+                }
+            }
         } catch (Throwable $e) {
             $errors[] = 'mod_tables => ' . $e->getMessage();
         }
@@ -2091,6 +2313,25 @@ class SchemaSync
                     INDEX idx_esd_skey (service_key)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
             );
+            $enrResultCols = [
+                'result_document_id' => 'ADD COLUMN result_document_id VARCHAR(36) NULL',
+                'result_source' => 'ADD COLUMN result_source VARCHAR(32) NULL',
+                'provider_tracking_id' => 'ADD COLUMN provider_tracking_id VARCHAR(150) NULL',
+                'result_payload' => 'ADD COLUMN result_payload JSON NULL',
+                'result_retrieval_status' => 'ADD COLUMN result_retrieval_status VARCHAR(32) NULL',
+                'result_retrieval_error' => 'ADD COLUMN result_retrieval_error TEXT NULL',
+                'result_retrieved_at' => 'ADD COLUMN result_retrieved_at DATETIME NULL',
+            ];
+            foreach ($enrResultCols as $col => $clause) {
+                $exists = $db->fetchOne(
+                    'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "enrolment_orders" AND COLUMN_NAME = :col',
+                    ['col' => $col]
+                );
+                if (!$exists) {
+                    $db->execute("ALTER TABLE enrolment_orders {$clause}");
+                    $applied[] = "col:enrolment_orders.{$col}";
+                }
+            }
         } catch (Throwable $e) {
             $errors[] = 'enr_tables => ' . $e->getMessage();
         }
