@@ -403,14 +403,14 @@ class WalletService
     /**
      * Reversal of an existing transaction with strict row-locking, idempotency, and audit logging.
      */
-    public function reverseTransaction(string $transactionId, string $adminId, string $reason): array
+    public function reverseTransaction(string $transactionId, string $adminId, string $reason, array $extraMetadata = []): array
     {
         $cleanReason = trim($reason);
         if ($cleanReason === '' || mb_strlen($cleanReason) < 4) {
             throw new RuntimeException('A clear reversal reason (at least 4 characters) is required.');
         }
 
-        return $this->db->withTransaction(function (Database $db) use ($transactionId, $adminId, $cleanReason) {
+        return $this->db->withTransaction(function (Database $db) use ($transactionId, $adminId, $cleanReason, $extraMetadata) {
             $tx = $db->fetchOne('SELECT * FROM transactions WHERE id = :id FOR UPDATE', ['id' => $transactionId]);
             if (!$tx) {
                 throw new RuntimeException('Transaction not found for reversal.');
@@ -486,6 +486,17 @@ class WalletService
             }
 
             $reference = 'REV_' . strtoupper(bin2hex(random_bytes(6)));
+            $reversalMeta = array_merge($extraMetadata, [
+                'original_transaction_id' => $transactionId,
+                'original_reference' => $origRef,
+                'original_category' => $origCat,
+                'original_gateway' => (string)($tx['gateway'] ?? 'internal'),
+                'reversed_by' => $adminId,
+                'reversal_reason' => $cleanReason,
+            ]);
+            if (!empty($meta['funding_method'])) {
+                $reversalMeta['original_funding_method'] = $meta['funding_method'];
+            }
 
             // If original transaction was DEBIT, reversing it means CREDITING the user back
             // If original transaction was CREDIT, reversing it means DEBITING the user
@@ -496,13 +507,8 @@ class WalletService
                     'reversal',
                     $reference,
                     "Reversal of #{$origRef}: {$cleanReason}",
-                    'internal',
-                    [
-                        'original_transaction_id' => $transactionId,
-                        'original_reference' => $origRef,
-                        'reversed_by' => $adminId,
-                        'reversal_reason' => $cleanReason,
-                    ]
+                    (string)($tx['gateway'] ?? 'internal'),
+                    $reversalMeta
                 );
             } else {
                 $result = $this->debit(
@@ -511,21 +517,19 @@ class WalletService
                     'reversal',
                     $reference,
                     "Reversal of #{$origRef}: {$cleanReason}",
-                    'internal',
-                    [
-                        'original_transaction_id' => $transactionId,
-                        'original_reference' => $origRef,
-                        'reversed_by' => $adminId,
-                        'reversal_reason' => $cleanReason,
-                    ]
+                    (string)($tx['gateway'] ?? 'internal'),
+                    $reversalMeta
                 );
             }
 
-            // Mark original transaction as reversed in metadata
+            // Mark original transaction as reversed in metadata without altering historical amount/status
             $meta['reversed_at'] = date('Y-m-d H:i:s');
             $meta['reversed_by'] = $adminId;
             $meta['reversal_reference'] = $reference;
             $meta['reversal_reason'] = $cleanReason;
+            if (!empty($extraMetadata)) {
+                $meta['reversal_details'] = $extraMetadata;
+            }
 
             $db->execute(
                 'UPDATE transactions SET metadata = :meta WHERE id = :id',
@@ -550,6 +554,7 @@ class WalletService
                             'original_type' => $tx['type'],
                             'amount' => $amount,
                             'reason' => $cleanReason,
+                            'extra' => $extraMetadata,
                         ]),
                         'ip' => Security::resolveClientIp(),
                     ]

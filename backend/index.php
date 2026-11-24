@@ -129,6 +129,7 @@ $router->post('/api/wallet/flutterwave/webhook', [WalletController::class, 'flut
 $router->post('/api/wallet/manual-funding', [WalletController::class, 'manualFunding']);
 $router->get('/api/wallet/receipt/:filename', [WalletController::class, 'getReceipt']);
 $router->get('/api/wallet/virtual-account', [WalletController::class, 'virtualAccount']);
+$router->get('/api/wallet/virtual-account/banks', [WalletController::class, 'listDvaBanks']);
 $router->post('/api/wallet/virtual-account/provision', [WalletController::class, 'provisionVirtualAccount']);
 
 // Aliases for Wallet Admin (Pending fundings, Approve, Reject, Adjust Balance, Reports, Paystack DVA Telemetry)
@@ -138,7 +139,11 @@ $router->post('/api/wallet/admin/approve-funding/:id', [AdminController::class, 
 $router->post('/api/wallet/admin/reject-funding/:id', [AdminController::class, 'rejectFunding']);
 $router->post('/api/wallet/admin/adjust-balance', [AdminController::class, 'creditDebitUser']);
 $router->get('/api/admin/wallet/paystack/dva-status', [WalletController::class, 'adminDvaStatus']);
+$router->get('/api/admin/wallet/paystack/dva-customer/:id', [WalletController::class, 'adminDvaCustomerDetail']);
 $router->post('/api/admin/wallet/paystack/dva-requery', [WalletController::class, 'adminRequeryDva']);
+$router->post('/api/admin/wallet/paystack/dva-action', [WalletController::class, 'adminDvaAction']);
+$router->post('/api/admin/wallet/paystack/dva-resolve-settlement', [WalletController::class, 'adminResolveDvaSettlement']);
+$router->post('/api/admin/wallet/paystack/dva-settings', [WalletController::class, 'adminSaveDvaSettings']);
 
 // -----------------------------------------------------------------------------
 // 5. IDENTITY VERIFICATION (NIN & BVN)
@@ -253,6 +258,10 @@ $router->get('/api/customer/document/:id', [CustomerController::class, 'getDocum
 $router->get('/api/customer/store', [CustomerController::class, 'storeItems']);
 $router->get('/api/customer/academy', [AcademyController::class, 'customerAcademy']);
 $router->post('/api/customer/academy/apply', [AcademyController::class, 'customerApply']);
+$router->post('/api/customer/academy/applications/:id/respond', [AcademyController::class, 'customerRespondApplication']);
+$router->post('/api/customer/academy/applications/:id/enroll', [AcademyController::class, 'customerCompleteEnrollment']);
+$router->post('/api/customer/academy/applications/:id/withdraw', [AcademyController::class, 'customerWithdrawApplication']);
+$router->post('/api/customer/academy/upload-passport', [AcademyController::class, 'customerUploadPassport']);
 $router->get('/api/customer/reports', [CustomerController::class, 'reports']);
 $router->get('/api/customer/messages', [CustomerController::class, 'messages']);
 $router->put('/api/customer/messages/:id/read', [CustomerController::class, 'markMessageRead']);
@@ -261,6 +270,11 @@ $router->put('/api/customer/messages/:id/read', [CustomerController::class, 'mar
 $router->get('/api/academy/public', [AcademyController::class, 'publicOverview']);
 $router->post('/api/academy/apply', [AcademyController::class, 'apply']);
 $router->get('/api/academy/application-status', [AcademyController::class, 'applicationStatus']);
+$router->get('/api/academy/invitations/validate', [AcademyController::class, 'validateInvitation']);
+$router->post('/api/academy/activate-account', [AcademyController::class, 'activateAccount']);
+$router->post('/api/academy/applications/:id/resubmit', [AcademyController::class, 'resubmitApplication']);
+$router->post('/api/academy/upload-passport', [AcademyController::class, 'uploadPassport']);
+$router->get('/api/academy/passport/:filename', [AcademyController::class, 'servePassport']);
 $router->get('/api/academy/verify', [AcademyController::class, 'verifyStudent']);
 $router->get('/api/academy/verify/:student_id', [AcademyController::class, 'verifyStudent']);
 
@@ -437,6 +451,7 @@ $router->post('/api/admin/academy/course', [AcademyController::class, 'saveCours
 $router->put('/api/admin/academy/course/:id', [AcademyController::class, 'saveCourse']);
 $router->delete('/api/admin/academy/course/:id', [AcademyController::class, 'deleteCourse']);
 $router->get('/api/admin/academy/applications', [AcademyController::class, 'applications']);
+$router->get('/api/admin/academy/applications/:id', [AcademyController::class, 'applicationDetail']);
 $router->delete('/api/admin/academy/applications/:id', [AcademyController::class, 'deleteApplication']);
 $router->post('/api/admin/academy/applications/:id/review', [AcademyController::class, 'reviewApplication']);
 $router->get('/api/admin/academy/students', [AcademyController::class, 'students']);

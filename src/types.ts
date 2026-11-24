@@ -160,6 +160,17 @@ export interface ServiceSecurityRule {
   updated_by?: string;
 }
 
+export type DvaProvisioningStatus =
+  | 'not_requested'
+  | 'awaiting_customer_info'
+  | 'pending_identification'
+  | 'processing'
+  | 'active'
+  | 'failed'
+  | 'suspended'
+  | 'deactivated'
+  | 'under_review';
+
 export interface VirtualAccountItem {
   id: string;
   user_id: string;
@@ -173,9 +184,12 @@ export interface VirtualAccountItem {
   currency?: string;
   provider: 'paystack' | 'monnify' | 'providus' | 'wema' | 'flutterwave' | 'reserved_stub';
   status: 'active' | 'suspended' | 'closed' | 'pending_kyc' | 'pending';
+  account_status?: string;
   assignment_status?: 'not_requested' | 'pending' | 'assigned' | 'failed' | 'deactivated';
+  provisioning_status?: DvaProvisioningStatus;
   kyc_validation_status?: 'unverified' | 'pending' | 'verified' | 'failed';
   assigned_at: string;
+  last_synced_at?: string | null;
   total_inflow: number;
   last_funding_at?: string | null;
   webhook_reference?: string;
@@ -185,15 +199,26 @@ export interface VirtualAccountStateResponse {
   success: boolean;
   has_virtual_account: boolean;
   dva_enabled: boolean;
+  dva_feature_enabled?: boolean;
+  rollout_mode?: 'testing_allowlist' | 'all_eligible' | 'paused';
+  in_rollout_scope?: boolean;
   paystack_configured: boolean;
   eligible: boolean;
   email_verified?: boolean;
+  has_bvn?: boolean;
+  require_bvn?: boolean;
+  dva_consent?: boolean;
+  missing_requirements?: string[];
   required_level: number;
   current_level: number;
   status: 'active' | 'pending' | 'pending_kyc' | 'unassigned';
   assignment_status: 'not_requested' | 'pending' | 'assigned' | 'failed' | 'deactivated';
+  provisioning_status?: DvaProvisioningStatus;
   kyc_validation_status?: 'unverified' | 'pending' | 'verified' | 'failed';
+  error_code?: string | null;
   failure_reason?: string | null;
+  assigned_at?: string | null;
+  last_synced_at?: string | null;
   fee_bearer?: 'customer' | 'merchant';
   preferred_bank?: string;
   virtual_account: VirtualAccountItem | null;
@@ -205,6 +230,7 @@ export interface VirtualAccountStateResponse {
 
 export interface PaystackDvaAdminStatusResponse {
   success: boolean;
+  last_successful_webhook_at?: string | null;
   capability: {
     configured: boolean;
     capable: boolean;
@@ -223,16 +249,51 @@ export interface PaystackDvaAdminStatusResponse {
     enable_virtual_accounts: boolean;
     preferred_bank: string;
     fee_bearer: 'customer' | 'merchant';
+    dva_rollout_mode?: 'testing_allowlist' | 'all_eligible' | 'paused';
+    dva_test_user_emails?: string[];
+    dva_require_bvn?: boolean;
+    dva_auto_provision_on_register?: boolean;
+    dva_auto_provision_on_wallet_open?: boolean;
   };
   totals: {
+    eligible_customers_count?: number;
     assigned_accounts: number;
+    active_accounts?: number;
     pending_accounts: number;
+    awaiting_info_accounts?: number;
+    suspended_accounts?: number;
+    deactivated_accounts?: number;
+    under_review_accounts?: number;
     failed_accounts: number;
     settled_count: number;
     under_review_count: number;
+    disputed_count?: number;
+    reversed_count?: number;
+    reversed_disputed_count?: number;
+    failed_settlement_count?: number;
     total_gross: number;
     total_paystack_fees: number;
+    customer_borne_fees?: number;
+    merchant_borne_fees?: number;
+    net_settlement?: number;
     total_net_credited: number;
+    wallet_liability_created?: number;
+    under_review_amount?: number;
+    reversed_amount?: number;
+    reversed_disputed_amount?: number;
+  };
+  reconciliation?: {
+    gross_deposits: number;
+    customer_borne_fees: number;
+    merchant_borne_fees: number;
+    total_paystack_fees: number;
+    net_settlement: number;
+    wallet_liability_created: number;
+    quarantined_count: number;
+    quarantined_amount: number;
+    disputed_count: number;
+    reversed_count: number;
+    reversed_amount: number;
   };
   accounts: Array<{
     id: string;
@@ -240,6 +301,7 @@ export interface PaystackDvaAdminStatusResponse {
     customer_name?: string;
     customer_email?: string;
     kyc_level?: number;
+    kyc_status?: string;
     provider: string;
     paystack_customer_code?: string | null;
     dedicated_account_id?: number | null;
@@ -247,15 +309,29 @@ export interface PaystackDvaAdminStatusResponse {
     account_name?: string | null;
     bank_name: string;
     bank_slug?: string | null;
+    bank_code?: string | null;
     account_status: string;
     kyc_validation_status: string;
     assignment_status: string;
+    provisioning_status?: DvaProvisioningStatus;
+    dva_consent?: boolean;
+    error_code?: string | null;
     failure_reason?: string | null;
+    deposits_count?: number;
     total_inflow: number;
+    assigned_at?: string | null;
+    last_synced_at?: string | null;
     last_funding_at?: string | null;
+    last_deposit_at?: string | null;
     created_at: string;
     updated_at?: string;
   }>;
+  accounts_pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    total_pages: number;
+  };
   settlements: Array<{
     id: string;
     user_id?: string | null;
@@ -266,12 +342,66 @@ export interface PaystackDvaAdminStatusResponse {
     paystack_customer_code?: string | null;
     gross_amount: number;
     paystack_fee: number;
+    customer_borne_fee?: number;
+    merchant_borne_fee?: number;
+    net_settlement_amount?: number;
     net_credit_amount: number;
     fee_bearer: 'customer' | 'merchant';
+    fee_confirmed?: boolean;
+    webhook_status?: string;
+    quarantine_reason?: string | null;
+    reversal_transaction_id?: string | null;
+    reversal_reference?: string | null;
+    reversal_reason?: string | null;
+    dispute_status?: string | null;
+    dispute_reference?: string | null;
     sender_bank?: string | null;
     sender_account_name?: string | null;
     sender_account_number_masked?: string | null;
-    settlement_status: 'settled' | 'under_review' | 'failed';
+    settlement_status: 'settled' | 'under_review' | 'failed' | 'disputed' | 'reversed';
+    settled_at?: string | null;
+    reversed_at?: string | null;
+    resolved_at?: string | null;
+    created_at: string;
+  }>;
+  settlements_pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    total_pages: number;
+  };
+  unmatched_settlements?: PaystackDvaAdminStatusResponse['settlements'];
+}
+
+export interface PaystackDvaCustomerDetailResponse {
+  success: boolean;
+  customer: {
+    id: string;
+    full_name: string;
+    email: string;
+    phone_number?: string;
+    role: string;
+    status: string;
+    kyc_status: string;
+    kyc_level: number;
+    email_verified: boolean;
+    wallet_balance: number;
+    has_bvn: boolean;
+    bvn_last4?: string | null;
+    dva_consent: boolean;
+    created_at: string;
+  };
+  virtual_account: PaystackDvaAdminStatusResponse['accounts'][number] | null;
+  deposits: PaystackDvaAdminStatusResponse['settlements'];
+  history: Array<{
+    id: string;
+    source: 'audit_log' | 'footprint';
+    action: string;
+    actor: string;
+    status?: string;
+    reference?: string;
+    amount?: number | null;
+    details?: Record<string, any>;
     created_at: string;
   }>;
 }
@@ -1006,6 +1136,42 @@ export interface AdminOverviewData {
   };
   printing_summary?: PrintingOverviewSummary;
   printingSummary?: PrintingOverviewSummary;
+  paystack_dva_summary?: {
+    eligible_customers: number;
+    active_accounts: number;
+    pending_accounts: number;
+    failed_accounts: number;
+    successful_deposits: number;
+    gross_deposits: number;
+    total_fees: number;
+    net_settlements: number;
+    wallet_credits: number;
+    quarantined_count: number;
+    quarantined_amount: number;
+    reversed_disputed_count: number;
+    reversed_disputed_amount: number;
+    enable_paystack_dva?: boolean;
+    dva_rollout_mode?: string;
+    last_successful_webhook_at?: string | null;
+  } | null;
+  paystackDvaSummary?: {
+    eligible_customers: number;
+    active_accounts: number;
+    pending_accounts: number;
+    failed_accounts: number;
+    successful_deposits: number;
+    gross_deposits: number;
+    total_fees: number;
+    net_settlements: number;
+    wallet_credits: number;
+    quarantined_count: number;
+    quarantined_amount: number;
+    reversed_disputed_count: number;
+    reversed_disputed_amount: number;
+    enable_paystack_dva?: boolean;
+    dva_rollout_mode?: string;
+    last_successful_webhook_at?: string | null;
+  } | null;
   recentRegistrations: User[];
   recentOrders: TelecomOrder[];
   pendingFundings: Transaction[];
@@ -2116,8 +2282,10 @@ export interface AccountingChannelBalance {
   bank_name?: string | null;
   account_number?: string | null;
   opening_balance: number;
+  total_gross_inflow?: number;
   total_inflow: number;
   total_outflow: number;
+  total_customer_fees?: number;
   total_fees: number;
   expected_balance: number;
 }

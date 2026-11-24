@@ -72,6 +72,7 @@ import {
   BarChart2,
   Settings,
   Printer,
+  Landmark,
 } from 'lucide-react';
 
 // Admin child views
@@ -107,6 +108,7 @@ import {
   AccountingModuleKey,
 } from './accounting/BusinessManagementAccounting';
 import { AdminPrintingManagement } from './AdminPrintingManagement';
+import { PaystackDvaManagement } from './PaystackDvaManagement';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
@@ -122,6 +124,7 @@ export type AdminTabKey =
   | 'overview'
   | 'customers'
   | 'funding'
+  | 'paystack_dva'
   | 'footprints'
   | 'support_admin'
   | 'notifications_admin'
@@ -230,6 +233,7 @@ function resolveConfiguredConsoleTab(defaultTab?: string): AdminTabKey | null {
     dashboard: 'overview',
     customers: 'customers',
     funding: 'funding',
+    paystack_dva: 'paystack_dva',
     support_admin: 'support_admin',
     support: 'support_admin',
     reports_admin: 'reports_admin',
@@ -280,6 +284,7 @@ const CONSOLE_TAB_MODULE_MAP: Record<string, string> = {
   overview: 'overview',
   customers: 'customers',
   funding: 'funding',
+  paystack_dva: 'funding',
   support_admin: 'support_admin',
   reports_admin: 'reports_admin',
   printing: 'printing_admin',
@@ -304,6 +309,7 @@ const CONSOLE_TAB_MODULE_MAP: Record<string, string> = {
 const CONSOLE_TAB_REQUIRED_PERMS: Record<string, string[]> = {
   customers: ['customers'],
   funding: ['wallet'],
+  paystack_dva: ['wallet'],
   support_admin: ['support'],
   reports_admin: ['reports'],
   acc_overview: ['accounting', 'reports'],
@@ -968,6 +974,7 @@ export function SuperAdminDashboard({
         { id: 'overview', label: '1. Admin Overview', icon: LayoutDashboard },
         { id: 'customers', label: '2. Customer Management', icon: Users, permission: 'customers' },
         { id: 'funding', label: '3. Wallet & Paystack', icon: Wallet, badge: 'Paystack', permission: 'wallet' },
+        { id: 'paystack_dva', label: 'Paystack Virtual Accounts', icon: Landmark, badge: 'DVA', permission: 'wallet' },
         { id: 'support_admin', label: 'Support Centre', icon: LifeBuoy, badge: 'Stage 8', permission: 'support' },
         { id: 'reports_admin', label: 'Reports & Analytics (11)', icon: BarChart3, badge: '11 Reports', permission: 'reports' },
       ],
@@ -1292,6 +1299,8 @@ export function SuperAdminDashboard({
             {safeActiveTab === 'customers' && <CustomerManagement />}
 
             {safeActiveTab === 'funding' && <ManualFundingQueue />}
+
+            {safeActiveTab === 'paystack_dva' && <PaystackDvaManagement />}
 
             {safeActiveTab === 'footprints' && <FootprintsManagement />}
 

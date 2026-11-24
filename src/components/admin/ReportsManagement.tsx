@@ -444,32 +444,94 @@ export const ReportsManagement: React.FC = () => {
 
           {/* Report 4: Payment Report */}
           {activeReport === 'payment' && (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800">
-                <h3 className="text-sm font-bold text-white">Payment Gateway Settlement Reconciliation</h3>
+            <div className="space-y-4">
+              {reportsData.payment_summary && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                    <p className="text-xs text-slate-400 font-medium">Paystack Checkout Credits</p>
+                    <p className="text-xl font-bold text-emerald-400 font-mono mt-1">
+                      ₦{Number(reportsData.payment_summary.paystack_checkout?.wallet_credits || 0).toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                      Gross ₦{Number(reportsData.payment_summary.paystack_checkout?.gross || 0).toLocaleString()} &bull; Fees ₦{Number(reportsData.payment_summary.paystack_checkout?.fees || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                    <p className="text-xs text-indigo-400 font-medium">Paystack DVA Credits</p>
+                    <p className="text-xl font-bold text-indigo-400 font-mono mt-1">
+                      ₦{Number(reportsData.payment_summary.paystack_dva?.wallet_credits || 0).toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                      Gross ₦{Number(reportsData.payment_summary.paystack_dva?.gross || 0).toLocaleString()} &bull; Fees ₦{Number(reportsData.payment_summary.paystack_dva?.fees || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                    <p className="text-xs text-amber-400 font-medium">Other / Historical Gateways</p>
+                    <p className="text-xl font-bold text-amber-400 font-mono mt-1">
+                      ₦{Number(reportsData.payment_summary.other_gateways?.wallet_credits || 0).toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                      Fees ₦{Number(reportsData.payment_summary.other_gateways?.fees || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                    <p className="text-xs text-slate-300 font-medium">Total Wallet Credits (Unique)</p>
+                    <p className="text-xl font-bold text-white font-mono mt-1">
+                      ₦{Number(reportsData.payment_summary.total_wallet_credits || 0).toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                      Net Settlement ₦{Number(reportsData.payment_summary.total_net_settlement || 0).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                  <h3 className="text-sm font-bold text-white">Payment Gateway Settlement Reconciliation (No Double-Counting)</h3>
+                  <span className="text-[11px] text-slate-400">Paystack Checkout and Paystack DVA separated</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-800">
+                      <tr>
+                        <th className="py-3 px-4">Gateway Channel</th>
+                        <th className="py-3 px-4 text-right">Gross Deposits</th>
+                        <th className="py-3 px-4 text-right">Gateway Fees</th>
+                        <th className="py-3 px-4 text-right">Net Settlement</th>
+                        <th className="py-3 px-4 text-right">Wallet Credits</th>
+                        <th className="py-3 px-4 text-right">Success</th>
+                        <th className="py-3 px-4 text-right">Pending</th>
+                        <th className="py-3 px-4 text-right">Failed</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800 text-slate-300">
+                      {(reportsData.payment_report || []).map((gw: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-800/40">
+                          <td className="py-3 px-4 font-semibold text-white uppercase">
+                            {String(gw.gateway || 'MANUAL').replace(/_/g, ' ')}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono text-white">
+                            ₦{parseFloat(gw.gross_amount ?? gw.total_amount ?? 0).toLocaleString()}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono text-rose-400">
+                            ₦{parseFloat(gw.fees || 0).toLocaleString()}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono text-emerald-300">
+                            ₦{parseFloat(gw.net_settlement ?? gw.settled_amount ?? 0).toLocaleString()}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400">
+                            ₦{parseFloat(gw.settled_amount ?? gw.total_amount ?? 0).toLocaleString()}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono text-emerald-400">{gw.successful_count}</td>
+                          <td className="py-3 px-4 text-right font-mono text-amber-400">{gw.pending_count}</td>
+                          <td className="py-3 px-4 text-right font-mono text-red-400">{gw.failed_count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-800">
-                  <tr>
-                    <th className="py-3 px-4">Gateway</th>
-                    <th className="py-3 px-4">Deposits Volume</th>
-                    <th className="py-3 px-4">Success</th>
-                    <th className="py-3 px-4">Pending</th>
-                    <th className="py-3 px-4">Failed</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-300">
-                  {(reportsData.payment_report || []).map((gw: any, idx: number) => (
-                    <tr key={idx} className="hover:bg-slate-800/40">
-                      <td className="py-3 px-4 font-semibold text-white uppercase">{gw.gateway || 'MANUAL'}</td>
-                      <td className="py-3 px-4 font-mono text-emerald-400">₦{parseFloat(gw.total_amount || 0).toLocaleString()}</td>
-                      <td className="py-3 px-4 font-mono text-emerald-400">{gw.successful_count}</td>
-                      <td className="py-3 px-4 font-mono text-amber-400">{gw.pending_count}</td>
-                      <td className="py-3 px-4 font-mono text-red-400">{gw.failed_count}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           )}
 

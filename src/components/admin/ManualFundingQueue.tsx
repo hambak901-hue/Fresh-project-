@@ -36,6 +36,8 @@ export function ManualFundingQueue() {
   const [dvaStatus, setDvaStatus] = useState<PaystackDvaAdminStatusResponse | null>(null);
   const [dvaLoading, setDvaLoading] = useState(false);
   const [requeryingUserId, setRequeryingUserId] = useState<string | null>(null);
+  const [actioningUserId, setActioningUserId] = useState<string | null>(null);
+  const [resolvingSettlementKey, setResolvingSettlementKey] = useState<string | null>(null);
 
   // Direct Wallet Adjustment State
   const [customers, setCustomers] = useState<any[]>([]);
@@ -103,6 +105,40 @@ export function ManualFundingQueue() {
       setMessage({ type: 'error', text: err.message || 'Failed to sync/requery Paystack DVA.' });
     } finally {
       setRequeryingUserId(null);
+    }
+  };
+
+  const handleAdminDvaAction = async (
+    userId: string,
+    action: 'provision' | 'suspend' | 'reactivate' | 'deactivate' | 'mark_under_review'
+  ) => {
+    setActioningUserId(`${userId}:${action}`);
+    setMessage(null);
+    try {
+      const res = await api.adminPaystackDvaAction(userId, action);
+      setMessage({ type: 'success', text: res.message || `DVA ${action} completed.` });
+      await loadDvaStatus();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || `Failed to ${action} dedicated account.` });
+    } finally {
+      setActioningUserId(null);
+    }
+  };
+
+  const handleResolveSettlement = async (settlementId: string, action: 'reverify' | 'mark_failed') => {
+    setResolvingSettlementKey(`${settlementId}:${action}`);
+    setMessage(null);
+    try {
+      const res = await api.resolvePaystackDvaSettlement(settlementId, action);
+      setMessage({
+        type: 'success',
+        text: res.message || `DVA settlement ${action === 'reverify' ? 're-verified with Paystack' : 'marked failed'}.`,
+      });
+      await Promise.all([loadDvaStatus(), loadReports()]);
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Unable to process quarantined DVA settlement.' });
+    } finally {
+      setResolvingSettlementKey(null);
     }
   };
 
@@ -440,19 +476,26 @@ export function ManualFundingQueue() {
               {/* Detailed Breakdown Panels */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-                  <h3 className="text-sm font-bold text-white">Funding Source Breakdown</h3>
+                  <h3 className="text-sm font-bold text-white">Funding Source Breakdown (Separated &amp; Verified)</h3>
                   <div className="space-y-3 text-xs">
-                    <div className="flex justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
-                      <span className="text-slate-400">Paystack Checkout (Card/USSD/Transfer):</span>
+                    <div className="flex justify-between items-center p-3 rounded-xl bg-slate-950 border border-slate-800">
+                      <div>
+                        <span className="text-slate-300 font-medium block">Paystack Checkout (Card / USSD / Bank Transfer):</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {financialReports.funding.paystackCheckoutCount || 0} txns &bull; Gross ₦{(financialReports.funding.paystackCheckoutGross ?? financialReports.funding.paystackFunding ?? 0).toLocaleString()} &bull; Fees ₦{(financialReports.funding.paystackCheckoutFees || 0).toLocaleString()}
+                        </span>
+                      </div>
                       <span className="font-mono text-emerald-400 font-bold">
-                        ₦{(financialReports.funding.paystackFunding || 0).toLocaleString()}
+                        ₦{(financialReports.funding.paystackCheckoutFunding ?? financialReports.funding.paystackFunding ?? 0).toLocaleString()}
                       </span>
                     </div>
                     <div className="flex justify-between items-center p-3 rounded-xl bg-slate-950 border border-slate-800">
                       <div>
-                        <span className="text-slate-300 font-medium block">Paystack Dedicated Virtual Accounts (Net):</span>
+                        <span className="text-slate-300 font-medium block">Paystack Dedicated Virtual Accounts (Wallet Credits):</span>
                         <span className="text-[10px] text-slate-500 font-mono">
-                          {financialReports.funding.paystackDvaAccounts || 0} active DVAs &bull; {financialReports.funding.paystackDvaCount || 0} deposits &bull; Gross ₦{(financialReports.funding.paystackDvaGross || 0).toLocaleString()} &bull; Fees ₦{(financialReports.funding.paystackDvaFees || 0).toLocaleString()}
+                          {financialReports.funding.paystackDvaAccounts || 0} active DVAs &bull; {financialReports.funding.paystackDvaCount || 0} settled &bull; Gross ₦{(financialReports.funding.paystackDvaGross || 0).toLocaleString()} &bull; Cust Fee ₦{(financialReports.funding.paystackDvaCustomerFees || 0).toLocaleString()} &bull; Merch Fee ₦{(financialReports.funding.paystackDvaMerchantFees || 0).toLocaleString()} &bull; Net Paystack ₦{(financialReports.funding.paystackDvaNetSettlement || 0).toLocaleString()}
+                          {(financialReports.funding.paystackDvaQuarantinedCount || 0) > 0 ? ` • ${financialReports.funding.paystackDvaQuarantinedCount} under review` : ''}
+                          {(financialReports.funding.paystackDvaReversed || 0) > 0 ? ` • Reversed ₦${Number(financialReports.funding.paystackDvaReversed).toLocaleString()}` : ''}
                         </span>
                       </div>
                       <span className="font-mono text-indigo-400 font-bold">
@@ -461,7 +504,7 @@ export function ManualFundingQueue() {
                     </div>
                     {(financialReports.funding.flutterwaveFunding || 0) > 0 && (
                       <div className="flex justify-between p-3 rounded-xl bg-slate-950 border border-slate-800">
-                        <span className="text-slate-400">Legacy Flutterwave (Historical):</span>
+                        <span className="text-slate-400">Other Gateways / Legacy Flutterwave (Historical):</span>
                         <span className="font-mono text-amber-400 font-bold">
                           ₦{(financialReports.funding.flutterwaveFunding || 0).toLocaleString()}
                         </span>
@@ -472,6 +515,24 @@ export function ManualFundingQueue() {
                       <span className="font-mono text-sky-400 font-bold">
                         ₦{(financialReports.funding.manualFunding || 0).toLocaleString()}
                       </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800 text-[11px] font-mono">
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">Total Gross</span>
+                        <span className="text-white font-bold">₦{(financialReports.funding.totalGrossDeposits ?? financialReports.funding.totalFunding ?? 0).toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">Total Fees</span>
+                        <span className="text-rose-400 font-bold">₦{(financialReports.funding.totalGatewayFees ?? financialReports.funding.paystackDvaFees ?? 0).toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">Net Settlement</span>
+                        <span className="text-emerald-300 font-bold">₦{(financialReports.funding.totalNetSettlements ?? financialReports.funding.totalFunding ?? 0).toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">Wallet Credits</span>
+                        <span className="text-indigo-400 font-bold">₦{(financialReports.funding.totalWalletCredits ?? financialReports.funding.totalFunding ?? 0).toLocaleString()}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -610,7 +671,13 @@ export function ManualFundingQueue() {
                     </span>
                   </span>
                   <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-950/60 border border-slate-700/60">
-                    Policy: {dvaStatus.policy.enable_paystack_dva ? 'Enabled' : 'Paused'} &bull; Bearer: {dvaStatus.policy.fee_bearer}
+                    Policy: {dvaStatus.policy.enable_paystack_dva ? 'Enabled' : 'Paused'} &bull; Rollout:{' '}
+                    {dvaStatus.policy.dva_rollout_mode === 'all_eligible'
+                      ? 'All Eligible'
+                      : dvaStatus.policy.dva_rollout_mode === 'paused'
+                      ? 'Paused'
+                      : `Testing Allowlist (${dvaStatus.policy.dva_test_user_emails?.length || 0})`}
+                    {' '}&bull; Bearer: {dvaStatus.policy.fee_bearer}
                   </span>
                 </div>
 
@@ -640,37 +707,84 @@ export function ManualFundingQueue() {
               </div>
             )}
 
-            {/* DVA Summary KPIs */}
+            {/* DVA Summary KPIs & Separated Reconciliation Breakdown */}
             {dvaStatus?.totals && (
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="text-[10px] uppercase font-bold text-slate-400">Assigned Accounts</div>
-                  <div className="text-xl font-black font-mono text-emerald-400 mt-1">
-                    {dvaStatus.totals.assigned_accounts}
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 lg:grid-cols-7 gap-3">
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Active DVAs</div>
+                    <div className="text-xl font-black font-mono text-emerald-400 mt-1">
+                      {dvaStatus.totals.assigned_accounts}
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Processing</div>
+                    <div className="text-xl font-black font-mono text-amber-400 mt-1">
+                      {dvaStatus.totals.pending_accounts}
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Under Review</div>
+                    <div className="text-xl font-black font-mono text-sky-400 mt-1">
+                      {dvaStatus.totals.under_review_count ?? 0}
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Disputed / Reversed</div>
+                    <div className="text-xl font-black font-mono text-rose-400 mt-1">
+                      {(dvaStatus.totals.disputed_count ?? 0) + (dvaStatus.totals.reversed_count ?? 0)}
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Gross Deposits</div>
+                    <div className="text-xl font-black font-mono text-white mt-1">
+                      ₦{Number(dvaStatus.totals.total_gross || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Net Paystack Settled</div>
+                    <div className="text-xl font-black font-mono text-emerald-300 mt-1">
+                      ₦{Number(dvaStatus.totals.net_settlement ?? Math.max(0, (dvaStatus.totals.total_gross || 0) - (dvaStatus.totals.total_paystack_fees || 0))).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Wallet Liability Created</div>
+                    <div className="text-xl font-black font-mono text-indigo-400 mt-1">
+                      ₦{Number(dvaStatus.totals.wallet_liability_created ?? dvaStatus.totals.total_net_credited ?? 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </div>
                   </div>
                 </div>
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="text-[10px] uppercase font-bold text-slate-400">Pending Paystack</div>
-                  <div className="text-xl font-black font-mono text-amber-400 mt-1">
-                    {dvaStatus.totals.pending_accounts}
+
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 text-[11px] font-mono">
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Customer-Borne Fees</div>
+                    <div className="font-bold text-amber-300 mt-0.5">
+                      ₦{Number(dvaStatus.totals.customer_borne_fees || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </div>
                   </div>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="text-[10px] uppercase font-bold text-slate-400">DVA Gross Inflow</div>
-                  <div className="text-xl font-black font-mono text-white mt-1">
-                    ₦{Number(dvaStatus.totals.total_gross || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Merchant-Borne Fees</div>
+                    <div className="font-bold text-rose-400 mt-0.5">
+                      ₦{Number(dvaStatus.totals.merchant_borne_fees || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </div>
                   </div>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="text-[10px] uppercase font-bold text-slate-400">Paystack Charges</div>
-                  <div className="text-xl font-black font-mono text-rose-400 mt-1">
-                    ₦{Number(dvaStatus.totals.total_paystack_fees || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Total Paystack Fees</div>
+                    <div className="font-bold text-slate-200 mt-0.5">
+                      ₦{Number(dvaStatus.totals.total_paystack_fees || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </div>
                   </div>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="text-[10px] uppercase font-bold text-slate-400">Net Credited Wallets</div>
-                  <div className="text-xl font-black font-mono text-indigo-400 mt-1">
-                    ₦{Number(dvaStatus.totals.total_net_credited || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Quarantined Amount</div>
+                    <div className="font-bold text-sky-300 mt-0.5">
+                      ₦{Number(dvaStatus.totals.under_review_amount || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Reversed Deposits</div>
+                    <div className="font-bold text-rose-300 mt-0.5">
+                      ₦{Number(dvaStatus.totals.reversed_amount || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -682,7 +796,7 @@ export function ManualFundingQueue() {
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
                   Paystack-Generated Customer Accounts ({dvaStatus?.accounts?.length || 0})
                 </h4>
-                <span className="text-[11px] text-slate-500">Read-only Paystack assignments &bull; No manual creation</span>
+                <span className="text-[11px] text-slate-500">Official Paystack assignments &bull; Lifecycle governed</span>
               </div>
 
               <div className="overflow-x-auto rounded-xl border border-slate-800">
@@ -693,9 +807,9 @@ export function ManualFundingQueue() {
                       <th className="px-4 py-3">Account #</th>
                       <th className="px-4 py-3">Bank</th>
                       <th className="px-4 py-3">Paystack Customer Ref</th>
-                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Provisioning Status</th>
                       <th className="px-4 py-3 text-right">Total Inflow</th>
-                      <th className="px-4 py-3 text-right">Paystack Sync</th>
+                      <th className="px-4 py-3 text-right">Lifecycle &amp; Sync</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 bg-slate-900/60">
@@ -706,51 +820,103 @@ export function ManualFundingQueue() {
                         </td>
                       </tr>
                     ) : (
-                      dvaStatus.accounts.map(acc => (
-                        <tr key={acc.id} className="hover:bg-slate-800/40">
-                          <td className="px-4 py-3">
-                            <div className="font-semibold text-white">{acc.customer_name || acc.user_id}</div>
-                            <div className="text-[10px] text-slate-400 font-mono">{acc.customer_email || ''}</div>
-                          </td>
-                          <td className="px-4 py-3 font-mono font-bold text-emerald-400">
-                            {acc.account_number || <span className="text-amber-400">Pending Paystack</span>}
-                          </td>
-                          <td className="px-4 py-3 text-slate-300">{acc.bank_name || '—'}</td>
-                          <td className="px-4 py-3 font-mono text-slate-400">{acc.paystack_customer_code || '—'}</td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                acc.assignment_status === 'assigned' && acc.account_status === 'active'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                  : acc.assignment_status === 'pending'
-                                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                              }`}
-                            >
-                              {acc.assignment_status === 'assigned' ? acc.account_status : acc.assignment_status}
-                            </span>
-                            {acc.failure_reason && (
-                              <div className="text-[10px] text-rose-400 mt-1 max-w-xs truncate" title={acc.failure_reason}>
-                                {acc.failure_reason}
+                      dvaStatus.accounts.map(acc => {
+                        const prov = acc.provisioning_status || (acc.assignment_status === 'assigned' && acc.account_status === 'active' ? 'active' : acc.assignment_status);
+                        return (
+                          <tr key={acc.id} className="hover:bg-slate-800/40">
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-white">{acc.customer_name || acc.user_id}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">{acc.customer_email || ''}</div>
+                            </td>
+                            <td className="px-4 py-3 font-mono font-bold text-emerald-400">
+                              {acc.account_number || <span className="text-amber-400">Pending</span>}
+                            </td>
+                            <td className="px-4 py-3 text-slate-300">{acc.bank_name || '—'}</td>
+                            <td className="px-4 py-3 font-mono text-slate-400">{acc.paystack_customer_code || '—'}</td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                  prov === 'active'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                    : prov === 'processing' || prov === 'pending_identification'
+                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                    : prov === 'awaiting_customer_info' || prov === 'under_review'
+                                    ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                }`}
+                              >
+                                {String(prov).replace(/_/g, ' ')}
+                              </span>
+                              {acc.failure_reason && (
+                                <div className="text-[10px] text-rose-400 mt-1 max-w-xs truncate" title={acc.failure_reason}>
+                                  {acc.failure_reason}
+                                </div>
+                              )}
+                              {acc.last_synced_at && (
+                                <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                                  Synced: {new Date(acc.last_synced_at).toLocaleDateString()}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono font-bold text-white">
+                              ₦{Number(acc.total_inflow || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="inline-flex flex-wrap justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRequeryCustomerDva(acc.user_id)}
+                                  disabled={requeryingUserId === acc.user_id}
+                                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-[11px] font-semibold inline-flex items-center gap-1"
+                                >
+                                  <RefreshCw className={`w-3 h-3 ${requeryingUserId === acc.user_id ? 'animate-spin' : ''}`} />
+                                  <span>Requery</span>
+                                </button>
+                                {(prov === 'awaiting_customer_info' || prov === 'failed' || prov === 'not_requested') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdminDvaAction(acc.user_id, 'provision')}
+                                    disabled={actioningUserId === `${acc.user_id}:provision`}
+                                    className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-[11px] font-semibold"
+                                  >
+                                    {actioningUserId === `${acc.user_id}:provision` ? '...' : 'Provision'}
+                                  </button>
+                                )}
+                                {prov === 'active' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdminDvaAction(acc.user_id, 'suspend')}
+                                    disabled={actioningUserId === `${acc.user_id}:suspend`}
+                                    className="px-2.5 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 text-[11px] font-semibold"
+                                  >
+                                    Suspend
+                                  </button>
+                                )}
+                                {(prov === 'suspended' || prov === 'under_review') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdminDvaAction(acc.user_id, 'reactivate')}
+                                    disabled={actioningUserId === `${acc.user_id}:reactivate`}
+                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold"
+                                  >
+                                    Reactivate
+                                  </button>
+                                )}
+                                {(prov === 'active' || prov === 'suspended') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdminDvaAction(acc.user_id, 'deactivate')}
+                                    disabled={actioningUserId === `${acc.user_id}:deactivate`}
+                                    className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 text-[11px] font-semibold"
+                                  >
+                                    Deactivate
+                                  </button>
+                                )}
                               </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-white">
-                            ₦{Number(acc.total_inflow || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleRequeryCustomerDva(acc.user_id)}
-                              disabled={requeryingUserId === acc.user_id}
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-[11px] font-semibold inline-flex items-center gap-1"
-                            >
-                              <RefreshCw className={`w-3 h-3 ${requeryingUserId === acc.user_id ? 'animate-spin' : ''}`} />
-                              <span>Requery Paystack</span>
-                            </button>
-                          </td>
-                        </tr>
-                      ))
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -778,13 +944,14 @@ export function ManualFundingQueue() {
                       <th className="px-4 py-3 text-right">Paystack Fee</th>
                       <th className="px-4 py-3 text-right">Net Credit</th>
                       <th className="px-4 py-3">Bearer</th>
-                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Status &amp; Audit</th>
+                      <th className="px-4 py-3 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 bg-slate-900/60">
                     {!dvaStatus?.settlements?.length ? (
                       <tr>
-                        <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
+                        <td colSpan={9} className="px-4 py-6 text-center text-slate-500">
                           No Paystack DVA inbound transfers settled yet.
                         </td>
                       </tr>
@@ -798,12 +965,20 @@ export function ManualFundingQueue() {
                             <div className="font-semibold text-white">{s.customer_name || s.user_id || 'Unmatched'}</div>
                             <div className="text-[10px] text-slate-400 font-mono">{s.account_number}</div>
                           </td>
-                          <td className="px-4 py-3 font-mono text-slate-300">{s.paystack_reference}</td>
+                          <td className="px-4 py-3 font-mono text-slate-300">
+                            <div>{s.paystack_reference}</div>
+                            {s.reversal_reference && (
+                              <div className="text-[10px] text-rose-400">Rev: {s.reversal_reference}</div>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-right font-mono text-white">
                             ₦{Number(s.gross_amount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-rose-400">
-                            ₦{Number(s.paystack_fee).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                            <div>₦{Number(s.paystack_fee).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</div>
+                            {s.fee_confirmed === false && (
+                              <div className="text-[9px] text-amber-400">Unconfirmed</div>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right font-mono font-bold text-emerald-400">
                             ₦{Number(s.net_credit_amount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
@@ -816,11 +991,49 @@ export function ManualFundingQueue() {
                               className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                                 s.settlement_status === 'settled'
                                   ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                  : s.settlement_status === 'under_review'
+                                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                  : s.settlement_status === 'disputed'
+                                  ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                               }`}
                             >
-                              {s.settlement_status}
+                              {s.settlement_status.replace(/_/g, ' ')}
                             </span>
+                            {s.quarantine_reason && (
+                              <div className="text-[10px] text-amber-300 font-mono mt-1 max-w-[180px] truncate" title={s.quarantine_reason}>
+                                {s.quarantine_reason}
+                              </div>
+                            )}
+                            {s.dispute_status && (
+                              <div className="text-[10px] text-orange-300 font-mono mt-0.5">
+                                Dispute: {s.dispute_status}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {s.settlement_status === 'under_review' ? (
+                              <div className="inline-flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleResolveSettlement(s.id, 'reverify')}
+                                  disabled={resolvingSettlementKey !== null}
+                                  className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-[11px] font-semibold whitespace-nowrap"
+                                >
+                                  {resolvingSettlementKey === `${s.id}:reverify` ? '...' : 'Re-verify'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleResolveSettlement(s.id, 'mark_failed')}
+                                  disabled={resolvingSettlementKey !== null}
+                                  className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 disabled:opacity-50 text-rose-300 text-[11px] font-semibold whitespace-nowrap"
+                                >
+                                  {resolvingSettlementKey === `${s.id}:mark_failed` ? '...' : 'Mark Failed'}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-500">—</span>
+                            )}
                           </td>
                         </tr>
                       ))

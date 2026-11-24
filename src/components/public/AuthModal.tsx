@@ -61,6 +61,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [referralCheck, setReferralCheck] = useState<{ status: 'idle' | 'checking' | 'valid' | 'invalid'; message?: string }>({ status: 'idle' });
   const [publicProgram, setPublicProgram] = useState<ReferralPublicProgram | null>(null);
   const [agreeTerms, setAgreeTerms] = useState(false);
+  const [dvaConsent, setDvaConsent] = useState(false);
+  const [regBvn, setRegBvn] = useState('');
 
   const [otpCode, setOtpCode] = useState('');
   const [emailVerifyCode, setEmailVerifyCode] = useState('');
@@ -284,6 +286,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
+    if (regBvn.trim() && !/^\d{11}$/.test(regBvn.trim())) {
+      setError('Optional BVN must be exactly 11 numeric digits.');
+      return;
+    }
+
     try {
       setLoading(true);
       const registeredUser = await register({
@@ -291,6 +298,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         email: email.trim().toLowerCase(),
         phone_number: phone.trim(),
         password,
+        bvn: regBvn.trim() || undefined,
+        dva_consent: dvaConsent,
         referral_code: referralCode.trim().toUpperCase() || undefined,
         campaign_code: campaignCode.trim().toUpperCase() || undefined,
         agree_terms: true,
@@ -778,10 +787,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             </div>
 
-            <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-slate-950 border border-blue-200 dark:border-slate-800 flex items-start gap-2.5">
-              <ShieldCheck className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
-              <div className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                <strong className="text-blue-800 dark:text-blue-300">Starts at KYC Level 1 (Basic Profile):</strong> No NIN, BVN, or ID upload is needed right now. You can upgrade to Level 2 anytime in your portal to unlock higher limits &amp; virtual accounts.
+            <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-slate-950 border border-blue-200 dark:border-slate-800 space-y-2.5">
+              <div className="flex items-start gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
+                <div className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                  <strong className="text-blue-800 dark:text-blue-300">Starts at KYC Level 1 (Basic Profile):</strong> No documents are required to create your account. Email verification, KYC Level 2, and BVN unlock your permanent Paystack personal funding bank account automatically.
+                </div>
+              </div>
+              <div className="pt-1 border-t border-blue-200/70 dark:border-slate-800/80 space-y-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Bank Verification Number (BVN) <span className="text-slate-400 font-normal">(Optional &bull; 11 digits for instant DVA readiness)</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={11}
+                    value={regBvn}
+                    onChange={(e) => setRegBvn(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Optional 11-digit BVN"
+                    className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white font-mono placeholder-slate-400 focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="dvaConsentCheck"
+                    checked={dvaConsent}
+                    onChange={(e) => setDvaConsent(e.target.checked)}
+                    className="mt-0.5 rounded border-slate-300 dark:border-slate-700 text-blue-700"
+                  />
+                  <label htmlFor="dvaConsentCheck" className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug cursor-pointer">
+                    I consent to Paystack Dedicated Virtual Account provisioning and identity compliance validation once my account becomes eligible.
+                  </label>
+                </div>
               </div>
             </div>
 

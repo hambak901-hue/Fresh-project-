@@ -192,6 +192,12 @@ class CustomerController
         $dashboardConfig = DashboardConfigService::getConfig($this->db, $dashboardKey, 'published');
         $user['dashboard_config'] = $dashboardConfig;
 
+        $virtualAccountState = null;
+        try {
+            $virtualAccountState = (new WalletController())->buildVirtualAccountPayloadForUser($user, false, false);
+        } catch (Throwable) {
+        }
+
         Response::success([
             'user' => $user,
             'dashboard_config' => $dashboardConfig,
@@ -212,7 +218,8 @@ class CustomerController
             'recent_verifications' => $recentVerifications,
             'notifications' => $notifications,
             'announcements' => $announcements,
-            'bank_details' => null,
+            'bank_details' => $virtualAccountState['virtual_account'] ?? null,
+            'virtual_account_state' => $virtualAccountState,
         ]);
     }
 
@@ -392,6 +399,9 @@ class CustomerController
         $selfieUrl = trim((string)$request->input('selfie_url', ''));
         $poaUrl = trim((string)$request->input('proof_of_address_url', ''));
         $consent = (bool)$request->input('consent_obtained', true);
+        $dvaConsent = filter_var($request->input('dva_consent', $consent), FILTER_VALIDATE_BOOLEAN);
+        $dvaBankCode = trim((string)($request->input('bank_code') ?? $request->input('dva_bank_code', '')));
+        $dvaBankAccountNo = preg_replace('/\D/', '', (string)($request->input('bank_account_number') ?? $request->input('account_number', '')));
         $autoVerify = (bool)$request->input('auto_verify', false);
 
         if (empty($idNumber) && empty($nin) && empty($bvn)) {
@@ -674,6 +684,7 @@ class CustomerController
         }
 
         // Update user KYC status/tier ONLY on genuine verified match — NEVER downgrade an already-verified customer
+        $dvaResultState = null;
         if ($instantVerified) {
             try {
                 $this->db->execute(
@@ -686,14 +697,6 @@ class CustomerController
                     ['lvl' => $targetLevel, 'id' => $user['id']]
                 );
             }
-            // Best-effort automatic Paystack DVA provisioning on instant Tier 2+ verification
-            try {
-                $promotedUser = $this->db->fetchOne('SELECT * FROM users WHERE id = :id LIMIT 1', ['id' => $user['id']]);
-                if ($promotedUser && !empty($promotedUser['email_verified'])) {
-                    (new WalletController())->requestPaystackDvaForUser($promotedUser);
-                }
-            } catch (Throwable) {
-            }
         } elseif (strtolower((string)($user['kyc_status'] ?? '')) !== 'verified') {
             $this->db->execute(
                 'UPDATE users SET kyc_status = "pending", updated_at = NOW() WHERE id = :id AND LOWER(COALESCE(kyc_status, "")) != "verified"',
@@ -701,12 +704,12 @@ class CustomerController
             );
         }
 
-        // Sync user_profiles ONLY for pending metadata if verified or profile empty (never overwrite verified NIN/BVN silently)
+        // Persist DVA consent & bank code preference; only update verified NIN/BVN when instantVerified succeeded
         if ($instantVerified) {
             try {
                 $this->db->execute(
-                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, updated_at)
-                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, NOW())
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, dva_consent, dva_consent_at, dva_bank_code, updated_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, :dc1, CASE WHEN :dc2 = 1 THEN NOW() ELSE NULL END, :dbc, NOW())
                      ON DUPLICATE KEY UPDATE
                         nin = COALESCE(NULLIF(:nin2, ""), nin),
                         bvn = COALESCE(NULLIF(:bvn2, ""), bvn),
@@ -714,6 +717,9 @@ class CustomerController
                         state = COALESCE(NULLIF(:st2, ""), state),
                         lga = COALESCE(NULLIF(:lga2, ""), lga),
                         date_of_birth = COALESCE(NULLIF(:dob2, ""), date_of_birth),
+                        dva_consent = CASE WHEN :dc3 = 1 THEN 1 ELSE dva_consent END,
+                        dva_consent_at = CASE WHEN :dc4 = 1 AND dva_consent_at IS NULL THEN NOW() ELSE dva_consent_at END,
+                        dva_bank_code = COALESCE(NULLIF(:dbc2, ""), dva_bank_code),
                         updated_at = NOW()',
                     [
                         'uid' => $user['id'],
@@ -723,12 +729,52 @@ class CustomerController
                         'st' => $state ?: null,
                         'lga' => $lga ?: null,
                         'dob' => $dob ?: null,
+                        'dc1' => $dvaConsent ? 1 : 0,
+                        'dc2' => $dvaConsent ? 1 : 0,
+                        'dbc' => $dvaBankCode ?: null,
                         'nin2' => $nin,
                         'bvn2' => $bvn,
                         'addr2' => $resAddress,
                         'st2' => $state,
                         'lga2' => $lga,
                         'dob2' => $dob,
+                        'dc3' => $dvaConsent ? 1 : 0,
+                        'dc4' => $dvaConsent ? 1 : 0,
+                        'dbc2' => $dvaBankCode,
+                    ]
+                );
+            } catch (Throwable) {
+            }
+
+            try {
+                $promotedUser = $this->db->fetchOne('SELECT * FROM users WHERE id = :id LIMIT 1', ['id' => $user['id']]);
+                if ($promotedUser && !empty($promotedUser['email_verified'])) {
+                    $dvaResultState = (new WalletController())->autoProvisionDvaIfEligible($promotedUser, [
+                        'bvn' => $bvn,
+                        'bank_code' => $dvaBankCode,
+                        'account_number' => $dvaBankAccountNo,
+                    ]);
+                }
+            } catch (Throwable) {
+            }
+        } elseif ($dvaConsent || $dvaBankCode !== '') {
+            try {
+                $this->db->execute(
+                    'INSERT INTO user_profiles (user_id, dva_consent, dva_consent_at, dva_bank_code, updated_at)
+                     VALUES (:uid, :dc1, CASE WHEN :dc2 = 1 THEN NOW() ELSE NULL END, :dbc1, NOW())
+                     ON DUPLICATE KEY UPDATE
+                        dva_consent = CASE WHEN :dc3 = 1 THEN 1 ELSE dva_consent END,
+                        dva_consent_at = CASE WHEN :dc4 = 1 AND dva_consent_at IS NULL THEN NOW() ELSE dva_consent_at END,
+                        dva_bank_code = COALESCE(NULLIF(:dbc2, ""), dva_bank_code),
+                        updated_at = NOW()',
+                    [
+                        'uid' => $user['id'],
+                        'dc1' => $dvaConsent ? 1 : 0,
+                        'dc2' => $dvaConsent ? 1 : 0,
+                        'dbc1' => $dvaBankCode ?: null,
+                        'dc3' => $dvaConsent ? 1 : 0,
+                        'dc4' => $dvaConsent ? 1 : 0,
+                        'dbc2' => $dvaBankCode,
                     ]
                 );
             } catch (Throwable) {
@@ -799,6 +845,13 @@ class CustomerController
             $submission['automated_verification_result'] = $decodedAuto;
         }
         $refreshedUser = Auth::user($request);
+        $vaPayloadFinal = $dvaResultState['payload'] ?? null;
+        if (!$vaPayloadFinal && $refreshedUser) {
+            try {
+                $vaPayloadFinal = (new WalletController())->buildVirtualAccountPayloadForUser($refreshedUser, false, false);
+            } catch (Throwable) {
+            }
+        }
 
         Response::success([
             'submission_id' => $kycId,
@@ -806,6 +859,7 @@ class CustomerController
             'user' => $refreshedUser,
             'instant_verified' => $instantVerified,
             'verification_reference' => $verifRef,
+            'virtual_account_state' => $vaPayloadFinal,
         ], $instantVerified
             ? 'Your KYC submission was verified and your account tier has been upgraded!'
             : 'KYC submission received and queued for compliance review.');
@@ -886,7 +940,7 @@ class CustomerController
     {
         $user = Auth::requireAuth($request);
         $syncPending = ((string)$request->query('sync', '0')) === '1';
-        $payload = (new WalletController())->buildVirtualAccountPayloadForUser($user, $syncPending);
+        $payload = (new WalletController())->buildVirtualAccountPayloadForUser($user, $syncPending, true);
         Response::success($payload);
     }
 

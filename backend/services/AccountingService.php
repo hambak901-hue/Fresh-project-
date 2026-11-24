@@ -425,6 +425,16 @@ class AccountingService
             }
         }
 
+        $dvaByRef = [];
+        try {
+            foreach ($this->db->fetchAll('SELECT paystack_reference, gross_amount, paystack_fee, customer_borne_fee, merchant_borne_fee, net_credit_amount, net_settlement_amount, fee_bearer, settlement_status FROM paystack_dva_settlements') as $ds) {
+                if (!empty($ds['paystack_reference'])) {
+                    $dvaByRef[(string)$ds['paystack_reference']] = $ds;
+                }
+            }
+        } catch (Throwable) {
+        }
+
         // Preload authoritative activity_footprints, service_catalogue, and telecom_plans for historical cost attribution
         $footprintByRef = [];
         try {
@@ -458,8 +468,12 @@ class AccountingService
         }
 
         $txByRef = [];
+        $txById = [];
         $refundedOrigRefs = [];
         foreach ($txRows as $tr) {
+            if (!empty($tr['id'])) {
+                $txById[(string)$tr['id']] = $tr;
+            }
             if (!empty($tr['reference'])) {
                 $tRef = (string)$tr['reference'];
                 $txByRef[$tRef] = $tr;
@@ -474,7 +488,7 @@ class AccountingService
         }
 
         $existingEntries = [];
-        foreach ($this->db->fetchAll('SELECT id, source_table, source_id, entry_category, is_reversed, reconciliation_status FROM accounting_entries WHERE source_origin = "website"') as $ee) {
+        foreach ($this->db->fetchAll('SELECT id, source_table, source_id, entry_category, customer_borne_fee, is_reversed, reconciliation_status FROM accounting_entries WHERE source_origin = "website"') as $ee) {
             $k = $ee['source_table'] . '|' . $ee['source_id'] . '|' . $ee['entry_category'];
             $existingEntries[$k] = $ee;
         }
@@ -484,9 +498,9 @@ class AccountingService
         $skipped = 0;
 
         $upsertSql = 'INSERT INTO accounting_entries
-            (id, entry_number, entry_date, occurred_at, occurred_lagos, source_origin, source_table, source_id, entry_category, service_domain, title, description, reference, gross_amount, revenue_amount, cost_amount, fee_amount, expense_amount, net_profit_impact, wallet_liability_delta, payment_channel, account_code, reconciliation_status, customer_id, customer_name, metadata)
+            (id, entry_number, entry_date, occurred_at, occurred_lagos, source_origin, source_table, source_id, entry_category, service_domain, title, description, reference, gross_amount, revenue_amount, cost_amount, fee_amount, customer_borne_fee, expense_amount, net_profit_impact, wallet_liability_delta, payment_channel, account_code, reconciliation_status, customer_id, customer_name, metadata)
             VALUES
-            (:id, :eno, :edate, :occ_utc, :occ_lagos, "website", :stbl, :sid, :ecat, :sdom, :title, :desc, :ref, :gross, :rev, :cost, :fee, :exp, :profit, :liab, :pchan, :acode, :rstat, :cid, :cname, :meta)
+            (:id, :eno, :edate, :occ_utc, :occ_lagos, "website", :stbl, :sid, :ecat, :sdom, :title, :desc, :ref, :gross, :rev, :cost, :fee, :cbfee, :exp, :profit, :liab, :pchan, :acode, :rstat, :cid, :cname, :meta)
             ON DUPLICATE KEY UPDATE
                 entry_date = IF(is_reversed = 1, entry_date, VALUES(entry_date)),
                 occurred_at = IF(is_reversed = 1, occurred_at, VALUES(occurred_at)),
@@ -498,6 +512,7 @@ class AccountingService
                 revenue_amount = IF(is_reversed = 1, revenue_amount, VALUES(revenue_amount)),
                 cost_amount = IF(is_reversed = 1, cost_amount, VALUES(cost_amount)),
                 fee_amount = IF(is_reversed = 1, fee_amount, VALUES(fee_amount)),
+                customer_borne_fee = IF(is_reversed = 1, customer_borne_fee, VALUES(customer_borne_fee)),
                 expense_amount = IF(is_reversed = 1, expense_amount, VALUES(expense_amount)),
                 net_profit_impact = IF(is_reversed = 1, net_profit_impact, VALUES(net_profit_impact)),
                 wallet_liability_delta = IF(is_reversed = 1, wallet_liability_delta, VALUES(wallet_liability_delta)),
@@ -528,6 +543,7 @@ class AccountingService
             $revenue = 0.0;
             $cost = 0.0;
             $fee = 0.0;
+            $customerBorneFee = 0.0;
             $grossOut = $amount;
             $expense = 0.0;
             $liabilityDelta = 0.0;
@@ -539,6 +555,7 @@ class AccountingService
             $providerRawWalletDelta = null;
 
             $isRefundRef = str_starts_with(strtoupper($ref), 'REFUND_') || str_starts_with(strtoupper($ref), 'REV_') || $cat === 'reversal';
+            $isDebitReversal = false;
             $tOrder = null;
             $vRec = null;
             $mReq = null;
@@ -583,21 +600,49 @@ class AccountingService
                     $liabilityDelta = $isCustomer ? $amount : 0.0;
 
                     if ($gateway === 'paystack') {
-                        $paymentChannel = (is_array($metaArr) && ($metaArr['funding_method'] ?? '') === 'paystack_dva')
-                            ? 'paystack_dva'
-                            : 'paystack';
+                        $dvaRec = $dvaByRef[$ref] ?? null;
+                        $isDvaDeposit = ($dvaRec !== null) || (is_array($metaArr) && ($metaArr['funding_method'] ?? '') === 'paystack_dva');
+                        $paymentChannel = $isDvaDeposit ? 'paystack_dva' : 'paystack';
                         $accountCode = 'GATEWAY_PAYSTACK';
                         $reconcileStatus = 'unreconciled';
-                        $recordedFee = isset($payByRef[$ref]['fee']) ? (float)$payByRef[$ref]['fee'] : 0.0;
-                        $metaFee = is_array($metaArr) ? (float)($metaArr['paystack_fee'] ?? $metaArr['gateway_fee'] ?? 0) : 0.0;
-                        $metaGross = is_array($metaArr) ? (float)($metaArr['gross_amount'] ?? 0) : 0.0;
-                        if ($metaGross > 0) {
-                            $grossOut = $metaGross;
+
+                        if ($dvaRec !== null) {
+                            $dvaGross = round((float)($dvaRec['gross_amount'] ?? 0), 2);
+                            $grossOut = $dvaGross > 0 ? $dvaGross : $amount;
+                            $feeBearer = strtolower((string)($dvaRec['fee_bearer'] ?? (is_array($metaArr) ? ($metaArr['fee_bearer'] ?? 'merchant') : 'merchant')));
+                            $dvaTotalFee = round((float)($dvaRec['paystack_fee'] ?? 0), 2);
+                            $dvaCustFee = round((float)($dvaRec['customer_borne_fee'] ?? 0), 2);
+                            $dvaMerchFee = round((float)($dvaRec['merchant_borne_fee'] ?? 0), 2);
+                            if ($dvaCustFee <= 0 && $dvaMerchFee <= 0 && $dvaTotalFee > 0) {
+                                if ($feeBearer === 'customer') {
+                                    $dvaCustFee = $dvaTotalFee;
+                                } else {
+                                    $dvaMerchFee = $dvaTotalFee;
+                                }
+                            }
+                            $customerBorneFee = $dvaCustFee;
+                            $fee = $dvaMerchFee;
+                        } else {
+                            $recordedFee = isset($payByRef[$ref]['fee']) ? round((float)$payByRef[$ref]['fee'], 2) : 0.0;
+                            $metaFee = is_array($metaArr) ? round((float)($metaArr['paystack_fee'] ?? $metaArr['gateway_fee'] ?? 0), 2) : 0.0;
+                            $metaGross = is_array($metaArr) ? round((float)($metaArr['gross_amount'] ?? 0), 2) : 0.0;
+                            if ($metaGross > 0) {
+                                $grossOut = $metaGross;
+                            }
+                            $actualFee = $recordedFee > 0 ? $recordedFee : ($metaFee > 0 ? $metaFee : $this->estimateGatewayFee('paystack', $grossOut, $cfg));
+                            $feeBearer = is_array($metaArr) ? strtolower((string)($metaArr['fee_bearer'] ?? '')) : '';
+                            if ($feeBearer === 'customer') {
+                                // Customer bore Paystack fee: wallet was credited net of fee. Track customer_borne_fee separately
+                                // so Paystack channel closing balance deducts it without misstating merchant net profit.
+                                $customerBorneFee = (is_array($metaArr) && isset($metaArr['customer_borne_fee']))
+                                    ? round((float)$metaArr['customer_borne_fee'], 2)
+                                    : $actualFee;
+                                $fee = 0.0;
+                            } else {
+                                $customerBorneFee = 0.0;
+                                $fee = $actualFee;
+                            }
                         }
-                        $actualFee = $recordedFee > 0 ? $recordedFee : ($metaFee > 0 ? $metaFee : $this->estimateGatewayFee('paystack', $grossOut, $cfg));
-                        $feeBearer = is_array($metaArr) ? strtolower((string)($metaArr['fee_bearer'] ?? '')) : '';
-                        // If customer bore the Paystack fee, net wallet credit ($amount) already excludes the fee so platform net impact is 0 rather than double-deducted
-                        $fee = ($feeBearer === 'customer') ? 0.0 : $actualFee;
                     } elseif ($gateway === 'flutterwave') {
                         $paymentChannel = 'flutterwave';
                         $accountCode = 'GATEWAY_FLUTTERWAVE';
@@ -614,43 +659,94 @@ class AccountingService
                     }
                 }
             } elseif ($type === 'debit') {
-                $tOrder = $telecomByRef[$ref] ?? ($orderIdMeta !== '' ? ($telecomByRef[$orderIdMeta] ?? null) : null);
-                if (!$tOrder && !empty($tx['user_id']) && !empty($telecomByUser[(string)$tx['user_id']])) {
-                    $txTs = strtotime($utcStr) ?: 0;
-                    foreach ($telecomByUser[(string)$tx['user_id']] as $cand) {
-                        if (isset($claimedTelecomIds[$cand['id']])) {
-                            continue;
+                $isDebitReversal = ($cat === 'reversal' || str_starts_with(strtoupper($ref), 'REV_'));
+                if ($isDebitReversal) {
+                    $origRefMeta = is_array($metaArr) ? (string)($metaArr['original_reference'] ?? '') : '';
+                    $origRef = $origRefMeta !== '' ? $origRefMeta : (preg_replace('/^(REFUND_VT_|REFUND_|REV_)/i', '', $ref) ?? $ref);
+                    $origTxIdMeta = is_array($metaArr) ? (string)($metaArr['original_transaction_id'] ?? '') : '';
+                    $origTx = ($origTxIdMeta !== '' && isset($txById[$origTxIdMeta])) ? $txById[$origTxIdMeta] : ($txByRef[$origRef] ?? null);
+                    $origMeta = $origTx && is_string($origTx['metadata'] ?? null)
+                        ? json_decode((string)$origTx['metadata'], true)
+                        : ($origTx && is_array($origTx['metadata'] ?? null) ? $origTx['metadata'] : []);
+                    $origCat = strtolower((string)($origTx['category'] ?? ''));
+                    $origGateway = strtolower((string)($origTx['gateway'] ?? $gateway));
+                    $origFundingMethod = is_array($metaArr) && !empty($metaArr['original_funding_method'])
+                        ? (string)$metaArr['original_funding_method']
+                        : (is_array($origMeta) ? (string)($origMeta['funding_method'] ?? '') : '');
+                    $isFundingReversal = ($origGateway === 'paystack' || $origGateway === 'flutterwave' || $origGateway === 'manual_transfer'
+                        || $origCat === 'funding' || $origFundingMethod === 'paystack_dva' || $origFundingMethod === 'paystack_checkout');
+
+                    if ($isFundingReversal) {
+                        $entryCategory = 'wallet_funding_reversal';
+                        $serviceDomain = 'wallet_funding';
+                        $revenue = 0.0;
+                        $cost = 0.0;
+                        $fee = 0.0;
+                        $customerBorneFee = 0.0;
+                        $liabilityDelta = $isCustomer ? -$amount : 0.0;
+                        if ($origGateway === 'paystack' || $origFundingMethod === 'paystack_dva' || $origFundingMethod === 'paystack_checkout') {
+                            $paymentChannel = ($origFundingMethod === 'paystack_dva' || isset($dvaByRef[$origRef])) ? 'paystack_dva' : 'paystack';
+                            $accountCode = 'GATEWAY_PAYSTACK';
+                            $reconcileStatus = 'unreconciled';
+                        } elseif ($origGateway === 'flutterwave') {
+                            $paymentChannel = 'flutterwave';
+                            $accountCode = 'GATEWAY_FLUTTERWAVE';
+                            $reconcileStatus = 'unreconciled';
+                        } elseif ($origGateway === 'manual_transfer') {
+                            $paymentChannel = 'bank_transfer';
+                            $accountCode = 'BANK_MAIN';
+                            $reconcileStatus = 'unreconciled';
+                        } else {
+                            $paymentChannel = 'wallet';
+                            $accountCode = 'LIABILITY_CUSTOMER_WALLETS';
                         }
-                        $candTs = strtotime((string)($cand['created_at'] ?? '')) ?: 0;
-                        if (abs((float)$cand['amount'] - $amount) < 0.05 && abs($candTs - $txTs) <= 20) {
-                            $tOrder = $cand;
-                            break;
+                    } else {
+                        $entryCategory = 'wallet_debit_adjustment';
+                        $serviceDomain = 'wallet_adjustment';
+                        $revenue = 0.0;
+                        $cost = 0.0;
+                        $liabilityDelta = $isCustomer ? -$amount : 0.0;
+                        $paymentChannel = 'wallet';
+                        $accountCode = 'LIABILITY_CUSTOMER_WALLETS';
+                    }
+                } else {
+                    $tOrder = $telecomByRef[$ref] ?? ($orderIdMeta !== '' ? ($telecomByRef[$orderIdMeta] ?? null) : null);
+                    if (!$tOrder && !empty($tx['user_id']) && !empty($telecomByUser[(string)$tx['user_id']])) {
+                        $txTs = strtotime($utcStr) ?: 0;
+                        foreach ($telecomByUser[(string)$tx['user_id']] as $cand) {
+                            if (isset($claimedTelecomIds[$cand['id']])) {
+                                continue;
+                            }
+                            $candTs = strtotime((string)($cand['created_at'] ?? '')) ?: 0;
+                            if (abs((float)$cand['amount'] - $amount) < 0.05 && abs($candTs - $txTs) <= 20) {
+                                $tOrder = $cand;
+                                break;
+                            }
                         }
                     }
-                }
-                if ($tOrder && !empty($tOrder['id'])) {
-                    $claimedTelecomIds[$tOrder['id']] = true;
-                }
-                $vRec = $verifByRef[$ref] ?? null;
-                $mReq = $modByRef[$ref] ?? null;
-                $eOrd = $enrByRef[$ref] ?? null;
+                    if ($tOrder && !empty($tOrder['id'])) {
+                        $claimedTelecomIds[$tOrder['id']] = true;
+                    }
+                    $vRec = $verifByRef[$ref] ?? null;
+                    $mReq = $modByRef[$ref] ?? null;
+                    $eOrd = $enrByRef[$ref] ?? null;
 
-                $isAdminDebitAdj = in_array($cat, ['manual_adjustment', 'administrative_adjustment', 'withdrawal'], true) && !$tOrder && !$vRec && !$mReq && !$eOrd;
-                if ($isAdminDebitAdj) {
-                    $entryCategory = 'wallet_debit_adjustment';
-                    $serviceDomain = 'wallet_adjustment';
-                    $revenue = 0.0;
-                    $cost = 0.0;
-                    $liabilityDelta = $isCustomer ? -$amount : 0.0;
-                    $paymentChannel = 'wallet';
-                    $accountCode = 'LIABILITY_CUSTOMER_WALLETS';
-                } else {
-                    $entryCategory = 'website_service_sale';
-                    $serviceDomain = $this->classifyServiceDomain($cat, $ref, $tOrder, $vRec, $mReq, $eOrd, $fp);
-                    $revenue = $amount;
-                    $liabilityDelta = $isCustomer ? -$amount : 0.0;
-                    $paymentChannel = 'wallet';
-                    $accountCode = 'LIABILITY_CUSTOMER_WALLETS';
+                    $isAdminDebitAdj = in_array($cat, ['manual_adjustment', 'administrative_adjustment', 'withdrawal'], true) && !$tOrder && !$vRec && !$mReq && !$eOrd;
+                    if ($isAdminDebitAdj) {
+                        $entryCategory = 'wallet_debit_adjustment';
+                        $serviceDomain = 'wallet_adjustment';
+                        $revenue = 0.0;
+                        $cost = 0.0;
+                        $liabilityDelta = $isCustomer ? -$amount : 0.0;
+                        $paymentChannel = 'wallet';
+                        $accountCode = 'LIABILITY_CUSTOMER_WALLETS';
+                    } else {
+                        $entryCategory = 'website_service_sale';
+                        $serviceDomain = $this->classifyServiceDomain($cat, $ref, $tOrder, $vRec, $mReq, $eOrd, $fp);
+                        $revenue = $amount;
+                        $liabilityDelta = $isCustomer ? -$amount : 0.0;
+                        $paymentChannel = 'wallet';
+                        $accountCode = 'LIABILITY_CUSTOMER_WALLETS';
 
                     $hasMatchingRefund = isset($refundedOrigRefs[$ref]);
                     $orderFailed = ($tOrder && strtolower((string)($tOrder['status'] ?? '')) !== 'successful')
@@ -728,6 +824,7 @@ class AccountingService
                         $costVerified = false;
                         $costSource = 'unverified_no_provider_record';
                     }
+                    }
                 }
             }
 
@@ -738,12 +835,25 @@ class AccountingService
             } else {
                 $netProfitImpact = round($revenue - $cost - $fee - $expense, 2);
             }
+
+            if ($isDebitReversal) {
+                $misclassifiedKey = 'transactions|' . $tx['id'] . '|website_service_sale';
+                if (isset($existingEntries[$misclassifiedKey]) && empty($existingEntries[$misclassifiedKey]['is_reversed'])) {
+                    $this->db->execute(
+                        'DELETE FROM accounting_entries WHERE id = :id AND is_reversed = 0',
+                        ['id' => $existingEntries[$misclassifiedKey]['id']]
+                    );
+                    unset($existingEntries[$misclassifiedKey]);
+                }
+            }
+
             $lookupKey = 'transactions|' . $tx['id'] . '|' . $entryCategory;
             $exists = $existingEntries[$lookupKey] ?? null;
 
             if ($exists && !$forceFullRefresh) {
-                // Skip already-synced entries unless forceFullRefresh or pending cost update on recent transactions
-                if (strtotime($utcStr) < (time() - 86400 * 7)) {
+                // Skip already-synced entries unless forceFullRefresh, recent, or customer_borne_fee backfill needed
+                $prevCbFee = round((float)($exists['customer_borne_fee'] ?? 0), 2);
+                if (strtotime($utcStr) < (time() - 86400 * 7) && abs($prevCbFee - $customerBorneFee) < 0.01) {
                     $skipped++;
                     continue;
                 }
@@ -759,6 +869,14 @@ class AccountingService
                 'cost_verified' => $costVerified,
                 'cost_source' => $costSource,
             ];
+            if ($paymentChannel === 'paystack_dva' || $paymentChannel === 'paystack') {
+                $metaOut['customer_borne_fee'] = $customerBorneFee;
+                $metaOut['merchant_borne_fee'] = $fee;
+                $metaOut['net_settlement_amount'] = round(max(0.0, $grossOut - ($customerBorneFee + $fee)), 2);
+                if ($entryCategory === 'wallet_funding') {
+                    $metaOut['wallet_liability_created'] = $liabilityDelta;
+                }
+            }
             if ($providerRawWalletDelta !== null) {
                 $metaOut['provider_raw_wallet_delta'] = $providerRawWalletDelta;
             }
@@ -780,6 +898,7 @@ class AccountingService
                 'rev' => number_format($revenue, 2, '.', ''),
                 'cost' => number_format($cost, 2, '.', ''),
                 'fee' => number_format($fee, 2, '.', ''),
+                'cbfee' => number_format($customerBorneFee, 2, '.', ''),
                 'exp' => number_format($expense, 2, '.', ''),
                 'profit' => number_format($netProfitImpact, 2, '.', ''),
                 'liab' => number_format($liabilityDelta, 2, '.', ''),
@@ -915,8 +1034,10 @@ class AccountingService
         $channelRows = $this->db->fetchAll(
             'SELECT
                 payment_channel,
-                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN gross_amount ELSE 0 END), 0) AS inflow_total,
-                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (expense_amount > 0 OR entry_category IN ("operating_expense", "inventory_purchase", "referral_payout")) THEN (expense_amount + CASE WHEN entry_category = "inventory_purchase" THEN gross_amount ELSE 0 END) ELSE 0 END), 0) AS outflow_total,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN gross_amount ELSE 0 END), 0) AS gross_inflow_total,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN GREATEST(0, gross_amount - customer_borne_fee) ELSE 0 END), 0) AS inflow_total,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (expense_amount > 0 OR entry_category IN ("operating_expense", "inventory_purchase", "referral_payout", "wallet_funding_reversal")) THEN (expense_amount + CASE WHEN entry_category IN ("inventory_purchase", "wallet_funding_reversal") THEN gross_amount ELSE 0 END) ELSE 0 END), 0) AS outflow_total,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 THEN customer_borne_fee ELSE 0 END), 0) AS customer_fees_total,
                 COALESCE(SUM(CASE WHEN is_reversed = 0 THEN fee_amount ELSE 0 END), 0) AS fees_total
              FROM accounting_entries
              WHERE occurred_at >= :s1 AND occurred_at <= :e1
@@ -928,8 +1049,10 @@ class AccountingService
         foreach ($channelRows as $cr) {
             $ch = (string)$cr['payment_channel'];
             $channels[$ch] = [
+                'gross_inflow' => round((float)$cr['gross_inflow_total'], 2),
                 'inflow' => round((float)$cr['inflow_total'], 2),
                 'outflow' => round((float)$cr['outflow_total'], 2),
+                'customer_fees' => round((float)$cr['customer_fees_total'], 2),
                 'fees' => round((float)$cr['fees_total'], 2),
             ];
         }
@@ -2197,8 +2320,10 @@ class AccountingService
         $flows = $this->db->fetchAll(
             'SELECT
                 account_code,
-                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN gross_amount ELSE 0 END), 0) AS total_inflow,
-                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (expense_amount > 0 OR entry_category IN ("inventory_purchase", "operating_expense", "referral_payout")) THEN (expense_amount + CASE WHEN entry_category = "inventory_purchase" THEN gross_amount ELSE 0 END) ELSE 0 END), 0) AS total_outflow,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN gross_amount ELSE 0 END), 0) AS total_gross_inflow,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN GREATEST(0, gross_amount - customer_borne_fee) ELSE 0 END), 0) AS total_inflow,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (expense_amount > 0 OR entry_category IN ("inventory_purchase", "operating_expense", "referral_payout", "wallet_funding_reversal")) THEN (expense_amount + CASE WHEN entry_category IN ("inventory_purchase", "wallet_funding_reversal") THEN gross_amount ELSE 0 END) ELSE 0 END), 0) AS total_outflow,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 THEN customer_borne_fee ELSE 0 END), 0) AS total_customer_fees,
                 COALESCE(SUM(CASE WHEN is_reversed = 0 THEN fee_amount ELSE 0 END), 0) AS total_fees
              FROM accounting_entries
              WHERE account_code IS NOT NULL
@@ -2216,10 +2341,12 @@ class AccountingService
             if ($code === 'LIABILITY_CUSTOMER_WALLETS') {
                 continue;
             }
-            $f = $flowMap[$code] ?? ['total_inflow' => 0, 'total_outflow' => 0, 'total_fees' => 0];
+            $f = $flowMap[$code] ?? ['total_gross_inflow' => 0, 'total_inflow' => 0, 'total_outflow' => 0, 'total_customer_fees' => 0, 'total_fees' => 0];
             $opening = round((float)$acc['opening_balance'], 2);
+            $grossInflow = round((float)$f['total_gross_inflow'], 2);
             $inflow = round((float)$f['total_inflow'], 2);
             $outflow = round((float)$f['total_outflow'], 2);
+            $customerFees = round((float)$f['total_customer_fees'], 2);
             $fees = round((float)$f['total_fees'], 2);
             $expectedBalance = round($opening + $inflow - $outflow - $fees, 2);
 
@@ -2230,8 +2357,10 @@ class AccountingService
                 'bank_name' => $acc['bank_name'],
                 'account_number' => $acc['account_number'],
                 'opening_balance' => $opening,
+                'total_gross_inflow' => $grossInflow,
                 'total_inflow' => $inflow,
                 'total_outflow' => $outflow,
+                'total_customer_fees' => $customerFees,
                 'total_fees' => $fees,
                 'expected_balance' => $expectedBalance,
             ];
@@ -2261,8 +2390,8 @@ class AccountingService
         } else {
             $priorFlow = $this->db->fetchOne(
                 'SELECT
-                    COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN gross_amount ELSE 0 END), 0) AS pin,
-                    COALESCE(SUM(CASE WHEN is_reversed = 0 AND (expense_amount > 0 OR entry_category IN ("inventory_purchase", "operating_expense", "referral_payout")) THEN (expense_amount + CASE WHEN entry_category = "inventory_purchase" THEN gross_amount ELSE 0 END) ELSE 0 END), 0) AS pout,
+                    COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN GREATEST(0, gross_amount - customer_borne_fee) ELSE 0 END), 0) AS pin,
+                    COALESCE(SUM(CASE WHEN is_reversed = 0 AND (expense_amount > 0 OR entry_category IN ("inventory_purchase", "operating_expense", "referral_payout", "wallet_funding_reversal")) THEN (expense_amount + CASE WHEN entry_category IN ("inventory_purchase", "wallet_funding_reversal") THEN gross_amount ELSE 0 END) ELSE 0 END), 0) AS pout,
                     COALESCE(SUM(CASE WHEN is_reversed = 0 THEN fee_amount ELSE 0 END), 0) AS pf
                  FROM accounting_entries
                  WHERE account_code = :code AND occurred_at < :s1',
@@ -2273,35 +2402,69 @@ class AccountingService
 
         $dayRow = $this->db->fetchOne(
             'SELECT
-                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN gross_amount ELSE 0 END), 0) AS expected_inflow,
-                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (expense_amount > 0 OR entry_category IN ("inventory_purchase", "operating_expense", "referral_payout")) THEN (expense_amount + CASE WHEN entry_category = "inventory_purchase" THEN gross_amount ELSE 0 END) ELSE 0 END), 0) AS expected_outflow,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN gross_amount ELSE 0 END), 0) AS expected_gross_inflow,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (revenue_amount > 0 OR entry_category IN ("wallet_funding", "other_business_income")) THEN GREATEST(0, gross_amount - customer_borne_fee) ELSE 0 END), 0) AS expected_inflow,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 AND (expense_amount > 0 OR entry_category IN ("inventory_purchase", "operating_expense", "referral_payout", "wallet_funding_reversal")) THEN (expense_amount + CASE WHEN entry_category IN ("inventory_purchase", "wallet_funding_reversal") THEN gross_amount ELSE 0 END) ELSE 0 END), 0) AS expected_outflow,
+                COALESCE(SUM(CASE WHEN is_reversed = 0 THEN customer_borne_fee ELSE 0 END), 0) AS expected_customer_fees,
                 COALESCE(SUM(CASE WHEN is_reversed = 0 THEN fee_amount ELSE 0 END), 0) AS expected_fees
              FROM accounting_entries
              WHERE account_code = :code AND occurred_at >= :s1 AND occurred_at <= :e1',
             ['code' => $accountCode, 's1' => $win['start_utc'], 'e1' => $win['end_utc']]
         ) ?: [];
 
+        $grossInflow = round((float)($dayRow['expected_gross_inflow'] ?? 0), 2);
         $inflow = round((float)($dayRow['expected_inflow'] ?? 0), 2);
         $outflow = round((float)($dayRow['expected_outflow'] ?? 0), 2);
+        $customerFees = round((float)($dayRow['expected_customer_fees'] ?? 0), 2);
         $fees = round((float)($dayRow['expected_fees'] ?? 0), 2);
         $expectedClosing = round($openingBalance + $inflow - $outflow - $fees, 2);
 
         $entries = $this->db->fetchAll(
-            'SELECT id, entry_number, occurred_lagos, entry_category, title, reference, gross_amount, fee_amount, expense_amount, reconciliation_status
+            'SELECT id, entry_number, occurred_lagos, entry_category, title, reference, gross_amount, fee_amount, customer_borne_fee, expense_amount, wallet_liability_delta, payment_channel, reconciliation_status
              FROM accounting_entries
              WHERE account_code = :code AND occurred_at >= :s1 AND occurred_at <= :e1 AND is_reversed = 0
              ORDER BY occurred_at DESC',
             ['code' => $accountCode, 's1' => $win['start_utc'], 'e1' => $win['end_utc']]
         );
 
+        $dvaReconciliation = null;
+        if ($accountCode === 'GATEWAY_PAYSTACK') {
+            $dvaDay = $this->db->fetchOne(
+                'SELECT
+                    COALESCE(SUM(CASE WHEN is_reversed = 0 AND entry_category = "wallet_funding" THEN gross_amount ELSE 0 END), 0) AS gross_deposits,
+                    COALESCE(SUM(CASE WHEN is_reversed = 0 AND entry_category = "wallet_funding" THEN customer_borne_fee ELSE 0 END), 0) AS customer_borne_fees,
+                    COALESCE(SUM(CASE WHEN is_reversed = 0 AND entry_category = "wallet_funding" THEN fee_amount ELSE 0 END), 0) AS merchant_borne_fees,
+                    COALESCE(SUM(CASE WHEN is_reversed = 0 AND entry_category = "wallet_funding" THEN wallet_liability_delta ELSE 0 END), 0) AS wallet_liability_created,
+                    COALESCE(SUM(CASE WHEN is_reversed = 0 AND entry_category = "wallet_funding_reversal" THEN gross_amount ELSE 0 END), 0) AS reversals_amount
+                 FROM accounting_entries
+                 WHERE account_code = "GATEWAY_PAYSTACK" AND payment_channel = "paystack_dva" AND occurred_at >= :s1 AND occurred_at <= :e1',
+                ['s1' => $win['start_utc'], 'e1' => $win['end_utc']]
+            ) ?: [];
+            $dvaGross = round((float)($dvaDay['gross_deposits'] ?? 0), 2);
+            $dvaCustFee = round((float)($dvaDay['customer_borne_fees'] ?? 0), 2);
+            $dvaMerchFee = round((float)($dvaDay['merchant_borne_fees'] ?? 0), 2);
+            $dvaNetSettlement = round(max(0.0, $dvaGross - $dvaCustFee - $dvaMerchFee), 2);
+            $dvaReconciliation = [
+                'gross_deposits' => $dvaGross,
+                'customer_borne_fees' => $dvaCustFee,
+                'merchant_borne_fees' => $dvaMerchFee,
+                'net_settlement' => $dvaNetSettlement,
+                'wallet_liability_created' => round((float)($dvaDay['wallet_liability_created'] ?? 0), 2),
+                'reversals_amount' => round((float)($dvaDay['reversals_amount'] ?? 0), 2),
+            ];
+        }
+
         return [
             'reconcile_date' => $cleanDate,
             'account' => $acc,
             'opening_balance' => $openingBalance,
+            'expected_gross_inflow' => $grossInflow,
             'expected_inflow' => $inflow,
             'expected_outflow' => $outflow,
+            'expected_customer_fees' => $customerFees,
             'expected_fees' => $fees,
             'expected_closing' => $expectedClosing,
+            'dva_reconciliation' => $dvaReconciliation,
             'entries' => $entries,
         ];
     }

@@ -14,6 +14,7 @@ import {
   LifeBuoy,
   Store,
   Scale,
+  Landmark,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api, getStoredToken } from '../../lib/api';
@@ -109,6 +110,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
 
   const recentRegistrations: any[] = data?.recentRegistrations || (data as any)?.recent_registrations || [];
   const printingSummary = (data as any)?.printing_summary || (data as any)?.printingSummary || null;
+  const dvaSummary = (data as any)?.paystack_dva_summary || (data as any)?.paystackDvaSummary || null;
 
   const perms = Array.isArray(user?.permissions) ? user.permissions : [];
   const isSuper = user?.role === 'superadmin' || perms.includes('*');
@@ -130,6 +132,7 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
   if (canPrinting) deskShortcuts.push({ id: 'printing', label: 'Printing Desk', desc: 'Quotes, Orders, Pricing & Dispatch', icon: Printer });
   if (canCustomers) deskShortcuts.push({ id: 'customers', label: 'Customers', desc: 'Profiles, Agents & Alerts', icon: Users });
   if (canWallet) deskShortcuts.push({ id: 'funding', label: 'Wallet & Paystack', desc: 'Adjustments & Paystack Gateway', icon: Wallet });
+  if (canWallet) deskShortcuts.push({ id: 'paystack_dva', label: 'Virtual Accounts (DVA)', desc: 'Directory, Deposits & Controls', icon: Landmark });
   if (canKyc) deskShortcuts.push({ id: 'kyc_admin', label: 'KYC Reviews', desc: 'Compliance & Tier Upgrades', icon: ShieldCheck });
   if (canAccountingPhysical) deskShortcuts.push({ id: 'acc_physical_sales', label: 'Physical Counter', desc: 'Walk-in POS & Receipts', icon: Store });
   if (canAccountingReconcile) deskShortcuts.push({ id: 'acc_reconciliation', label: 'Reconciliation', desc: 'Cash / POS / Bank Recon', icon: Scale });
@@ -307,6 +310,85 @@ export function AdminOverview({ onNavigateToTab }: AdminOverviewProps) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* PAYSTACK VIRTUAL ACCOUNT MANAGEMENT Live Overview */}
+      {(canWallet || canFinance || isSuper) && dvaSummary && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
+                <Landmark className="w-4 h-4 text-indigo-400" />
+                <span>Paystack Virtual Account Management</span>
+              </h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Rollout: <span className="font-mono text-slate-200">{dvaSummary.dva_rollout_mode || 'paused'}</span> &bull; Status:{' '}
+                <span className={dvaSummary.enable_paystack_dva ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>
+                  {dvaSummary.enable_paystack_dva ? 'Enabled' : 'Disabled'}
+                </span>
+              </p>
+            </div>
+            {canWallet && (
+              <button
+                type="button"
+                onClick={() => onNavigateToTab('paystack_dva')}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 self-start sm:self-auto transition"
+              >
+                <span>Open DVA Console</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+              <p className="text-[11px] text-slate-400">Eligible Customers</p>
+              <p className="text-lg font-bold font-mono text-white mt-0.5">{Number(dvaSummary.eligible_customers || 0)}</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+              <p className="text-[11px] text-emerald-400">Active Accounts</p>
+              <p className="text-lg font-bold font-mono text-emerald-400 mt-0.5">{Number(dvaSummary.active_accounts || 0)}</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+              <p className="text-[11px] text-amber-400">Pending Assignments</p>
+              <p className="text-lg font-bold font-mono text-amber-400 mt-0.5">{Number(dvaSummary.pending_accounts || 0)}</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+              <p className="text-[11px] text-rose-400">Failed Assignments</p>
+              <p className="text-lg font-bold font-mono text-rose-400 mt-0.5">{Number(dvaSummary.failed_accounts || 0)}</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+              <p className="text-[11px] text-sky-400">Successful DVA Deposits</p>
+              <p className="text-lg font-bold font-mono text-sky-400 mt-0.5">{Number(dvaSummary.successful_deposits || 0)}</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+              <p className="text-[11px] text-amber-300">Unmatched / Quarantined</p>
+              <p className="text-lg font-bold font-mono text-amber-300 mt-0.5">{Number(dvaSummary.quarantined_count || 0)}</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+              <p className="text-[11px] text-slate-400">Gross DVA Deposits</p>
+              <p className="text-base font-bold font-mono text-white mt-0.5">₦{Number(dvaSummary.gross_deposits || 0).toLocaleString()}</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+              <p className="text-[11px] text-rose-300">Paystack DVA Fees</p>
+              <p className="text-base font-bold font-mono text-rose-300 mt-0.5">₦{Number(dvaSummary.total_fees || 0).toLocaleString()}</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+              <p className="text-[11px] text-emerald-300">Net DVA Settlements</p>
+              <p className="text-base font-bold font-mono text-emerald-300 mt-0.5">₦{Number(dvaSummary.net_settlements || 0).toLocaleString()}</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3">
+              <p className="text-[11px] text-indigo-400">Wallet Credits (DVA)</p>
+              <p className="text-base font-bold font-mono text-indigo-400 mt-0.5">₦{Number(dvaSummary.wallet_credits || 0).toLocaleString()}</p>
+            </div>
+            <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 sm:col-span-2">
+              <p className="text-[11px] text-rose-400">Reversed / Disputed</p>
+              <p className="text-base font-bold font-mono text-rose-400 mt-0.5">
+                {Number(dvaSummary.reversed_disputed_count || 0)} &bull; ₦{Number(dvaSummary.reversed_disputed_amount || 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 

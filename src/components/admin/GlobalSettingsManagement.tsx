@@ -273,6 +273,41 @@ const SETTINGS_CATEGORIES: CategoryConfig[] = [
         ],
         helper: 'Controls whether actual Paystack DVA charges are deducted before crediting wallet',
       },
+      {
+        key: 'dva_rollout_mode',
+        label: 'Paystack DVA Rollout Scope',
+        type: 'select',
+        options: [
+          { label: 'Controlled Testing Allowlist Only (Recommended until QA passes)', value: 'testing_allowlist' },
+          { label: 'All Eligible Customers (Live Production)', value: 'all_eligible' },
+          { label: 'Paused (Disable New Provisioning)', value: 'paused' },
+        ],
+        helper: 'Keep in Controlled Testing Allowlist until controlled QA tests pass before rolling out to all customers',
+      },
+      {
+        key: 'dva_test_user_emails',
+        label: 'Controlled Test Account Emails (Allowlist)',
+        type: 'textarea',
+        helper: 'Comma- or newline-separated customer emails permitted to auto-provision Paystack DVAs while Rollout Scope is set to Testing Allowlist',
+      },
+      {
+        key: 'dva_require_bvn',
+        label: 'Require BVN Before DVA Provisioning',
+        type: 'boolean',
+        helper: 'Enforce 11-digit BVN (per CBN/Paystack compliance; NIN alone is insufficient)',
+      },
+      {
+        key: 'dva_auto_provision_on_register',
+        label: 'Auto-Evaluate/Provision DVA on Registration & KYC Approval',
+        type: 'boolean',
+        helper: 'Automatically evaluate eligibility on registration/email verify/KYC upgrade and provision when eligible',
+      },
+      {
+        key: 'dva_auto_provision_on_wallet_open',
+        label: 'Auto-Provision Existing Eligible Customers on Wallet Open',
+        type: 'boolean',
+        helper: 'Automatically provision a personal Paystack DVA once when an eligible existing customer opens their wallet',
+      },
     ],
   },
   // 13. Provider Integration

@@ -110,7 +110,14 @@ class PaystackAdapter implements PaymentGatewayInterface
         curl_close($ch);
 
         $parsed = json_decode((string)$rawResponse, true);
-        $this->logCall($cleanPath, $upperMethod, $statusCode, $payload ?? [], $parsed ?: $rawResponse, $latencyMs, $ref);
+        $logPayload = $payload ?? [];
+        if (isset($logPayload['bvn'])) {
+            $logPayload['bvn'] = '***REDACTED***';
+        }
+        if (isset($logPayload['account_number']) && strlen((string)$logPayload['account_number']) > 4) {
+            $logPayload['account_number'] = '******' . substr((string)$logPayload['account_number'], -4);
+        }
+        $this->logCall($cleanPath, $upperMethod, $statusCode, $logPayload, $parsed ?: $rawResponse, $latencyMs, $ref);
 
         if ($rawResponse === false) {
             throw new RuntimeException("Paystack communication failure: {$curlError}");
@@ -228,18 +235,47 @@ class PaystackAdapter implements PaymentGatewayInterface
     }
 
     /**
+     * Update an existing Paystack Customer (PUT /customer/{code}).
+     */
+    public function updateCustomer(string $customerCode, array $userData): array
+    {
+        $payload = array_filter([
+            'first_name' => isset($userData['first_name']) ? trim((string)$userData['first_name']) : null,
+            'last_name' => isset($userData['last_name']) ? trim((string)$userData['last_name']) : null,
+            'phone' => isset($userData['phone']) ? trim((string)$userData['phone']) : null,
+            'metadata' => $userData['metadata'] ?? null,
+        ], static fn($v) => $v !== null && $v !== '');
+
+        return $this->apiRequest('PUT', '/customer/' . rawurlencode(trim($customerCode)), $payload, $customerCode);
+    }
+
+    /**
+     * Fetch supported Nigerian banks from Paystack (GET /bank?country=nigeria).
+     */
+    public function listBanks(string $country = 'nigeria'): array
+    {
+        $res = $this->apiRequest('GET', '/bank?country=' . rawurlencode($country) . '&perPage=100', null, 'PAYSTACK_BANKS');
+        return [
+            'ok' => $res['ok'],
+            'banks' => is_array($res['data']) ? $res['data'] : [],
+            'message' => $res['message'],
+        ];
+    }
+
+    /**
      * Validate Customer Identification with Paystack (POST /customer/{code}/identification).
+     * Official documented fields: country, type ('bank_account'), account_number, bvn, bank_code, first_name, last_name.
      */
     public function validateCustomerIdentification(string $customerCode, array $kycData): array
     {
         $payload = array_filter([
             'country' => 'NG',
             'type' => (string)($kycData['type'] ?? 'bank_account'),
-            'account_number' => $kycData['account_number'] ?? null,
-            'bvn' => $kycData['bvn'] ?? null,
-            'bank_code' => $kycData['bank_code'] ?? null,
-            'first_name' => $kycData['first_name'] ?? null,
-            'last_name' => $kycData['last_name'] ?? null,
+            'account_number' => !empty($kycData['account_number']) ? preg_replace('/\D/', '', (string)$kycData['account_number']) : null,
+            'bvn' => !empty($kycData['bvn']) ? preg_replace('/\D/', '', (string)$kycData['bvn']) : null,
+            'bank_code' => !empty($kycData['bank_code']) ? trim((string)$kycData['bank_code']) : null,
+            'first_name' => !empty($kycData['first_name']) ? trim((string)$kycData['first_name']) : null,
+            'last_name' => !empty($kycData['last_name']) ? trim((string)$kycData['last_name']) : null,
         ], static fn($v) => $v !== null && $v !== '');
 
         return $this->apiRequest(
@@ -485,6 +521,7 @@ class PaystackAdapter implements PaymentGatewayInterface
                 'status' => 'pending',
                 'amount' => 0.00,
                 'fee' => 0.00,
+                'fee_confirmed' => false,
                 'reference' => $reference,
                 'gateway_response' => $msg,
                 'raw' => $parsed,
@@ -501,6 +538,7 @@ class PaystackAdapter implements PaymentGatewayInterface
                 'status' => $isUninitiatedOrPending ? 'abandoned' : 'failed',
                 'amount' => 0.00,
                 'fee' => 0.00,
+                'fee_confirmed' => false,
                 'reference' => $reference,
                 'gateway_response' => $msg,
                 'raw' => $parsed,
@@ -508,19 +546,25 @@ class PaystackAdapter implements PaymentGatewayInterface
         }
 
         $data = $parsed['data'];
-        $nairaAmount = (float)($data['amount'] / 100);
-        $feeNaira = isset($data['fees']) ? round(((float)$data['fees']) / 100, 2) : 0.00;
-        $isSuccess = ($data['status'] === 'success');
+        $nairaAmount = round(((float)($data['amount'] ?? 0)) / 100, 2);
+        $feeConfirmed = array_key_exists('fees', $data) && $data['fees'] !== null && is_numeric($data['fees']);
+        $feeNaira = $feeConfirmed ? max(0.0, round(((float)$data['fees']) / 100, 2)) : 0.00;
+        $isSuccess = (strtolower((string)($data['status'] ?? '')) === 'success');
 
         return [
-            'status' => $isSuccess ? 'successful' : ($data['status'] ?? 'failed'),
+            'id' => isset($data['id']) ? (int)$data['id'] : null,
+            'status' => $isSuccess ? 'successful' : strtolower((string)($data['status'] ?? 'failed')),
             'amount' => $nairaAmount,
             'fee' => $feeNaira,
-            'currency' => $data['currency'] ?? 'NGN',
+            'fee_confirmed' => $feeConfirmed,
+            'currency' => strtoupper((string)($data['currency'] ?? 'NGN')),
             'reference' => $data['reference'] ?? $reference,
             'paid_at' => $data['paid_at'] ?? null,
-            'channel' => $data['channel'] ?? 'card',
+            'channel' => strtolower((string)($data['channel'] ?? 'card')),
             'customer_email' => $data['customer']['email'] ?? '',
+            'customer' => is_array($data['customer'] ?? null) ? $data['customer'] : [],
+            'authorization' => is_array($data['authorization'] ?? null) ? $data['authorization'] : [],
+            'metadata' => is_array($data['metadata'] ?? null) ? $data['metadata'] : [],
             'gateway_response' => $data['gateway_response'] ?? 'Approved',
             'raw' => $data,
         ];
@@ -531,12 +575,13 @@ class PaystackAdapter implements PaymentGatewayInterface
      */
     public function validateWebhookSignature(string $rawBody, string $signatureHeader): bool
     {
-        if (empty($signatureHeader) || empty($this->secretKey)) {
+        $cleanSig = strtolower(trim($signatureHeader));
+        if ($cleanSig === '' || empty($this->secretKey)) {
             return false;
         }
 
         $calculated = hash_hmac('sha512', $rawBody, $this->secretKey);
-        return hash_equals($calculated, $signatureHeader);
+        return hash_equals($calculated, $cleanSig);
     }
 
     private function logCall(string $endpoint, string $method, int $code, $req, $res, int $lat, ?string $ref): void

@@ -375,6 +375,95 @@ class AdminController
             'pendingFundingApprovals' => $pendFundVal,
         ];
 
+        $paystackDvaSummary = null;
+        if ($canFinance || $canWallet) {
+            $dvaSummary = [
+                'eligible_customers' => 0,
+                'active_accounts' => 0,
+                'pending_accounts' => 0,
+                'failed_accounts' => 0,
+                'successful_deposits' => 0,
+                'gross_deposits' => 0.0,
+                'total_fees' => 0.0,
+                'net_settlements' => 0.0,
+                'wallet_credits' => 0.0,
+                'quarantined_count' => 0,
+                'quarantined_amount' => 0.0,
+                'reversed_disputed_count' => 0,
+                'reversed_disputed_amount' => 0.0,
+                'enable_paystack_dva' => false,
+                'dva_rollout_mode' => 'paused',
+                'last_successful_webhook_at' => null,
+            ];
+            try {
+                $gwRaw = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "payment_gateways_settings" LIMIT 1');
+                $gwCfg = $gwRaw && !empty($gwRaw['setting_value']) ? json_decode((string)$gwRaw['setting_value'], true) : [];
+                if (is_array($gwCfg)) {
+                    $dvaSummary['enable_paystack_dva'] = !empty($gwCfg['enable_paystack_dva']);
+                    $dvaSummary['dva_rollout_mode'] = (string)($gwCfg['dva_rollout_mode'] ?? 'paused');
+                }
+                $requireBvn = is_array($gwCfg) && array_key_exists('dva_require_bvn', $gwCfg) ? !empty($gwCfg['dva_require_bvn']) : true;
+                $bvnSql = $requireBvn
+                    ? ' AND EXISTS (SELECT 1 FROM user_profiles up WHERE up.user_id = u.id AND up.bvn IS NOT NULL AND CHAR_LENGTH(TRIM(up.bvn)) >= 11)'
+                    : '';
+                $eligRow = $this->db->fetchOne(
+                    'SELECT COUNT(*) AS cnt
+                     FROM users u
+                     WHERE u.role IN ("customer", "student", "agent")
+                       AND u.status = "active"
+                       AND (COALESCE(u.email_verified, 0) = 1 OR COALESCE(u.email_verification_required, 0) = 0)
+                       AND COALESCE(u.kyc_level, u.tier, 1) >= 2' . $bvnSql
+                );
+                $dvaSummary['eligible_customers'] = (int)($eligRow['cnt'] ?? 0);
+
+                $vaRow = $this->db->fetchOne(
+                    'SELECT
+                        COUNT(CASE WHEN (provisioning_status = "active" OR (assignment_status = "assigned" AND account_status = "active" AND account_number != "")) THEN 1 END) AS active_cnt,
+                        COUNT(CASE WHEN (provisioning_status IN ("processing", "pending_identification") OR (provisioning_status = "not_requested" AND assignment_status = "pending")) THEN 1 END) AS pending_cnt,
+                        COUNT(CASE WHEN (provisioning_status = "failed" OR (provisioning_status = "not_requested" AND assignment_status = "failed")) THEN 1 END) AS failed_cnt
+                     FROM customer_virtual_accounts
+                     WHERE provider = "paystack"'
+                );
+                if ($vaRow) {
+                    $dvaSummary['active_accounts'] = (int)($vaRow['active_cnt'] ?? 0);
+                    $dvaSummary['pending_accounts'] = (int)($vaRow['pending_cnt'] ?? 0);
+                    $dvaSummary['failed_accounts'] = (int)($vaRow['failed_cnt'] ?? 0);
+                }
+
+                $stRow = $this->db->fetchOne(
+                    'SELECT
+                        COUNT(CASE WHEN settlement_status = "settled" THEN 1 END) AS settled_cnt,
+                        COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN gross_amount ELSE 0 END), 0) AS gross_sum,
+                        COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN paystack_fee ELSE 0 END), 0) AS fee_sum,
+                        COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN CASE WHEN net_settlement_amount > 0 THEN net_settlement_amount ELSE GREATEST(0, gross_amount - paystack_fee) END ELSE 0 END), 0) AS net_set_sum,
+                        COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN net_credit_amount ELSE 0 END), 0) AS credit_sum,
+                        COUNT(CASE WHEN settlement_status = "under_review" THEN 1 END) AS quar_cnt,
+                        COALESCE(SUM(CASE WHEN settlement_status = "under_review" THEN gross_amount ELSE 0 END), 0) AS quar_sum,
+                        COUNT(CASE WHEN settlement_status IN ("reversed", "disputed") THEN 1 END) AS rev_disp_cnt,
+                        COALESCE(SUM(CASE WHEN settlement_status IN ("reversed", "disputed") THEN gross_amount ELSE 0 END), 0) AS rev_disp_sum
+                     FROM paystack_dva_settlements'
+                );
+                if ($stRow) {
+                    $dvaSummary['successful_deposits'] = (int)($stRow['settled_cnt'] ?? 0);
+                    $dvaSummary['gross_deposits'] = round((float)($stRow['gross_sum'] ?? 0), 2);
+                    $dvaSummary['total_fees'] = round((float)($stRow['fee_sum'] ?? 0), 2);
+                    $dvaSummary['net_settlements'] = round((float)($stRow['net_set_sum'] ?? 0), 2);
+                    $dvaSummary['wallet_credits'] = round((float)($stRow['credit_sum'] ?? 0), 2);
+                    $dvaSummary['quarantined_count'] = (int)($stRow['quar_cnt'] ?? 0);
+                    $dvaSummary['quarantined_amount'] = round((float)($stRow['quar_sum'] ?? 0), 2);
+                    $dvaSummary['reversed_disputed_count'] = (int)($stRow['rev_disp_cnt'] ?? 0);
+                    $dvaSummary['reversed_disputed_amount'] = round((float)($stRow['rev_disp_sum'] ?? 0), 2);
+                }
+
+                $whRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "paystack_dva_last_webhook_at" LIMIT 1');
+                if ($whRow && !empty($whRow['setting_value'])) {
+                    $dvaSummary['last_successful_webhook_at'] = (string)$whRow['setting_value'];
+                }
+            } catch (Throwable) {
+            }
+            $paystackDvaSummary = $dvaSummary;
+        }
+
         $scopedRegistrations = $canCustomers ? $recentUsers : [];
         $scopedFundings = $canWallet ? $pendingFundings : [];
         $scopedOrders = $canFinance ? $recentOrders : [];
@@ -391,6 +480,8 @@ class AdminController
             'providers' => $scopedProviders,
             'printing_summary' => $printingSummary,
             'printingSummary' => $printingSummary,
+            'paystack_dva_summary' => $paystackDvaSummary,
+            'paystackDvaSummary' => $paystackDvaSummary,
         ]);
     }
 
@@ -956,9 +1047,19 @@ class AdminController
         $fundingStats = $this->db->fetchOne(
             'SELECT 
                 COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND status = "successful" THEN amount ELSE 0 END), 0) as total_funding,
-                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "paystack" AND status = "successful" THEN amount ELSE 0 END), 0) as paystack_funding,
+                COALESCE(SUM(CASE
+                    WHEN type = "credit" AND category = "funding" AND gateway = "paystack" AND status = "successful"
+                     AND NOT EXISTS (SELECT 1 FROM paystack_dva_settlements s WHERE s.paystack_reference = transactions.reference)
+                     AND (metadata IS NULL OR (metadata NOT LIKE \'%"funding_method":"paystack_dva"%\' AND metadata NOT LIKE \'%"channel":"dedicated_nuban"%\'))
+                    THEN amount ELSE 0 END), 0) as paystack_checkout_funding,
+                COUNT(CASE
+                    WHEN type = "credit" AND category = "funding" AND gateway = "paystack" AND status = "successful"
+                     AND NOT EXISTS (SELECT 1 FROM paystack_dva_settlements s WHERE s.paystack_reference = transactions.reference)
+                     AND (metadata IS NULL OR (metadata NOT LIKE \'%"funding_method":"paystack_dva"%\' AND metadata NOT LIKE \'%"channel":"dedicated_nuban"%\'))
+                    THEN 1 END) as paystack_checkout_count,
                 COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "flutterwave" AND status = "successful" THEN amount ELSE 0 END), 0) as flutterwave_funding,
                 COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "manual_transfer" AND status = "successful" THEN amount ELSE 0 END), 0) as manual_funding,
+                COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway NOT IN ("paystack", "flutterwave", "manual_transfer") AND status = "successful" THEN amount ELSE 0 END), 0) as other_gateway_funding,
                 COALESCE(SUM(CASE WHEN type = "credit" AND status = "successful" AND (reference LIKE "REFUND_%" OR category IN ("refund", "modification_refund", "enrolment_refund", "printing_refund")) THEN amount ELSE 0 END), 0) as total_refunds,
                 COUNT(CASE WHEN type = "credit" AND status = "successful" AND (reference LIKE "REFUND_%" OR category IN ("refund", "modification_refund", "enrolment_refund", "printing_refund")) THEN 1 END) as count_refunds,
                 COALESCE(SUM(CASE WHEN status = "successful" AND (category = "reversal" OR reference LIKE "REV_%") THEN amount ELSE 0 END), 0) as total_reversals,
@@ -968,6 +1069,29 @@ class AdminController
                 COUNT(CASE WHEN type = "credit" AND category = "funding" AND status = "successful" THEN 1 END) as count_funding
              FROM transactions'
         );
+
+        $gatewayFeeAgg = ['checkout_fees' => 0.0, 'other_fees' => 0.0];
+        try {
+            $prRow = $this->db->fetchOne(
+                'SELECT
+                    COALESCE(SUM(CASE
+                        WHEN LOWER(COALESCE(gateway, "")) = "paystack" AND status = "successful"
+                         AND NOT EXISTS (SELECT 1 FROM paystack_dva_settlements s WHERE s.paystack_reference = payment_records.reference)
+                         AND (raw_response IS NULL OR (raw_response NOT LIKE \'%"funding_method":"paystack_dva"%\' AND raw_response NOT LIKE \'%"channel":"dedicated_nuban"%\'))
+                        THEN COALESCE(fee, 0) ELSE 0 END), 0) as checkout_fees,
+                    COALESCE(SUM(CASE
+                        WHEN LOWER(COALESCE(gateway, "")) != "paystack" AND status = "successful"
+                        THEN COALESCE(fee, 0) ELSE 0 END), 0) as other_fees
+                 FROM payment_records'
+            );
+            if ($prRow) {
+                $gatewayFeeAgg = [
+                    'checkout_fees' => round((float)($prRow['checkout_fees'] ?? 0), 2),
+                    'other_fees' => round((float)($prRow['other_fees'] ?? 0), 2),
+                ];
+            }
+        } catch (Throwable) {
+        }
 
         $telecomAgg = $this->db->fetchOne(
             'SELECT 
@@ -1043,14 +1167,32 @@ class AdminController
         $grossProfit = $telecomProfit + ($identitySales - $identityCost);
         $profitMargin = $totalSales > 0 ? round(($grossProfit / $totalSales) * 100, 2) : 0;
 
-        $dvaStats = ['gross' => 0.0, 'fees' => 0.0, 'net' => 0.0, 'count' => 0, 'assigned_accounts' => 0];
+        $dvaStats = [
+            'gross' => 0.0,
+            'fees' => 0.0,
+            'customer_fees' => 0.0,
+            'merchant_fees' => 0.0,
+            'net_settlement' => 0.0,
+            'net' => 0.0,
+            'reversed' => 0.0,
+            'quarantined_count' => 0,
+            'disputed_count' => 0,
+            'count' => 0,
+            'assigned_accounts' => 0,
+        ];
         try {
             $dvaRow = $this->db->fetchOne(
                 'SELECT
                     COUNT(CASE WHEN settlement_status = "settled" THEN 1 END) as cnt,
-                    COALESCE(SUM(CASE WHEN settlement_status = "settled" THEN gross_amount ELSE 0 END), 0) as gross_sum,
-                    COALESCE(SUM(CASE WHEN settlement_status = "settled" THEN paystack_fee ELSE 0 END), 0) as fee_sum,
-                    COALESCE(SUM(CASE WHEN settlement_status = "settled" THEN net_credit_amount ELSE 0 END), 0) as net_sum
+                    COUNT(CASE WHEN settlement_status = "under_review" THEN 1 END) as quarantined_cnt,
+                    COUNT(CASE WHEN settlement_status = "disputed" THEN 1 END) as disputed_cnt,
+                    COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN gross_amount ELSE 0 END), 0) as gross_sum,
+                    COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN paystack_fee ELSE 0 END), 0) as fee_sum,
+                    COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN CASE WHEN customer_borne_fee > 0 THEN customer_borne_fee WHEN fee_bearer = "customer" THEN paystack_fee ELSE 0 END ELSE 0 END), 0) as cust_fee_sum,
+                    COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN CASE WHEN merchant_borne_fee > 0 THEN merchant_borne_fee WHEN fee_bearer = "merchant" THEN paystack_fee ELSE 0 END ELSE 0 END), 0) as merch_fee_sum,
+                    COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN CASE WHEN net_settlement_amount > 0 THEN net_settlement_amount ELSE GREATEST(0, gross_amount - paystack_fee) END ELSE 0 END), 0) as net_settlement_sum,
+                    COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN net_credit_amount ELSE 0 END), 0) as net_sum,
+                    COALESCE(SUM(CASE WHEN settlement_status = "reversed" THEN net_credit_amount ELSE 0 END), 0) as reversed_sum
                  FROM paystack_dva_settlements'
             );
             $vaCountRow = $this->db->fetchOne(
@@ -1060,7 +1202,13 @@ class AdminController
                 $dvaStats = [
                     'gross' => (float)($dvaRow['gross_sum'] ?? 0),
                     'fees' => (float)($dvaRow['fee_sum'] ?? 0),
+                    'customer_fees' => (float)($dvaRow['cust_fee_sum'] ?? 0),
+                    'merchant_fees' => (float)($dvaRow['merch_fee_sum'] ?? 0),
+                    'net_settlement' => (float)($dvaRow['net_settlement_sum'] ?? 0),
                     'net' => (float)($dvaRow['net_sum'] ?? 0),
+                    'reversed' => (float)($dvaRow['reversed_sum'] ?? 0),
+                    'quarantined_count' => (int)($dvaRow['quarantined_cnt'] ?? 0),
+                    'disputed_count' => (int)($dvaRow['disputed_cnt'] ?? 0),
                     'count' => (int)($dvaRow['cnt'] ?? 0),
                     'assigned_accounts' => (int)($vaCountRow['cnt'] ?? 0),
                 ];
@@ -1068,18 +1216,46 @@ class AdminController
         } catch (Throwable) {
         }
 
+        $checkoutFundingNet = round((float)($fundingStats['paystack_checkout_funding'] ?? 0), 2);
+        $checkoutFees = round((float)($gatewayFeeAgg['checkout_fees'] ?? 0), 2);
+        $checkoutGross = round($checkoutFundingNet + $checkoutFees, 2);
+        $flutterwaveFunding = round((float)($fundingStats['flutterwave_funding'] ?? 0), 2);
+        $manualFunding = round((float)($fundingStats['manual_funding'] ?? 0), 2);
+        $otherGatewayFunding = round($flutterwaveFunding + $manualFunding + (float)($fundingStats['other_gateway_funding'] ?? 0), 2);
+        $otherGatewayFees = round((float)($gatewayFeeAgg['other_fees'] ?? 0), 2);
+        $totalWalletCredits = round((float)($fundingStats['total_funding'] ?? ($checkoutFundingNet + $dvaStats['net'] + $otherGatewayFunding)), 2);
+        $totalGrossDeposits = round($checkoutGross + $dvaStats['gross'] + $otherGatewayFunding + $otherGatewayFees, 2);
+        $totalGatewayFees = round($checkoutFees + $dvaStats['fees'] + $otherGatewayFees, 2);
+        $totalNetSettlements = round(max(0.0, $totalGrossDeposits - $totalGatewayFees), 2);
+
         Response::success([
             'reports' => [
                 'funding' => [
-                    'totalFunding' => (float)($fundingStats['total_funding'] ?? 0),
-                    'paystackFunding' => (float)($fundingStats['paystack_funding'] ?? 0),
+                    'totalFunding' => $totalWalletCredits,
+                    'paystackFunding' => $checkoutFundingNet,
+                    'paystackCheckoutFunding' => $checkoutFundingNet,
+                    'paystackCheckoutGross' => $checkoutGross,
+                    'paystackCheckoutFees' => $checkoutFees,
+                    'paystackCheckoutCount' => (int)($fundingStats['paystack_checkout_count'] ?? 0),
                     'paystackDvaNet' => $dvaStats['net'],
                     'paystackDvaGross' => $dvaStats['gross'],
                     'paystackDvaFees' => $dvaStats['fees'],
+                    'paystackDvaCustomerFees' => $dvaStats['customer_fees'],
+                    'paystackDvaMerchantFees' => $dvaStats['merchant_fees'],
+                    'paystackDvaNetSettlement' => $dvaStats['net_settlement'],
+                    'paystackDvaReversed' => $dvaStats['reversed'],
+                    'paystackDvaQuarantinedCount' => $dvaStats['quarantined_count'],
+                    'paystackDvaDisputedCount' => $dvaStats['disputed_count'],
                     'paystackDvaCount' => $dvaStats['count'],
                     'paystackDvaAccounts' => $dvaStats['assigned_accounts'],
-                    'flutterwaveFunding' => (float)($fundingStats['flutterwave_funding'] ?? 0),
-                    'manualFunding' => (float)($fundingStats['manual_funding'] ?? 0),
+                    'flutterwaveFunding' => $flutterwaveFunding,
+                    'manualFunding' => $manualFunding,
+                    'otherGatewaysFunding' => $otherGatewayFunding,
+                    'otherGatewaysFees' => $otherGatewayFees,
+                    'totalGrossDeposits' => $totalGrossDeposits,
+                    'totalGatewayFees' => $totalGatewayFees,
+                    'totalNetSettlements' => $totalNetSettlements,
+                    'totalWalletCredits' => $totalWalletCredits,
                     'totalRefunds' => (float)($fundingStats['total_refunds'] ?? 0),
                     'refundsCount' => (int)($fundingStats['count_refunds'] ?? 0),
                     'totalReversals' => (float)($fundingStats['total_reversals'] ?? 0),
@@ -1298,21 +1474,52 @@ class AdminController
         } catch (Throwable) {
         }
 
-        // 4. Payment Report (combined online payment_records + manual_funding_requests)
+        // 4. Payment Report (strictly separated: Paystack Checkout vs Paystack DVA vs Other Gateways, zero double-counting)
         $payOnlineRange = $buildRange('created_at', 'pr');
         $onlineGatewayRows = $this->db->fetchAll(
             'SELECT 
-                COALESCE(NULLIF(LOWER(gateway), ""), "online") as gateway,
+                CASE
+                    WHEN COALESCE(NULLIF(LOWER(gateway), ""), "online") = "paystack" THEN "paystack_checkout"
+                    ELSE COALESCE(NULLIF(LOWER(gateway), ""), "online")
+                END as gateway,
                 COUNT(*) as transaction_count,
                 COALESCE(SUM(CASE WHEN status = "successful" THEN amount ELSE 0 END), 0) as settled_amount,
+                COALESCE(SUM(CASE WHEN status = "successful" THEN amount + COALESCE(fee, 0) ELSE amount END), 0) as gross_amount,
+                COALESCE(SUM(CASE WHEN status = "successful" THEN COALESCE(fee, 0) ELSE 0 END), 0) as fees,
                 COALESCE(SUM(amount), 0) as total_amount,
                 SUM(CASE WHEN status = "successful" THEN 1 ELSE 0 END) as successful_count,
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_count,
                 SUM(CASE WHEN status = "failed" THEN 1 ELSE 0 END) as failed_count
-             FROM payment_records WHERE 1=1' . $payOnlineRange['sql'] . '
-             GROUP BY COALESCE(NULLIF(LOWER(gateway), ""), "online")',
+             FROM payment_records
+             WHERE NOT EXISTS (SELECT 1 FROM paystack_dva_settlements s WHERE s.paystack_reference = payment_records.reference)
+               AND (raw_response IS NULL OR (raw_response NOT LIKE \'%"funding_method":"paystack_dva"%\' AND raw_response NOT LIKE \'%"channel":"dedicated_nuban"%\'))'
+            . $payOnlineRange['sql'] . '
+             GROUP BY CASE
+                WHEN COALESCE(NULLIF(LOWER(gateway), ""), "online") = "paystack" THEN "paystack_checkout"
+                ELSE COALESCE(NULLIF(LOWER(gateway), ""), "online")
+             END',
             $payOnlineRange['params']
         );
+
+        $dvaPayRange = $buildRange('created_at', 'dva');
+        $dvaPayRow = null;
+        try {
+            $dvaPayRow = $this->db->fetchOne(
+                'SELECT
+                    COUNT(*) as transaction_count,
+                    COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN net_credit_amount ELSE 0 END), 0) as settled_amount,
+                    COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN gross_amount ELSE 0 END), 0) as gross_amount,
+                    COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN paystack_fee ELSE 0 END), 0) as fees,
+                    COALESCE(SUM(CASE WHEN settlement_status IN ("settled", "disputed") THEN CASE WHEN net_settlement_amount > 0 THEN net_settlement_amount ELSE GREATEST(0, gross_amount - paystack_fee) END ELSE 0 END), 0) as net_settlement,
+                    COALESCE(SUM(gross_amount), 0) as total_amount,
+                    SUM(CASE WHEN settlement_status = "settled" THEN 1 ELSE 0 END) as successful_count,
+                    SUM(CASE WHEN settlement_status IN ("under_review", "disputed") THEN 1 ELSE 0 END) as pending_count,
+                    SUM(CASE WHEN settlement_status IN ("failed", "reversed") THEN 1 ELSE 0 END) as failed_count
+                 FROM paystack_dva_settlements WHERE 1=1' . $dvaPayRange['sql'],
+                $dvaPayRange['params']
+            );
+        } catch (Throwable) {
+        }
 
         $manPayRange = $buildRange('created_at', 'mp');
         $manualPayRow = $this->db->fetchOne(
@@ -1327,18 +1534,102 @@ class AdminController
             $manPayRange['params']
         );
 
-        $gatewayStats = $onlineGatewayRows;
+        $gatewayStats = [];
+        $checkoutSummary = ['gross' => 0.0, 'fees' => 0.0, 'net_settlement' => 0.0, 'wallet_credits' => 0.0, 'count' => 0];
+        $dvaSummaryReport = ['gross' => 0.0, 'fees' => 0.0, 'net_settlement' => 0.0, 'wallet_credits' => 0.0, 'count' => 0];
+        $otherGatewaySummary = ['gross' => 0.0, 'fees' => 0.0, 'net_settlement' => 0.0, 'wallet_credits' => 0.0, 'count' => 0];
+
+        foreach ($onlineGatewayRows as $gwRow) {
+            $gwKey = (string)($gwRow['gateway'] ?? 'online');
+            $settledAmt = round((float)($gwRow['settled_amount'] ?? 0), 2);
+            $feesAmt = round((float)($gwRow['fees'] ?? 0), 2);
+            $grossAmt = round((float)($gwRow['gross_amount'] ?? ($settledAmt + $feesAmt)), 2);
+            $netSet = round(max(0.0, $grossAmt - $feesAmt), 2);
+            $succCnt = (int)($gwRow['successful_count'] ?? 0);
+            $gatewayStats[] = [
+                'gateway' => $gwKey,
+                'transaction_count' => (int)($gwRow['transaction_count'] ?? 0),
+                'settled_amount' => $settledAmt,
+                'gross_amount' => $grossAmt,
+                'fees' => $feesAmt,
+                'net_settlement' => $netSet,
+                'total_amount' => round((float)($gwRow['total_amount'] ?? 0), 2),
+                'successful_count' => $succCnt,
+                'pending_count' => (int)($gwRow['pending_count'] ?? 0),
+                'failed_count' => (int)($gwRow['failed_count'] ?? 0),
+            ];
+            if ($gwKey === 'paystack_checkout') {
+                $checkoutSummary['gross'] += $grossAmt;
+                $checkoutSummary['fees'] += $feesAmt;
+                $checkoutSummary['net_settlement'] += $netSet;
+                $checkoutSummary['wallet_credits'] += $settledAmt;
+                $checkoutSummary['count'] += $succCnt;
+            } else {
+                $otherGatewaySummary['gross'] += $grossAmt;
+                $otherGatewaySummary['fees'] += $feesAmt;
+                $otherGatewaySummary['net_settlement'] += $netSet;
+                $otherGatewaySummary['wallet_credits'] += $settledAmt;
+                $otherGatewaySummary['count'] += $succCnt;
+            }
+        }
+
+        if ($dvaPayRow && (int)($dvaPayRow['transaction_count'] ?? 0) > 0) {
+            $dSettled = round((float)($dvaPayRow['settled_amount'] ?? 0), 2);
+            $dGross = round((float)($dvaPayRow['gross_amount'] ?? 0), 2);
+            $dFees = round((float)($dvaPayRow['fees'] ?? 0), 2);
+            $dNetSet = round((float)($dvaPayRow['net_settlement'] ?? 0), 2);
+            $dSucc = (int)($dvaPayRow['successful_count'] ?? 0);
+            $gatewayStats[] = [
+                'gateway' => 'paystack_dva',
+                'transaction_count' => (int)$dvaPayRow['transaction_count'],
+                'settled_amount' => $dSettled,
+                'gross_amount' => $dGross,
+                'fees' => $dFees,
+                'net_settlement' => $dNetSet,
+                'total_amount' => round((float)($dvaPayRow['total_amount'] ?? 0), 2),
+                'successful_count' => $dSucc,
+                'pending_count' => (int)($dvaPayRow['pending_count'] ?? 0),
+                'failed_count' => (int)($dvaPayRow['failed_count'] ?? 0),
+            ];
+            $dvaSummaryReport = [
+                'gross' => $dGross,
+                'fees' => $dFees,
+                'net_settlement' => $dNetSet,
+                'wallet_credits' => $dSettled,
+                'count' => $dSucc,
+            ];
+        }
+
         if ((int)($manualPayRow['transaction_count'] ?? 0) > 0) {
+            $mSettled = round((float)($manualPayRow['settled_amount'] ?? 0), 2);
+            $mSucc = (int)($manualPayRow['successful_count'] ?? 0);
             $gatewayStats[] = [
                 'gateway' => 'manual_transfer',
                 'transaction_count' => (int)$manualPayRow['transaction_count'],
-                'settled_amount' => (float)$manualPayRow['settled_amount'],
-                'total_amount' => (float)$manualPayRow['total_amount'],
-                'successful_count' => (int)$manualPayRow['successful_count'],
-                'pending_count' => (int)$manualPayRow['pending_count'],
-                'failed_count' => (int)$manualPayRow['failed_count'],
+                'settled_amount' => $mSettled,
+                'gross_amount' => $mSettled,
+                'fees' => 0.0,
+                'net_settlement' => $mSettled,
+                'total_amount' => round((float)($manualPayRow['total_amount'] ?? 0), 2),
+                'successful_count' => $mSucc,
+                'pending_count' => (int)($manualPayRow['pending_count'] ?? 0),
+                'failed_count' => (int)($manualPayRow['failed_count'] ?? 0),
             ];
+            $otherGatewaySummary['gross'] += $mSettled;
+            $otherGatewaySummary['net_settlement'] += $mSettled;
+            $otherGatewaySummary['wallet_credits'] += $mSettled;
+            $otherGatewaySummary['count'] += $mSucc;
         }
+
+        $paymentSummary = [
+            'paystack_checkout' => $checkoutSummary,
+            'paystack_dva' => $dvaSummaryReport,
+            'other_gateways' => $otherGatewaySummary,
+            'total_gross_deposits' => round($checkoutSummary['gross'] + $dvaSummaryReport['gross'] + $otherGatewaySummary['gross'], 2),
+            'total_fees' => round($checkoutSummary['fees'] + $dvaSummaryReport['fees'] + $otherGatewaySummary['fees'], 2),
+            'total_net_settlement' => round($checkoutSummary['net_settlement'] + $dvaSummaryReport['net_settlement'] + $otherGatewaySummary['net_settlement'], 2),
+            'total_wallet_credits' => round($checkoutSummary['wallet_credits'] + $dvaSummaryReport['wallet_credits'] + $otherGatewaySummary['wallet_credits'], 2),
+        ];
 
         // 5. Identity Service Report (Verification + Modification + Enrolment, completed revenue/wholesale only)
         $vrfRange = $buildRange('created_at', 'vrf');
@@ -1559,6 +1850,7 @@ class AdminController
             ],
             'wallet_report' => $walletSummary,
             'payment_report' => $gatewayStats,
+            'payment_summary' => $paymentSummary,
             'nin_service_report' => [
                 'summary' => $ninSummary,
                 'breakdown' => $ninServiceBreakdown,
@@ -4954,11 +5246,57 @@ class AdminController
                 'UPDATE users SET kyc_status = "verified", tier = GREATEST(tier, :t), kyc_level = GREATEST(kyc_level, :kl), updated_at = NOW() WHERE id = :uid',
                 ['t' => $targetLevel, 'kl' => $targetLevel, 'uid' => $sub['user_id']]
             );
+            // Sync verified KYC identity details to user_profiles (protecting BVN/NIN uniqueness)
+            try {
+                $subNin = preg_replace('/\D/', '', (string)($sub['nin'] ?? ''));
+                $subBvn = preg_replace('/\D/', '', (string)($sub['bvn'] ?? ''));
+                if ($subNin !== '' && $this->db->fetchOne('SELECT user_id FROM user_profiles WHERE nin = :n AND user_id != :u LIMIT 1', ['n' => $subNin, 'u' => $sub['user_id']])) {
+                    $subNin = '';
+                }
+                if ($subBvn !== '' && $this->db->fetchOne('SELECT user_id FROM user_profiles WHERE bvn = :b AND user_id != :u LIMIT 1', ['b' => $subBvn, 'u' => $sub['user_id']])) {
+                    $subBvn = '';
+                }
+                $dvaConsentVal = !empty($sub['consent_obtained']) ? 1 : 0;
+                $this->db->execute(
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, dva_consent, dva_consent_at, updated_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, :dc1, CASE WHEN :dc2 = 1 THEN NOW() ELSE NULL END, NOW())
+                     ON DUPLICATE KEY UPDATE
+                        nin = COALESCE(NULLIF(:nin2, ""), nin),
+                        bvn = COALESCE(NULLIF(:bvn2, ""), bvn),
+                        address = COALESCE(NULLIF(:addr2, ""), address),
+                        state = COALESCE(NULLIF(:st2, ""), state),
+                        lga = COALESCE(NULLIF(:lga2, ""), lga),
+                        date_of_birth = COALESCE(NULLIF(:dob2, ""), date_of_birth),
+                        dva_consent = CASE WHEN :dc3 = 1 THEN 1 ELSE dva_consent END,
+                        dva_consent_at = CASE WHEN :dc4 = 1 AND dva_consent_at IS NULL THEN NOW() ELSE dva_consent_at END,
+                        updated_at = NOW()',
+                    [
+                        'uid' => $sub['user_id'],
+                        'nin' => $subNin ?: null,
+                        'bvn' => $subBvn ?: null,
+                        'addr' => ($sub['residential_address'] ?? null) ?: null,
+                        'st' => ($sub['state'] ?? null) ?: null,
+                        'lga' => ($sub['lga'] ?? null) ?: null,
+                        'dob' => ($sub['date_of_birth'] ?? null) ?: null,
+                        'dc1' => $dvaConsentVal,
+                        'dc2' => $dvaConsentVal,
+                        'nin2' => $subNin,
+                        'bvn2' => $subBvn,
+                        'addr2' => (string)($sub['residential_address'] ?? ''),
+                        'st2' => (string)($sub['state'] ?? ''),
+                        'lga2' => (string)($sub['lga'] ?? ''),
+                        'dob2' => (string)($sub['date_of_birth'] ?? ''),
+                        'dc3' => $dvaConsentVal,
+                        'dc4' => $dvaConsentVal,
+                    ]
+                );
+            } catch (Throwable) {
+            }
             // Best-effort automatic Paystack DVA provisioning when customer reaches KYC Tier 2+
             try {
                 $promotedUser = $this->db->fetchOne('SELECT * FROM users WHERE id = :uid LIMIT 1', ['uid' => $sub['user_id']]);
-                if ($promotedUser && !empty($promotedUser['email_verified'])) {
-                    (new WalletController())->requestPaystackDvaForUser($promotedUser);
+                if ($promotedUser) {
+                    (new WalletController())->autoProvisionDvaIfEligible($promotedUser);
                 }
             } catch (Throwable) {
             }
@@ -5131,6 +5469,43 @@ class AdminController
                 'UPDATE users SET kyc_status = "verified", tier = GREATEST(tier, :t), kyc_level = GREATEST(kyc_level, :kl), updated_at = NOW() WHERE id = :uid',
                 ['t' => $targetLevel, 'kl' => $targetLevel, 'uid' => $sub['user_id']]
             );
+            try {
+                $subNin = preg_replace('/\D/', '', (string)($sub['nin'] ?? ''));
+                $subBvn = preg_replace('/\D/', '', (string)($sub['bvn'] ?? ''));
+                if ($subNin !== '' && $this->db->fetchOne('SELECT user_id FROM user_profiles WHERE nin = :n AND user_id != :u LIMIT 1', ['n' => $subNin, 'u' => $sub['user_id']])) {
+                    $subNin = '';
+                }
+                if ($subBvn !== '' && $this->db->fetchOne('SELECT user_id FROM user_profiles WHERE bvn = :b AND user_id != :u LIMIT 1', ['b' => $subBvn, 'u' => $sub['user_id']])) {
+                    $subBvn = '';
+                }
+                $dvaConsentVal = !empty($sub['consent_obtained']) ? 1 : 0;
+                $this->db->execute(
+                    'INSERT INTO user_profiles (user_id, nin, bvn, dva_consent, dva_consent_at, updated_at)
+                     VALUES (:uid, :nin, :bvn, :dc1, CASE WHEN :dc2 = 1 THEN NOW() ELSE NULL END, NOW())
+                     ON DUPLICATE KEY UPDATE
+                        nin = COALESCE(NULLIF(:nin2, ""), nin),
+                        bvn = COALESCE(NULLIF(:bvn2, ""), bvn),
+                        dva_consent = CASE WHEN :dc3 = 1 THEN 1 ELSE dva_consent END,
+                        dva_consent_at = CASE WHEN :dc4 = 1 AND dva_consent_at IS NULL THEN NOW() ELSE dva_consent_at END,
+                        updated_at = NOW()',
+                    [
+                        'uid' => $sub['user_id'],
+                        'nin' => $subNin ?: null,
+                        'bvn' => $subBvn ?: null,
+                        'dc1' => $dvaConsentVal,
+                        'dc2' => $dvaConsentVal,
+                        'nin2' => $subNin,
+                        'bvn2' => $subBvn,
+                        'dc3' => $dvaConsentVal,
+                        'dc4' => $dvaConsentVal,
+                    ]
+                );
+                $promotedUser = $this->db->fetchOne('SELECT * FROM users WHERE id = :uid LIMIT 1', ['uid' => $sub['user_id']]);
+                if ($promotedUser) {
+                    (new WalletController())->autoProvisionDvaIfEligible($promotedUser);
+                }
+            } catch (Throwable) {
+            }
         }
 
         Response::success([

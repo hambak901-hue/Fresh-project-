@@ -665,19 +665,27 @@ class SchemaSync
                 bank_name VARCHAR(100) NOT NULL DEFAULT "",
                 bank_id INT NULL,
                 bank_slug VARCHAR(80) NULL,
+                bank_code VARCHAR(50) NULL,
                 currency VARCHAR(10) NOT NULL DEFAULT "NGN",
                 account_status ENUM("active", "inactive", "pending_approval") NOT NULL DEFAULT "pending_approval",
                 kyc_validation_status ENUM("unverified", "pending", "verified", "failed") NOT NULL DEFAULT "unverified",
+                dva_consent TINYINT(1) NOT NULL DEFAULT 0,
+                dva_consent_at DATETIME NULL,
                 assignment_status ENUM("not_requested", "pending", "assigned", "failed", "deactivated") NOT NULL DEFAULT "not_requested",
+                provisioning_status ENUM("not_requested", "awaiting_customer_info", "pending_identification", "processing", "active", "failed", "suspended", "deactivated", "under_review") NOT NULL DEFAULT "not_requested",
                 failure_reason TEXT NULL,
+                error_code VARCHAR(80) NULL,
                 total_inflow DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                assigned_at DATETIME NULL,
+                last_synced_at DATETIME NULL,
                 last_funding_at DATETIME NULL,
                 raw_assignment_payload JSON NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_va_account (account_number),
                 INDEX idx_va_paystack_customer (paystack_customer_code),
-                INDEX idx_va_dedicated_id (dedicated_account_id)
+                INDEX idx_va_dedicated_id (dedicated_account_id),
+                INDEX idx_va_prov_status (provisioning_status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
 
             'paystack_dva_settlements' => 'CREATE TABLE IF NOT EXISTS paystack_dva_settlements (
@@ -691,17 +699,32 @@ class SchemaSync
                 paystack_customer_code VARCHAR(100) NULL,
                 gross_amount DECIMAL(15, 2) NOT NULL,
                 paystack_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                customer_borne_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                merchant_borne_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 net_credit_amount DECIMAL(15, 2) NOT NULL,
+                net_settlement_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 fee_bearer ENUM("customer", "merchant") NOT NULL DEFAULT "customer",
+                fee_confirmed TINYINT(1) NOT NULL DEFAULT 0,
                 currency VARCHAR(10) NOT NULL DEFAULT "NGN",
                 sender_bank VARCHAR(120) NULL,
                 sender_account_name VARCHAR(191) NULL,
                 sender_account_number_masked VARCHAR(40) NULL,
                 session_id VARCHAR(120) NULL,
-                settlement_status ENUM("settled", "under_review", "failed") NOT NULL DEFAULT "settled",
+                settlement_status ENUM("settled", "under_review", "failed", "disputed", "reversed") NOT NULL DEFAULT "settled",
+                quarantine_reason VARCHAR(120) NULL,
                 wallet_transaction_id VARCHAR(36) NULL,
+                reversal_transaction_id VARCHAR(36) NULL,
+                reversal_reference VARCHAR(120) NULL,
+                reversal_reason VARCHAR(255) NULL,
+                dispute_status VARCHAR(60) NULL,
+                dispute_reference VARCHAR(120) NULL,
+                settled_at DATETIME NULL,
+                reversed_at DATETIME NULL,
+                resolved_by VARCHAR(36) NULL,
+                resolved_at DATETIME NULL,
                 raw_payload JSON NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_dva_settle_user (user_id, created_at),
                 INDEX idx_dva_settle_acc (account_number),
                 INDEX idx_dva_settle_status (settlement_status)
@@ -1512,35 +1535,107 @@ class SchemaSync
                     paystack_customer_code VARCHAR(100) NULL,
                     gross_amount DECIMAL(15, 2) NOT NULL,
                     paystack_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                    customer_borne_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                    merchant_borne_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                     net_credit_amount DECIMAL(15, 2) NOT NULL,
+                    net_settlement_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                     fee_bearer ENUM("customer", "merchant") NOT NULL DEFAULT "customer",
+                    fee_confirmed TINYINT(1) NOT NULL DEFAULT 0,
                     currency VARCHAR(10) NOT NULL DEFAULT "NGN",
                     sender_bank VARCHAR(120) NULL,
                     sender_account_name VARCHAR(191) NULL,
                     sender_account_number_masked VARCHAR(40) NULL,
                     session_id VARCHAR(120) NULL,
-                    settlement_status ENUM("settled", "under_review", "failed") NOT NULL DEFAULT "settled",
+                    settlement_status ENUM("settled", "under_review", "failed", "disputed", "reversed") NOT NULL DEFAULT "settled",
+                    quarantine_reason VARCHAR(120) NULL,
                     wallet_transaction_id VARCHAR(36) NULL,
+                    reversal_transaction_id VARCHAR(36) NULL,
+                    reversal_reference VARCHAR(120) NULL,
+                    reversal_reason VARCHAR(255) NULL,
+                    dispute_status VARCHAR(60) NULL,
+                    dispute_reference VARCHAR(120) NULL,
+                    settled_at DATETIME NULL,
+                    reversed_at DATETIME NULL,
+                    resolved_by VARCHAR(36) NULL,
+                    resolved_at DATETIME NULL,
                     raw_payload JSON NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_dva_settle_user (user_id, created_at),
                     INDEX idx_dva_settle_acc (account_number),
                     INDEX idx_dva_settle_status (settlement_status)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
             );
 
+            try {
+                $statusCol = $db->fetchOne(
+                    'SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "paystack_dva_settlements" AND COLUMN_NAME = "settlement_status"'
+                );
+                if ($statusCol && !str_contains((string)($statusCol['COLUMN_TYPE'] ?? ''), 'reversed')) {
+                    $db->execute(
+                        'ALTER TABLE `paystack_dva_settlements` MODIFY COLUMN settlement_status ENUM("settled", "under_review", "failed", "disputed", "reversed") NOT NULL DEFAULT "settled"'
+                    );
+                }
+            } catch (Throwable) {
+            }
+
+            $settleCols = [
+                'customer_borne_fee' => 'ADD COLUMN customer_borne_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER paystack_fee',
+                'merchant_borne_fee' => 'ADD COLUMN merchant_borne_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER customer_borne_fee',
+                'net_settlement_amount' => 'ADD COLUMN net_settlement_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER net_credit_amount',
+                'fee_confirmed' => 'ADD COLUMN fee_confirmed TINYINT(1) NOT NULL DEFAULT 0 AFTER fee_bearer',
+                'quarantine_reason' => 'ADD COLUMN quarantine_reason VARCHAR(120) NULL AFTER settlement_status',
+                'reversal_transaction_id' => 'ADD COLUMN reversal_transaction_id VARCHAR(36) NULL AFTER wallet_transaction_id',
+                'reversal_reference' => 'ADD COLUMN reversal_reference VARCHAR(120) NULL AFTER reversal_transaction_id',
+                'reversal_reason' => 'ADD COLUMN reversal_reason VARCHAR(255) NULL AFTER reversal_reference',
+                'dispute_status' => 'ADD COLUMN dispute_status VARCHAR(60) NULL AFTER reversal_reason',
+                'dispute_reference' => 'ADD COLUMN dispute_reference VARCHAR(120) NULL AFTER dispute_status',
+                'settled_at' => 'ADD COLUMN settled_at DATETIME NULL AFTER dispute_reference',
+                'reversed_at' => 'ADD COLUMN reversed_at DATETIME NULL AFTER settled_at',
+                'resolved_by' => 'ADD COLUMN resolved_by VARCHAR(36) NULL AFTER reversed_at',
+                'resolved_at' => 'ADD COLUMN resolved_at DATETIME NULL AFTER resolved_by',
+                'updated_at' => 'ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at',
+            ];
+            foreach ($settleCols as $col => $alterClause) {
+                $exists = $db->fetchOne(
+                    'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "paystack_dva_settlements" AND COLUMN_NAME = :col',
+                    ['col' => $col]
+                );
+                if (!$exists) {
+                    $db->execute("ALTER TABLE `paystack_dva_settlements` {$alterClause}");
+                }
+            }
+            try {
+                $db->execute(
+                    'UPDATE paystack_dva_settlements
+                        SET fee_confirmed = CASE WHEN settlement_status = "settled" THEN 1 ELSE fee_confirmed END,
+                            customer_borne_fee = CASE WHEN fee_bearer = "customer" AND customer_borne_fee = 0 AND paystack_fee > 0 THEN paystack_fee ELSE customer_borne_fee END,
+                            merchant_borne_fee = CASE WHEN fee_bearer = "merchant" AND merchant_borne_fee = 0 AND paystack_fee > 0 THEN paystack_fee ELSE merchant_borne_fee END,
+                            net_settlement_amount = CASE WHEN net_settlement_amount = 0 AND gross_amount > 0 THEN GREATEST(0.00, gross_amount - paystack_fee) ELSE net_settlement_amount END,
+                            settled_at = CASE WHEN settlement_status = "settled" AND settled_at IS NULL THEN created_at ELSE settled_at END'
+                );
+            } catch (Throwable) {
+            }
+
             $vaCols = [
                 'paystack_customer_code' => 'ADD COLUMN paystack_customer_code VARCHAR(100) NULL AFTER provider',
                 'dedicated_account_id' => 'ADD COLUMN dedicated_account_id BIGINT NULL AFTER paystack_customer_code',
                 'bank_id' => 'ADD COLUMN bank_id INT NULL AFTER bank_name',
                 'bank_slug' => 'ADD COLUMN bank_slug VARCHAR(80) NULL AFTER bank_id',
+                'bank_code' => 'ADD COLUMN bank_code VARCHAR(50) NULL AFTER bank_slug',
                 'account_name' => 'ADD COLUMN account_name VARCHAR(191) NULL AFTER account_number',
-                'currency' => 'ADD COLUMN currency VARCHAR(10) NOT NULL DEFAULT "NGN" AFTER bank_slug',
+                'currency' => 'ADD COLUMN currency VARCHAR(10) NOT NULL DEFAULT "NGN" AFTER bank_code',
                 'kyc_validation_status' => 'ADD COLUMN kyc_validation_status ENUM("unverified", "pending", "verified", "failed") NOT NULL DEFAULT "unverified" AFTER account_status',
-                'assignment_status' => 'ADD COLUMN assignment_status ENUM("not_requested", "pending", "assigned", "failed", "deactivated") NOT NULL DEFAULT "not_requested" AFTER kyc_validation_status',
-                'failure_reason' => 'ADD COLUMN failure_reason TEXT NULL AFTER assignment_status',
-                'total_inflow' => 'ADD COLUMN total_inflow DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER failure_reason',
-                'last_funding_at' => 'ADD COLUMN last_funding_at DATETIME NULL AFTER total_inflow',
+                'dva_consent' => 'ADD COLUMN dva_consent TINYINT(1) NOT NULL DEFAULT 0 AFTER kyc_validation_status',
+                'dva_consent_at' => 'ADD COLUMN dva_consent_at DATETIME NULL AFTER dva_consent',
+                'assignment_status' => 'ADD COLUMN assignment_status ENUM("not_requested", "pending", "assigned", "failed", "deactivated") NOT NULL DEFAULT "not_requested" AFTER dva_consent_at',
+                'provisioning_status' => 'ADD COLUMN provisioning_status ENUM("not_requested", "awaiting_customer_info", "pending_identification", "processing", "active", "failed", "suspended", "deactivated", "under_review") NOT NULL DEFAULT "not_requested" AFTER assignment_status',
+                'failure_reason' => 'ADD COLUMN failure_reason TEXT NULL AFTER provisioning_status',
+                'error_code' => 'ADD COLUMN error_code VARCHAR(80) NULL AFTER failure_reason',
+                'total_inflow' => 'ADD COLUMN total_inflow DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER error_code',
+                'assigned_at' => 'ADD COLUMN assigned_at DATETIME NULL AFTER total_inflow',
+                'last_synced_at' => 'ADD COLUMN last_synced_at DATETIME NULL AFTER assigned_at',
+                'last_funding_at' => 'ADD COLUMN last_funding_at DATETIME NULL AFTER last_synced_at',
                 'raw_assignment_payload' => 'ADD COLUMN raw_assignment_payload JSON NULL AFTER last_funding_at',
                 'updated_at' => 'ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at',
             ];
@@ -1552,6 +1647,44 @@ class SchemaSync
                 );
                 if (!$exists) {
                     $db->execute("ALTER TABLE `customer_virtual_accounts` {$alterClause}");
+                }
+            }
+
+            // Backfill canonical provisioning_status from existing Phase 1 assignment_status rows safely
+            try {
+                $db->execute(
+                    'UPDATE customer_virtual_accounts
+                        SET provisioning_status = CASE
+                                WHEN provider = "paystack" AND assignment_status = "assigned" AND account_status = "active" AND account_number != "" THEN "active"
+                                WHEN assignment_status = "pending" THEN "processing"
+                                WHEN assignment_status = "failed" THEN "failed"
+                                WHEN assignment_status = "deactivated" THEN "deactivated"
+                                ELSE provisioning_status
+                            END,
+                            assigned_at = CASE
+                                WHEN assigned_at IS NULL AND assignment_status = "assigned" AND account_status = "active" AND account_number != "" THEN COALESCE(updated_at, created_at)
+                                ELSE assigned_at
+                            END,
+                            bank_code = COALESCE(NULLIF(bank_code, ""), bank_slug)
+                      WHERE provisioning_status = "not_requested"'
+                );
+            } catch (Throwable) {
+            }
+
+            // Ensure user_profiles stores DVA consent & optional bank code cleanly
+            $upCols = [
+                'dva_consent' => 'ADD COLUMN dva_consent TINYINT(1) NOT NULL DEFAULT 0',
+                'dva_consent_at' => 'ADD COLUMN dva_consent_at DATETIME NULL',
+                'dva_bank_code' => 'ADD COLUMN dva_bank_code VARCHAR(30) NULL',
+                'dva_bank_account_last4' => 'ADD COLUMN dva_bank_account_last4 VARCHAR(10) NULL',
+            ];
+            foreach ($upCols as $col => $alterClause) {
+                $exists = $db->fetchOne(
+                    'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "user_profiles" AND COLUMN_NAME = :col',
+                    ['col' => $col]
+                );
+                if (!$exists) {
+                    $db->execute("ALTER TABLE `user_profiles` {$alterClause}");
                 }
             }
         } catch (Throwable) {
@@ -3115,6 +3248,7 @@ class SchemaSync
                 revenue_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 cost_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 fee_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                customer_borne_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 expense_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 net_profit_impact DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 wallet_liability_delta DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
@@ -3301,6 +3435,18 @@ class SchemaSync
             } catch (Throwable $e) {
                 $errors[] = "table:{$name} => " . $e->getMessage();
             }
+        }
+
+        try {
+            $cbfExists = $db->fetchOne(
+                'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "accounting_entries" AND COLUMN_NAME = "customer_borne_fee"'
+            );
+            if (!$cbfExists) {
+                $db->execute('ALTER TABLE `accounting_entries` ADD COLUMN customer_borne_fee DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER fee_amount');
+                $applied[] = 'col:accounting_entries.customer_borne_fee';
+            }
+        } catch (Throwable $e) {
+            $errors[] = 'col:accounting_entries.customer_borne_fee => ' . $e->getMessage();
         }
 
         // Seed standard operating accounts idempotently

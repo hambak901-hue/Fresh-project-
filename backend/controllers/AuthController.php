@@ -357,6 +357,10 @@ class AuthController
         $idNumber = trim((string)$request->input('id_number', ''));
         $nin = preg_replace('/\D/', '', (string)$request->input('nin', ''));
         $bvn = preg_replace('/\D/', '', (string)$request->input('bvn', ''));
+        $dvaConsent = filter_var($request->input('dva_consent', false), FILTER_VALIDATE_BOOLEAN);
+        $dvaBankCode = trim((string)($request->input('bank_code') ?? $request->input('dva_bank_code', '')));
+        $dvaBankAccountNo = preg_replace('/\D/', '', (string)($request->input('bank_account_number') ?? $request->input('account_number', '')));
+        $dvaLast4 = strlen($dvaBankAccountNo) >= 4 ? substr($dvaBankAccountNo, -4) : null;
 
         if (empty($email) || empty($password) || empty($fullName) || empty($phoneNumber)) {
             Response::error('Full name, email, phone number, and password are required.', 422);
@@ -375,6 +379,12 @@ class AuthController
         }
         if (!empty($bvn) && !preg_match('/^\d{11}$/', $bvn)) {
             Response::error('BVN must be exactly 11 numeric digits.', 422);
+        }
+        if ($bvn !== '') {
+            $dupBvn = $this->db->fetchOne('SELECT user_id FROM user_profiles WHERE bvn = :bvn LIMIT 1', ['bvn' => $bvn]);
+            if ($dupBvn) {
+                Response::error('This BVN is already linked to an existing HambakTech account.', 409);
+            }
         }
 
         $allowedIdTypes = ['nin_slip', 'drivers_license', 'voters_card', 'international_passport', 'nin', 'bvn'];
@@ -418,7 +428,7 @@ class AuthController
         $this->db->withTransaction(function (Database $db) use (
             $userId, $kycId, $email, $passwordHash, $fullName, $phoneNumber, $phoneNormalized, $referralCode,
             $dateOfBirth, $residentialAddress, $state, $lga, $nin, $bvn, $idType, $idNumber,
-            $hasIdentitySubmission, $initialKycStatus
+            $hasIdentitySubmission, $initialKycStatus, $dvaConsent, $dvaBankCode, $dvaLast4
         ) {
             // 1. Create User at KYC Level 1 (Tier 1 Basic Profile) — always role=customer, email verification required
             try {
@@ -458,11 +468,11 @@ class AuthController
             } catch (Throwable) {
             }
 
-            // 2. Create User Profile row (Level 1 starter profile; optional fields saved if supplied)
+            // 2. Create User Profile row (Level 1 starter profile; optional fields + DVA consent saved if supplied)
             try {
                 $db->execute(
-                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, created_at, updated_at)
-                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, NOW(), NOW())',
+                    'INSERT INTO user_profiles (user_id, nin, bvn, address, state, lga, date_of_birth, dva_consent, dva_consent_at, dva_bank_code, dva_bank_account_last4, created_at, updated_at)
+                     VALUES (:uid, :nin, :bvn, :addr, :st, :lga, :dob, :dcons, CASE WHEN :dcons2 = 1 THEN NOW() ELSE NULL END, :dbcode, :dlast4, NOW(), NOW())',
                     [
                         'uid' => $userId,
                         'nin' => $nin ?: null,
@@ -471,6 +481,10 @@ class AuthController
                         'st' => $state ?: null,
                         'lga' => $lga ?: null,
                         'dob' => $dateOfBirth ?: null,
+                        'dcons' => $dvaConsent ? 1 : 0,
+                        'dcons2' => $dvaConsent ? 1 : 0,
+                        'dbcode' => $dvaBankCode ?: null,
+                        'dlast4' => $dvaLast4,
                     ]
                 );
             } catch (Throwable) {
@@ -693,6 +707,20 @@ class AuthController
         $user['dashboard_config'] = DashboardConfigService::getConfig($this->db, 'customer', 'published');
         unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
 
+        // 8C. Evaluate DVA readiness & auto-provision if eligible (non-blocking)
+        $virtualAccountState = null;
+        try {
+            $walletCtrl = new WalletController();
+            $dvaRes = $walletCtrl->autoProvisionDvaIfEligible($user, [
+                'bvn' => $bvn,
+                'bank_code' => $dvaBankCode,
+                'account_number' => $dvaBankAccountNo,
+            ]);
+            $virtualAccountState = $dvaRes['payload'] ?? $walletCtrl->buildVirtualAccountPayloadForUser($user, false, false);
+        } catch (Throwable $e) {
+            Security::logPrivateError('PaystackDvaRegisterHook', $e, ['user_id' => $userId]);
+        }
+
         $verificationSent = !empty($verificationDispatch['sent']);
         $registerMessage = $verificationSent
             ? 'Account created! Please enter the 6-digit verification code or click the link sent to your email to verify your account.'
@@ -707,6 +735,7 @@ class AuthController
             'verification_sent' => $verificationSent,
             'verification_expires_in_minutes' => (int)($verificationDispatch['expires_in_minutes'] ?? 60),
             'cooldown_seconds' => $verificationSent ? 60 : 0,
+            'virtual_account_state' => $virtualAccountState,
         ], $registerMessage, 201);
     }
 
@@ -1352,10 +1381,20 @@ class AuthController
         $refreshed = $this->loadSanitizedAuthUser((string)$targetUser['id']);
         $freshJwt = Auth::generateToken($refreshed, $request);
 
+        $virtualAccountState = null;
+        try {
+            $walletCtrl = new WalletController();
+            $dvaRes = $walletCtrl->autoProvisionDvaIfEligible($refreshed);
+            $virtualAccountState = $dvaRes['payload'] ?? $walletCtrl->buildVirtualAccountPayloadForUser($refreshed, false, false);
+        } catch (Throwable $e) {
+            Security::logPrivateError('PaystackDvaVerifyEmailHook', $e, ['user_id' => $targetUser['id']]);
+        }
+
         Response::success([
             'verified' => true,
             'user' => $refreshed,
             'token' => $freshJwt,
+            'virtual_account_state' => $virtualAccountState,
         ], 'Email verified successfully! Full portal access is now active.');
     }
 

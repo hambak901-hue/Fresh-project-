@@ -154,7 +154,12 @@ class SettingsController
                     'active_gateway' => 'paystack',
                     'enable_paystack' => true,
                     'paystack_charge_percent' => 1.5,
-                    'enable_paystack_dva' => true,
+                    'enable_paystack_dva' => false,
+                    'dva_rollout_mode' => 'paused',
+                    'dva_test_user_emails' => '',
+                    'dva_require_bvn' => true,
+                    'dva_auto_provision_on_register' => true,
+                    'dva_auto_provision_on_wallet_open' => true,
                     'paystack_dva_preferred_bank' => 'wema-bank',
                     'dva_fee_bearer' => 'customer',
                 ], is_array($settingsMap['payment_gateways_settings'] ?? null) ? $settingsMap['payment_gateways_settings'] : []);
@@ -370,9 +375,25 @@ class SettingsController
         } elseif ($category === 'payment_gateways') {
             unset($settingsData['enable_flutterwave'], $settingsData['flutterwave_charge_percent'], $settingsData['enable_bank_transfer']);
             $settingsData['active_gateway'] = 'paystack';
-            $settingsData['enable_paystack_dva'] = array_key_exists('enable_paystack_dva', $settingsData) ? (bool)$settingsData['enable_paystack_dva'] : true;
-            $bankPref = trim((string)($settingsData['paystack_dva_preferred_bank'] ?? 'wema-bank'));
-            $settingsData['paystack_dva_preferred_bank'] = in_array($bankPref, ['wema-bank', 'titan-paystack'], true) ? $bankPref : 'wema-bank';
+            $settingsData['enable_paystack_dva'] = array_key_exists('enable_paystack_dva', $settingsData) ? (bool)$settingsData['enable_paystack_dva'] : false;
+            $rolloutMode = strtolower(trim((string)($settingsData['dva_rollout_mode'] ?? 'paused')));
+            $settingsData['dva_rollout_mode'] = in_array($rolloutMode, ['testing_allowlist', 'all_eligible', 'paused'], true)
+                ? $rolloutMode
+                : 'paused';
+            $rawTestEmails = (string)($settingsData['dva_test_user_emails'] ?? '');
+            $cleanEmails = [];
+            foreach (preg_split('/[\s,;]+/', $rawTestEmails) ?: [] as $em) {
+                $emLower = strtolower(trim((string)$em));
+                if ($emLower !== '' && filter_var($emLower, FILTER_VALIDATE_EMAIL)) {
+                    $cleanEmails[] = $emLower;
+                }
+            }
+            $settingsData['dva_test_user_emails'] = implode(', ', array_values(array_unique($cleanEmails)));
+            $settingsData['dva_require_bvn'] = array_key_exists('dva_require_bvn', $settingsData) ? (bool)$settingsData['dva_require_bvn'] : true;
+            $settingsData['dva_auto_provision_on_register'] = array_key_exists('dva_auto_provision_on_register', $settingsData) ? (bool)$settingsData['dva_auto_provision_on_register'] : true;
+            $settingsData['dva_auto_provision_on_wallet_open'] = array_key_exists('dva_auto_provision_on_wallet_open', $settingsData) ? (bool)$settingsData['dva_auto_provision_on_wallet_open'] : true;
+            $bankPref = strtolower(trim((string)($settingsData['paystack_dva_preferred_bank'] ?? 'wema-bank')));
+            $settingsData['paystack_dva_preferred_bank'] = preg_match('/^[a-z0-9-]{2,60}$/', $bankPref) ? $bankPref : 'wema-bank';
             $feeBearer = strtolower(trim((string)($settingsData['dva_fee_bearer'] ?? 'customer')));
             $settingsData['dva_fee_bearer'] = in_array($feeBearer, ['customer', 'merchant'], true) ? $feeBearer : 'customer';
         }
@@ -446,15 +467,26 @@ class SettingsController
             }
         }
 
-        // Audit log
+        // Audit log (redact secrets, explicitly capture Paystack DVA configuration updates)
+        $auditAction = $category === 'payment_gateways' ? 'PAYSTACK_DVA_SETTINGS_UPDATED' : 'SETTINGS_UPDATED';
+        $auditDetails = ['category' => $category];
+        if ($category === 'payment_gateways') {
+            $auditDetails['enable_paystack'] = !empty($settingsData['enable_paystack']);
+            $auditDetails['enable_paystack_dva'] = !empty($settingsData['enable_paystack_dva']);
+            $auditDetails['dva_rollout_mode'] = $settingsData['dva_rollout_mode'] ?? 'paused';
+            $auditDetails['preferred_bank'] = $settingsData['paystack_dva_preferred_bank'] ?? 'wema-bank';
+            $auditDetails['fee_bearer'] = $settingsData['dva_fee_bearer'] ?? 'customer';
+            $auditDetails['dva_require_bvn'] = !empty($settingsData['dva_require_bvn']);
+        }
         $this->db->execute(
             'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
-             VALUES (:id, :uid, :email, "SETTINGS_UPDATED", :details, :ip, NOW())',
+             VALUES (:id, :uid, :email, :act, :details, :ip, NOW())',
             [
                 'id' => Security::generateUuid(),
                 'uid' => $admin['id'],
                 'email' => $admin['email'],
-                'details' => json_encode(['category' => $category]),
+                'act' => $auditAction,
+                'details' => json_encode($auditDetails, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
                 'ip' => $request->getIp(),
             ]
         );

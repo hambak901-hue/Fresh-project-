@@ -242,27 +242,63 @@ export const ReconciliationView: React.FC<{
         </div>
 
         {preview && (
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono">
-            <div>
-              <p className="text-[10px] text-slate-500">Opening Bal</p>
-              <p className="font-bold">{formatNaira(preview.opening_balance)}</p>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono">
+              <div>
+                <p className="text-[10px] text-slate-500">Opening Bal</p>
+                <p className="font-bold">{formatNaira(preview.opening_balance)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500">Day Net Inflows</p>
+                <p className="font-bold text-emerald-600">+{formatNaira(preview.expected_inflow)}</p>
+                {Number(preview.expected_customer_fees || 0) > 0 && (
+                  <p className="text-[10px] text-slate-500">
+                    Gross {formatNaira(preview.expected_gross_inflow)} − Cust Fee {formatNaira(preview.expected_customer_fees)}
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500">Day Outflows / Rev</p>
+                <p className="font-bold text-rose-600">−{formatNaira(preview.expected_outflow)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500">Merchant Fees</p>
+                <p className="font-bold text-slate-600 dark:text-slate-300">−{formatNaira(preview.expected_fees)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500">Expected Closing</p>
+                <p className="font-extrabold text-blue-700 dark:text-blue-400">{formatNaira(preview.expected_closing)}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] text-slate-500">Day Inflows</p>
-              <p className="font-bold text-emerald-600">+{formatNaira(preview.expected_inflow)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500">Day Outflows</p>
-              <p className="font-bold text-rose-600">−{formatNaira(preview.expected_outflow)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500">Channel Fees</p>
-              <p className="font-bold text-slate-600 dark:text-slate-300">−{formatNaira(preview.expected_fees)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500">Expected Closing</p>
-              <p className="font-extrabold text-blue-700 dark:text-blue-400">{formatNaira(preview.expected_closing)}</p>
-            </div>
+
+            {preview.dva_reconciliation && (
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 p-3 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-500/20 font-mono">
+                <div>
+                  <p className="text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold">DVA Gross Deposits</p>
+                  <p className="font-bold text-slate-900 dark:text-white">{formatNaira(preview.dva_reconciliation.gross_deposits)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold">Customer-Borne Fees</p>
+                  <p className="font-bold text-amber-600 dark:text-amber-300">{formatNaira(preview.dva_reconciliation.customer_borne_fees)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold">Merchant-Borne Fees</p>
+                  <p className="font-bold text-rose-600 dark:text-rose-400">{formatNaira(preview.dva_reconciliation.merchant_borne_fees)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold">Net Paystack Settlement</p>
+                  <p className="font-bold text-emerald-700 dark:text-emerald-400">{formatNaira(preview.dva_reconciliation.net_settlement)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold">Wallet Liability Created</p>
+                  <p className="font-bold text-blue-700 dark:text-blue-400">{formatNaira(preview.dva_reconciliation.wallet_liability_created)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold">DVA Reversals</p>
+                  <p className="font-bold text-rose-600 dark:text-rose-400">{formatNaira(preview.dva_reconciliation.reversals_amount)}</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

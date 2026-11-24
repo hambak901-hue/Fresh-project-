@@ -49,10 +49,9 @@ function uploadDirectory(localDir, remoteDir, skipDirs = new Set(), skipFiles = 
   }
 }
 
-// 1. Upload Dist Assets
+// 1. Upload Complete Dist Bundle (assets, sw.js, workbox, manifest.webmanifest, icons, index.html)
 console.log('\n📦 Step 1: Uploading Frontend Production Bundle (/dist)...');
-uploadDirectory('dist/assets', `${REMOTE_ROOT}/assets`);
-uploadFile('dist/index.html', `${REMOTE_ROOT}/index.html`);
+uploadDirectory('dist', REMOTE_ROOT);
 
 // 2. Upload Backend to /api and /backend (preserving live config/, storage/, uploads/, .env)
 console.log('\n📦 Step 2: Uploading PHP Backend Services & Controllers...');

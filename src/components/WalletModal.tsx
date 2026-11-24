@@ -475,21 +475,15 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
               </button>
 
               {/* Dedicated Personal Bank Account (Paystack DVA) */}
-              {vaState?.dva_enabled && (
+              {vaState && (vaState.dva_feature_enabled !== false) && (
                 <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-slate-200 flex items-center gap-1.5">
                       <Building className="w-3.5 h-3.5 text-indigo-400" />
-                      <span>Dedicated Bank Account (Paystack)</span>
+                      <span>Personal Dedicated Bank Account</span>
                     </span>
-                    <span className="text-[10px] font-mono text-slate-400">
-                      {vaState.has_virtual_account
-                        ? 'ACTIVE'
-                        : vaState.assignment_status === 'pending'
-                        ? 'PENDING'
-                        : vaState.eligible
-                        ? 'AVAILABLE'
-                        : 'TIER 2 KYC'}
+                    <span className="text-[10px] font-mono text-slate-400 uppercase">
+                      {(vaState.provisioning_status || (vaState.has_virtual_account ? 'active' : vaState.assignment_status)).replace(/_/g, ' ')}
                     </span>
                   </div>
 
@@ -516,14 +510,28 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
                         <span>{copiedDva ? 'Copied' : 'Copy'}</span>
                       </button>
                     </div>
-                  ) : vaState.assignment_status === 'pending' ? (
+                  ) : vaState.provisioning_status === 'processing' || vaState.provisioning_status === 'pending_identification' || vaState.assignment_status === 'pending' ? (
                     <p className="text-[11px] text-amber-300">
-                      Awaiting Paystack confirmation for your dedicated account assignment.
+                      {vaState.message || 'Awaiting Paystack confirmation for your dedicated account assignment.'}
                     </p>
+                  ) : vaState.provisioning_status === 'failed' ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-rose-300">
+                        {vaState.message || 'Dedicated account setup failed temporarily.'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleProvisionDva}
+                        disabled={vaProvisioning}
+                        className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-60 text-white text-[11px] font-bold shrink-0"
+                      >
+                        {vaProvisioning ? 'Retrying...' : 'Retry'}
+                      </button>
+                    </div>
                   ) : vaState.eligible ? (
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[11px] text-slate-400">
-                        Get a personal Paystack account number for direct transfers.
+                        Activate your permanent personal Paystack account for direct transfers.
                       </span>
                       <button
                         type="button"
@@ -531,12 +539,12 @@ export const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => 
                         disabled={vaProvisioning}
                         className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white text-[11px] font-bold shrink-0"
                       >
-                        {vaProvisioning ? 'Requesting...' : 'Generate'}
+                        {vaProvisioning ? 'Activating...' : 'Activate'}
                       </button>
                     </div>
                   ) : (
-                    <p className="text-[11px] text-slate-500">
-                      {vaState.message || 'Complete Level 2 KYC to unlock a dedicated Paystack bank account.'}
+                    <p className="text-[11px] text-slate-400">
+                      {vaState.message || 'Complete email verification, KYC Level 2, and BVN validation to unlock your dedicated Paystack bank account.'}
                     </p>
                   )}
                 </div>

@@ -783,13 +783,29 @@ export const api = {
       funding: {
         totalFunding: number;
         paystackFunding: number;
+        paystackCheckoutFunding?: number;
+        paystackCheckoutGross?: number;
+        paystackCheckoutFees?: number;
+        paystackCheckoutCount?: number;
         paystackDvaNet?: number;
         paystackDvaGross?: number;
         paystackDvaFees?: number;
+        paystackDvaCustomerFees?: number;
+        paystackDvaMerchantFees?: number;
+        paystackDvaNetSettlement?: number;
+        paystackDvaReversed?: number;
+        paystackDvaQuarantinedCount?: number;
+        paystackDvaDisputedCount?: number;
         paystackDvaCount?: number;
         paystackDvaAccounts?: number;
         flutterwaveFunding?: number;
         manualFunding: number;
+        otherGatewaysFunding?: number;
+        otherGatewaysFees?: number;
+        totalGrossDeposits?: number;
+        totalGatewayFees?: number;
+        totalNetSettlements?: number;
+        totalWalletCredits?: number;
         fundingTransactionsCount: number;
       };
       sales: { totalServiceSales: number; telecomSales: number; identityVerificationSales: number };
@@ -801,8 +817,55 @@ export const api = {
     return request('/api/wallet/admin/financial-reports');
   },
 
-  async getAdminPaystackDvaStatus(): Promise<PaystackDvaAdminStatusResponse> {
-    return request('/api/admin/wallet/paystack/dva-status');
+  async getAdminPaystackDvaStatus(params?: {
+    search?: string;
+    status?: string;
+    kyc_status?: string;
+    page?: number;
+    limit?: number;
+    tx_customer?: string;
+    tx_status?: string;
+    tx_reference?: string;
+    date_from?: string;
+    date_to?: string;
+    tx_page?: number;
+    tx_limit?: number;
+  }): Promise<PaystackDvaAdminStatusResponse> {
+    const qs = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && String(v).trim() !== '') {
+          qs.set(k, String(v));
+        }
+      });
+    }
+    const queryStr = qs.toString();
+    return request(`/api/admin/wallet/paystack/dva-status${queryStr ? `?${queryStr}` : ''}`);
+  },
+
+  async getAdminPaystackDvaCustomerDetail(userId: string): Promise<import('../types').PaystackDvaCustomerDetailResponse> {
+    return request(`/api/admin/wallet/paystack/dva-customer/${encodeURIComponent(userId)}`);
+  },
+
+  async saveAdminPaystackDvaSettings(payload: {
+    enable_paystack_dva: boolean;
+    enable_virtual_accounts?: boolean;
+    preferred_bank: string;
+    fee_bearer: 'customer' | 'merchant';
+    dva_rollout_mode: 'paused' | 'testing_allowlist' | 'all_eligible';
+    dva_test_user_emails?: string;
+    dva_require_bvn?: boolean;
+    dva_auto_provision_on_register?: boolean;
+    dva_auto_provision_on_wallet_open?: boolean;
+  }): Promise<{
+    success: boolean;
+    message?: string;
+    policy: PaystackDvaAdminStatusResponse['policy'];
+  }> {
+    return request('/api/admin/wallet/paystack/dva-settings', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 
   async requeryAdminPaystackDva(userId: string, date?: string): Promise<{
@@ -813,6 +876,43 @@ export const api = {
     return request('/api/admin/wallet/paystack/dva-requery', {
       method: 'POST',
       body: JSON.stringify({ user_id: userId, ...(date ? { date } : {}) }),
+    });
+  },
+
+  async adminPaystackDvaAction(
+    userId: string,
+    action: 'provision' | 'suspend' | 'reactivate' | 'deactivate' | 'mark_under_review',
+    reason?: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    account?: any;
+  }> {
+    return request('/api/admin/wallet/paystack/dva-action', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, action, ...(reason ? { reason } : {}) }),
+    });
+  },
+
+  async resolvePaystackDvaSettlement(
+    settlementId: string,
+    action: 'reverify' | 'mark_failed' | 'verified_attribute',
+    reason?: string,
+    extra?: { target_user_id?: string; confirm_verified_attribution?: boolean }
+  ): Promise<{
+    success: boolean;
+    message?: string;
+    status?: string;
+    settlement?: any;
+  }> {
+    return request('/api/admin/wallet/paystack/dva-resolve-settlement', {
+      method: 'POST',
+      body: JSON.stringify({
+        settlement_id: settlementId,
+        action,
+        ...(reason ? { reason } : {}),
+        ...(extra || {}),
+      }),
     });
   },
 
@@ -2667,6 +2767,7 @@ export const api = {
     selfie_url?: string;
     proof_of_address_url?: string;
     consent_obtained: boolean;
+    dva_consent?: boolean;
     auto_verify?: boolean;
   }): Promise<{
     success: boolean;
@@ -2674,6 +2775,7 @@ export const api = {
     submission: KycSubmission;
     instant_verified?: boolean;
     verification_reference?: string;
+    virtual_account_state?: VirtualAccountStateResponse;
   }> {
     return request('/api/kyc/submit', {
       method: 'POST',
@@ -2703,10 +2805,29 @@ export const api = {
     return request(`/api/wallet/virtual-account${syncPending ? '?sync=1' : ''}`);
   },
 
-  async provisionVirtualAccount(preferredBank?: string): Promise<VirtualAccountStateResponse & { message: string }> {
+  async getDvaBanks(): Promise<{
+    success: boolean;
+    banks: Array<{ name: string; code: string; slug?: string }>;
+  }> {
+    return request('/api/wallet/virtual-account/banks');
+  },
+
+  async provisionVirtualAccount(
+    payload?:
+      | string
+      | {
+          preferred_bank?: string;
+          dva_consent?: boolean;
+          bvn?: string;
+          bank_code?: string;
+          account_number?: string;
+          force_retry?: boolean;
+        }
+  ): Promise<VirtualAccountStateResponse & { message: string }> {
+    const body = typeof payload === 'string' ? { preferred_bank: payload } : payload || {};
     return request('/api/wallet/virtual-account/provision', {
       method: 'POST',
-      body: JSON.stringify(preferredBank ? { preferred_bank: preferredBank } : {}),
+      body: JSON.stringify(body),
     });
   },
 
@@ -4295,10 +4416,20 @@ export const api = {
     reconcile_date: string;
     account: import('../types').AccountingAccountRecord;
     opening_balance: number;
+    expected_gross_inflow?: number;
     expected_inflow: number;
     expected_outflow: number;
+    expected_customer_fees?: number;
     expected_fees: number;
     expected_closing: number;
+    dva_reconciliation?: {
+      gross_deposits: number;
+      customer_borne_fees: number;
+      merchant_borne_fees: number;
+      net_settlement: number;
+      wallet_liability_created: number;
+      reversals_amount: number;
+    } | null;
     entries: any[];
   }> {
     const qs = new URLSearchParams({ date, account_code: accountCode });
