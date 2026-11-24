@@ -307,13 +307,14 @@ class ModificationController
                         $label = $entry['label'];
                         $wholesale = (float)$entry['price'];
                         // Default sensible customer markup only for newly discovered rows; preserve admin overrides
-                        $defaultSelling = $wholesale > 0 ? round($wholesale + max(2500.0, $wholesale * 0.25), -2) : 12000.0;
+                        $defaultSelling = $wholesale > 0 ? max($wholesale, round($wholesale + max(2500.0, $wholesale * 0.25), -2)) : 17500.0;
                         $rowId = 'bvnt_' . substr(md5(strtolower($typeCode)), 0, 12);
 
                         $exists = $this->db->fetchOne(
                             'SELECT id, selling_price FROM modification_bvn_types WHERE enrollment_type = :et LIMIT 1',
                             ['et' => $typeCode]
                         );
+                        $effectiveSelling = $defaultSelling;
                         if (!$exists) {
                             $this->db->execute(
                                 'INSERT INTO modification_bvn_types (id, enrollment_type, label, wholesale_cost, selling_price, is_active, provider_synced_at)
@@ -327,7 +328,10 @@ class ModificationController
                                 ]
                             );
                         } else {
-                            $updSp = ((float)$exists['selling_price'] <= 0 && $defaultSelling > 0) ? $defaultSelling : (float)$exists['selling_price'];
+                            $existingSp = (float)$exists['selling_price'];
+                            $effectiveSelling = ($existingSp <= 0 || ($wholesale > 0 && $existingSp < $wholesale)) && $defaultSelling > 0
+                                ? $defaultSelling
+                                : $existingSp;
                             $this->db->execute(
                                 'UPDATE modification_bvn_types
                                  SET label = :lbl, wholesale_cost = :wc, selling_price = :sp, provider_synced_at = NOW(), updated_at = NOW()
@@ -335,10 +339,31 @@ class ModificationController
                                 [
                                     'lbl' => $label,
                                     'wc' => $wholesale > 0 ? $wholesale : 0.0,
-                                    'sp' => $updSp,
+                                    'sp' => $effectiveSelling,
                                     'id' => $exists['id'],
                                 ]
                             );
+                        }
+
+                        // Keep legacy bvn_modification_banks synchronized with authoritative modification_bvn_types
+                        try {
+                            $this->db->execute(
+                                'INSERT INTO bvn_modification_banks (enrollment_type, bank_name, provider_cost, customer_price, is_active, display_order)
+                                 VALUES (:et, :bn, :pc, :cp, 1, 50)
+                                 ON DUPLICATE KEY UPDATE
+                                    bank_name = VALUES(bank_name),
+                                    provider_cost = VALUES(provider_cost),
+                                    customer_price = VALUES(customer_price),
+                                    is_active = 1,
+                                    updated_at = NOW()',
+                                [
+                                    'et' => $typeCode,
+                                    'bn' => $label,
+                                    'pc' => $wholesale > 0 ? $wholesale : 0.0,
+                                    'cp' => $effectiveSelling,
+                                ]
+                            );
+                        } catch (Throwable) {
                         }
                     }
                     $liveSynced = true;
@@ -790,6 +815,8 @@ class ModificationController
         header('Content-Type: ' . ($doc['mime_type'] ?: 'application/octet-stream'));
         header('Content-Length: ' . filesize($path));
         header('Content-Disposition: inline; filename="' . basename((string)$doc['original_name']) . '"');
+        header('Cache-Control: private, no-store, no-cache, must-revalidate');
+        header('Pragma: no-cache');
         header('X-Content-Type-Options: nosniff');
         readfile($path);
         exit;
@@ -2226,6 +2253,15 @@ class ModificationController
             $dbParams['fsc'] = json_encode($normalizedSchema);
         }
 
+        $targetSelling = isset($dbParams['sp']) ? (float)$dbParams['sp'] : (float)$existing['selling_price'];
+        $targetWholesale = isset($dbParams['wc']) ? (float)$dbParams['wc'] : (float)$existing['wholesale_cost'];
+        if ($targetSelling < $targetWholesale) {
+            Response::error(
+                'Customer selling price (₦' . number_format($targetSelling, 2) . ') cannot be lower than wholesale cost (₦' . number_format($targetWholesale, 2) . ').',
+                422
+            );
+        }
+
         if (!empty($updates)) {
             $updates[] = 'updated_at = NOW()';
             $this->db->execute('UPDATE service_catalogue SET ' . implode(', ', $updates) . ' WHERE id = :id', $dbParams);
@@ -2301,6 +2337,13 @@ class ModificationController
         $wholesale = isset($body['wholesale_cost']) ? max(0.0, (float)$body['wholesale_cost']) : (float)$existing['wholesale_cost'];
         $isActive = isset($body['is_active']) ? ((bool)$body['is_active'] ? 1 : 0) : (int)$existing['is_active'];
 
+        if ($selling < $wholesale) {
+            Response::error(
+                'Customer selling price (₦' . number_format($selling, 2) . ') cannot be lower than wholesale cost (₦' . number_format($wholesale, 2) . ').',
+                422
+            );
+        }
+
         $this->db->execute(
             'UPDATE modification_bvn_types
              SET label = :lbl, selling_price = :sp, wholesale_cost = :wc, is_active = :act, updated_at = NOW()
@@ -2313,6 +2356,27 @@ class ModificationController
                 'id' => $id,
             ]
         );
+
+        try {
+            $this->db->execute(
+                'INSERT INTO bvn_modification_banks (enrollment_type, bank_name, provider_cost, customer_price, is_active, display_order)
+                 VALUES (:et, :bn, :pc, :cp, :act, 50)
+                 ON DUPLICATE KEY UPDATE
+                    bank_name = VALUES(bank_name),
+                    provider_cost = VALUES(provider_cost),
+                    customer_price = VALUES(customer_price),
+                    is_active = VALUES(is_active),
+                    updated_at = NOW()',
+                [
+                    'et' => (string)$existing['enrollment_type'],
+                    'bn' => $label,
+                    'pc' => $wholesale,
+                    'cp' => $selling,
+                    'act' => $isActive,
+                ]
+            );
+        } catch (Throwable) {
+        }
 
         $fresh = $this->db->fetchOne('SELECT * FROM modification_bvn_types WHERE id = :id LIMIT 1', ['id' => $id]);
         Response::success([
@@ -2377,9 +2441,19 @@ class ModificationController
                         ($sk !== '' && $sk === $localSk)
                         || ($ep !== '' && ($ep === $localEp || ($epBase !== '' && $epBase === $localBase)))
                     ) {
+                        $newWc = (float)$price;
                         $this->db->execute(
-                            'UPDATE service_catalogue SET wholesale_cost = :wc, updated_at = NOW() WHERE id = :id',
-                            ['wc' => (float)$price, 'id' => $lr['id']]
+                            'UPDATE service_catalogue
+                             SET wholesale_cost = :wc,
+                                 selling_price = CASE WHEN selling_price < :wc_chk THEN :wc_floor ELSE selling_price END,
+                                 updated_at = NOW()
+                             WHERE id = :id',
+                            [
+                                'wc' => $newWc,
+                                'wc_chk' => $newWc,
+                                'wc_floor' => round($newWc + max(1500.0, $newWc * 0.20), -2),
+                                'id' => $lr['id'],
+                            ]
                         );
                         $updatedServices++;
                     }

@@ -674,6 +674,8 @@ class EnrolmentController
         header('Content-Type: ' . ($doc['mime_type'] ?: 'application/octet-stream'));
         header('Content-Length: ' . filesize($path));
         header('Content-Disposition: inline; filename="' . basename((string)$doc['original_name']) . '"');
+        header('Cache-Control: private, no-store, no-cache, must-revalidate');
+        header('Pragma: no-cache');
         header('X-Content-Type-Options: nosniff');
         readfile($path);
         exit;
@@ -1868,6 +1870,15 @@ class EnrolmentController
             $normalizedSchema = $this->normalizeFormSchema($body['form_schema'], true);
             $updates[] = 'form_schema = :fsc';
             $dbParams['fsc'] = json_encode($normalizedSchema);
+        }
+
+        $targetSelling = isset($dbParams['sp']) ? (float)$dbParams['sp'] : (float)$existing['selling_price'];
+        $targetWholesale = isset($dbParams['wc']) ? (float)$dbParams['wc'] : (float)$existing['wholesale_cost'];
+        if ($targetSelling < $targetWholesale) {
+            Response::error(
+                'Customer selling price (₦' . number_format($targetSelling, 2) . ') cannot be lower than wholesale cost (₦' . number_format($targetWholesale, 2) . ').',
+                422
+            );
         }
 
         if (!empty($updates)) {

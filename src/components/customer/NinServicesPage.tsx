@@ -1987,16 +1987,17 @@ export const NinServicesPage: React.FC = () => {
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Bank</label>
                       <select
-                        value={formData.bank_name || (modBanks[0]?.bank_name || 'ACCESS BANK')}
+                        value={formData.bank_name || (modBanks[0]?.bank_name || 'AGENCY')}
                         onChange={e => handleFieldChange('bank_name', e.target.value)}
                         className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
                       >
                         {(modBanks.length > 0 ? modBanks : [
-                          { bank_name: 'ACCESS BANK', price: 4500 },
-                          { bank_name: 'FIRST BANK', price: 4500 },
-                          { bank_name: 'GT BANK', price: 4500 },
-                          { bank_name: 'ZENITH BANK', price: 4500 },
-                          { bank_name: 'UBA', price: 4500 },
+                          { bank_name: 'AGENCY', price: 8500 },
+                          { bank_name: 'FIRST BANK', price: 17500 },
+                          { bank_name: 'GT BANK', price: 17500 },
+                          { bank_name: 'NIBSS BANK', price: 17500 },
+                          { bank_name: 'STANBIC IBTC BANK', price: 17500 },
+                          { bank_name: 'UNITY BANK', price: 17500 },
                         ]).map(b => (
                           <option key={b.bank_name} value={b.bank_name}>{b.bank_name}</option>
                         ))}

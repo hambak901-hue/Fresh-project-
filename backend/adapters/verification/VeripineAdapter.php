@@ -41,7 +41,11 @@ class VeripineAdapter implements VerificationAdapterInterface
         $dbKey = !empty($dbRow['api_key']) ? (string)$dbRow['api_key'] : '';
 
         $resolvedUrl = $baseUrl ?: ($dbUrl ?: ($envUrl ?: ($cfg['base_url'] ?? 'https://veripine.com/api')));
-        $this->baseUrl = rtrim($resolvedUrl, '/');
+        $cleanVpUrl = rtrim($resolvedUrl, '/');
+        if ($cleanVpUrl !== '' && !str_ends_with(strtolower($cleanVpUrl), '/api')) {
+            $cleanVpUrl .= '/api';
+        }
+        $this->baseUrl = $cleanVpUrl ?: 'https://veripine.com/api';
         $this->apiKey = $apiKey ?: ($dbKey ?: ($envKey ?: (string)($cfg['api_key'] ?? '')));
         $this->timeout = $timeout ?: (int)($dbRow['timeout_seconds'] ?? ($cfg['timeout'] ?? 30));
     }
@@ -215,6 +219,21 @@ class VeripineAdapter implements VerificationAdapterInterface
         }
 
         $inner = is_array($decoded['data'] ?? null) ? $decoded['data'] : $decoded;
+        $innerStatus = strtolower((string)($inner['status'] ?? ''));
+        if (
+            empty($inner)
+            || in_array($innerStatus, ['failed', 'error', 'not_found', 'no_record', 'rejected'], true)
+            || (isset($decoded['data']) && is_array($decoded['data']) && empty($decoded['data']))
+        ) {
+            return [
+                'status' => 'failed',
+                'success' => false,
+                'code' => 404,
+                'message' => (string)($inner['message'] ?? $decoded['message'] ?? 'No matching identity record found.'),
+                'reference' => $decoded['reportID'] ?? $decoded['reference_id'] ?? $decoded['reference'] ?? $reference,
+                'raw_error' => $decoded,
+            ];
+        }
         $rawPhoto = $inner['photo'] ?? $inner['base64Image'] ?? $inner['image'] ?? null;
         if (!empty($rawPhoto) && is_string($rawPhoto)) {
             $p = trim($rawPhoto);
@@ -343,14 +362,6 @@ class VeripineAdapter implements VerificationAdapterInterface
         ?string $reference
     ): void {
         try {
-            // Redact sensitive fields before storing
-            $safeReq = $requestBody;
-            foreach (['nin', 'bvn', 'phone', 'phone_number'] as $k) {
-                if (!empty($safeReq[$k])) {
-                    $v = (string)$safeReq[$k];
-                    $safeReq[$k] = strlen($v) > 5 ? substr($v, 0, 3) . '•••••' . substr($v, -2) : 'REDACTED';
-                }
-            }
             $this->db->execute(
                 'INSERT INTO provider_logs 
                  (id, provider_id, endpoint, method, status_code, request_body, response_body, latency_ms, reference, created_at)
@@ -358,11 +369,11 @@ class VeripineAdapter implements VerificationAdapterInterface
                  (:id, "veripine", :endpoint, :method, :status, :req, :res, :latency, :ref, NOW())',
                 [
                     'id' => Security::generateUuid(),
-                    'endpoint' => $endpoint,
+                    'endpoint' => Security::sanitizeProviderUrl($endpoint),
                     'method' => $method,
                     'status' => $statusCode,
-                    'req' => json_encode($safeReq),
-                    'res' => $responseBody,
+                    'req' => Security::sanitizeProviderLogPayload($requestBody, 4000),
+                    'res' => Security::sanitizeProviderLogPayload($responseBody, 4000),
                     'latency' => $latencyMs,
                     'ref' => $reference,
                 ]

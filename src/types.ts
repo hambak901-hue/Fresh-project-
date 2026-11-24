@@ -179,7 +179,7 @@ export interface Transaction {
   amount: number;
   balance_before: number;
   balance_after: number;
-  category: 'funding' | 'nin_verification' | 'bvn_verification' | 'data_purchase' | 'airtime' | 'cable_tv' | 'store_purchase' | 'manual_adjustment' | 'printing' | 'printing_refund';
+  category: 'funding' | 'nin_verification' | 'bvn_verification' | 'nin_modification' | 'bvn_modification' | 'nin_enrolment' | 'data_purchase' | 'airtime' | 'cable_tv' | 'store_purchase' | 'manual_adjustment' | 'printing' | 'printing_refund' | 'refund' | 'modification_refund' | 'enrolment_refund' | 'reversal' | string;
   reference: string;
   gateway: 'flutterwave' | 'paystack' | 'manual_transfer' | 'internal';
   status: 'successful' | 'pending' | 'failed';
@@ -264,7 +264,8 @@ export interface ProviderConfigItem {
 
 export interface ProviderLogItem {
   id: string;
-  provider: string;
+  provider?: string;
+  provider_id?: string;
   endpoint: string;
   method: string;
   status_code: number;

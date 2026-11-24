@@ -401,22 +401,90 @@ class WalletService
     }
 
     /**
-     * Reversal of an existing transaction with ledger auditing.
+     * Reversal of an existing transaction with strict row-locking, idempotency, and audit logging.
      */
     public function reverseTransaction(string $transactionId, string $adminId, string $reason): array
     {
-        return $this->db->withTransaction(function (Database $db) use ($transactionId, $adminId, $reason) {
-            $tx = $db->fetchOne('SELECT * FROM transactions WHERE id = :id', ['id' => $transactionId]);
+        $cleanReason = trim($reason);
+        if ($cleanReason === '' || mb_strlen($cleanReason) < 4) {
+            throw new RuntimeException('A clear reversal reason (at least 4 characters) is required.');
+        }
+
+        return $this->db->withTransaction(function (Database $db) use ($transactionId, $adminId, $cleanReason) {
+            $tx = $db->fetchOne('SELECT * FROM transactions WHERE id = :id FOR UPDATE', ['id' => $transactionId]);
             if (!$tx) {
                 throw new RuntimeException('Transaction not found for reversal.');
             }
 
-            if ($tx['status'] !== 'successful') {
+            if (($tx['status'] ?? '') !== 'successful') {
                 throw new RuntimeException("Cannot reverse a transaction with status '{$tx['status']}'.");
             }
 
+            $origRef = (string)($tx['reference'] ?? '');
+            $origCat = strtolower(trim((string)($tx['category'] ?? '')));
+
+            if ($origCat === 'reversal' || str_starts_with($origRef, 'REV_')) {
+                throw new RuntimeException('Cannot reverse a reversal transaction.');
+            }
+
+            if (
+                str_starts_with($origRef, 'REFUND_') ||
+                in_array($origCat, ['refund', 'modification_refund', 'enrolment_refund', 'printing_refund'], true)
+            ) {
+                throw new RuntimeException('Cannot reverse an automatic refund credit transaction.');
+            }
+
+            $meta = [];
+            if (!empty($tx['metadata'])) {
+                $decoded = is_array($tx['metadata']) ? $tx['metadata'] : json_decode((string)$tx['metadata'], true);
+                if (is_array($decoded)) {
+                    $meta = $decoded;
+                }
+            }
+
+            if (!empty($meta['reversal_reference']) || !empty($meta['reversed_at'])) {
+                throw new RuntimeException("This transaction has already been reversed (Ref: {$meta['reversal_reference']}).");
+            }
+
+            $userId = (string)$tx['user_id'];
+
+            // Guard against pre-existing reversal or automatic REFUND_{$origRef} credit in ledger
+            $existingReversal = $db->fetchOne(
+                'SELECT id, reference FROM transactions
+                 WHERE user_id = :uid AND category = "reversal"
+                   AND (metadata LIKE :txid_pat OR description LIKE :ref_pat)
+                 LIMIT 1',
+                [
+                    'uid' => $userId,
+                    'txid_pat' => '%' . $transactionId . '%',
+                    'ref_pat' => '%#' . $origRef . '%',
+                ]
+            );
+            if ($existingReversal) {
+                throw new RuntimeException("This transaction has already been reversed (Ref: {$existingReversal['reference']}).");
+            }
+
+            if ($origRef !== '' && ($tx['type'] ?? '') === 'debit') {
+                $existingAutoRefund = $db->fetchOne(
+                    'SELECT id, reference FROM transactions
+                     WHERE user_id = :uid AND type = "credit" AND status = "successful"
+                       AND reference = :rref
+                     LIMIT 1',
+                    [
+                        'uid' => $userId,
+                        'rref' => 'REFUND_' . $origRef,
+                    ]
+                );
+                if ($existingAutoRefund) {
+                    throw new RuntimeException("Cannot reverse: this debit was already refunded automatically (Ref: {$existingAutoRefund['reference']}).");
+                }
+            }
+
             $amount = (float)$tx['amount'];
-            $userId = $tx['user_id'];
+            if ($amount <= 0) {
+                throw new RuntimeException('Transaction amount must be positive to reverse.');
+            }
+
             $reference = 'REV_' . strtoupper(bin2hex(random_bytes(6)));
 
             // If original transaction was DEBIT, reversing it means CREDITING the user back
@@ -427,9 +495,14 @@ class WalletService
                     $amount,
                     'reversal',
                     $reference,
-                    "Reversal of #{$tx['reference']}: {$reason}",
+                    "Reversal of #{$origRef}: {$cleanReason}",
                     'internal',
-                    ['original_transaction_id' => $transactionId, 'reversed_by' => $adminId]
+                    [
+                        'original_transaction_id' => $transactionId,
+                        'original_reference' => $origRef,
+                        'reversed_by' => $adminId,
+                        'reversal_reason' => $cleanReason,
+                    ]
                 );
             } else {
                 $result = $this->debit(
@@ -437,25 +510,58 @@ class WalletService
                     $amount,
                     'reversal',
                     $reference,
-                    "Reversal of #{$tx['reference']}: {$reason}",
+                    "Reversal of #{$origRef}: {$cleanReason}",
                     'internal',
-                    ['original_transaction_id' => $transactionId, 'reversed_by' => $adminId]
+                    [
+                        'original_transaction_id' => $transactionId,
+                        'original_reference' => $origRef,
+                        'reversed_by' => $adminId,
+                        'reversal_reason' => $cleanReason,
+                    ]
                 );
             }
 
             // Mark original transaction as reversed in metadata
-            $meta = !empty($tx['metadata']) ? json_decode($tx['metadata'], true) : [];
             $meta['reversed_at'] = date('Y-m-d H:i:s');
             $meta['reversed_by'] = $adminId;
             $meta['reversal_reference'] = $reference;
-            $meta['reversal_reason'] = $reason;
+            $meta['reversal_reason'] = $cleanReason;
 
             $db->execute(
                 'UPDATE transactions SET metadata = :meta WHERE id = :id',
-                ['meta' => json_encode($meta), 'id' => $transactionId]
+                ['meta' => json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 'id' => $transactionId]
             );
 
-            return array_merge($result, ['reversal_reference' => $reference]);
+            // Audit log for treasury compliance
+            try {
+                $adminRow = $db->fetchOne('SELECT email FROM users WHERE id = :id LIMIT 1', ['id' => $adminId]);
+                $db->execute(
+                    'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+                     VALUES (:id, :uid, :uem, "ADMIN_TX_REVERSAL", :det, :ip, NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'uid' => $adminId,
+                        'uem' => (string)($adminRow['email'] ?? $adminId),
+                        'det' => json_encode([
+                            'transaction_id' => $transactionId,
+                            'original_reference' => $origRef,
+                            'reversal_reference' => $reference,
+                            'target_user_id' => $userId,
+                            'original_type' => $tx['type'],
+                            'amount' => $amount,
+                            'reason' => $cleanReason,
+                        ]),
+                        'ip' => Security::resolveClientIp(),
+                    ]
+                );
+            } catch (\Throwable) {
+            }
+
+            return array_merge($result, [
+                'reversal_reference' => $reference,
+                'original_transaction_id' => $transactionId,
+                'original_reference' => $origRef,
+            ]);
         });
     }
 

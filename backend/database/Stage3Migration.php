@@ -85,28 +85,28 @@ class Stage3Migration
         );
 
         $defaultBanks = [
-            ['AGENCY',                  'Agency BVN Enrolment / Update', 6000.00,  8500.00,  1],
-            ['ACCESS BANK',             'Access Bank',                   14000.00, 18000.00, 2],
-            ['BOA BANK',                'Bank of Agriculture (BOA)',     14000.00, 18000.00, 3],
-            ['FCMB BANK',               'FCMB Bank',                     14000.00, 18000.00, 4],
-            ['FIRST BANK',              'First Bank of Nigeria',         14000.00, 18000.00, 5],
-            ['GT BANK',                 'Guaranty Trust Bank (GTBank)',  14000.00, 18000.00, 6],
-            ['HERITAGE BANK',           'Heritage Bank',                 14000.00, 18000.00, 7],
-            ['JAIZ BANK',               'Jaiz Bank',                     14000.00, 18000.00, 8],
-            ['KEYSTONE BANK',           'Keystone Bank',                 14000.00, 18000.00, 9],
-            ['LAPO MICRO FINANCE BANK', 'LAPO Microfinance Bank',        14000.00, 18000.00, 10],
-            ['MICROFINANCE BANK',       'Microfinance Bank (Other)',     14000.00, 18000.00, 11],
-            ['NIBSS BANK',              'NIBSS Direct',                  14000.00, 18000.00, 12],
-            ['NON COMMERCIAL BANK',     'Non-Commercial Bank',           14000.00, 18000.00, 13],
-            ['STANBIC IBTC BANK',       'Stanbic IBTC Bank',             14000.00, 18000.00, 14],
-            ['UNITY BANK',              'Unity Bank',                    14000.00, 18000.00, 15],
+            ['AGENCY',                  'Agency BVN Enrolment / Update', 6000.00,  8500.00,  1, 1],
+            ['ACCESS BANK',             'Access Bank',                   14000.00, 17500.00, 2, 0],
+            ['BOA BANK',                'Bank of Agriculture (BOA)',     14000.00, 17500.00, 3, 1],
+            ['FCMB BANK',               'FCMB Bank',                     14000.00, 17500.00, 4, 1],
+            ['FIRST BANK',              'First Bank of Nigeria',         14000.00, 17500.00, 5, 1],
+            ['GT BANK',                 'Guaranty Trust Bank (GTBank)',  14000.00, 17500.00, 6, 1],
+            ['HERITAGE BANK',           'Heritage Bank',                 14000.00, 17500.00, 7, 1],
+            ['JAIZ BANK',               'Jaiz Bank',                     14000.00, 17500.00, 8, 1],
+            ['KEYSTONE BANK',           'Keystone Bank',                 14000.00, 17500.00, 9, 1],
+            ['LAPO MICRO FINANCE BANK', 'LAPO Microfinance Bank',        14000.00, 17500.00, 10, 1],
+            ['MICROFINANCE BANK',       'Microfinance Bank (Other)',     14000.00, 17500.00, 11, 1],
+            ['NIBSS BANK',              'NIBSS Direct',                  14000.00, 17500.00, 12, 1],
+            ['NON COMMERCIAL BANK',     'Non-Commercial Bank',           14000.00, 17500.00, 13, 1],
+            ['STANBIC IBTC BANK',       'Stanbic IBTC Bank',             14000.00, 17500.00, 14, 1],
+            ['UNITY BANK',              'Unity Bank',                    14000.00, 17500.00, 15, 1],
         ];
-        foreach ($defaultBanks as [$etype, $bname, $pcost, $cprice, $ord]) {
+        foreach ($defaultBanks as [$etype, $bname, $pcost, $cprice, $ord, $activeFlag]) {
             $db->execute(
                 'INSERT IGNORE INTO bvn_modification_banks
                  (enrollment_type, bank_name, provider_cost, customer_price, is_active, display_order)
-                 VALUES (:et, :bn, :pc, :cp, 1, :ord)',
-                ['et' => $etype, 'bn' => $bname, 'pc' => $pcost, 'cp' => $cprice, 'ord' => $ord]
+                 VALUES (:et, :bn, :pc, :cp, :act, :ord)',
+                ['et' => $etype, 'bn' => $bname, 'pc' => $pcost, 'cp' => $cprice, 'act' => $activeFlag, 'ord' => $ord]
             );
         }
 
@@ -270,7 +270,7 @@ class Stage3Migration
                     ]
                 );
                 // If existing selling_price is lower than corrected wholesale cost (e.g. second_nin_mod_* or bvn_modification), align price safely
-                if ((float)$existing['selling_price'] <= 0) {
+                if ((float)$existing['selling_price'] <= 0 || (float)$existing['selling_price'] < (float)$svc['wholesale_cost']) {
                     $db->execute(
                         'UPDATE service_catalogue SET selling_price = :sp WHERE service_key = :sk',
                         ['sp' => $svc['selling_price'], 'sk' => $svc['service_key']]
@@ -645,7 +645,7 @@ class Stage3Migration
                 'description'          => 'Official Bank Verification Number (BVN) update for Name, Phone Number, Residential Address, or Date of Birth, routed by enrollment bank or agency.',
                 'endpoint'             => '/api/v1/bvn_modification.php',
                 'wholesale_cost'       => 14000.00,
-                'selling_price'        => 18000.00,
+                'selling_price'        => 17500.00,
                 'estimated_turnaround' => '3 – 10 Business Days',
                 'required_documents'   => [
                     ['key' => 'bvn_supporting_doc', 'label' => 'Valid ID / Bank Slip / Affidavit (Recommended)', 'required' => false],

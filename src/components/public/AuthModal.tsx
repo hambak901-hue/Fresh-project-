@@ -33,7 +33,7 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialMode?: 'login' | 'register' | 'forgot';
-  onSuccess?: (user?: any, options?: { limitedAccess?: boolean }) => void;
+  onSuccess?: (user?: any, options?: { limitedAccess?: boolean; verifiedMessage?: string }) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -339,7 +339,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setSuccessMsg(res.message || 'Email verified successfully! Opening your portal...');
       setTimeout(() => {
         onClose();
-        if (onSuccess) onSuccess(res.user || pendingVerifyUser);
+        if (onSuccess) {
+          onSuccess(res.user || pendingVerifyUser, {
+            verifiedMessage: res.message || 'Email verified successfully! Full portal access is now active.',
+          });
+        }
       }, 500);
     } catch (err: any) {
       const codeStr = String(err?.payload?.code || '');

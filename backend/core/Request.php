@@ -149,13 +149,24 @@ class Request
 
     private function sanitizeArray(array $data): array
     {
+        $rawCredentialKeys = [
+            'password',
+            'new_password',
+            'current_password',
+            'confirm_password',
+            'old_password',
+            'pass',
+            'passwordHash',
+        ];
         $clean = [];
         foreach ($data as $k => $v) {
             if (is_array($v)) {
                 $clean[$k] = $this->sanitizeArray($v);
             } elseif (is_string($v)) {
-                // Remove null bytes and trim
-                $clean[$k] = trim(str_replace("\0", '', $v));
+                $noNull = str_replace("\0", '', $v);
+                $clean[$k] = in_array((string)$k, $rawCredentialKeys, true)
+                    ? $noNull
+                    : trim($noNull);
             } else {
                 $clean[$k] = $v;
             }

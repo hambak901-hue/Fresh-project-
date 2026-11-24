@@ -26,6 +26,7 @@ use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Telecom\UlamaDataAdapter;
 use HambakTech\Adapters\Telecom\VtpassAdapter;
 use HambakTech\Adapters\Payment\PaystackAdapter;
+use HambakTech\Adapters\Payment\FlutterwaveAdapter;
 use Throwable;
 
 class AdminController
@@ -218,9 +219,44 @@ class AdminController
         } catch (Throwable) {
         }
 
-        // Manual bank transfer queue discontinued; Paystack is the sole active wallet funding method
-        $pendingFundingCount = 0;
-        $pendingFundings = [];
+        $pendingFundingCount = (int)$this->db->fetchOne(
+            'SELECT COUNT(*) as count FROM manual_funding_requests WHERE status = "pending"'
+        )['count'];
+
+        $pendingFundings = $this->db->fetchAll(
+            'SELECT m.*, u.full_name, u.email, u.phone_number,
+                    COALESCE(w.balance, u.wallet_balance, 0) as current_balance,
+                    m.payment_reference as reference
+             FROM manual_funding_requests m
+             LEFT JOIN users u ON u.id = m.user_id
+             LEFT JOIN wallets w ON w.user_id = m.user_id
+             WHERE m.status = "pending"
+             ORDER BY m.created_at DESC LIMIT 5'
+        );
+        foreach ($pendingFundings as &$pf) {
+            $amt = (float)($pf['amount'] ?? 0);
+            $curBal = (float)($pf['current_balance'] ?? 0);
+            $pf['amount'] = $amt;
+            $pf['description'] = $pf['remarks'] ?: ("Manual bank transfer deposit to {$pf['bank_name']}");
+            $pf['customer'] = [
+                'id' => $pf['user_id'] ?? '',
+                'full_name' => $pf['full_name'] ?: ($pf['depositor_name'] ?: 'Customer'),
+                'email' => $pf['email'] ?: '',
+                'phone_number' => $pf['phone_number'] ?: '',
+                'current_balance' => $curBal,
+            ];
+            $pf['metadata'] = [
+                'sender_name' => $pf['depositor_name'] ?: ($pf['full_name'] ?: 'Customer'),
+                'bank_name' => $pf['bank_name'] ?: 'Moniepoint MFB',
+                'account_number' => preg_replace('/\s+/', '', (string)($pf['account_number'] ?? '5210741634')) ?: '5210741634',
+                'payment_date' => $pf['payment_date'] ?: '',
+                'payment_method' => $pf['payment_method'] ?: 'Bank Transfer',
+                'customer_remarks' => $pf['remarks'] ?: '',
+                'payment_proof_url' => $pf['teller_proof_url'] ?: '',
+                'proof_filename' => $pf['proof_filename'] ?: '',
+            ];
+        }
+        unset($pf);
 
         // 5. Recent Registrations & Orders
         $recentUsers = $this->db->fetchAll(
@@ -615,24 +651,262 @@ class AdminController
     public function manualFundingRequests(Request $request): void
     {
         Auth::requirePermission($request, 'wallet');
+
+        $statusFilter = strtolower(trim((string)$request->query('status', 'pending')));
+        if (!in_array($statusFilter, ['pending', 'approved', 'rejected', 'all'], true)) {
+            $statusFilter = 'pending';
+        }
+
+        $whereClause = $statusFilter === 'all' ? '' : 'WHERE m.status = :st ';
+        $idParams = $statusFilter === 'all' ? [] : ['st' => $statusFilter];
+
+        $idRows = $this->db->fetchAll(
+            "SELECT id FROM manual_funding_requests m {$whereClause}ORDER BY FIELD(m.status, \"pending\", \"approved\", \"rejected\"), m.created_at DESC LIMIT 100",
+            $idParams
+        );
+        $rows = [];
+        if (!empty($idRows)) {
+            $ids = array_values(array_filter(array_column($idRows, 'id')));
+            if (!empty($ids)) {
+                $placeholders = [];
+                $inParams = [];
+                foreach ($ids as $idx => $idVal) {
+                    $ph = ':mf_' . $idx;
+                    $placeholders[] = $ph;
+                    $inParams['mf_' . $idx] = $idVal;
+                }
+                $rows = $this->db->fetchAll(
+                    'SELECT m.*, u.full_name, u.email, u.phone_number,
+                            COALESCE(w.balance, u.wallet_balance, 0) as current_balance,
+                            m.payment_reference as reference,
+                            "credit" as type,
+                            "manual_transfer" as gateway
+                     FROM manual_funding_requests m
+                     LEFT JOIN users u ON u.id = m.user_id
+                     LEFT JOIN wallets w ON w.user_id = m.user_id
+                     WHERE m.id IN (' . implode(', ', $placeholders) . ')',
+                    $inParams
+                );
+                $orderMap = array_flip($ids);
+                usort($rows, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
+            }
+        }
+
+        foreach ($rows as &$r) {
+            $r['amount'] = (float)$r['amount'];
+            $curBal = (float)($r['current_balance'] ?? 0);
+            $r['description'] = $r['remarks'] ?: ("Manual bank transfer deposit to {$r['bank_name']}");
+            $r['customer'] = [
+                'id' => $r['user_id'] ?? '',
+                'full_name' => $r['full_name'] ?: ($r['depositor_name'] ?: 'Customer'),
+                'email' => $r['email'] ?: '',
+                'phone_number' => $r['phone_number'] ?: '',
+                'current_balance' => $curBal,
+            ];
+            $r['metadata'] = [
+                'sender_name' => $r['depositor_name'] ?: ($r['full_name'] ?: 'Customer'),
+                'bank_name' => $r['bank_name'] ?: 'Moniepoint MFB',
+                'account_number' => preg_replace('/\s+/', '', (string)($r['account_number'] ?? '5210741634')) ?: '5210741634',
+                'payment_date' => $r['payment_date'] ?: '',
+                'payment_method' => $r['payment_method'] ?: 'Bank Transfer',
+                'customer_remarks' => $r['remarks'] ?: '',
+                'payment_proof_url' => $r['teller_proof_url'] ?: '',
+                'proof_filename' => $r['proof_filename'] ?: '',
+            ];
+        }
+        unset($r);
+
         Response::success([
-            'requests' => [],
-            'pending' => [],
-            'count' => 0,
-            'status' => 'discontinued',
+            'requests' => $rows,
+            'pending' => $rows,
+            'count' => count($rows),
+            'status' => $statusFilter,
         ]);
     }
 
     public function approveFunding(Request $request, array $params, ?string $forcedAction = null): void
     {
-        Auth::requirePermission($request, 'wallet');
-        Response::error('Manual funding approval workflows have been discontinued. Paystack is the sole active wallet funding method. Historical records remain preserved for audit.', 410);
+        $admin = Auth::requirePermission($request, 'wallet');
+        $requestId = $params['id'] ?? '';
+        $action = strtolower((string)($forcedAction ?? $request->input('action', 'approve'))); // approve or reject
+        $reason = trim((string)$request->input('reason', 'Receipt verification could not be validated with receiving bank records'));
+
+        $reference = 'MAN_CRED_' . strtoupper(str_replace('-', '', (string)$requestId));
+
+        $outcome = $this->db->withTransaction(function (Database $db) use ($requestId, $action, $reason, $admin, $reference) {
+            $req = $db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id FOR UPDATE', ['id' => $requestId]);
+            if (!$req) {
+                return ['error' => 'Funding request not found.', 'code' => 404];
+            }
+            if ($req['status'] !== 'pending') {
+                return ['error' => "Request already {$req['status']}. Duplicate decision prevented.", 'code' => 400];
+            }
+
+            $amount = (float)$req['amount'];
+            $custRef = $req['payment_reference'] ?: ('REQ_' . substr((string)$req['id'], 0, 8));
+
+            if ($action === 'approve') {
+                $existingLedger = $db->fetchOne('SELECT id FROM transactions WHERE reference = :ref LIMIT 1', ['ref' => $reference]);
+                if ($existingLedger) {
+                    return ['error' => 'Duplicate credit prevented for this manual funding request.', 'code' => 409];
+                }
+
+                $txResult = $this->walletService->credit(
+                    $req['user_id'],
+                    $amount,
+                    'funding',
+                    $reference,
+                    "Approved manual transfer deposit ({$req['bank_name']}) - Ref: {$custRef}",
+                    'manual_transfer',
+                    [
+                        'funding_request_id' => $requestId,
+                        'approved_by' => $admin['email'],
+                        'customer_reference' => $custRef,
+                    ]
+                );
+
+                $db->execute(
+                    'UPDATE manual_funding_requests 
+                     SET status = "approved", reviewed_by = :admin, reviewed_at = NOW(), admin_notes = :notes 
+                     WHERE id = :id',
+                    ['admin' => $admin['id'], 'notes' => 'Approved by ' . $admin['email'], 'id' => $requestId]
+                );
+
+                $db->execute(
+                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                     VALUES (:id, :uid, "Funding Approved", :msg, "success", 0, NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'uid' => $req['user_id'],
+                        'msg' => "Your manual transfer deposit of ₦" . number_format($amount, 2) . " (Ref: {$custRef}) has been verified and credited to your wallet balance.",
+                    ]
+                );
+
+                $updatedReq = $db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
+                return [
+                    'ok' => true,
+                    'action' => 'approve',
+                    'req' => $req,
+                    'updatedReq' => $updatedReq,
+                    'txResult' => $txResult,
+                    'amount' => $amount,
+                    'custRef' => $custRef,
+                ];
+            }
+
+            $db->execute(
+                'UPDATE manual_funding_requests 
+                 SET status = "rejected", reviewed_by = :admin, reviewed_at = NOW(), admin_notes = :reason 
+                 WHERE id = :id',
+                ['admin' => $admin['id'], 'reason' => $reason, 'id' => $requestId]
+            );
+
+            $db->execute(
+                'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
+                 VALUES (:id, :uid, "Funding Request Rejected", :msg, "alert", 0, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $req['user_id'],
+                    'msg' => "Your manual deposit request for ₦" . number_format($amount, 2) . " (Ref: {$custRef}) was rejected. Reason: {$reason}",
+                ]
+            );
+
+            $updatedReq = $db->fetchOne('SELECT * FROM manual_funding_requests WHERE id = :id', ['id' => $requestId]);
+            return [
+                'ok' => true,
+                'action' => 'reject',
+                'req' => $req,
+                'updatedReq' => $updatedReq,
+                'amount' => $amount,
+                'custRef' => $custRef,
+            ];
+        });
+
+        if (!empty($outcome['error'])) {
+            Response::error($outcome['error'], (int)($outcome['code'] ?? 400));
+            return;
+        }
+
+        $req = $outcome['req'];
+        $amount = (float)$outcome['amount'];
+        $custRef = (string)$outcome['custRef'];
+
+        // Notify customer via HAMBAKTECH Notifications (notification@hambaktech.com.ng)
+        try {
+            $cust = $this->db->fetchOne('SELECT email, full_name FROM users WHERE id = :uid', ['uid' => $req['user_id']]);
+            if ($cust && !empty($cust['email'])) {
+                $mailer = new MailService();
+                $safeName = htmlspecialchars((string)($cust['full_name'] ?: 'Valued Customer'), ENT_QUOTES, 'UTF-8');
+                $amtFmt = '₦' . number_format($amount, 2);
+                if ($outcome['action'] === 'approve') {
+                    $balFmt = '₦' . number_format((float)($outcome['txResult']['balance_after'] ?? 0), 2);
+                    $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
+                        . "<h2 style='margin:0 0 12px;color:#059669;'>Manual Funding Approved: {$amtFmt}</h2>"
+                        . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
+                        . "<p style='color:#334155;'>Your bank transfer deposit of <strong>{$amtFmt}</strong> (Ref: <code>{$custRef}</code>) has been verified and credited to your wallet.</p>"
+                        . "<p style='color:#334155;'><strong>New Wallet Balance:</strong> {$balFmt}</p>"
+                        . "<p style='color:#64748b;font-size:12px;margin-top:20px;'>Need assistance? Reply to this email to reach HAMBAKTECH Support.</p></div>";
+                    $mailer->send((string)$cust['email'], (string)($cust['full_name'] ?: 'Customer'), "Wallet Funding Approved ({$amtFmt}) — HAMBAKTECH", $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'MANUAL_FUNDING_APPROVED_EMAIL']);
+                } else {
+                    $safeReason = htmlspecialchars($reason, ENT_QUOTES, 'UTF-8');
+                    $html = "<div style='font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;'>"
+                        . "<h2 style='margin:0 0 12px;color:#dc2626;'>Manual Funding Request Declined</h2>"
+                        . "<p style='color:#334155;'>Hello <strong>{$safeName}</strong>,</p>"
+                        . "<p style='color:#334155;'>Your manual transfer submission for <strong>{$amtFmt}</strong> (Ref: <code>{$custRef}</code>) could not be approved.</p>"
+                        . "<p style='color:#334155;'><strong>Reason:</strong> {$safeReason}</p>"
+                        . "<p style='color:#64748b;font-size:12px;margin-top:20px;'>If you have proof of debit, reply to this email or open a Support ticket.</p></div>";
+                    $mailer->send((string)$cust['email'], (string)($cust['full_name'] ?: 'Customer'), "Manual Funding Update ({$amtFmt}) — HAMBAKTECH", $html, null, MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'MANUAL_FUNDING_REJECTED_EMAIL']);
+                }
+            }
+        } catch (Throwable) {
+        }
+
+        if ($outcome['action'] === 'approve') {
+            try {
+                (new \HambakTech\Services\AccountingService($this->db))->syncWebsiteTransactions();
+            } catch (Throwable) {
+            }
+
+            $txResult = $outcome['txResult'];
+            $txObj = [
+                'id' => $txResult['transaction_id'] ?? $reference,
+                'reference' => $reference,
+                'amount' => $amount,
+                'type' => 'credit',
+                'status' => 'successful',
+                'balance_after' => (float)$txResult['balance_after'],
+            ];
+
+            Response::success([
+                'request_id' => $requestId,
+                'request' => $outcome['updatedReq'],
+                'status' => 'approved',
+                'amount' => $amount,
+                'balance_after' => (float)$txResult['balance_after'],
+                'userBalance' => (float)$txResult['balance_after'],
+                'transaction' => $txObj,
+            ], "Manual funding request approved and ₦{$amount} credited to customer.");
+        } else {
+            Response::success([
+                'request_id' => $requestId,
+                'request' => $outcome['updatedReq'],
+                'status' => 'rejected',
+                'reason' => $reason,
+                'transaction' => [
+                    'id' => $requestId,
+                    'reference' => $custRef,
+                    'amount' => $amount,
+                    'type' => 'credit',
+                    'status' => 'rejected',
+                ],
+            ], 'Manual funding request marked as rejected.');
+        }
     }
 
     public function rejectFunding(Request $request, array $params): void
     {
-        Auth::requirePermission($request, 'wallet');
-        Response::error('Manual funding rejection workflows have been discontinued. Paystack is the sole active wallet funding method. Historical records remain preserved for audit.', 410);
+        $request->setBody(array_merge($request->getBody(), ['action' => 'reject']));
+        $this->approveFunding($request, $params);
     }
 
     /**
@@ -641,11 +915,14 @@ class AdminController
     public function reverseTransaction(Request $request): void
     {
         $admin = Auth::requireSuperAdmin($request);
-        $txId = (string)$request->input('transaction_id', '');
-        $reason = trim((string)$request->input('reason', 'Administrative financial correction'));
+        $txId = trim((string)$request->input('transaction_id', ''));
+        $reason = trim((string)$request->input('reason', ''));
 
-        if (empty($txId)) {
+        if ($txId === '') {
             Response::error('Transaction ID required.', 422);
+        }
+        if ($reason === '' || mb_strlen($reason) < 4) {
+            Response::error('A reversal reason (at least 4 characters) is required.', 422);
         }
 
         try {
@@ -663,7 +940,9 @@ class AdminController
             }
             Response::success($res, 'Transaction reversed and ledger updated successfully.');
         } catch (Throwable $e) {
-            Response::error($e->getMessage(), 400);
+            $msg = $e->getMessage();
+            $code = str_contains($msg, 'not found') ? 404 : (str_contains($msg, 'already been') ? 409 : 422);
+            Response::error($msg, $code);
         }
     }
 
@@ -680,8 +959,12 @@ class AdminController
                 COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "paystack" AND status = "successful" THEN amount ELSE 0 END), 0) as paystack_funding,
                 COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "flutterwave" AND status = "successful" THEN amount ELSE 0 END), 0) as flutterwave_funding,
                 COALESCE(SUM(CASE WHEN type = "credit" AND category = "funding" AND gateway = "manual_transfer" AND status = "successful" THEN amount ELSE 0 END), 0) as manual_funding,
-                COALESCE(SUM(CASE WHEN type = "credit" AND reference LIKE "REFUND_%" AND status = "successful" THEN amount ELSE 0 END), 0) as total_refunds,
+                COALESCE(SUM(CASE WHEN type = "credit" AND status = "successful" AND (reference LIKE "REFUND_%" OR category IN ("refund", "modification_refund", "enrolment_refund", "printing_refund")) THEN amount ELSE 0 END), 0) as total_refunds,
+                COUNT(CASE WHEN type = "credit" AND status = "successful" AND (reference LIKE "REFUND_%" OR category IN ("refund", "modification_refund", "enrolment_refund", "printing_refund")) THEN 1 END) as count_refunds,
+                COALESCE(SUM(CASE WHEN status = "successful" AND (category = "reversal" OR reference LIKE "REV_%") THEN amount ELSE 0 END), 0) as total_reversals,
+                COUNT(CASE WHEN status = "successful" AND (category = "reversal" OR reference LIKE "REV_%") THEN 1 END) as count_reversals,
                 COALESCE(SUM(CASE WHEN type = "credit" AND category = "manual_adjustment" AND reference NOT LIKE "REFUND_%" AND status = "successful" THEN amount ELSE 0 END), 0) as manual_adjustments,
+                COALESCE(SUM(CASE WHEN type = "debit" AND category = "manual_adjustment" AND status = "successful" THEN amount ELSE 0 END), 0) as manual_adjustment_debits,
                 COUNT(CASE WHEN type = "credit" AND category = "funding" AND status = "successful" THEN 1 END) as count_funding
              FROM transactions'
         );
@@ -727,6 +1010,27 @@ class AdminController
              WHERE w.status = "active" AND u.role IN ("customer", "student", "agent")'
         );
 
+        $recon = ['wallets_total' => 0.0, 'users_total' => 0.0, 'drift' => 0.0, 'is_balanced' => true];
+        try {
+            $rRow = $this->db->fetchOne(
+                'SELECT
+                    (SELECT COALESCE(SUM(balance), 0) FROM wallets) as wallets_total,
+                    (SELECT COALESCE(SUM(wallet_balance), 0) FROM users) as users_total'
+            );
+            if ($rRow) {
+                $wt = (float)$rRow['wallets_total'];
+                $ut = (float)$rRow['users_total'];
+                $drift = round($wt - $ut, 2);
+                $recon = [
+                    'wallets_total' => $wt,
+                    'users_total' => $ut,
+                    'drift' => $drift,
+                    'is_balanced' => abs($drift) < 0.01,
+                ];
+            }
+        } catch (Throwable) {
+        }
+
         $telecomSales = (float)($telecomAgg['telecom_sales'] ?? 0);
         $telecomCost = (float)($telecomAgg['telecom_cost'] ?? 0);
         $telecomProfit = (float)($telecomAgg['telecom_profit'] ?? 0);
@@ -747,7 +1051,11 @@ class AdminController
                     'flutterwaveFunding' => (float)($fundingStats['flutterwave_funding'] ?? 0),
                     'manualFunding' => (float)($fundingStats['manual_funding'] ?? 0),
                     'totalRefunds' => (float)($fundingStats['total_refunds'] ?? 0),
+                    'refundsCount' => (int)($fundingStats['count_refunds'] ?? 0),
+                    'totalReversals' => (float)($fundingStats['total_reversals'] ?? 0),
+                    'reversalsCount' => (int)($fundingStats['count_reversals'] ?? 0),
                     'manualAdjustments' => (float)($fundingStats['manual_adjustments'] ?? 0),
+                    'manualAdjustmentDebits' => (float)($fundingStats['manual_adjustment_debits'] ?? 0),
                     'fundingTransactionsCount' => (int)($fundingStats['count_funding'] ?? 0),
                 ],
                 'sales' => [
@@ -767,6 +1075,7 @@ class AdminController
                 'float' => [
                     'totalCustomerFloat' => (float)($floatStats['total_customer_float'] ?? 0),
                     'totalCustomers' => (int)($floatStats['total_customers'] ?? 0),
+                    'ledgerReconciliation' => $recon,
                 ],
             ]
         ]);
@@ -778,7 +1087,58 @@ class AdminController
     public function updateBankSettings(Request $request): void
     {
         Auth::requireRole($request, ['admin', 'superadmin']);
-        Response::error('Manual bank transfer settings have been discontinued. Paystack is the sole active wallet funding method.', 410);
+
+        $bank = trim((string)$request->input('bank', 'Moniepoint MFB')) ?: 'Moniepoint MFB';
+        $accountNumber = preg_replace('/\s+/', '', trim((string)$request->input('account_number', '5210741634'))) ?: '5210741634';
+        $accountName = trim((string)$request->input('account_name', 'Hambaktech_Services')) ?: 'Hambaktech_Services';
+
+        $this->db->execute(
+            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+             VALUES ("set_bank_name", "bank_transfer_bank", :v1, "payment", "Bank Name")
+             ON DUPLICATE KEY UPDATE setting_value = :v1_dup',
+            ['v1' => $bank, 'v1_dup' => $bank]
+        );
+
+        $this->db->execute(
+            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+             VALUES ("set_bank_acc", "bank_transfer_account_number", :v2, "payment", "Account Number")
+             ON DUPLICATE KEY UPDATE setting_value = :v2_dup',
+            ['v2' => $accountNumber, 'v2_dup' => $accountNumber]
+        );
+
+        $this->db->execute(
+            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+             VALUES ("set_bank_title", "bank_transfer_account_name", :v3, "payment", "Account Name")
+             ON DUPLICATE KEY UPDATE setting_value = :v3_dup',
+            ['v3' => $accountName, 'v3_dup' => $accountName]
+        );
+
+        // Keep wallet_settings JSON and accounting BANK_MAIN in sync
+        try {
+            $wRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "wallet_settings" LIMIT 1');
+            $wCfg = ($wRow && !empty($wRow['setting_value'])) ? (json_decode((string)$wRow['setting_value'], true) ?: []) : [];
+            $wCfg['bank_name'] = $bank;
+            $wCfg['bank_account_number'] = $accountNumber;
+            $wCfg['bank_account_name'] = $accountName;
+            $wJson = json_encode($wCfg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $this->db->execute(
+                'INSERT INTO system_settings (id, setting_key, setting_value, category, description, updated_at)
+                 VALUES (UUID(), "wallet_settings", :v, "wallet", "Configuration for wallet", NOW())
+                 ON DUPLICATE KEY UPDATE setting_value = :v2, updated_at = NOW()',
+                ['v' => $wJson, 'v2' => $wJson]
+            );
+            $this->db->execute(
+                'UPDATE accounting_accounts SET bank_name = :b, account_number = :a WHERE account_code = "BANK_MAIN"',
+                ['b' => $bank, 'a' => $accountNumber]
+            );
+        } catch (Throwable) {
+        }
+
+        Response::success([
+            'bank' => $bank,
+            'accountNumber' => $accountNumber,
+            'accountName' => $accountName,
+        ], 'Bank transfer instructions updated successfully.');
     }
 
     private function maskEmailForReport(?string $email): string
@@ -858,7 +1218,12 @@ class AdminController
                 SUM(CASE WHEN status = "failed" THEN 1 ELSE 0 END) as failed_count,
                 COALESCE(SUM(CASE WHEN status = "successful" THEN amount ELSE 0 END), 0) as successful_volume,
                 COALESCE(SUM(CASE WHEN status = "successful" AND type = "credit" AND category = "funding" THEN amount ELSE 0 END), 0) as credit_funding_volume,
-                COALESCE(SUM(CASE WHEN status = "successful" AND type = "credit" AND (category = "manual_adjustment" OR reference LIKE "REFUND_%") THEN amount ELSE 0 END), 0) as refund_credit_volume,
+                COALESCE(SUM(CASE WHEN status = "successful" AND type = "credit" AND (reference LIKE "REFUND_%" OR category IN ("refund", "modification_refund", "enrolment_refund", "printing_refund")) THEN amount ELSE 0 END), 0) as refund_credit_volume,
+                SUM(CASE WHEN status = "successful" AND type = "credit" AND (reference LIKE "REFUND_%" OR category IN ("refund", "modification_refund", "enrolment_refund", "printing_refund")) THEN 1 ELSE 0 END) as refund_count,
+                COALESCE(SUM(CASE WHEN status = "successful" AND (category = "reversal" OR reference LIKE "REV_%") THEN amount ELSE 0 END), 0) as reversal_volume,
+                SUM(CASE WHEN status = "successful" AND (category = "reversal" OR reference LIKE "REV_%") THEN 1 ELSE 0 END) as reversal_count,
+                COALESCE(SUM(CASE WHEN status = "successful" AND type = "credit" AND category = "manual_adjustment" AND reference NOT LIKE "REFUND_%" THEN amount ELSE 0 END), 0) as manual_adjustment_credit_volume,
+                COALESCE(SUM(CASE WHEN status = "successful" AND type = "debit" AND category = "manual_adjustment" THEN amount ELSE 0 END), 0) as manual_adjustment_debit_volume,
                 COALESCE(SUM(CASE WHEN status = "successful" AND type = "debit" THEN amount ELSE 0 END), 0) as debit_sales_volume
              FROM transactions WHERE 1=1' . $txRange['sql'],
             $txRange['params']
@@ -884,6 +1249,24 @@ class AdminController
              FROM wallets WHERE 1=1' . $walRange['sql'],
             $walRange['params']
         );
+        try {
+            $reconRow = $this->db->fetchOne(
+                'SELECT
+                    (SELECT COALESCE(SUM(balance), 0) FROM wallets) as wallets_total,
+                    (SELECT COALESCE(SUM(wallet_balance), 0) FROM users) as users_total'
+            );
+            if ($reconRow && is_array($walletSummary)) {
+                $wt = (float)$reconRow['wallets_total'];
+                $ut = (float)$reconRow['users_total'];
+                $walletSummary['ledger_reconciliation'] = [
+                    'wallets_total' => $wt,
+                    'users_total' => $ut,
+                    'drift' => round($wt - $ut, 2),
+                    'is_balanced' => abs($wt - $ut) < 0.01,
+                ];
+            }
+        } catch (Throwable) {
+        }
 
         // 4. Payment Report (combined online payment_records + manual_funding_requests)
         $payOnlineRange = $buildRange('created_at', 'pr');
@@ -1267,7 +1650,7 @@ class AdminController
         }
 
         $txns = $this->db->fetchAll(
-            'SELECT id, type, amount, balance_before, balance_after, category, reference, gateway, status, description, created_at 
+            'SELECT id, type, amount, balance_before, balance_after, category, reference, gateway, status, description, metadata, created_at 
              FROM transactions 
              WHERE user_id = :uid 
              ORDER BY created_at DESC LIMIT 50',
@@ -1278,6 +1661,10 @@ class AdminController
             $t['balance_before'] = (float)($t['balance_before'] ?? 0);
             $t['balance_after'] = (float)($t['balance_after'] ?? 0);
             $t['category'] = $t['category'] ?: 'general';
+            if (is_string($t['metadata'] ?? null) && $t['metadata'] !== '') {
+                $decodedMeta = json_decode($t['metadata'], true);
+                $t['metadata'] = is_array($decodedMeta) ? $decodedMeta : null;
+            }
         }
 
         $verifications = $this->db->fetchAll(
@@ -1861,7 +2248,11 @@ class AdminController
 
         \HambakTech\Services\AcademyService::ensureSeeded($this->db);
         $academyCourses = $this->db->fetchAll('SELECT * FROM academy_courses ORDER BY display_order ASC, created_at DESC');
-        $academyCourses = array_map([\HambakTech\Services\AcademyService::class, 'normalizeCourse'], $academyCourses);
+        foreach ($academyCourses as &$ac) {
+            $ac['price'] = $ac['price'] !== null ? (float)$ac['price'] : null;
+            $ac['modules_count'] = (int)$ac['modules_count'];
+            $ac['is_available'] = isset($ac['is_available']) ? (bool)$ac['is_available'] : true;
+        }
 
         Response::success([
             'settings' => $settings,
@@ -2049,6 +2440,23 @@ class AdminController
             $paramsDb['act'] = $activeVal ? 1 : 0;
         }
 
+        $existingRow = $this->db->fetchOne(
+            'SELECT selling_price, wholesale_cost FROM service_catalogue WHERE service_key = :k LIMIT 1',
+            ['k' => $key]
+        );
+        if (!$existingRow) {
+            Response::notFound('Verification service not found.');
+        }
+
+        $targetSelling = $paramsDb['spr'] ?? ($paramsDb['pr'] ?? (float)$existingRow['selling_price']);
+        $targetWholesale = $paramsDb['wc'] ?? (float)$existingRow['wholesale_cost'];
+        if ((float)$targetSelling < (float)$targetWholesale) {
+            Response::error(
+                'Customer selling price (₦' . number_format((float)$targetSelling, 2) . ') cannot be lower than wholesale cost (₦' . number_format((float)$targetWholesale, 2) . ').',
+                422
+            );
+        }
+
         if (!empty($updates)) {
             $updates[] = 'updated_at = NOW()';
             $this->db->execute('UPDATE service_catalogue SET ' . implode(', ', $updates) . ' WHERE service_key = :k', $paramsDb);
@@ -2166,7 +2574,6 @@ class AdminController
     {
         Auth::requirePermission($request, 'services');
         $providers = $this->db->fetchAll('SELECT * FROM providers ORDER BY provider_type ASC, is_default DESC, name ASC');
-        $providers = array_values(array_filter($providers, static fn($p) => strtolower((string)($p['id'] ?? '')) !== 'flutterwave'));
         $primaryId = '2sureverify';
         foreach ($providers as &$p) {
             if (!empty($p['is_default']) && in_array($p['provider_type'] ?? '', ['identity', 'verification'], true)) {
@@ -2384,6 +2791,17 @@ class AdminController
                     $balance = ((float)$decoded['data'][0]['balance']) / 100.0;
                 }
                 $message = "Paystack API authenticated successfully ({$latency}ms).";
+            } elseif ($id === 'flutterwave') {
+                $start = microtime(true);
+                $adapter = new \HambakTech\Adapters\Payment\FlutterwaveAdapter();
+                $testRes = $adapter->testConnection();
+                $latency = (int)($testRes['latency_ms'] ?? round((microtime(true) - $start) * 1000));
+                if (empty($testRes['operational'])) {
+                    throw new Exception((string)($testRes['message'] ?? 'Flutterwave authentication failed.'));
+                }
+                $operational = true;
+                $balance = isset($testRes['balance']) ? (float)$testRes['balance'] : null;
+                $message = (string)($testRes['message'] ?? "Flutterwave API authenticated successfully ({$latency}ms).");
             } else {
                 $message = "Unknown provider '{$id}'";
             }
@@ -2446,7 +2864,7 @@ class AdminController
                     $idParams['pl_' . $idx] = $lid;
                 }
                 $logs = $this->db->fetchAll(
-                    'SELECT id, provider_id, endpoint, method, status_code,
+                    'SELECT id, provider_id, provider_id AS provider, endpoint, method, status_code,
                             LEFT(request_body, 8000) as request_body,
                             LEFT(response_body, 8000) as response_body,
                             latency_ms, reference, created_at
@@ -2454,6 +2872,17 @@ class AdminController
                      WHERE id IN (' . implode(', ', $placeholders) . ')',
                     $idParams
                 );
+                foreach ($logs as &$logRow) {
+                    $logRow['provider'] = (string)($logRow['provider'] ?? $logRow['provider_id'] ?? 'unknown');
+                    $logRow['endpoint'] = Security::sanitizeProviderUrl((string)($logRow['endpoint'] ?? ''));
+                    if (isset($logRow['request_body']) && $logRow['request_body'] !== null) {
+                        $logRow['request_body'] = Security::sanitizeProviderLogPayload($logRow['request_body'], 4000);
+                    }
+                    if (isset($logRow['response_body']) && $logRow['response_body'] !== null) {
+                        $logRow['response_body'] = Security::sanitizeProviderLogPayload($logRow['response_body'], 4000);
+                    }
+                }
+                unset($logRow);
                 $orderMap = array_flip($ids);
                 usort($logs, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
             }
@@ -2907,27 +3336,123 @@ class AdminController
 
     public function academy(Request $request): void
     {
-        (new AcademyController())->adminOverview($request);
+        Auth::requirePermission($request, 'services');
+        $courses = $this->db->fetchAll('SELECT * FROM academy_courses ORDER BY created_at DESC');
+        if (empty($courses)) {
+            $defaults = [
+                ['crs_001', 'Nigerian VTU Business Mastery & Automated Sells', 'Beginner to Pro', '4 Weeks', 8, 15000.00, 'Learn how to generate ₦150k - ₦500k monthly reselling data, airtime, and utility tokens with zero upfront inventory.', 'enrolling'],
+                ['crs_002', 'NIMC Identity Verification Agent Licensing Course', 'Professional', '6 Weeks', 12, 35000.00, 'Comprehensive compliance and software operating certification for authorized NIN and BVN slip enrollment centers.', 'enrolling'],
+                ['crs_003', 'API Integration & Telecom Webhook Architecture', 'Developer', '3 Weeks', 6, 25000.00, 'Hands-on training for software engineers connecting telecommunication and fintech payment APIs.', 'draft'],
+            ];
+            foreach ($defaults as $d) {
+                $this->db->execute(
+                    'INSERT IGNORE INTO academy_courses (id, title, level, duration, modules_count, price, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    $d
+                );
+            }
+            $courses = $this->db->fetchAll('SELECT * FROM academy_courses ORDER BY created_at DESC');
+        }
+
+        foreach ($courses as &$c) {
+            $c['price'] = (float)$c['price'];
+            $c['modules_count'] = (int)$c['modules_count'];
+        }
+
+        $academySettingsSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "academy_settings"');
+        $settings = $academySettingsSetting ? json_decode($academySettingsSetting['setting_value'], true) : [
+            'coming_soon' => true,
+            'banner_url' => '',
+            'enrollment_open' => true,
+            'contact_email' => 'hambak901@gmail.com',
+        ];
+
+        Response::success([
+            'courses' => $courses,
+            'settings' => $settings,
+        ]);
     }
 
     public function academySettings(Request $request): void
     {
-        (new AcademyController())->getSettings($request);
+        Auth::requirePermission($request, 'services');
+        $academySettingsSetting = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "academy_settings"');
+        $settings = $academySettingsSetting ? json_decode($academySettingsSetting['setting_value'], true) : [
+            'coming_soon' => true,
+            'banner_url' => '',
+            'enrollment_open' => true,
+            'contact_email' => 'hambak901@gmail.com',
+        ];
+        Response::success(['settings' => $settings]);
     }
 
     public function updateAcademySettings(Request $request): void
     {
-        (new AcademyController())->updateSettings($request);
+        Auth::requirePermission($request, 'services');
+        $body = $request->getBody();
+
+        $this->db->execute(
+            'INSERT INTO system_settings (id, setting_key, setting_value, category, description)
+             VALUES ("set_academy_config", "academy_settings", :val, "academy", "Academy configurations")
+             ON DUPLICATE KEY UPDATE setting_value = :val2',
+            [
+                'val' => json_encode($body),
+                'val2' => json_encode($body),
+            ]
+        );
+
+        Response::success(['settings' => $body], 'Academy settings saved');
     }
 
     public function saveAcademyCourse(Request $request, array $params = []): void
     {
-        (new AcademyController())->saveCourse($request, $params);
+        Auth::requirePermission($request, 'services');
+        $id = $params['id'] ?? (string)$request->input('id', '');
+        $body = $request->getBody();
+
+        if (empty($id)) {
+            $id = 'crs_' . strtolower(bin2hex(random_bytes(4)));
+        }
+
+        $this->db->execute(
+            'INSERT INTO academy_courses (id, title, level, duration, modules_count, price, description, status)
+             VALUES (:id, :tit, :lvl, :dur, :mod, :pr, :desc, :st)
+             ON DUPLICATE KEY UPDATE
+                title = COALESCE(:tit2, title),
+                level = COALESCE(:lvl2, level),
+                duration = COALESCE(:dur2, duration),
+                modules_count = COALESCE(:mod2, modules_count),
+                price = COALESCE(:pr2, price),
+                description = COALESCE(:desc2, description),
+                status = COALESCE(:st2, status),
+                updated_at = NOW()',
+            [
+                'id' => $id,
+                'tit' => $body['title'] ?? 'Course Title',
+                'lvl' => $body['level'] ?? 'Beginner',
+                'dur' => $body['duration'] ?? '4 Weeks',
+                'mod' => (int)($body['modules_count'] ?? 1),
+                'pr' => (float)($body['price'] ?? 0),
+                'desc' => $body['description'] ?? '',
+                'st' => $body['status'] ?? 'enrolling',
+                'tit2' => $body['title'] ?? null,
+                'lvl2' => $body['level'] ?? null,
+                'dur2' => $body['duration'] ?? null,
+                'mod2' => isset($body['modules_count']) ? (int)$body['modules_count'] : null,
+                'pr2' => isset($body['price']) ? (float)$body['price'] : null,
+                'desc2' => $body['description'] ?? null,
+                'st2' => $body['status'] ?? null,
+            ]
+        );
+
+        $row = $this->db->fetchOne('SELECT * FROM academy_courses WHERE id = :id', ['id' => $id]);
+        Response::success(['course' => $row], 'Academy course saved');
     }
 
     public function deleteAcademyCourse(Request $request, array $params): void
     {
-        (new AcademyController())->deleteCourse($request, $params);
+        Auth::requirePermission($request, 'services');
+        $this->db->execute('DELETE FROM academy_courses WHERE id = :id', ['id' => $params['id'] ?? '']);
+        Response::success(null, 'Academy course deleted');
     }
 
     public function reportsSettings(Request $request): void
@@ -3665,7 +4190,7 @@ class AdminController
             $defaults = [
                 ['nin', 'nin', 'NIN Services', 'NIMC & BVN Sovereign Identity Verification Engine', 'ShieldCheck', 'active', 1, null, 1],
                 ['telecom', 'telecom', 'Telecommunications', 'High-speed automated SME data & airtime top-up', 'Smartphone', 'active', 1, null, 2],
-                ['wallet', 'wallet', 'My Wallet', 'Instant funding via Paystack & Ledger History', 'Wallet', 'active', 1, null, 3],
+                ['wallet', 'wallet', 'My Wallet', 'Instant funding via Card, USSD, Moniepoint & Ledger History', 'Wallet', 'active', 1, null, 3],
                 ['store', 'store', 'Commercial Hardware Store', 'Certified biometric scanners, POS terminals and thermal printers', 'ShoppingBag', 'active', 1, 'Hardware devices catalogue open for pre-orders.', 4],
                 ['digital', 'digital', 'Digital Services', 'Cable TV renewal, electricity token vending and scratch cards', 'Tv', 'active', 1, null, 5],
                 ['academy', 'academy', 'Digital Training Academy', 'Practical ICT, design, data analysis & software development training courses', 'GraduationCap', 'active', 1, 'Online admissions and student ID verification available.', 6],
@@ -4604,8 +5129,8 @@ class AdminController
 
         if (empty($rules)) {
             $defaultRules = [
-                ['sec_nin', 'nin_v1', 'NIN Verification Standard', 'identity', 0, 1, 100000.00, 1],
-                ['sec_nin_v2', 'nin_v2', 'NIN Verification V2', 'identity', 0, 1, 100000.00, 1],
+                ['sec_nin', 'nin_v1', 'NIN Verification Standard', 'identity', 1, 1, 100000.00, 1],
+                ['sec_nin_v2', 'nin_v2', 'NIN Verification V2', 'identity', 1, 1, 100000.00, 1],
                 ['sec_bvn', 'bvn_v1', 'BVN Verification', 'identity', 1, 1, 200000.00, 1],
                 ['sec_nin_mod', 'nin_mod_dob', 'NIN Date of Birth Modification', 'modification', 1, 2, 500000.00, 1],
                 ['sec_nin_name', 'nin_mod_name', 'NIN Name Modification', 'modification', 1, 2, 300000.00, 1],
@@ -4615,7 +5140,7 @@ class AdminController
                 ['sec_disco', 'electricity_bill', 'Electricity Bill Payment', 'telecom', 0, 1, 300000.00, 1],
                 ['sec_swap', 'airtime_swap', 'Airtime to Cash Swap', 'telecom', 1, 2, 200000.00, 1],
                 ['sec_wallet_transfer', 'wallet_transfer', 'Peer to Peer Wallet Transfer', 'wallet', 1, 2, 500000.00, 1],
-                ['sec_manual_fund', 'manual_funding', 'Direct Bank Transfer Deposit (Discontinued)', 'wallet', 0, 1, 0.00, 0],
+                ['sec_manual_fund', 'manual_funding', 'Direct Bank Transfer Deposit', 'wallet', 0, 1, 1000000.00, 1],
                 ['sec_api_access', 'api_developer', 'Developer API Access', 'system', 1, 3, 5000000.00, 1],
             ];
 

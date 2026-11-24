@@ -46,6 +46,19 @@ class Security
             if (@password_verify($plainText, $hash) || @password_verify($cleanText, $hash)) {
                 return true;
             }
+
+            if (str_starts_with($hash, '$argon2id$')) {
+                if (function_exists('sodium_crypto_pwhash_str_verify')) {
+                    try {
+                        if (@sodium_crypto_pwhash_str_verify($hash, $plainText) || @sodium_crypto_pwhash_str_verify($hash, $cleanText)) {
+                            return true;
+                        }
+                    } catch (\Throwable) {
+                    }
+                } elseif (!defined('PASSWORD_ARGON2ID')) {
+                    error_log('[Security::verifyPassword] Argon2id hash encountered but neither PASSWORD_ARGON2ID nor ext-sodium is available in PHP.');
+                }
+            }
         }
 
         // SHA-256 with configured salt (legacy migration only)
@@ -118,6 +131,69 @@ class Security
             return htmlspecialchars(strip_tags($value), ENT_QUOTES, 'UTF-8');
         }
         return $value;
+    }
+
+    /**
+     * Resolves authoritative client IP address without blindly trusting spoofable proxy headers.
+     * Forwarded headers are honored ONLY when REMOTE_ADDR belongs to TRUSTED_PROXY_IPS.
+     */
+    public static function resolveClientIp(): string
+    {
+        $remoteRaw = trim((string)($_SERVER['REMOTE_ADDR'] ?? ''));
+        $remoteIp = filter_var($remoteRaw, FILTER_VALIDATE_IP) ? $remoteRaw : '';
+
+        if ($remoteIp !== '' && self::isTrustedProxy($remoteIp)) {
+            $cfIp = trim((string)($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
+            if ($cfIp !== '' && filter_var($cfIp, FILTER_VALIDATE_IP)) {
+                return $cfIp;
+            }
+
+            $xff = trim((string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+            if ($xff !== '') {
+                $parts = array_reverse(array_map('trim', explode(',', $xff)));
+                foreach ($parts as $candidate) {
+                    if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_IP) && !self::isTrustedProxy($candidate)) {
+                        return $candidate;
+                    }
+                }
+            }
+
+            $realIp = trim((string)($_SERVER['HTTP_X_REAL_IP'] ?? ''));
+            if ($realIp !== '' && filter_var($realIp, FILTER_VALIDATE_IP) && !self::isTrustedProxy($realIp)) {
+                return $realIp;
+            }
+        }
+
+        return $remoteIp !== '' ? $remoteIp : '127.0.0.1';
+    }
+
+    private static function isTrustedProxy(string $ip): bool
+    {
+        $rawList = (string)($_ENV['TRUSTED_PROXY_IPS'] ?? getenv('TRUSTED_PROXY_IPS') ?: '');
+        if (trim($rawList) === '') {
+            return false;
+        }
+        $entries = array_filter(array_map('trim', explode(',', $rawList)));
+        foreach ($entries as $entry) {
+            if ($entry === $ip) {
+                return true;
+            }
+            if (str_contains($entry, '/') && str_contains($ip, '.')) {
+                [$subnet, $bitsStr] = explode('/', $entry, 2);
+                $bits = (int)$bitsStr;
+                if ($bits >= 0 && $bits <= 32 && filter_var($subnet, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                    $ipLong = ip2long($ip);
+                    $subLong = ip2long($subnet);
+                    if ($ipLong !== false && $subLong !== false) {
+                        $mask = $bits === 0 ? 0 : (~0 << (32 - $bits));
+                        if (($ipLong & $mask) === ($subLong & $mask)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     public const ERR_PROVIDER_WALLET = 'This service is temporarily unavailable. Please try again later, or contact support on WhatsApp for faster assistance.';
@@ -335,5 +411,187 @@ class Security
             $meta['remarks'] = self::sanitizeCustomerError($meta['remarks'], self::ERR_PROVIDER_UNAVAILABLE);
         }
         return $meta;
+    }
+
+    /**
+     * Strips or masks sensitive query parameters (API keys, tokens, NIN, BVN, phone, email) from logged URLs.
+     */
+    public static function sanitizeProviderUrl(string $url): string
+    {
+        $trimmed = trim($url);
+        if ($trimmed === '') {
+            return $trimmed;
+        }
+        $parts = parse_url($trimmed);
+        if (!is_array($parts)) {
+            return preg_replace('/([?&](?:api[_-]?key|secret|token|key|nin|bvn|phone|email|password|pin)=)[^&\s]+/i', '$1[REDACTED]', $trimmed) ?? $trimmed;
+        }
+
+        $pathOnly = ($parts['path'] ?? '/');
+        if (!empty($parts['query'])) {
+            parse_str($parts['query'], $qParams);
+            $safeQuery = [];
+            foreach ($qParams as $qk => $qv) {
+                $safeQuery[$qk] = self::maskSensitiveScalar((string)$qk, $qv);
+            }
+            $qs = http_build_query($safeQuery);
+            return $qs !== '' ? "{$pathOnly}?{$qs}" : $pathOnly;
+        }
+
+        return $pathOnly;
+    }
+
+    /**
+     * Recursively redacts PII, credentials, binary/base64 blobs, and oversized payloads before storing in provider_logs.
+     */
+    public static function sanitizeProviderLogPayload(mixed $payload, int $maxLength = 4000): ?string
+    {
+        if ($payload === null) {
+            return null;
+        }
+
+        if (is_array($payload)) {
+            $cleaned = self::sanitizeProviderNode($payload);
+            $encoded = json_encode($cleaned, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if (!is_string($encoded)) {
+                return '[UNSERIALIZABLE_PAYLOAD]';
+            }
+            return strlen($encoded) > $maxLength
+                ? substr($encoded, 0, $maxLength) . '...[TRUNCATED]'
+                : $encoded;
+        }
+
+        $raw = trim((string)$payload);
+        if ($raw === '') {
+            return '';
+        }
+
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            $cleaned = self::sanitizeProviderNode($decoded);
+            $encoded = json_encode($cleaned, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if (is_string($encoded)) {
+                return strlen($encoded) > $maxLength
+                    ? substr($encoded, 0, $maxLength) . '...[TRUNCATED]'
+                    : $encoded;
+            }
+        }
+
+        // Non-JSON string: strip base64 data URIs, bearer tokens, and raw 11-digit NIN/BVN sequences where labelled
+        $sanitizedStr = preg_replace('/data:[a-z0-9\/+-]+;base64,[A-Za-z0-9+\/=_-]+/i', '[REDACTED_BASE64_URI]', $raw) ?? $raw;
+        $sanitizedStr = preg_replace('/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]{10,}/i', '$1 [REDACTED_TOKEN]', $sanitizedStr) ?? $sanitizedStr;
+        $sanitizedStr = preg_replace('/("(?:nin|bvn|vnin|api_?key|secret(?:_?key)?|token|password|pin|telephoneno|phone(?:_?number)?|mobile|photo|image|pdf_base64|report_image_base64)"\s*:\s*")([^"]*)(")/i', '$1[REDACTED]$3', $sanitizedStr) ?? $sanitizedStr;
+
+        if (strlen($sanitizedStr) > 512 && preg_match('/^[A-Za-z0-9+\/=_-]{512,}$/', $sanitizedStr) === 1) {
+            return '[REDACTED_BASE64:' . strlen($sanitizedStr) . 'B]';
+        }
+
+        return strlen($sanitizedStr) > $maxLength
+            ? substr($sanitizedStr, 0, $maxLength) . '...[TRUNCATED]'
+            : $sanitizedStr;
+    }
+
+    private static function sanitizeProviderNode(array $node): array
+    {
+        $out = [];
+        foreach ($node as $key => $val) {
+            $keyStr = is_string($key) ? $key : (string)$key;
+            if ($val instanceof \CURLFile) {
+                $out[$key] = '[FILE:' . basename($val->getPostFilename() ?: $val->getFilename()) . ']';
+                continue;
+            }
+            if (is_array($val)) {
+                $out[$key] = self::sanitizeProviderNode($val);
+                continue;
+            }
+            if (is_string($val)) {
+                $trimVal = trim($val);
+                if (($trimVal !== '' && ($trimVal[0] === '{' || $trimVal[0] === '[')) && strlen($trimVal) <= 250000) {
+                    $nested = json_decode($trimVal, true);
+                    if (is_array($nested)) {
+                        $out[$key] = self::sanitizeProviderNode($nested);
+                        continue;
+                    }
+                }
+            }
+            $out[$key] = self::maskSensitiveScalar($keyStr, $val);
+        }
+        return $out;
+    }
+
+    private static function maskSensitiveScalar(string $key, mixed $value): mixed
+    {
+        $kl = strtolower(trim($key));
+
+        $secretKeys = [
+            'password', 'pass', 'pin', 'transaction_pin', 'api_key', 'apikey',
+            'secret', 'secret_key', 'public_key', 'token', 'access_token', 'refresh_token',
+            'authorization', 'bearer', 'webhook_hash', 'client_secret', 'encryption_key', 'x-api-key',
+        ];
+        if (in_array($kl, $secretKeys, true) || str_contains($kl, 'secret') || str_contains($kl, 'password') || str_contains($kl, 'api_key') || str_contains($kl, 'token')) {
+            if ($value === null || $value === '') {
+                return $value;
+            }
+            return '[REDACTED]';
+        }
+
+        $binaryKeys = [
+            'pdf_base64', 'report_image_base64', 'slip_image', 'slip_pdf', 'photo', 'passport',
+            'passport_photo', 'base64image', 'signature', 'image', 'avatar', 'document',
+            'file_data', 'content_base64', 'qr_code', 'qrcode', 'barcode', 'headdoc',
+        ];
+        if (in_array($kl, $binaryKeys, true) || str_contains($kl, '_base64') || str_contains($kl, 'image_base64') || str_contains($kl, 'photo')) {
+            if ($value === null || $value === '') {
+                return $value;
+            }
+            return is_string($value) ? '[REDACTED_BINARY:' . strlen($value) . 'B]' : '[REDACTED_BINARY]';
+        }
+
+        $idMaskKeys = [
+            'nin', 'bvn', 'vnin', 'tracking_id', 'trackingid', 'central_id', 'userid',
+            'child_nin', 'guardian_nin', 'parent_nin', 'phone', 'phone_number', 'telephoneno',
+            'mobile', 'new_phone', 'new_phone_number', 'previous_phone', 'account_number',
+        ];
+        if (in_array($kl, $idMaskKeys, true)) {
+            if ($value === null || $value === '') {
+                return $value;
+            }
+            $s = (string)$value;
+            return strlen($s) > 5 ? substr($s, 0, 3) . '•••••' . substr($s, -2) : '[REDACTED]';
+        }
+
+        $piiKeys = [
+            'email', 'dob', 'birthdate', 'date_of_birth', 'address', 'residence_address',
+            'residential_address', 'address_line1', 'nok_address1', 'nok_address2',
+            'firstname', 'first_name', 'middlename', 'middle_name', 'surname', 'lastname',
+            'last_name', 'full_name', 'fullname', 'name', 'customer_name', 'account_name',
+            'nok_firstname', 'nok_middlename', 'nok_surname', 'birthstate', 'birthlga',
+            'birthcountry', 'residence_state', 'residence_lga', 'residence_town',
+            'self_origin_lga', 'self_origin_place', 'self_origin_state', 'religion', 'maritalstatus',
+        ];
+        if (in_array($kl, $piiKeys, true)) {
+            if ($value === null || $value === '') {
+                return $value;
+            }
+            if ($kl === 'email' && is_string($value) && str_contains($value, '@')) {
+                [$local, $domain] = explode('@', $value, 2);
+                return substr($local, 0, 2) . '***@' . $domain;
+            }
+            return '[MASKED]';
+        }
+
+        if (is_string($value)) {
+            if (str_starts_with(strtolower($value), 'data:image/') || str_starts_with(strtolower($value), 'data:application/pdf')) {
+                return '[REDACTED_DATA_URI:' . strlen($value) . 'B]';
+            }
+            if (strlen($value) > 256 && preg_match('/^[A-Za-z0-9+\/=_-]{256,}$/', $value) === 1) {
+                return '[REDACTED_BASE64:' . strlen($value) . 'B]';
+            }
+            if (strlen($value) > 500) {
+                return substr($value, 0, 300) . '...[TRUNCATED:' . strlen($value) . 'B]';
+            }
+        }
+
+        return $value;
     }
 }

@@ -30,11 +30,14 @@ import {
 import { MfaChallengeResponse, User } from '../../types';
 
 interface CustomerLoginScreenProps {
-  onSuccess: (user?: User | null, options?: { limitedAccess?: boolean }) => void;
+  onSuccess: (user?: User | null, options?: { limitedAccess?: boolean; verifiedMessage?: string }) => void;
   onOpenRegister: () => void;
   onSwitchToPublic: () => void;
   onSwitchToAdmin: () => void;
   notice?: string | null;
+  initialMode?: 'login' | 'forgot' | 'verify_otp' | 'reset_password' | 'verify_email';
+  initialEmail?: string;
+  initialResetToken?: string;
 }
 
 export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
@@ -43,12 +46,17 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
   onSwitchToPublic,
   onSwitchToAdmin,
   notice,
+  initialMode,
+  initialEmail,
+  initialResetToken,
 }) => {
   const { login, completeMfaLogin, refreshUser, logout } = useAuth();
   const { branding } = useCms();
 
-  const [mode, setMode] = useState<'login' | 'forgot' | 'verify_otp' | 'reset_password' | 'mfa_challenge' | 'verify_email'>('login');
-  const [email, setEmail] = useState('');
+  const [mode, setMode] = useState<'login' | 'forgot' | 'verify_otp' | 'reset_password' | 'mfa_challenge' | 'verify_email'>(
+    initialMode || 'login'
+  );
+  const [email, setEmail] = useState(initialEmail || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -60,7 +68,7 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
   const [emailVerifyCode, setEmailVerifyCode] = useState('');
   const [pendingVerifyUser, setPendingVerifyUser] = useState<User | null>(null);
   const [verifyNeedsResend, setVerifyNeedsResend] = useState(false);
-  const [resetToken, setResetToken] = useState('');
+  const [resetToken, setResetToken] = useState(initialResetToken || '');
   const [resendCooldown, setResendCooldown] = useState(0);
 
   const [mfaChallenge, setMfaChallenge] = useState<MfaChallengeResponse | null>(null);
@@ -69,6 +77,12 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
   const brandName = branding?.short_brand_name || 'HAMBAKTECH';
   const companyName = branding?.company_name || 'HAMBAK TECH & SERVICES';
   const logoSrc = branding?.logo_url || '/logo.png';
+
+  useEffect(() => {
+    if (initialMode) setMode(initialMode);
+    if (initialEmail !== undefined && initialEmail !== '') setEmail(initialEmail);
+    if (initialResetToken !== undefined && initialResetToken !== '') setResetToken(initialResetToken);
+  }, [initialMode, initialEmail, initialResetToken]);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -140,7 +154,9 @@ export const CustomerLoginScreen: React.FC<CustomerLoginScreenProps> = ({
         otp_code: emailVerifyCode.trim(),
       });
       await refreshUser();
-      onSuccess(res.user || pendingVerifyUser);
+      onSuccess(res.user || pendingVerifyUser, {
+        verifiedMessage: res.message || 'Email verified successfully! Full portal access is now active.',
+      });
     } catch (err: any) {
       const codeStr = String(err?.payload?.code || '');
       const msg = err?.message || 'Invalid or expired verification code.';

@@ -160,27 +160,64 @@ class PinSecurityService
         }
 
         $cats = $policy['protected_categories'] ?? [];
-        $aliasMap = [
-            'identity_verification' => ['identity_verification', 'nin_verification', 'bvn_verification'],
-            'identity_modification' => ['identity_modification', 'nin_modification', 'bvn_modification'],
-            'identity_enrolment' => ['identity_enrolment', 'nin_enrolment'],
-            'telecom_bulksms' => ['telecom_bulksms', 'telecom_sms'],
-            'telecom_sms' => ['telecom_sms', 'telecom_bulksms'],
-            'telecom_swap' => ['telecom_swap', 'telecom_bills'],
-        ];
+        $skLower = strtolower(trim((string)$serviceKey));
+        $ckLower = strtolower(trim($categoryKey));
+
+        // Resolve domain-specific candidate keys before broad parent category keys
+        $candidates = [];
+        if ($ckLower === 'identity_verification' || in_array($skLower, ['nin_v1', 'nin_v2', 'vnin_verification', 'demo_v1', 'phone_v1', 'bvn_v1', 'bvn_retrieval'], true)) {
+            if (str_starts_with($skLower, 'bvn') || str_starts_with($ckLower, 'bvn')) {
+                $candidates = ['bvn_verification', 'identity_verification'];
+            } else {
+                $candidates = ['nin_verification', 'identity_verification'];
+            }
+        } elseif ($ckLower === 'identity_modification' || str_contains($skLower, 'mod')) {
+            if (str_starts_with($skLower, 'bvn') || str_contains($ckLower, 'bvn')) {
+                $candidates = ['bvn_modification', 'identity_modification'];
+            } else {
+                $candidates = ['nin_modification', 'identity_modification'];
+            }
+        } elseif ($ckLower === 'identity_enrolment' || str_contains($skLower, 'enrol')) {
+            $candidates = ['nin_enrolment', 'enrolment', 'identity_enrolment'];
+        } else {
+            $aliasMap = [
+                'telecom_bulksms' => ['telecom_bulksms', 'telecom_sms'],
+                'telecom_sms' => ['telecom_sms', 'telecom_bulksms'],
+                'telecom_swap' => ['telecom_swap', 'telecom_bills'],
+            ];
+            $candidates = $aliasMap[$ckLower] ?? [$ckLower];
+        }
+
         $catEnabled = true;
-        if (array_key_exists($categoryKey, $cats)) {
-            $catEnabled = (bool)$cats[$categoryKey];
-        } elseif (isset($aliasMap[$categoryKey])) {
-            foreach ($aliasMap[$categoryKey] as $candidateKey) {
-                if (array_key_exists($candidateKey, $cats)) {
-                    $catEnabled = (bool)$cats[$candidateKey];
-                    break;
-                }
+        foreach ($candidates as $candidateKey) {
+            if (array_key_exists($candidateKey, $cats)) {
+                $catEnabled = (bool)$cats[$candidateKey];
+                break;
             }
         }
         if (!$catEnabled) {
             return false;
+        }
+
+        // Compulsory identity & financial operations cannot be bypassed by a stale 0 in service_security_rules
+        $compulsoryCategories = [
+            'identity_verification',
+            'nin_verification',
+            'bvn_verification',
+            'identity_modification',
+            'nin_modification',
+            'bvn_modification',
+            'identity_enrolment',
+            'nin_enrolment',
+            'enrolment',
+            'referral_wallet_conversion',
+            'referral_withdrawal',
+        ];
+        if (!empty($policy['require_pin_activation_for_all_customers']) && (
+            in_array($ckLower, $compulsoryCategories, true) ||
+            count(array_intersect($candidates, $compulsoryCategories)) > 0
+        )) {
+            return true;
         }
 
         if ($serviceKey !== null && $serviceKey !== '') {

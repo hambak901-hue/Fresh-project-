@@ -19,7 +19,7 @@ use HambakTech\Core\Security;
 class AnnouncementEmailService
 {
     public const SENDER_NAME = 'HAMBAKTECH Support';
-    public const FROM_EMAIL = 'notification@hambaktech.com.ng';
+    public const FROM_EMAIL = 'notifications@hambaktech.com.ng';
     public const REPLY_TO_EMAIL = 'support@hambaktech.com.ng';
     public const SUPPORT_NOTE = 'Need assistance or have questions about this announcement? Simply reply to this email and our support team will be happy to assist you.';
 
@@ -363,6 +363,17 @@ class AnnouncementEmailService
         }
 
         $mailService = new MailService();
+        $senderIdentity = method_exists($mailService, 'getSenderIdentity')
+            ? $mailService->getSenderIdentity(self::FROM_EMAIL, self::SENDER_NAME, self::REPLY_TO_EMAIL)
+            : [
+                'from_email' => self::FROM_EMAIL,
+                'from_name' => self::SENDER_NAME,
+                'reply_to' => self::REPLY_TO_EMAIL,
+            ];
+        $effectiveFromEmail = $senderIdentity['from_email'];
+        $effectiveFromName = $senderIdentity['from_name'];
+        $effectiveReplyTo = $senderIdentity['reply_to'];
+
         $sentCount = 0;
         $failedCount = 0;
         $skippedDuplicates = 0;
@@ -380,13 +391,19 @@ class AnnouncementEmailService
             $deliveryId = null;
             try {
                 $existing = $this->db->fetchOne(
-                    'SELECT id, status, attempts FROM announcement_email_deliveries
+                    'SELECT id, status, attempts, TIMESTAMPDIFF(SECOND, updated_at, NOW()) AS age_seconds
+                     FROM announcement_email_deliveries
                      WHERE announcement_id = :aid AND recipient_email = :email LIMIT 1',
                     ['aid' => $announcementId, 'email' => $cleanEmail]
                 );
 
                 if ($existing) {
-                    if ($existing['status'] === 'sent' || $existing['status'] === 'pending') {
+                    if ($existing['status'] === 'sent') {
+                        $skippedDuplicates++;
+                        continue;
+                    }
+                    $isStalePending = ($existing['status'] === 'pending' && $retryFailed && (int)($existing['age_seconds'] ?? 0) > 600);
+                    if ($existing['status'] === 'pending' && !$isStalePending) {
                         $skippedDuplicates++;
                         continue;
                     }
@@ -433,9 +450,9 @@ class AnnouncementEmailService
                     $tpl['html'],
                     null,
                     [
-                        'from_email' => self::FROM_EMAIL,
-                        'from_name' => self::SENDER_NAME,
-                        'reply_to' => self::REPLY_TO_EMAIL,
+                        'from_email' => $effectiveFromEmail,
+                        'from_name' => $effectiveFromName,
+                        'reply_to' => $effectiveReplyTo,
                         'text_body' => $tpl['text'],
                         'audit_action' => 'ANNOUNCEMENT_EMAIL_DISPATCHED',
                     ]
@@ -509,9 +526,9 @@ class AnnouncementEmailService
         return [
             'triggered' => true,
             'announcement_id' => $announcementId,
-            'sender_name' => self::SENDER_NAME,
-            'from_email' => self::FROM_EMAIL,
-            'reply_to' => self::REPLY_TO_EMAIL,
+            'sender_name' => $effectiveFromName,
+            'from_email' => $effectiveFromEmail,
+            'reply_to' => $effectiveReplyTo,
             'target_audience' => $audience,
             'total_targeted' => count($recipients),
             'sent' => $sentCount,
@@ -543,6 +560,7 @@ class AnnouncementEmailService
                 "SELECT announcement_id,
                         SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent_count,
                         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count,
+                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count,
                         COUNT(*) as total_logged,
                         MAX(sent_at) as last_sent_at
                  FROM announcement_email_deliveries
@@ -554,6 +572,7 @@ class AnnouncementEmailService
                 $map[(string)$row['announcement_id']] = [
                     'sent_count' => (int)($row['sent_count'] ?? 0),
                     'failed_count' => (int)($row['failed_count'] ?? 0),
+                    'pending_count' => (int)($row['pending_count'] ?? 0),
                     'total_logged' => (int)($row['total_logged'] ?? 0),
                     'last_sent_at' => $row['last_sent_at'] ?? null,
                 ];
@@ -561,6 +580,49 @@ class AnnouncementEmailService
         } catch (Throwable) {
         }
         return $map;
+    }
+
+    /**
+     * Produce an email-safe Subject line without 4-byte emojis or all-caps spam triggers,
+     * while preserving the full announcement title inside the email body and in-app banners.
+     */
+    public static function sanitizeEmailSubject(string $rawTitle): string
+    {
+        $clean = str_replace(["\r", "\n"], ' ', $rawTitle);
+        // Strip 4-byte emojis, dingbats, symbols, variation selectors, and zero-width joiners
+        $stripped = preg_replace('/[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{FE00}-\x{FE0F}\x{200D}\x{20E3}]/u', '', $clean);
+        if (is_string($stripped)) {
+            $clean = $stripped;
+        }
+        $clean = preg_replace('/\s+/u', ' ', trim($clean)) ?? trim($clean);
+        $clean = trim($clean, " \t\n\r\0\x0B-|•·:");
+
+        if ($clean === '') {
+            return '[HAMBAKTECH] Official Platform Announcement';
+        }
+
+        // Normalize excessive ALL-CAPS titles to Title Case (preserving common acronyms) to avoid spam filters
+        $lettersOnly = preg_replace('/[^A-Za-z]/', '', $clean) ?? '';
+        if (strlen($lettersOnly) >= 10 && $lettersOnly === strtoupper($lettersOnly)) {
+            $acronyms = ['HAMBAKTECH', 'NIN', 'BVN', 'VTU', 'OTP', 'PIN', 'KYC', 'SMS', 'ICT', 'API', 'PDF', 'CBN', 'NIMC', 'ID'];
+            $words = preg_split('/(\s+)/u', $clean, -1, PREG_SPLIT_DELIM_CAPTURE);
+            if (is_array($words)) {
+                $rebuilt = [];
+                foreach ($words as $part) {
+                    $upper = strtoupper($part);
+                    if (in_array($upper, $acronyms, true)) {
+                        $rebuilt[] = $upper;
+                    } elseif (preg_match('/^[A-Z]+$/', $part)) {
+                        $rebuilt[] = ucfirst(strtolower($part));
+                    } else {
+                        $rebuilt[] = $part;
+                    }
+                }
+                $clean = implode('', $rebuilt);
+            }
+        }
+
+        return '[HAMBAKTECH] ' . mb_substr($clean, 0, 140);
     }
 
     /**
@@ -589,7 +651,7 @@ class AnnouncementEmailService
         $safeDate = htmlspecialchars($publishedDate, ENT_QUOTES, 'UTF-8');
         $safeBadgeLabel = htmlspecialchars($categoryMeta['label'], ENT_QUOTES, 'UTF-8');
         $safeSupportNote = htmlspecialchars(self::SUPPORT_NOTE, ENT_QUOTES, 'UTF-8');
-        $subject = '[HAMBAKTECH] ' . $rawTitle;
+        $subject = self::sanitizeEmailSubject($rawTitle);
 
         $html = <<<HTML
 <!DOCTYPE html>

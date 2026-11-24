@@ -560,6 +560,9 @@ export function SuperAdminDashboard({
     try {
       const res = await api.forgotPassword(adminEmail.trim().toLowerCase());
       setResetToken(res.token || '');
+      setOtpCode('');
+      setNewPassword('');
+      setConfirmNewPassword('');
       setRecoveryMsg(res.message || 'Recovery OTP sent to administrator email.');
       setAuthMode('verify_otp');
     } catch (err: any) {
@@ -574,9 +577,13 @@ export function SuperAdminDashboard({
     setAuthLoading(true);
     setAuthError(null);
     setRecoveryMsg(null);
+    const cleanOtp = otpCode.replace(/\s+/g, '').trim();
     try {
-      const res = await api.verifyOtp(adminEmail.trim().toLowerCase(), otpCode.trim());
+      const res = await api.verifyOtp(adminEmail.trim().toLowerCase(), cleanOtp);
       if (res.token) setResetToken(res.token);
+      setOtpCode(cleanOtp);
+      setNewPassword('');
+      setConfirmNewPassword('');
       setRecoveryMsg('Verification code confirmed. Set your new administrator password.');
       setAuthMode('reset_password');
     } catch (err: any) {
@@ -727,6 +734,8 @@ export function SuperAdminDashboard({
                   <button
                     type="button"
                     onClick={() => {
+                      setNewPassword('');
+                      setConfirmNewPassword('');
                       setAuthMode('forgot');
                       setAuthError(null);
                       setRecoveryMsg(null);

@@ -170,6 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, pass: string): Promise<User | null> => {
     setLoading(true);
+    setLastVerificationDispatch(null);
     try {
       const res = await api.login(email, pass);
       if (res.mfa_required && res.challenge) {
@@ -190,6 +191,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const completeMfaLogin = async (challengeToken: string, code: string): Promise<User | null> => {
     setLoading(true);
+    setLastVerificationDispatch(null);
     try {
       const res = await api.verifyMfaChallenge(challengeToken, code);
       if (res.user) {

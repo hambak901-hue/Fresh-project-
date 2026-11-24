@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { registerSW } from 'virtual:pwa-register';
+import { hasActiveAuthRecoveryFlow } from '../lib/recoveryState';
 
 export interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -147,6 +148,10 @@ export function usePWAInstall() {
 
     const onControllerChange = () => {
       if (!hadControllerAtBoot) return;
+      if (hasActiveAuthRecoveryFlow()) {
+        setNeedRefresh(true);
+        return;
+      }
       // If an older installed PWA receives a new SW within 6s of opening, reload once cleanly so stale bundles are replaced immediately
       if (Date.now() - bootTimestamp < 6000) {
         try {

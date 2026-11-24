@@ -174,11 +174,11 @@ class VtpassAdapter implements TelecomAdapterInterface
                  VALUES (:id, "vtpass", :ep, :m, :code, :req, :res, :lat, :ref, NOW())',
                 [
                     'id' => Security::generateUuid(),
-                    'ep' => $endpoint,
+                    'ep' => Security::sanitizeProviderUrl($endpoint),
                     'm' => $method,
                     'code' => $statusCode,
-                    'req' => $req ? json_encode($req) : null,
-                    'res' => is_string($res) ? $res : json_encode($res),
+                    'req' => Security::sanitizeProviderLogPayload($req, 4000),
+                    'res' => Security::sanitizeProviderLogPayload($res, 4000),
                     'lat' => $latencyMs,
                     'ref' => $ref,
                 ]

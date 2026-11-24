@@ -1408,6 +1408,7 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                             <option value="ninRegular">ninRegular (Regular Slip)</option>
                             <option value="ninStandard">ninStandard (Standard Slip)</option>
                             <option value="ninPremium">ninPremium (Premium Slip)</option>
+                            <option value="ninSpecial">ninSpecial (Special Slip)</option>
                             <option value="ninVnin">ninVnin (VNIN Slip)</option>
                           </>
                         )}
@@ -1926,7 +1927,7 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                           {new Date(log.created_at).toLocaleTimeString()}
                         </td>
                         <td className="py-2.5 px-3 text-white font-semibold">
-                          {log.provider}
+                          {log.provider || log.provider_id || 'unknown'}
                         </td>
                         <td className="py-2.5 px-3 text-indigo-300">
                           {log.endpoint}

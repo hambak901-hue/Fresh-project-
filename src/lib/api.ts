@@ -65,6 +65,7 @@ function sanitizeClientFacingError(rawMessage: string, endpoint: string, payload
     payload?.code === 'VERIFICATION_COOLDOWN' ||
     payload?.code === 'VERIFICATION_EXPIRED' ||
     payload?.code === 'VERIFICATION_ATTEMPTS_EXCEEDED' ||
+    payload?.code === 'VERIFICATION_ALREADY_USED' ||
     payload?.code === 'INVALID_VERIFICATION_CODE' ||
     payload?.code === 'EMAIL_DELIVERY_FAILED' ||
     /insufficient wallet balance|transaction pin|verify your email|verification (?:code|link)|attempt\(s\) remaining/i.test(msg)
@@ -711,9 +712,11 @@ export const api = {
     });
   },
 
-  async reverseTransaction(transactionId: number, reason: string): Promise<{
+  async reverseTransaction(transactionId: string, reason: string): Promise<{
     success: boolean;
     message: string;
+    reversal_reference?: string;
+    balance_after?: number;
   }> {
     return request('/api/admin/transactions/reverse', {
       method: 'POST',
@@ -2911,12 +2914,20 @@ export const api = {
     message: string;
     channel: string;
     target_role?: string;
-    user_id?: number | null;
+    user_id?: string | number | null;
     type?: string;
   }): Promise<{
     success: boolean;
     message: string;
     recipient_count?: number;
+    email_delivery?: {
+      triggered: boolean;
+      total_targeted: number;
+      sent: number;
+      failed: number;
+      skipped_duplicates: number;
+      errors?: string[];
+    } | null;
   }> {
     return request('/api/admin/notifications/broadcast', {
       method: 'POST',
@@ -2974,6 +2985,7 @@ export const api = {
       sent: number;
       failed: number;
       skipped_duplicates: number;
+      errors?: string[];
     };
   }> {
     return request(`/api/admin/announcements/${id}/retry-emails`, {

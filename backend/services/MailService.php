@@ -17,7 +17,7 @@ use HambakTech\Core\Security;
 class MailService
 {
     public const NOTIFICATION_OPTIONS = [
-        'from_email' => 'notification@hambaktech.com.ng',
+        'from_email' => 'notifications@hambaktech.com.ng',
         'from_name' => 'HAMBAKTECH Notifications',
         'reply_to' => 'support@hambaktech.com.ng',
     ];
@@ -106,6 +106,9 @@ class MailService
             . "Need assistance? Email support@hambaktech.com.ng or call 09127469686.\n";
 
         return $this->send($recipientEmail, $recipientName, $subject, $html, null, [
+            'from_email' => 'notifications@hambaktech.com.ng',
+            'from_name' => 'HAMBAKTECH Support',
+            'reply_to' => 'support@hambaktech.com.ng',
             'text_body' => $textBody,
             'audit_action' => 'EMAIL_VERIFICATION_DISPATCHED',
         ]);

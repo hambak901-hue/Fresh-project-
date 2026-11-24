@@ -26,6 +26,7 @@ import {
   Key,
   Megaphone,
   Mail,
+  RotateCcw,
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { getInitialsAvatar } from '../../lib/avatar';
@@ -147,6 +148,13 @@ export function CustomerManagement() {
   const [adjustLoading, setAdjustLoading] = useState(false);
   const [adjustSuccess, setAdjustSuccess] = useState<string | null>(null);
   const [adjustError, setAdjustError] = useState<string | null>(null);
+
+  // Transaction reversal state (Super Admin only)
+  const [reverseTarget, setReverseTarget] = useState<Transaction | null>(null);
+  const [reverseReason, setReverseReason] = useState('');
+  const [reverseLoading, setReverseLoading] = useState(false);
+  const [reverseError, setReverseError] = useState<string | null>(null);
+  const [reverseSuccess, setReverseSuccess] = useState<string | null>(null);
 
   // KYC review state
   const [kycDecision, setKycDecision] = useState<'verified' | 'rejected'>('verified');
@@ -379,13 +387,19 @@ export function CustomerManagement() {
     setRoleError(null);
   };
 
-  const openCustomerDetail = async (user: User) => {
+  const openCustomerDetail = async (user: User, preserveTab?: DrawerTab) => {
     setSelectedUser(user);
     setDetailLoading(true);
-    setActiveDrawerTab('profile');
+    setActiveDrawerTab(preserveTab || 'profile');
     populateEditFields(user);
     setAdjustSuccess(null);
     setAdjustError(null);
+    if (!preserveTab) {
+      setReverseTarget(null);
+      setReverseReason('');
+      setReverseError(null);
+      setReverseSuccess(null);
+    }
     setKycSuccess(null);
     setKycError(null);
     setNotifSuccess(null);
@@ -484,6 +498,35 @@ export function CustomerManagement() {
       setAdjustError(err.message || 'Wallet adjustment failed');
     } finally {
       setAdjustLoading(false);
+    }
+  };
+
+  const handleConfirmReverseTransaction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser || !reverseTarget) return;
+    const cleanReason = reverseReason.trim();
+    if (cleanReason.length < 4) {
+      setReverseError('Please enter a clear reversal reason (at least 4 characters).');
+      return;
+    }
+
+    setReverseLoading(true);
+    setReverseError(null);
+    setReverseSuccess(null);
+    try {
+      const res = await api.reverseTransaction(String(reverseTarget.id), cleanReason);
+      setReverseSuccess(
+        res.message ||
+          `Transaction reversed successfully${res.reversal_reference ? ` (${res.reversal_reference})` : ''}.`
+      );
+      setReverseTarget(null);
+      setReverseReason('');
+      await fetchCustomers();
+      await openCustomerDetail(selectedUser, 'transactions');
+    } catch (err: any) {
+      setReverseError(err?.message || 'Unable to reverse transaction.');
+    } finally {
+      setReverseLoading(false);
     }
   };
 
@@ -1645,26 +1688,95 @@ export function CustomerManagement() {
 
               {/* TAB 4: TRANSACTIONS HISTORY */}
               {activeDrawerTab === 'transactions' && (
-                <div className="space-y-2">
-                  <h4 className="font-bold text-white text-xs">Customer Ledger Journal</h4>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-white text-xs">Customer Ledger Journal</h4>
+                    {isCurrentSuperAdmin && (
+                      <span className="text-[10px] text-slate-400">
+                        Super Admin Reversal Enabled
+                      </span>
+                    )}
+                  </div>
+                  {reverseSuccess && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 text-emerald-300 flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>{reverseSuccess}</span>
+                      </div>
+                      <button type="button" onClick={() => setReverseSuccess(null)} className="text-slate-400 hover:text-white">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                   {customerDetail?.transactions?.length ? (
                     <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                      {customerDetail.transactions.map(t => (
-                        <div key={t.id} className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-white">{t.description}</p>
-                            <p className="text-[10px] text-slate-500 font-mono">
-                              {t.reference} &bull; {String(t.category || 'general').replace(/_/g, ' ')} &bull; {new Date(t.created_at).toLocaleString()}
-                            </p>
+                      {customerDetail.transactions.map(t => {
+                        const refStr = String(t.reference || '').toUpperCase();
+                        const catStr = String(t.category || '').toLowerCase();
+                        const isReversed = Boolean(t.metadata?.reversal_reference || t.metadata?.reversed_at);
+                        const isReversalRow = catStr === 'reversal' || refStr.startsWith('REV_');
+                        const isRefundRow =
+                          catStr === 'refund' ||
+                          catStr.endsWith('_refund') ||
+                          refStr.startsWith('REFUND_');
+                        const canReverse =
+                          isCurrentSuperAdmin &&
+                          t.status === 'successful' &&
+                          !isReversed &&
+                          !isReversalRow &&
+                          !isRefundRow;
+
+                        return (
+                          <div key={t.id} className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-medium text-white truncate">{t.description}</p>
+                                {isReversed && (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-mono">
+                                    Reversed
+                                  </span>
+                                )}
+                                {isReversalRow && (
+                                  <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[10px] font-mono">
+                                    Reversal Entry
+                                  </span>
+                                )}
+                                {isRefundRow && (
+                                  <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono">
+                                    Auto-Refund
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-500 font-mono truncate">
+                                {t.reference} &bull; {String(t.category || 'general').replace(/_/g, ' ')} &bull; {new Date(t.created_at).toLocaleString()}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2.5 shrink-0">
+                              <div className="text-right">
+                                <span className={`font-mono font-bold ${t.type === 'credit' ? 'text-emerald-400' : 'text-slate-200'}`}>
+                                  {t.type === 'credit' ? '+' : '-'}₦{(Number(t.amount) || 0).toLocaleString()}
+                                </span>
+                                <p className="text-[10px] text-slate-500 font-mono">{t.status}</p>
+                              </div>
+                              {canReverse && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReverseTarget(t);
+                                    setReverseReason('');
+                                    setReverseError(null);
+                                  }}
+                                  title="Reverse Transaction (Super Admin)"
+                                  className="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[11px] font-semibold flex items-center gap-1 transition"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                  <span>Reverse</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <span className={`font-mono font-bold ${t.type === 'credit' ? 'text-emerald-400' : 'text-slate-200'}`}>
-                              {t.type === 'credit' ? '+' : '-'}₦{(Number(t.amount) || 0).toLocaleString()}
-                            </span>
-                            <p className="text-[10px] text-slate-500 font-mono">{t.status}</p>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="text-slate-500 italic">No transactions recorded for this user.</p>
@@ -2487,6 +2599,100 @@ export function CustomerManagement() {
                 >
                   {announceSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
                   <span>{announceActive ? 'Publish & Send Email' : 'Save as Draft'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* TRANSACTION REVERSAL CONFIRMATION MODAL (SUPER ADMIN) */}
+      {reverseTarget && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-rose-500/15 text-rose-400">
+                  <RotateCcw className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Reverse Ledger Transaction</h3>
+                  <p className="text-[11px] text-slate-400">Posts an immutable offsetting journal entry</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setReverseTarget(null);
+                  setReverseError(null);
+                }}
+                className="p-1 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-400">Reference</span>
+                <span className="font-mono text-white font-semibold">{reverseTarget.reference}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-400">Original Effect</span>
+                <span className={`font-mono font-bold ${reverseTarget.type === 'credit' ? 'text-emerald-400' : 'text-slate-200'}`}>
+                  {reverseTarget.type === 'credit' ? 'Credit (+)' : 'Debit (-)'} ₦{(Number(reverseTarget.amount) || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-400">Reversal Action</span>
+                <span className={`font-mono font-bold ${reverseTarget.type === 'credit' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {reverseTarget.type === 'credit' ? 'Debit Wallet (-)' : 'Credit Wallet (+)'} ₦{(Number(reverseTarget.amount) || 0).toLocaleString()}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
+                {reverseTarget.description}
+              </p>
+            </div>
+
+            {reverseError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{reverseError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmReverseTransaction} className="space-y-3">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Audit Reversal Reason (min 4 chars) *</label>
+                <textarea
+                  rows={3}
+                  required
+                  value={reverseReason}
+                  onChange={e => setReverseReason(e.target.value)}
+                  placeholder="e.g. Duplicate provider charge verified against NIMC log"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div className="pt-2 border-t border-slate-800 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={reverseLoading}
+                  onClick={() => {
+                    setReverseTarget(null);
+                    setReverseError(null);
+                  }}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={reverseLoading || reverseReason.trim().length < 4}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {reverseLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  <span>Confirm Reversal</span>
                 </button>
               </div>
             </form>

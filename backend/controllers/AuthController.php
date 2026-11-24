@@ -155,10 +155,16 @@ class AuthController
             Response::error('Invalid email or password.', 401);
         }
 
-        if ($user['status'] === 'suspended') {
+        $accountStatus = strtolower(trim((string)($user['status'] ?? 'active')));
+        if ($accountStatus === 'suspended') {
             $recordAttempt(false);
             FootprintService::record('security', 'LOGIN_BLOCKED_SUSPENDED', ['id' => $user['id'], 'email' => $user['email']], null, null, null, 'failed', null, 'Account is suspended', null, $ip);
             Response::error('Your account is currently suspended. Please contact HambakTech Enterprise Support.', 403);
+        }
+        if ($accountStatus !== 'active') {
+            $recordAttempt(false);
+            FootprintService::record('security', 'LOGIN_BLOCKED_INACTIVE', ['id' => $user['id'], 'email' => $user['email']], null, null, null, 'failed', null, 'Account is ' . $accountStatus, null, $ip);
+            Response::error('Your account is currently inactive. Please contact HambakTech Enterprise Support.', 403);
         }
 
         if (!Security::verifyPassword($password, $user['password_hash'], $user['email'])) {
@@ -884,7 +890,7 @@ class AuthController
         $resetToken = bin2hex(random_bytes(24));
         $resetId = Security::generateUuid();
 
-        $this->db->execute('DELETE FROM password_resets WHERE email = :email', ['email' => $email]);
+        $this->db->execute('DELETE FROM password_resets WHERE LOWER(email) = LOWER(:email)', ['email' => $email]);
 
         $this->db->execute(
             'INSERT INTO password_resets (id, email, otp_code, token, attempts, is_used, expires_at, created_at)
@@ -916,7 +922,7 @@ class AuthController
     public function verifyOtp(Request $request): void
     {
         $email = strtolower(trim((string)$request->input('email', '')));
-        $otp = trim((string)$request->input('otp_code', $request->input('otp', '')));
+        $otp = preg_replace('/\s+/', '', trim((string)$request->input('otp_code', $request->input('otp', ''))));
 
         if (empty($email) || empty($otp)) {
             Response::error('Email address and 6-digit verification code are required.', 422);
@@ -925,7 +931,7 @@ class AuthController
         $record = $this->db->fetchOne(
             'SELECT id, email, otp_code, token, attempts, is_used, expires_at 
              FROM password_resets 
-             WHERE email = :email AND is_used = 0 
+             WHERE LOWER(email) = LOWER(:email) AND is_used = 0 
              ORDER BY created_at DESC LIMIT 1',
             ['email' => $email]
         );
@@ -961,7 +967,7 @@ class AuthController
     public function resetPassword(Request $request): void
     {
         $email = strtolower(trim((string)$request->input('email', '')));
-        $otp = trim((string)$request->input('otp_code', $request->input('otp', '')));
+        $otp = preg_replace('/\s+/', '', trim((string)$request->input('otp_code', $request->input('otp', ''))));
         $token = trim((string)$request->input('token', ''));
         $newPassword = (string)$request->input('new_password', $request->input('password', ''));
 
@@ -977,12 +983,12 @@ class AuthController
         $record = null;
         if (!empty($otp)) {
             $record = $this->db->fetchOne(
-                'SELECT id, token, expires_at FROM password_resets WHERE email = :email AND otp_code = :otp AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
+                'SELECT id, email, token, expires_at FROM password_resets WHERE LOWER(email) = LOWER(:email) AND otp_code = :otp AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
                 ['email' => $email, 'otp' => $otp]
             );
         } elseif (!empty($token)) {
             $record = $this->db->fetchOne(
-                'SELECT id, token, expires_at FROM password_resets WHERE email = :email AND token = :tok AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
+                'SELECT id, email, token, expires_at FROM password_resets WHERE LOWER(email) = LOWER(:email) AND token = :tok AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
                 ['email' => $email, 'tok' => $token]
             );
         }
@@ -995,37 +1001,51 @@ class AuthController
             Response::error('Reset session has expired. Please request a new code.', 400);
         }
 
+        $targetUser = $this->db->fetchOne(
+            'SELECT id, email, status FROM users WHERE LOWER(email) = LOWER(:email) ORDER BY (role = "superadmin") DESC, created_at ASC LIMIT 1',
+            ['email' => $email]
+        );
+        if (!$targetUser) {
+            Response::error('Account not found for this email address.', 404);
+        }
+
         // Hash new password using standard Bcrypt
         $newHash = Security::hashPassword($newPassword);
 
-        // Update user password and clear reset state
+        // Update user password and clear reset state + failed login lockouts
         $this->db->execute(
-            'UPDATE users SET password_hash = :hash, updated_at = NOW() WHERE email = :email',
-            ['hash' => $newHash, 'email' => $email]
+            'UPDATE users SET password_hash = :hash, updated_at = NOW() WHERE id = :id',
+            ['hash' => $newHash, 'id' => $targetUser['id']]
         );
 
         $this->db->execute('UPDATE password_resets SET is_used = 1 WHERE id = :id', ['id' => $record['id']]);
-
-        // Fetch refreshed user record
-        $user = $this->db->fetchOne(
-            'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
-                    w.balance as live_balance 
-             FROM users u 
-             LEFT JOIN wallets w ON w.user_id = u.id 
-             WHERE u.email = :email',
-            ['email' => $email]
-        );
+        try {
+            $this->db->execute('DELETE FROM login_attempts WHERE LOWER(identifier) = LOWER(:ident)', ['ident' => substr($email, 0, 190)]);
+        } catch (Throwable) {
+        }
 
         // Revoke all previously issued sessions before issuing fresh session token
-        Auth::revokeAllUserSessions((string)$user['id'], 'password_reset', true);
-        $user = $this->db->fetchOne(
-            'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
-                    w.balance as live_balance 
-             FROM users u 
-             LEFT JOIN wallets w ON w.user_id = u.id 
-             WHERE u.email = :email',
-            ['email' => $email]
-        );
+        Auth::revokeAllUserSessions((string)$targetUser['id'], 'password_reset', true);
+        try {
+            $user = $this->db->fetchOne(
+                'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
+                        w.balance as live_balance, p.assigned_permissions AS profile_permissions
+                 FROM users u
+                 LEFT JOIN wallets w ON w.user_id = u.id
+                 LEFT JOIN user_profiles p ON p.user_id = u.id
+                 WHERE u.id = :id LIMIT 1',
+                ['id' => $targetUser['id']]
+            );
+        } catch (Throwable) {
+            $user = $this->db->fetchOne(
+                'SELECT u.*, (u.transaction_pin_hash IS NOT NULL AND u.transaction_pin_hash != "") AS has_transaction_pin,
+                        w.balance as live_balance
+                 FROM users u
+                 LEFT JOIN wallets w ON w.user_id = u.id
+                 WHERE u.id = :id LIMIT 1',
+                ['id' => $targetUser['id']]
+            );
+        }
 
         $jwtToken = Auth::generateToken($user, $request);
         $pinService = new PinSecurityService($this->db);
@@ -1038,7 +1058,36 @@ class AuthController
         $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? false);
         $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
         $user['pin_is_locked'] = false;
-        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
+        $perms = [];
+        $hasExplicitPerms = false;
+        foreach ([$user['assigned_permissions'] ?? null, $user['profile_permissions'] ?? null] as $rawP) {
+            if (is_string($rawP) && trim($rawP) !== '') {
+                $dp = json_decode($rawP, true);
+                if (is_array($dp)) {
+                    $perms = $dp;
+                    $hasExplicitPerms = true;
+                    break;
+                }
+            } elseif (is_array($rawP)) {
+                $perms = $rawP;
+                $hasExplicitPerms = true;
+                break;
+            }
+        }
+        $normalizedRole = DashboardConfigService::normalizeRole((string)($user['role'] ?? 'customer'));
+        $user['role'] = $normalizedRole;
+        $user['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey(
+            $user['assigned_dashboard'] ?? null,
+            $normalizedRole
+        );
+        if ($normalizedRole === 'superadmin') {
+            $perms = ['*'];
+        } elseif (!$hasExplicitPerms && Auth::isConsoleRole($normalizedRole)) {
+            $perms = DashboardConfigService::getDefaultPermissionsForRole($normalizedRole);
+        }
+        $user['permissions'] = array_values(array_unique($perms));
+        $user['dashboard_config'] = DashboardConfigService::getConfig($this->db, (string)$user['assigned_dashboard'], 'published');
+        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance'], $user['assigned_permissions'], $user['profile_permissions']);
 
         // Log audit event
         $this->db->execute(
@@ -1047,7 +1096,7 @@ class AuthController
             [
                 'id' => Security::generateUuid(),
                 'uid' => $user['id'],
-                'email' => $email,
+                'email' => $user['email'],
                 'details' => json_encode(['role' => $user['role']]),
                 'ip' => $request->getIp(),
             ]
@@ -1067,13 +1116,14 @@ class AuthController
 
         if ($enforceCooldown) {
             $recent = $this->db->fetchOne(
-                'SELECT created_at FROM email_verifications
+                'SELECT TIMESTAMPDIFF(SECOND, created_at, NOW()) AS elapsed_seconds
+                 FROM email_verifications
                  WHERE user_id = :uid AND created_at > DATE_SUB(NOW(), INTERVAL 60 SECOND)
                  ORDER BY created_at DESC LIMIT 1',
                 ['uid' => $userId]
             );
-            if ($recent && !empty($recent['created_at'])) {
-                $elapsed = max(0, time() - strtotime((string)$recent['created_at']));
+            if ($recent && $recent['elapsed_seconds'] !== null) {
+                $elapsed = max(0, (int)$recent['elapsed_seconds']);
                 $waitSeconds = max(1, 60 - $elapsed);
                 Response::error(
                     "Please wait {$waitSeconds} second(s) before requesting another verification email.",
@@ -1161,14 +1211,23 @@ class AuthController
         if ($token !== '') {
             $tokenHash = hash('sha256', $token);
             $record = $this->db->fetchOne(
-                'SELECT * FROM email_verifications WHERE token_hash = :th ORDER BY created_at DESC LIMIT 1',
+                'SELECT *, TIMESTAMPDIFF(SECOND, NOW(), expires_at) AS seconds_left
+                 FROM email_verifications WHERE token_hash = :th ORDER BY created_at DESC LIMIT 1',
                 ['th' => $tokenHash]
             );
         } else {
             $record = $this->db->fetchOne(
-                'SELECT * FROM email_verifications WHERE LOWER(email) = :email AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
+                'SELECT *, TIMESTAMPDIFF(SECOND, NOW(), expires_at) AS seconds_left
+                 FROM email_verifications WHERE LOWER(email) = :email AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
                 ['email' => $email]
             );
+            if (!$record) {
+                $record = $this->db->fetchOne(
+                    'SELECT *, TIMESTAMPDIFF(SECOND, NOW(), expires_at) AS seconds_left
+                     FROM email_verifications WHERE LOWER(email) = :email ORDER BY created_at DESC LIMIT 1',
+                    ['email' => $email]
+                );
+            }
         }
 
         // Handle idempotent re-clicks if user is already verified
@@ -1194,7 +1253,7 @@ class AuthController
         }
 
         if (!empty($targetUser['email_verified'])) {
-            $this->db->execute('UPDATE email_verifications SET is_used = 1, used_at = NOW() WHERE user_id = :uid AND is_used = 0', ['uid' => $targetUser['id']]);
+            $this->db->execute('UPDATE email_verifications SET is_used = 1, used_at = COALESCE(used_at, NOW()) WHERE user_id = :uid AND is_used = 0', ['uid' => $targetUser['id']]);
             $refreshed = $this->loadSanitizedAuthUser((string)$targetUser['id']);
             Response::success([
                 'verified' => true,
@@ -1203,20 +1262,26 @@ class AuthController
             ], 'Your email address is already verified.');
         }
 
-        if ((int)($record['is_used'] ?? 0) === 1) {
-            Response::error('This verification link or code has already been used. Please request a new one if needed.', 400, ['can_resend' => true], 'VERIFICATION_ALREADY_USED');
-        }
+        $attempts = (int)($record['attempts'] ?? 0);
+        $maxAttempts = max(1, (int)($record['max_attempts'] ?? 5));
+        $secondsLeft = (int)($record['seconds_left'] ?? 0);
 
-        if (strtotime((string)$record['expires_at']) < time()) {
-            $this->db->execute('UPDATE email_verifications SET is_used = 1 WHERE id = :id', ['id' => $record['id']]);
+        if ($secondsLeft <= 0 && empty($record['used_at'])) {
+            if ((int)($record['is_used'] ?? 0) === 0) {
+                $this->db->execute('UPDATE email_verifications SET is_used = 1 WHERE id = :id', ['id' => $record['id']]);
+            }
             Response::error('Verification link/code has expired. Please request a new verification email.', 400, ['expired' => true, 'can_resend' => true], 'VERIFICATION_EXPIRED');
         }
 
-        $attempts = (int)($record['attempts'] ?? 0);
-        $maxAttempts = max(1, (int)($record['max_attempts'] ?? 5));
         if ($attempts >= $maxAttempts) {
-            $this->db->execute('UPDATE email_verifications SET is_used = 1 WHERE id = :id', ['id' => $record['id']]);
+            if ((int)($record['is_used'] ?? 0) === 0) {
+                $this->db->execute('UPDATE email_verifications SET is_used = 1 WHERE id = :id', ['id' => $record['id']]);
+            }
             Response::error('Maximum verification attempts exceeded. Please request a new verification code.', 429, ['attempts_remaining' => 0, 'can_resend' => true], 'VERIFICATION_ATTEMPTS_EXCEEDED');
+        }
+
+        if ((int)($record['is_used'] ?? 0) === 1) {
+            Response::error('This verification link or code has already been used. Please request a new one if needed.', 400, ['can_resend' => true], 'VERIFICATION_ALREADY_USED');
         }
 
         $matched = false;

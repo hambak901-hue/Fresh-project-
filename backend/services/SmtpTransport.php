@@ -80,12 +80,15 @@ class SmtpTransport
                 $target = 'tcp://' . $this->host;
             }
 
+            $sslOptions = [
+                'verify_peer' => true,
+                'verify_peer_name' => true,
+                'allow_self_signed' => false,
+                'peer_name' => $this->host,
+            ];
+
             $context = stream_context_create([
-                'ssl' => [
-                    'verify_peer' => false,
-                    'verify_peer_name' => false,
-                    'allow_self_signed' => true,
-                ],
+                'ssl' => $sslOptions,
             ]);
 
             $errno = 0;
@@ -131,6 +134,10 @@ class SmtpTransport
                     throw new RuntimeException("SMTP STARTTLS failed: {$tlsResp['text']}");
                 }
 
+                foreach ($sslOptions as $optKey => $optVal) {
+                    stream_context_set_option($socket, 'ssl', $optKey, $optVal);
+                }
+
                 $cryptoMethod = STREAM_CRYPTO_METHOD_TLS_CLIENT;
                 if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) {
                     $cryptoMethod |= STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
@@ -141,7 +148,7 @@ class SmtpTransport
 
                 $cryptoOk = stream_socket_enable_crypto($socket, true, $cryptoMethod);
                 if (!$cryptoOk) {
-                    throw new RuntimeException('SMTP TLS encryption handshake failed on established socket');
+                    throw new RuntimeException('SMTP TLS certificate verification or encryption handshake failed');
                 }
 
                 // Re-send EHLO after TLS upgrade
@@ -211,7 +218,10 @@ class SmtpTransport
             }
 
             // 9. Build MIME Message
-            $messageId = sprintf('<%s.%s@%s>', bin2hex(random_bytes(12)), (string)time(), $this->host);
+            $fromDomain = str_contains($fromEmail, '@')
+                ? substr(strrchr($fromEmail, '@'), 1)
+                : $this->host;
+            $messageId = sprintf('<%s.%s@%s>', bin2hex(random_bytes(12)), (string)time(), $fromDomain);
             $mimeData = $this->buildMimeMessage(
                 $fromEmail,
                 $fromName,
@@ -316,9 +326,14 @@ class SmtpTransport
     ): string {
         $boundary = '=_hambak_' . md5(uniqid((string)microtime(true), true));
         $date = date('r');
-        $encodedSubject = preg_match('/^[\x20-\x7E]+$/', $subject)
-            ? str_replace(["\r", "\n"], '', $subject)
-            : ('=?UTF-8?B?' . base64_encode($subject) . '?=');
+        $cleanSubject = str_replace(["\r", "\n"], '', $subject);
+        if (preg_match('/^[\x20-\x7E]+$/', $cleanSubject)) {
+            $encodedSubject = $cleanSubject;
+        } elseif (function_exists('mb_encode_mimeheader')) {
+            $encodedSubject = mb_encode_mimeheader($cleanSubject, 'UTF-8', 'B', "\r\n");
+        } else {
+            $encodedSubject = '=?UTF-8?B?' . base64_encode($cleanSubject) . '?=';
+        }
 
         $cleanFromName = trim(str_replace(["\r", "\n", '"'], ['', '', "'"], $fromName));
         if ($cleanFromName === '') {
@@ -346,18 +361,23 @@ class SmtpTransport
         $headers[] = "MIME-Version: 1.0";
         $headers[] = "Content-Type: multipart/alternative; boundary=\"{$boundary}\"";
 
+        $textEncoded = rtrim(quoted_printable_encode($textBody), "\r\n");
+        $htmlEncoded = rtrim(quoted_printable_encode($htmlBody), "\r\n");
+
         $body = [];
         $body[] = "--{$boundary}";
         $body[] = 'Content-Type: text/plain; charset=UTF-8';
-        $body[] = 'Content-Transfer-Encoding: base64';
+        $body[] = 'Content-Transfer-Encoding: quoted-printable';
         $body[] = '';
-        $body[] = chunk_split(base64_encode($textBody));
+        $body[] = $textEncoded;
+        $body[] = '';
 
         $body[] = "--{$boundary}";
         $body[] = 'Content-Type: text/html; charset=UTF-8';
-        $body[] = 'Content-Transfer-Encoding: base64';
+        $body[] = 'Content-Transfer-Encoding: quoted-printable';
         $body[] = '';
-        $body[] = chunk_split(base64_encode($htmlBody));
+        $body[] = $htmlEncoded;
+        $body[] = '';
 
         $body[] = "--{$boundary}--";
 

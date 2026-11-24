@@ -235,11 +235,11 @@ class PaystackAdapter implements PaymentGatewayInterface
                  VALUES (:id, "paystack", :ep, :m, :code, :req, :res, :lat, :ref, NOW())',
                 [
                     'id' => Security::generateUuid(),
-                    'ep' => $endpoint,
+                    'ep' => Security::sanitizeProviderUrl($endpoint),
                     'm' => $method,
                     'code' => $code,
-                    'req' => is_string($req) ? $req : json_encode($req),
-                    'res' => is_string($res) ? $res : json_encode($res),
+                    'req' => Security::sanitizeProviderLogPayload($req, 4000),
+                    'res' => Security::sanitizeProviderLogPayload($res, 4000),
                     'lat' => $lat,
                     'ref' => $ref,
                 ]

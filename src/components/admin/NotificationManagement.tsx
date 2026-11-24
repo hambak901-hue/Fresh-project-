@@ -120,11 +120,16 @@ export const NotificationManagement: React.FC = () => {
         target_audience: announcementAudience,
         is_active: announcementActive ? 1 : 0,
       };
-      const res = await api.saveAdminAnnouncement(payload);
+      const res: any = await api.saveAdminAnnouncement(payload);
       if (res && res.success) {
+        const failedCount = Number(res.email_delivery?.failed ?? 0);
+        const sentCount = Number(res.email_delivery?.sent ?? 0);
+        const firstErr = Array.isArray(res.email_delivery?.errors) && res.email_delivery.errors.length > 0
+          ? ` (${res.email_delivery.errors[0]})`
+          : '';
         setFeedback({
-          type: 'success',
-          message: res.message || (editingAnnouncement ? 'Announcement updated successfully' : 'New announcement published'),
+          type: sentCount === 0 && failedCount > 0 ? 'error' : 'success',
+          message: (res.message || (editingAnnouncement ? 'Announcement updated successfully' : 'New announcement published')) + (failedCount > 0 ? firstErr : ''),
         });
         setIsNewAnnouncementOpen(false);
         setEditingAnnouncement(null);
@@ -144,9 +149,17 @@ export const NotificationManagement: React.FC = () => {
     setRetryingAnnouncementId(id);
     setFeedback(null);
     try {
-      const res = await api.retryAdminAnnouncementEmails(id);
+      const res: any = await api.retryAdminAnnouncementEmails(id);
       if (res && res.success) {
-        setFeedback({ type: 'success', message: res.message });
+        const failedCount = Number(res.email_delivery?.failed ?? 0);
+        const sentCount = Number(res.email_delivery?.sent ?? 0);
+        const firstErr = Array.isArray(res.email_delivery?.errors) && res.email_delivery.errors.length > 0
+          ? ` Error: ${res.email_delivery.errors[0]}`
+          : '';
+        setFeedback({
+          type: sentCount === 0 && failedCount > 0 ? 'error' : 'success',
+          message: (res.message || 'Email retry finished.') + (failedCount > 0 ? firstErr : ''),
+        });
         loadData();
       }
     } catch (err: any) {
@@ -176,19 +189,24 @@ export const NotificationManagement: React.FC = () => {
     setSendingBroadcast(true);
     setFeedback(null);
     try {
-      const res = await api.sendAdminBroadcast({
+      const res: any = await api.sendAdminBroadcast({
         title: broadcastTitle.trim(),
         message: broadcastMessage.trim(),
         channel: broadcastChannel,
         target_role: broadcastTargetRole,
-        user_id: broadcastUserId ? parseInt(broadcastUserId, 10) : null,
+        user_id: broadcastUserId.trim() ? broadcastUserId.trim() : null,
         type: broadcastType,
       });
 
       if (res && res.success) {
+        const failedCount = Number(res.email_delivery?.failed ?? 0);
+        const sentCount = Number(res.email_delivery?.sent ?? 0);
+        const firstErr = Array.isArray(res.email_delivery?.errors) && res.email_delivery.errors.length > 0
+          ? ` Email error: ${res.email_delivery.errors[0]}`
+          : '';
         setFeedback({
-          type: 'success',
-          message: `Broadcast transmitted successfully to ${res.recipient_count || 'all'} targeted recipients.`
+          type: sentCount === 0 && failedCount > 0 ? 'error' : 'success',
+          message: `Broadcast transmitted successfully to ${res.recipient_count || 'all'} targeted recipients.${failedCount > 0 ? ` (${sentCount} emails sent, ${failedCount} failed${firstErr})` : ''}`
         });
         setBroadcastTitle('');
         setBroadcastMessage('');
@@ -481,8 +499,8 @@ export const NotificationManagement: React.FC = () => {
                 Target User ID <span className="text-slate-500 font-normal">(Optional &bull; Leave empty to broadcast to entire group)</span>
               </label>
               <input
-                type="number"
-                placeholder="e.g. 1024"
+                type="text"
+                placeholder="Optional User UUID (leave empty for group)"
                 value={broadcastUserId}
                 onChange={e => setBroadcastUserId(e.target.value)}
                 className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"

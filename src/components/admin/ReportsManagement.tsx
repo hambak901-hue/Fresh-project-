@@ -103,12 +103,18 @@ export const ReportsManagement: React.FC = () => {
       ['Successful Volume', `₦${reportsData.transaction_report?.summary?.successful_volume ?? 0}`],
       ['Success Count', reportsData.transaction_report?.summary?.successful_count ?? 0],
       ['Failed Count', reportsData.transaction_report?.summary?.failed_count ?? 0],
+      ['Auto-Refund Credits', `₦${reportsData.transaction_report?.summary?.refund_credit_volume ?? 0} (${reportsData.transaction_report?.summary?.refund_count ?? 0})`],
+      ['Transaction Reversals', `₦${reportsData.transaction_report?.summary?.reversal_volume ?? 0} (${reportsData.transaction_report?.summary?.reversal_count ?? 0})`],
+      ['Manual Credit Adjustments', `₦${reportsData.transaction_report?.summary?.manual_adjustment_credit_volume ?? 0}`],
+      ['Manual Debit Adjustments', `₦${reportsData.transaction_report?.summary?.manual_adjustment_debit_volume ?? 0}`],
       [],
       ['3. WALLET & FLOAT REPORT'],
       ['System Float in Circulation', `₦${reportsData.wallet_report?.system_float ?? 0}`],
       ['Active Wallets Count', reportsData.wallet_report?.total_wallets ?? 0],
       ['Average Wallet Float', `₦${reportsData.wallet_report?.average_balance ?? 0}`],
       ['Negative Balances', reportsData.wallet_report?.negative_wallets ?? 0],
+      ['Ledger Drift', `₦${reportsData.wallet_report?.ledger_reconciliation?.drift ?? 0}`],
+      ['Ledger Balanced', reportsData.wallet_report?.ledger_reconciliation?.is_balanced ? 'YES' : 'NO'],
       [],
       ['4. FINANCIAL PROFIT REPORT'],
       ['Total Service Sales', `₦${reportsData.profit_report?.total_revenue ?? 0}`],
@@ -305,6 +311,41 @@ export const ReportsManagement: React.FC = () => {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-cyan-400 font-medium">Auto-Refund Credits</p>
+                  <p className="text-lg font-bold text-cyan-300 font-mono mt-1">
+                    ₦{parseFloat(reportsData.transaction_report?.summary?.refund_credit_volume || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    {reportsData.transaction_report?.summary?.refund_count ?? 0} refund entries
+                  </p>
+                </div>
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-purple-400 font-medium">Ledger Reversals</p>
+                  <p className="text-lg font-bold text-purple-300 font-mono mt-1">
+                    ₦{parseFloat(reportsData.transaction_report?.summary?.reversal_volume || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    {reportsData.transaction_report?.summary?.reversal_count ?? 0} reversal entries
+                  </p>
+                </div>
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-emerald-400 font-medium">Manual Credits</p>
+                  <p className="text-lg font-bold text-emerald-300 font-mono mt-1">
+                    ₦{parseFloat(reportsData.transaction_report?.summary?.manual_adjustment_credit_volume || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Admin wallet credits</p>
+                </div>
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-rose-400 font-medium">Manual Debits</p>
+                  <p className="text-lg font-bold text-rose-300 font-mono mt-1">
+                    ₦{parseFloat(reportsData.transaction_report?.summary?.manual_adjustment_debit_volume || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Admin wallet debits</p>
+                </div>
+              </div>
+
               {/* Category Breakdown Table */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
                 <div className="p-4 border-b border-slate-800">
@@ -357,6 +398,47 @@ export const ReportsManagement: React.FC = () => {
                   <p className="text-2xl font-bold text-emerald-400 mt-1">{reportsData.wallet_report?.negative_wallets ?? 0}</p>
                 </div>
               </div>
+
+              {reportsData.wallet_report?.ledger_reconciliation && (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <h3 className="text-sm font-bold text-white">Wallet Ledger Reconciliation</h3>
+                    <span
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase ${
+                        reportsData.wallet_report.ledger_reconciliation.is_balanced
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                      }`}
+                    >
+                      {reportsData.wallet_report.ledger_reconciliation.is_balanced ? 'Balanced' : 'Drift Detected'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                    <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
+                      <p className="text-slate-400">Wallets Table Total</p>
+                      <p className="text-base font-bold text-white font-mono mt-1">
+                        ₦{Number(reportsData.wallet_report.ledger_reconciliation.wallets_total || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
+                      <p className="text-slate-400">Users Mirror Total</p>
+                      <p className="text-base font-bold text-white font-mono mt-1">
+                        ₦{Number(reportsData.wallet_report.ledger_reconciliation.users_total || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl">
+                      <p className="text-slate-400">Reconciliation Drift</p>
+                      <p
+                        className={`text-base font-bold font-mono mt-1 ${
+                          reportsData.wallet_report.ledger_reconciliation.is_balanced ? 'text-emerald-400' : 'text-rose-400'
+                        }`}
+                      >
+                        ₦{Number(reportsData.wallet_report.ledger_reconciliation.drift || 0).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
