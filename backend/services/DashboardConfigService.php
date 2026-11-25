@@ -79,6 +79,81 @@ class DashboardConfigService
         return $aliases[$roleKey] ?? 'customer';
     }
 
+    public static function hydrateUserPayload(Database $db, array $user, bool $includeConfig = true): array
+    {
+        $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['live_wallet_balance'] ?? $user['wallet_balance'] ?? 0);
+        $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
+        $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
+        $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
+        $user['email_verified'] = (bool)($user['email_verified'] ?? false);
+        $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? false);
+        $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
+        $user['pin_failed_attempts'] = (int)($user['pin_failed_attempts'] ?? 0);
+        $user['pin_is_locked'] = !empty($user['pin_locked_until']) && strtotime((string)$user['pin_locked_until']) > time();
+
+        if (isset($user['notification_preferences']) && is_string($user['notification_preferences'])) {
+            $user['notification_preferences'] = json_decode($user['notification_preferences'], true);
+        }
+        if (isset($user['security_settings']) && is_string($user['security_settings'])) {
+            $user['security_settings'] = json_decode($user['security_settings'], true);
+        }
+
+        $perms = [];
+        $hasExplicitNonEmptyPerms = false;
+        foreach ([$user['assigned_permissions'] ?? null, $user['profile_permissions'] ?? null, $user['permissions'] ?? null] as $rawPerm) {
+            if (is_string($rawPerm) && trim($rawPerm) !== '') {
+                $decoded = json_decode($rawPerm, true);
+                if (is_array($decoded) && !empty($decoded)) {
+                    $clean = array_values(array_filter(array_map('strval', $decoded), fn($p) => trim($p) !== ''));
+                    if (!empty($clean)) {
+                        $perms = $clean;
+                        $hasExplicitNonEmptyPerms = true;
+                        break;
+                    }
+                }
+            } elseif (is_array($rawPerm) && !empty($rawPerm)) {
+                $clean = array_values(array_filter(array_map('strval', $rawPerm), fn($p) => trim($p) !== ''));
+                if (!empty($clean)) {
+                    $perms = $clean;
+                    $hasExplicitNonEmptyPerms = true;
+                    break;
+                }
+            }
+        }
+
+        $normalizedRole = self::normalizeRole((string)($user['role'] ?? 'customer'));
+        $user['role'] = $normalizedRole;
+        $user['assigned_dashboard'] = self::normalizeDashboardKey(
+            $user['assigned_dashboard'] ?? null,
+            $normalizedRole
+        );
+
+        $isConsole = in_array($normalizedRole, self::CONSOLE_ROLES, true);
+        if ($normalizedRole === 'superadmin') {
+            $perms = ['*'];
+        } elseif (!$hasExplicitNonEmptyPerms && $isConsole) {
+            $perms = self::getDefaultPermissionsForRole($normalizedRole);
+        } elseif (!$hasExplicitNonEmptyPerms && !$isConsole) {
+            $perms = [];
+        }
+
+        $user['permissions'] = array_values(array_unique($perms));
+        if ($includeConfig) {
+            $user['dashboard_config'] = self::getConfig($db, (string)$user['assigned_dashboard'], 'published');
+        }
+
+        unset(
+            $user['password_hash'],
+            $user['transaction_pin_hash'],
+            $user['live_balance'],
+            $user['live_wallet_balance'],
+            $user['assigned_permissions'],
+            $user['profile_permissions']
+        );
+
+        return $user;
+    }
+
     public static function getDefaultPermissionsForRole(string $role): array
     {
         return match (self::normalizeRole($role)) {
@@ -559,6 +634,7 @@ class DashboardConfigService
                 'draft_config' => self::sanitizeConfigPayload($key, $draft),
                 'published_config' => self::sanitizeConfigPayload($key, $pub),
                 'has_unpublished_changes' => (bool)($r['has_unpublished_changes'] ?? false),
+                'has_draft' => (bool)($r['has_unpublished_changes'] ?? false),
                 'updated_by' => $r['updated_by'] ?? null,
                 'updated_at' => $r['updated_at'] ?? null,
                 'published_by' => $r['published_by'] ?? null,

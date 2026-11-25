@@ -229,51 +229,8 @@ class AuthController
         $token = Auth::generateToken($user, $request);
         $pinService = new PinSecurityService($this->db);
 
-        $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
-        $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
-        $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
-        $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
-        $user['email_verified'] = (bool)($user['email_verified'] ?? false);
-        $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? false);
-        $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
-        $user['pin_is_locked'] = !empty($user['pin_locked_until']) && strtotime((string)$user['pin_locked_until']) > time();
-        if (isset($user['notification_preferences']) && is_string($user['notification_preferences'])) {
-            $user['notification_preferences'] = json_decode($user['notification_preferences'], true);
-        }
-        if (isset($user['security_settings']) && is_string($user['security_settings'])) {
-            $user['security_settings'] = json_decode($user['security_settings'], true);
-        }
-        $perms = [];
-        $hasExplicitPerms = false;
-        foreach ([$user['assigned_permissions'] ?? null, $user['profile_permissions'] ?? null] as $rawP) {
-            if (is_string($rawP) && trim($rawP) !== '') {
-                $dp = json_decode($rawP, true);
-                if (is_array($dp)) {
-                    $perms = $dp;
-                    $hasExplicitPerms = true;
-                    break;
-                }
-            } elseif (is_array($rawP)) {
-                $perms = $rawP;
-                $hasExplicitPerms = true;
-                break;
-            }
-        }
-        $normalizedRole = DashboardConfigService::normalizeRole((string)($user['role'] ?? 'customer'));
-        $user['role'] = $normalizedRole;
-        $user['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey(
-            $user['assigned_dashboard'] ?? null,
-            $normalizedRole
-        );
-
-        if ($normalizedRole === 'superadmin') {
-            $perms = ['*'];
-        } elseif (!$hasExplicitPerms && Auth::isConsoleRole($normalizedRole)) {
-            $perms = DashboardConfigService::getDefaultPermissionsForRole($normalizedRole);
-        }
-        $user['permissions'] = array_values(array_unique($perms));
-        $user['dashboard_config'] = DashboardConfigService::getConfig($this->db, (string)$user['assigned_dashboard'], 'published');
-        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance'], $user['assigned_permissions'], $user['profile_permissions']);
+        $user = DashboardConfigService::hydrateUserPayload($this->db, $user, true);
+        $normalizedRole = $user['role'];
 
         $loginAction = match ($normalizedRole) {
             'superadmin' => 'SUPERADMIN_LOGIN',
@@ -316,6 +273,7 @@ class AuthController
         Response::success([
             'user' => $user,
             'token' => $token,
+            'dashboard_config' => $user['dashboard_config'],
             'pin_policy' => $pinService->getPublicPolicy(),
         ], 'Login successful');
     }
@@ -650,7 +608,14 @@ class AuthController
                     <p><a href='https://hambaktech.com.ng/#admin' style='display: inline-block; padding: 10px 20px; background: #1d4ed8; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;'>View in Admin Console</a></p>
                 </div>
             </div>";
-            $mailService->send($adminEmail, 'Administrator', "[HAMBAKTECH] New Customer Registration (KYC Level 1): {$fullName}", $mailBody);
+            $mailService->send(
+                $adminEmail,
+                'Administrator',
+                "[HAMBAKTECH] New Customer Registration (KYC Level 1): {$fullName}",
+                $mailBody,
+                null,
+                MailService::NOTIFICATION_OPTIONS + ['audit_action' => 'ADMIN_REGISTRATION_ALERT']
+            );
         } catch (Throwable $e) {
             error_log('[Registration Admin Email Error] ' . $e->getMessage());
         }
@@ -693,19 +658,7 @@ class AuthController
         }
 
         $token = Auth::generateToken($user, $request);
-        $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
-        $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
-        $user['tier'] = (int)($user['tier'] ?? 1);
-        $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
-        $user['email_verified'] = (bool)($user['email_verified'] ?? false);
-        $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? true);
-        $user['mfa_enabled'] = false;
-        $user['pin_is_locked'] = false;
-        $user['role'] = 'customer';
-        $user['assigned_dashboard'] = 'customer';
-        $user['permissions'] = [];
-        $user['dashboard_config'] = DashboardConfigService::getConfig($this->db, 'customer', 'published');
-        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
+        $user = DashboardConfigService::hydrateUserPayload($this->db, $user, true);
 
         // 8C. Evaluate DVA readiness & auto-provision if eligible (non-blocking)
         $virtualAccountState = null;
@@ -729,6 +682,7 @@ class AuthController
         Response::success([
             'user' => $user,
             'token' => $token,
+            'dashboard_config' => $user['dashboard_config'],
             'pin_policy' => $pinService->getPublicPolicy(),
             'referral_bound' => $referralBinding !== null,
             'email_verification_required' => true,
@@ -1134,6 +1088,7 @@ class AuthController
         Response::success([
             'user' => $user,
             'token' => $jwtToken,
+            'dashboard_config' => $user['dashboard_config'] ?? null,
             'pin_policy' => $pinService->getPublicPolicy(),
         ], 'Your password has been reset successfully. You are now logged in.');
     }
@@ -1288,6 +1243,7 @@ class AuthController
                 'verified' => true,
                 'already_verified' => true,
                 'user' => $refreshed,
+                'dashboard_config' => $refreshed['dashboard_config'] ?? null,
             ], 'Your email address is already verified.');
         }
 
@@ -1394,6 +1350,7 @@ class AuthController
             'verified' => true,
             'user' => $refreshed,
             'token' => $freshJwt,
+            'dashboard_config' => $refreshed['dashboard_config'] ?? null,
             'virtual_account_state' => $virtualAccountState,
         ], 'Email verified successfully! Full portal access is now active.');
     }
@@ -1478,20 +1435,6 @@ class AuthController
         } catch (Throwable) {
             $user = $this->db->fetchOne('SELECT * FROM users WHERE id = :id LIMIT 1', ['id' => $userId]) ?: [];
         }
-        $normalizedRole = DashboardConfigService::normalizeRole((string)($user['role'] ?? 'customer'));
-        $user['role'] = $normalizedRole;
-        $user['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey($user['assigned_dashboard'] ?? null, $normalizedRole);
-        $user['wallet_balance'] = (float)($user['live_wallet_balance'] ?? $user['wallet_balance'] ?? 0);
-        $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
-        $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
-        $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
-        $user['email_verified'] = (bool)($user['email_verified'] ?? false);
-        $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? false);
-        $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
-        $user['pin_is_locked'] = false;
-        $user['permissions'] = $normalizedRole === 'superadmin' ? ['*'] : (Auth::isConsoleRole($normalizedRole) ? DashboardConfigService::getDefaultPermissionsForRole($normalizedRole) : []);
-        $user['dashboard_config'] = DashboardConfigService::getConfig($this->db, (string)$user['assigned_dashboard'], 'published');
-        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance']);
-        return $user;
+        return DashboardConfigService::hydrateUserPayload($this->db, $user, true);
     }
 }

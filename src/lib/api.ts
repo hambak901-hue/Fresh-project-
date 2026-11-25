@@ -2379,8 +2379,26 @@ export const api = {
     });
   },
 
-  async getCustomerStore(): Promise<{ success: boolean; items: import('../types').StoreItem[]; settings: import('../types').StoreSettings }> {
+  async getCustomerStore(): Promise<{
+    success: boolean;
+    items: import('../types').StoreItem[];
+    settings: import('../types').StoreSettings;
+    waitlist_subscribed?: boolean;
+    waitlist_email?: string;
+  }> {
     return request('/api/customer/store');
+  },
+
+  async subscribeStoreWaitlist(email: string): Promise<{
+    success: boolean;
+    waitlist_subscribed: boolean;
+    waitlist_email: string;
+    message: string;
+  }> {
+    return request('/api/customer/store/waitlist', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
   },
 
   // -------------------------------------------------------------
@@ -2670,8 +2688,24 @@ export const api = {
     });
   },
 
-  async getCustomerReports(): Promise<{ success: boolean; settings: import('../types').ReportsSettings; analytics: import('../types').CustomerReportsAnalytics }> {
+  async getCustomerReports(): Promise<{
+    success: boolean;
+    settings: import('../types').ReportsSettings;
+    analytics: import('../types').CustomerReportsAnalytics;
+    notify_subscribed?: boolean;
+  }> {
     return request('/api/customer/reports');
+  },
+
+  async subscribeReportsNotify(subscribed: boolean): Promise<{
+    success: boolean;
+    notify_subscribed: boolean;
+    message: string;
+  }> {
+    return request('/api/customer/reports/notify', {
+      method: 'POST',
+      body: JSON.stringify({ subscribed }),
+    });
   },
 
   // -------------------------------------------------------------

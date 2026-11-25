@@ -1584,7 +1584,7 @@ export const Phase9IntegrationQa: React.FC<Phase9IntegrationQaProps> = ({
                   <hr className="border-slate-800 my-3" />
                   <p className="font-bold text-white">ENVIRONMENTAL CONSTRAINTS:</p>
                   <p>1. Payment Gateway Policy: Paystack online checkout is the sole active customer wallet funding gateway.</p>
-                  <p>2. Hardware Store &amp; Academy: Customer pages staged as Coming Soon with waitlist subscription; backend catalog and admin management fully built.</p>
+                  <p>2. Hardware Store &amp; Academy: Digital Training Academy is live with admission applications and student workspace; Hardware Store is staged as Coming Soon with persisted waitlist subscription and admin catalog controls.</p>
                   <p>3. Enterprise Outbound SMTP: In preview container environment, outbound port is simulated with full delivery logging; live on server.</p>
                   <p className="font-bold text-white mt-3">PHASE 10 PRODUCTION STAGING DELIVERABLES:</p>
                   <p>- Production Vite bundle minification.</p>

@@ -121,6 +121,43 @@ async function startServer() {
     });
   });
 
+  // Public Referral Program config for AuthModal signup preview
+  app.get('/api/referrals/public-config', (_req, res) => {
+    res.json({
+      success: true,
+      program: {
+        enabled: true,
+        program_name: 'HambakTech Partner Referral Program',
+        welcome_bonus_enabled: false,
+        welcome_bonus_amount: 0,
+      },
+    });
+  });
+
+  app.get('/api/referrals/validate-code', (req, res) => {
+    const code = String(req.query.code || '').trim().toUpperCase();
+    if (!code) {
+      return res.status(400).json({ valid: false, error: 'Referral code is required' });
+    }
+    const owner = (db.data.users || []).find(u => String(u.referral_code || '').toUpperCase() === code);
+    if (!owner) {
+      return res.json({ valid: false, message: 'Referral code not found.' });
+    }
+    return res.json({
+      valid: true,
+      referrer_name: owner.full_name,
+      message: `Valid referral code from ${owner.full_name}`,
+    });
+  });
+
+  // Ensure unmatched /api/* endpoints return JSON 404 instead of SPA HTML
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({
+      success: false,
+      error: `API endpoint ${req.method} ${req.path} is not available in preview mode.`,
+    });
+  });
+
   const httpServer = http.createServer(app);
 
   httpServer.on('error', (err: any) => {

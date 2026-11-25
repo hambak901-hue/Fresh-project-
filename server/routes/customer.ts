@@ -507,12 +507,48 @@ customerRouter.post('/support-ticket', requireCustomer, async (req: any, res) =>
     return res.status(400).json({ error: 'Subject and message are required' });
   }
 
-  db.logAudit('SUPPORT_TICKET_CREATED', { subject, priority, messageLength: message.length }, req.user.id, req.user.email);
+  const ticketId = `TKT-${Date.now().toString().slice(-6)}`;
+  const nowIso = new Date().toISOString();
+  const storeData = db.data as any;
+  if (!Array.isArray(storeData.support_tickets)) {
+    storeData.support_tickets = [];
+  }
+  const newTicket = {
+    id: ticketId,
+    user_id: req.user.id,
+    subject: String(subject).trim(),
+    priority: ['low', 'medium', 'high', 'urgent'].includes(String(priority)) ? String(priority) : 'medium',
+    status: 'open',
+    department: 'Customer Support',
+    customer_name: req.user.full_name,
+    customer_email: req.user.email,
+    customer_phone: req.user.phone_number,
+    customer_tier: req.user.tier || 1,
+    customer_balance: req.user.wallet_balance || 0,
+    reply_count: 1,
+    replies: [
+      {
+        id: `rep_${Date.now()}`,
+        user_id: req.user.id,
+        is_staff: false,
+        message: String(message).trim(),
+        author_name: req.user.full_name,
+        author_role: req.user.role,
+        created_at: nowIso,
+      },
+    ],
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+  storeData.support_tickets.unshift(newTicket);
+  db.saveDatabase();
+
+  db.logAudit('SUPPORT_TICKET_CREATED', { ticketId, subject, priority, messageLength: message.length }, req.user.id, req.user.email);
 
   db.addNotification(
     req.user.id,
     'Support Ticket Opened',
-    `Your ticket "${subject}" has been received. Ticket ID: TKT-${Date.now().toString().slice(-6)}.`,
+    `Your ticket "${subject}" has been received. Ticket ID: ${ticketId}.`,
     'info'
   );
 
@@ -529,7 +565,7 @@ customerRouter.post('/support-ticket', requireCustomer, async (req: any, res) =>
 
   res.json({
     success: true,
-    ticketId: `TKT-${Date.now().toString().slice(-6)}`,
+    ticketId,
     message: 'Support ticket submitted. A representative will attend to your request shortly.',
   });
 });
@@ -558,16 +594,61 @@ customerRouter.put('/messages/:id/read', requireCustomer, (req: any, res) => {
   res.json({ success: ok, message: ok ? 'Message marked as read' : 'Message not found' });
 });
 
-// GET /api/customer/store - Stored products and status
+// GET /api/customer/store - Stored products and waitlist status
 customerRouter.get('/store', requireCustomer, (req: any, res) => {
+  const subs: any[] = (db.data as any).feature_subscriptions || [];
+  const sub = subs.find(s => s.user_id === req.user.id && s.feature_key === 'hardware_store');
   res.json({
     success: true,
     items: (db.data.store_items || []).filter(i => i.status !== 'draft'),
     settings: db.data.store_settings || {
-      store_name: 'HambakTech Hardware & Developer Store',
+      store_name: 'HambakTech Hardware & Agent Supplies Store',
       status: 'coming_soon',
-      coming_soon_message: 'Official launch in Phase 5.',
+      coming_soon_message: 'Our hardware store for biometric scanners, card printers, and POS accessories is launching soon!',
     },
+    waitlist_subscribed: Boolean(sub && sub.subscribed),
+    waitlist_email: sub?.email || req.user.email,
+  });
+});
+
+// POST /api/customer/store/waitlist - Join hardware store waitlist
+customerRouter.post('/store/waitlist', requireCustomer, (req: any, res) => {
+  const email = String(req.body?.email || req.user.email || '').trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Please provide a valid email address.' });
+  }
+
+  const storeData = db.data as any;
+  if (!Array.isArray(storeData.feature_subscriptions)) {
+    storeData.feature_subscriptions = [];
+  }
+  const existing = storeData.feature_subscriptions.find(
+    (s: any) => s.user_id === req.user.id && s.feature_key === 'hardware_store'
+  );
+  const nowIso = new Date().toISOString();
+  if (existing) {
+    existing.email = email;
+    existing.subscribed = true;
+    existing.updated_at = nowIso;
+  } else {
+    storeData.feature_subscriptions.push({
+      id: `fsub_${Date.now()}`,
+      user_id: req.user.id,
+      feature_key: 'hardware_store',
+      email,
+      subscribed: true,
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+  }
+  db.saveDatabase();
+  db.logAudit('STORE_WAITLIST_JOINED', { email }, req.user.id, req.user.email);
+
+  res.json({
+    success: true,
+    waitlist_subscribed: true,
+    waitlist_email: email,
+    message: `You are on the priority Hardware Store waitlist (${email}).`,
   });
 });
 
@@ -591,9 +672,13 @@ customerRouter.get('/reports', requireCustomer, (req: any, res) => {
     store_purchase: userTxns.filter(t => t.category === 'store_purchase' && t.status === 'successful').reduce((s, t) => s + t.amount, 0),
   };
 
+  const subs: any[] = (db.data as any).feature_subscriptions || [];
+  const reportSub = subs.find(s => s.user_id === req.user.id && s.feature_key === 'financial_reports');
+
   res.json({
     success: true,
     settings: db.data.reports_settings,
+    notify_subscribed: Boolean(reportSub && reportSub.subscribed),
     analytics: {
       totalSpent,
       totalFunded,
@@ -604,5 +689,44 @@ customerRouter.get('/reports', requireCustomer, (req: any, res) => {
       transactionsCount: userTxns.length,
       recentTransactions: userTxns.slice(0, 10),
     },
+  });
+});
+
+// POST /api/customer/reports/notify - Toggle live release notification for reports
+customerRouter.post('/reports/notify', requireCustomer, (req: any, res) => {
+  const subscribed = req.body?.subscribed !== undefined ? Boolean(req.body.subscribed) : true;
+  const email = String(req.user.email || '').trim().toLowerCase();
+  const storeData = db.data as any;
+  if (!Array.isArray(storeData.feature_subscriptions)) {
+    storeData.feature_subscriptions = [];
+  }
+  const existing = storeData.feature_subscriptions.find(
+    (s: any) => s.user_id === req.user.id && s.feature_key === 'financial_reports'
+  );
+  const nowIso = new Date().toISOString();
+  if (existing) {
+    existing.subscribed = subscribed;
+    existing.email = email;
+    existing.updated_at = nowIso;
+  } else {
+    storeData.feature_subscriptions.push({
+      id: `fsub_${Date.now()}`,
+      user_id: req.user.id,
+      feature_key: 'financial_reports',
+      email,
+      subscribed,
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+  }
+  db.saveDatabase();
+  db.logAudit('REPORTS_NOTIFY_UPDATED', { subscribed }, req.user.id, req.user.email);
+
+  res.json({
+    success: true,
+    notify_subscribed: subscribed,
+    message: subscribed
+      ? 'Subscribed to live release notifications for Financial Reports.'
+      : 'Unsubscribed from Financial Reports release notifications.',
   });
 });

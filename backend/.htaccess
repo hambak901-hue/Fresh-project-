@@ -6,10 +6,11 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # Security: Disable direct viewing of config, sql, logs, and internal PHP directories
+    # Security: Disable direct viewing of config, sql, logs, setup scripts, and internal PHP directories
     RewriteRule (^|/)error_log$ - [F,L]
+    RewriteRule (^|/)(run_setup|migrate|sync_legacy_users|backup)\.php$ - [F,L]
     RewriteRule ^(adapters|config|controllers|cron|core|database|logs|middleware|services|storage)/.*$ - [F,L]
-    RewriteRule \.(sql|json|env|log|md|sh|bak)$ - [F,L]
+    RewriteRule \.(sql|sql\.enc|enc|json|env|log|md|sh|bak)$ - [F,L]
 
     # Handle Authorization Header for Bearer Tokens on cPanel FastCGI / LiteSpeed
     SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1

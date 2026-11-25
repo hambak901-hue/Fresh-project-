@@ -916,6 +916,54 @@
       "updated_at": "2026-11-22T08:08:16.940Z",
       "email_verification_required": false,
       "email_verified": true
+    },
+    {
+      "email": "qa_e2e_1795552977336@example.com",
+      "password_hash": "$2b$10$UAYnNiaoy1lx2IcHjw3tZOCRPY6E9bBZ7KAlVKSbheVXHOn4Bsj4a",
+      "full_name": "QA E2E Customer",
+      "phone_number": "08092977336",
+      "role": "customer",
+      "assigned_dashboard": "customer",
+      "token_version": 1,
+      "wallet_balance": 0,
+      "kyc_status": "unverified",
+      "tier": 1,
+      "referral_code": "HT-897A27",
+      "status": "active",
+      "email_verified": false,
+      "email_verification_required": true,
+      "id": "usr_1795552977538_9vye3",
+      "created_at": "2026-11-24T20:42:57.538Z",
+      "updated_at": "2026-11-24T20:42:57.538Z"
+    },
+    {
+      "id": "usr_qa_tier2_1795553010392",
+      "email": "usr_qa_tier2_1795553010392@example.com",
+      "password_hash": "x",
+      "full_name": "QA Tier2 User",
+      "phone_number": "08091234567",
+      "role": "customer",
+      "token_version": 1,
+      "wallet_balance": 1000,
+      "kyc_status": "verified",
+      "tier": 2,
+      "kyc_level": 2,
+      "email_verified": true,
+      "bvn": "22334455667",
+      "referral_code": "QAT2",
+      "created_at": "2026-11-24T20:43:30.392Z",
+      "updated_at": "2026-11-24T20:43:30.392Z",
+      "status": "active",
+      "dva_consent": true,
+      "virtual_account": {
+        "status": "active",
+        "account_number": "9013892571",
+        "account_name": "HAMBAK/QA TIER2 USER",
+        "bank_name": "Wema Bank",
+        "bank_code": "035",
+        "provider": "paystack",
+        "assigned_at": "2026-11-24T20:43:30.494Z"
+      }
     }
   ],
   "transactions": [
@@ -1341,6 +1389,51 @@
   ],
   "notifications": [
     {
+      "id": "notif_1795553010554_q1qea",
+      "user_id": "usr_qa_tier2_1795553010392",
+      "title": "Reply on Ticket TKT-010522",
+      "message": "Support responded to \"DVA Test Ticket\": Resolved cleanly",
+      "type": "info",
+      "read": false,
+      "created_at": "2026-11-24T20:43:30.554Z"
+    },
+    {
+      "id": "notif_1795553010532_v4si1",
+      "user_id": "usr_qa_tier2_1795553010392",
+      "title": "Support Ticket Opened",
+      "message": "Your ticket \"DVA Test Ticket\" has been received. Ticket ID: TKT-010522.",
+      "type": "info",
+      "read": false,
+      "created_at": "2026-11-24T20:43:30.532Z"
+    },
+    {
+      "id": "notif_1795553010502_oyebw",
+      "user_id": "usr_qa_tier2_1795553010392",
+      "title": "Dedicated Bank Account Assigned",
+      "message": "Your Paystack Dedicated Account (Wema Bank - 9013892571) is now active for instant wallet funding.",
+      "type": "success",
+      "read": false,
+      "created_at": "2026-11-24T20:43:30.502Z"
+    },
+    {
+      "id": "notif_1795552977973_rg73n",
+      "user_id": "usr_1795552977538_9vye3",
+      "title": "Support Ticket Opened",
+      "message": "Your ticket \"QA E2E Test Ticket\" has been received. Ticket ID: TKT-977968.",
+      "type": "info",
+      "read": false,
+      "created_at": "2026-11-24T20:42:57.973Z"
+    },
+    {
+      "id": "notif_1795552977541_ll770",
+      "user_id": "usr_1795552977538_9vye3",
+      "title": "Welcome to HambakTech Enterprise!",
+      "message": "Hello QA E2E Customer, please check your inbox and verify your email address to unlock wallet funding and services.",
+      "type": "info",
+      "read": false,
+      "created_at": "2026-11-24T20:42:57.541Z"
+    },
+    {
       "id": "notif_1795334896943_l2gcz",
       "user_id": "usr_1795334896940_2q5xg",
       "title": "Welcome to HambakTech Enterprise!",
@@ -1667,6 +1760,163 @@
     "support_email": "support@hambaktech.com.ng"
   },
   "audit_logs": [
+    {
+      "id": "audit_1795553010635",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_PAYSTACK_DVA_SETTINGS_UPDATED",
+      "details": {
+        "enable_paystack_dva": true,
+        "enable_virtual_accounts": true,
+        "preferred_bank": "wema-bank",
+        "fee_bearer": "customer",
+        "dva_rollout_mode": "all_eligible",
+        "dva_test_user_emails": [],
+        "dva_require_bvn": false,
+        "dva_auto_provision_on_register": false,
+        "dva_auto_provision_on_wallet_open": false
+      },
+      "created_at": "2026-11-24T20:43:30.635Z"
+    },
+    {
+      "id": "audit_1795553010627",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DVA_REACTIVATE",
+      "details": {
+        "userId": "usr_qa_tier2_1795553010392"
+      },
+      "created_at": "2026-11-24T20:43:30.627Z"
+    },
+    {
+      "id": "audit_1795553010619",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DVA_SUSPEND",
+      "details": {
+        "userId": "usr_qa_tier2_1795553010392",
+        "reason": "QA test"
+      },
+      "created_at": "2026-11-24T20:43:30.619Z"
+    },
+    {
+      "id": "audit_1795553010606",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "ADMIN_DVA_REQUERY",
+      "details": {
+        "userId": "usr_qa_tier2_1795553010392",
+        "accountNumber": "9013892571"
+      },
+      "created_at": "2026-11-24T20:43:30.606Z"
+    },
+    {
+      "id": "audit_1795553010590",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "GLOBAL_SETTINGS_UPDATED",
+      "details": {
+        "category": "general",
+        "keys": [
+          "maintenance_mode"
+        ]
+      },
+      "created_at": "2026-11-24T20:43:30.590Z"
+    },
+    {
+      "id": "audit_1795553010527",
+      "user_id": "usr_qa_tier2_1795553010392",
+      "user_email": "usr_qa_tier2_1795553010392@example.com",
+      "action": "SUPPORT_TICKET_CREATED",
+      "details": {
+        "ticketId": "TKT-010522",
+        "subject": "DVA Test Ticket",
+        "priority": "medium",
+        "messageLength": 23
+      },
+      "created_at": "2026-11-24T20:43:30.527Z"
+    },
+    {
+      "id": "audit_1795553010498",
+      "user_id": "usr_qa_tier2_1795553010392",
+      "user_email": "usr_qa_tier2_1795553010392@example.com",
+      "action": "PAYSTACK_DVA_ASSIGNED",
+      "details": {
+        "userId": "usr_qa_tier2_1795553010392",
+        "bank": "Wema Bank",
+        "accountNumber": "9013892571",
+        "paystackCustomerCode": "CUS_usrqatier217"
+      },
+      "created_at": "2026-11-24T20:43:30.498Z"
+    },
+    {
+      "id": "audit_1795552977971",
+      "user_id": "usr_1795552977538_9vye3",
+      "user_email": "qa_e2e_1795552977336@example.com",
+      "action": "SUPPORT_TICKET_CREATED",
+      "details": {
+        "ticketId": "TKT-977968",
+        "subject": "QA E2E Test Ticket",
+        "priority": "high",
+        "messageLength": 33
+      },
+      "created_at": "2026-11-24T20:42:57.971Z"
+    },
+    {
+      "id": "audit_1795552977940",
+      "user_id": "usr_1795552977538_9vye3",
+      "user_email": "qa_e2e_1795552977336@example.com",
+      "action": "REPORTS_NOTIFY_UPDATED",
+      "details": {
+        "subscribed": true
+      },
+      "created_at": "2026-11-24T20:42:57.940Z"
+    },
+    {
+      "id": "audit_1795552977671",
+      "user_id": "usr_1795552977538_9vye3",
+      "user_email": "qa_e2e_1795552977336@example.com",
+      "action": "STORE_WAITLIST_JOINED",
+      "details": {
+        "email": "qa_e2e_1795552977336@example.com"
+      },
+      "created_at": "2026-11-24T20:42:57.671Z"
+    },
+    {
+      "id": "audit_1795552977554",
+      "user_id": "usr_1795552977538_9vye3",
+      "user_email": "qa_e2e_1795552977336@example.com",
+      "action": "EMAIL_VERIFICATION_DISPATCH_FAILED",
+      "details": {
+        "email": "qa_e2e_1795552977336@example.com",
+        "simulated": true
+      },
+      "created_at": "2026-11-24T20:42:57.554Z"
+    },
+    {
+      "id": "audit_1795552977543",
+      "user_id": "usr_1795552977538_9vye3",
+      "user_email": "qa_e2e_1795552977336@example.com",
+      "action": "USER_REGISTERED",
+      "details": {
+        "email": "qa_e2e_1795552977336@example.com",
+        "phone": "08092977336"
+      },
+      "ip": "127.0.0.1",
+      "created_at": "2026-11-24T20:42:57.543Z"
+    },
+    {
+      "id": "audit_1795552356223",
+      "user_id": "usr_superadmin",
+      "user_email": "admin@hambaktech.com.ng",
+      "action": "USER_LOGIN",
+      "details": {
+        "role": "superadmin",
+        "assigned_dashboard": "admin"
+      },
+      "ip": "197.211.59.115",
+      "created_at": "2026-11-24T20:32:36.223Z"
+    },
     {
       "id": "audit_1795415847358",
       "user_id": "usr_1795415847337_ivoeo",
@@ -3998,6 +4248,18 @@
   ],
   "provider_logs": [
     {
+      "id": "plog_1795553010756_3i19",
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_v1.php",
+      "method": "POST",
+      "status_code": 401,
+      "request_body": "{\"nin\":\"12345678901\"}",
+      "response_body": "{\"success\":false,\"message\":\"Missing api_key. Pass it as an X-Api-Key header, an Authorization: Bearer header, or an api_key field.\"}",
+      "latency_ms": 113,
+      "reference": null,
+      "created_at": "2026-11-24T20:43:30.756Z"
+    },
+    {
       "id": "plog_1794497538641_zq3c",
       "provider": "ulamadata",
       "endpoint": "/cablevalidate/?smart_card_number=7029182391&cablename=2",
@@ -5574,6 +5836,30 @@
     "last_test_message": "Production SMTP handshake confirmed on port 587 (STARTTLS)",
     "logs": [
       {
+        "id": "smtplog_1795553010537_i1jj",
+        "timestamp": "2026-11-24T20:43:30.537Z",
+        "recipient": "support@hambaktech.com.ng",
+        "subject": "[Support Ticket] DVA Test Ticket - From QA Tier2 User",
+        "status": "simulated",
+        "error": "SMTP password not configured"
+      },
+      {
+        "id": "smtplog_1795552977978_mgoz",
+        "timestamp": "2026-11-24T20:42:57.978Z",
+        "recipient": "support@hambaktech.com.ng",
+        "subject": "[Support Ticket] QA E2E Test Ticket - From QA E2E Customer",
+        "status": "simulated",
+        "error": "SMTP password not configured"
+      },
+      {
+        "id": "smtplog_1795552977549_jkjj",
+        "timestamp": "2026-11-24T20:42:57.549Z",
+        "recipient": "qa_e2e_1795552977336@example.com",
+        "subject": "Verify Your HAMBAKTECH Email Address",
+        "status": "simulated",
+        "error": "SMTP password not configured"
+      },
+      {
         "id": "smtplog_1795415855026_nyvp",
         "timestamp": "2026-11-23T06:37:35.026Z",
         "recipient": "probe_1795415854888@example.com",
@@ -6255,11 +6541,11 @@
       "reviewer_name": "Bakar Hambak (Super Admin)",
       "review_notes": "Automated 2SureVerify NIN biometric matching verified 100%. Approved to Level 2.",
       "automated_verification_result": {
-        "verified": true,
+        "verified": false,
         "provider": "2sureverify",
-        "reference": "2SV_AUTO_998124",
+        "reference": "2SV_AUTO_1795553010758",
         "name_matched": true,
-        "timestamp": "2026-02-15T10:35:00.000Z"
+        "timestamp": "2026-11-24T20:43:30.758Z"
       },
       "review_history": [
         {
@@ -6313,6 +6599,32 @@
     }
   ],
   "virtual_accounts": [
+    {
+      "id": "va_1795553010494_r9g5",
+      "user_id": "usr_qa_tier2_1795553010392",
+      "account_number": "9013892571",
+      "account_name": "HAMBAK/QA TIER2 USER",
+      "bank_name": "Wema Bank",
+      "bank_code": "035",
+      "bank_slug": "wema-bank",
+      "dedicated_account_id": 122207,
+      "paystack_customer_code": "CUS_usrqatier217",
+      "currency": "NGN",
+      "provider": "paystack",
+      "status": "active",
+      "account_status": "active",
+      "assignment_status": "assigned",
+      "provisioning_status": "active",
+      "kyc_validation_status": "verified",
+      "dva_consent": true,
+      "assigned_at": "2026-11-24T20:43:30.494Z",
+      "last_synced_at": "2026-11-24T20:43:30.603Z",
+      "total_inflow": 0,
+      "last_funding_at": null,
+      "created_at": "2026-11-24T20:43:30.494Z",
+      "updated_at": "2026-11-24T20:43:30.625Z",
+      "failure_reason": null
+    },
     {
       "id": "va_demo_001",
       "user_id": "usr_customer_demo",
@@ -9608,5 +9920,148 @@
     }
   ],
   "academy_application_events": [],
-  "academy_account_invitations": []
+  "academy_account_invitations": [],
+  "feature_subscriptions": [
+    {
+      "id": "fsub_1795552977666",
+      "user_id": "usr_1795552977538_9vye3",
+      "feature_key": "hardware_store",
+      "email": "qa_e2e_1795552977336@example.com",
+      "subscribed": true,
+      "created_at": "2026-11-24T20:42:57.666Z",
+      "updated_at": "2026-11-24T20:42:57.666Z"
+    },
+    {
+      "id": "fsub_1795552977938",
+      "user_id": "usr_1795552977538_9vye3",
+      "feature_key": "financial_reports",
+      "email": "qa_e2e_1795552977336@example.com",
+      "subscribed": true,
+      "created_at": "2026-11-24T20:42:57.938Z",
+      "updated_at": "2026-11-24T20:42:57.938Z"
+    }
+  ],
+  "support_tickets": [
+    {
+      "id": "TKT-010522",
+      "user_id": "usr_qa_tier2_1795553010392",
+      "subject": "DVA Test Ticket",
+      "priority": "medium",
+      "status": "resolved",
+      "department": "Customer Support",
+      "customer_name": "QA Tier2 User",
+      "customer_email": "usr_qa_tier2_1795553010392@example.com",
+      "customer_phone": "08091234567",
+      "customer_tier": 2,
+      "customer_balance": 1000,
+      "reply_count": 2,
+      "replies": [
+        {
+          "id": "rep_1795553010522",
+          "user_id": "usr_qa_tier2_1795553010392",
+          "is_staff": false,
+          "message": "Check ticket visibility",
+          "author_name": "QA Tier2 User",
+          "author_role": "customer",
+          "created_at": "2026-11-24T20:43:30.522Z"
+        },
+        {
+          "id": "rep_1795553010552",
+          "user_id": "usr_superadmin",
+          "is_staff": true,
+          "message": "Resolved cleanly",
+          "author_name": "Bakar Hambak (Super Admin)",
+          "author_role": "superadmin",
+          "created_at": "2026-11-24T20:43:30.552Z"
+        }
+      ],
+      "created_at": "2026-11-24T20:43:30.522Z",
+      "updated_at": "2026-11-24T20:43:30.552Z"
+    },
+    {
+      "id": "TKT-977968",
+      "user_id": "usr_1795552977538_9vye3",
+      "subject": "QA E2E Test Ticket",
+      "priority": "high",
+      "status": "open",
+      "department": "Customer Support",
+      "customer_name": "QA E2E Customer",
+      "customer_email": "qa_e2e_1795552977336@example.com",
+      "customer_phone": "08092977336",
+      "customer_tier": 1,
+      "customer_balance": 0,
+      "reply_count": 1,
+      "replies": [
+        {
+          "id": "rep_1795552977968",
+          "user_id": "usr_1795552977538_9vye3",
+          "is_staff": false,
+          "message": "Testing persisted ticket delivery",
+          "author_name": "QA E2E Customer",
+          "author_role": "customer",
+          "created_at": "2026-11-24T20:42:57.968Z"
+        }
+      ],
+      "created_at": "2026-11-24T20:42:57.968Z",
+      "updated_at": "2026-11-24T20:42:57.968Z"
+    }
+  ],
+  "dva_policy": {
+    "enable_paystack_dva": true,
+    "enable_virtual_accounts": true,
+    "preferred_bank": "wema-bank",
+    "fee_bearer": "customer",
+    "dva_rollout_mode": "all_eligible",
+    "dva_test_user_emails": [],
+    "dva_require_bvn": false,
+    "dva_auto_provision_on_register": false,
+    "dva_auto_provision_on_wallet_open": false
+  },
+  "paystack_dva_settlements": [],
+  "global_settings_categories": {
+    "general": {
+      "site_name": "HambakTech Enterprise",
+      "maintenance_mode": false
+    },
+    "company": {
+      "support_email": "support@hambaktech.com.ng",
+      "phone": "+234 803 000 1122"
+    },
+    "branding": {
+      "company_name": "HambakTech Enterprise",
+      "tagline": "Nigeria's Foremost Identity Verification, Telecom & Digital Services Engine",
+      "logo_url": "",
+      "favicon_url": "/favicon.ico",
+      "primary_color": "#10b981",
+      "secondary_color": "#0284c7",
+      "font_family": "Plus Jakarta Sans",
+      "support_phone": "+234 803 000 1122",
+      "support_email": "support@hambaktech.com.ng",
+      "office_address": "Plot 14, Commercial Avenue, Ikeja, Lagos, Nigeria",
+      "whatsapp_number": "+2348030001122",
+      "social_links": {
+        "twitter": "https://x.com/hambaktech",
+        "facebook": "https://facebook.com/hambaktech",
+        "linkedin": "https://linkedin.com/company/hambaktech",
+        "whatsapp": "https://wa.me/2348030001122"
+      },
+      "footer_text": "Nigeria's premier digital infrastructure platform for official identity verification, wholesale telecom vending, and automated digital payments.",
+      "copyright_text": "© 2026 Hambak Technologies Enterprise. All Rights Reserved.",
+      "seo_title": "HambakTech Enterprise | Official Identity & Telecom Services",
+      "seo_description": "All-in-one Nigerian VTU, identity verification (NIN/BVN), telecom, payments, academy, and digital services platform for HambakTech.",
+      "seo_keywords": "NIN verification, BVN validation, MTN SME data, Nigerian VTU, identity verification, airtime recharge, digital payments, HambakTech"
+    },
+    "wallet": {
+      "active_payment_gateway": "paystack",
+      "min_funding_amount": 100
+    },
+    "payment_gateways": {
+      "active_payment_gateway": "paystack",
+      "paystack_enabled": true
+    },
+    "kyc": {
+      "tier2_daily_limit": 200000,
+      "tier3_daily_limit": 2000000
+    }
+  }
 }

@@ -17,6 +17,10 @@ import { validateUploadFile } from '../services/security.js';
 import { sendEmail } from '../services/mailer.js';
 import { verificationManager } from '../adapters/verification/VerificationAdapter.js';
 import { sanitizeCustomerError } from '../services/errorSanitizer.js';
+import {
+  buildCustomerVirtualAccountState,
+  provisionCustomerVirtualAccount,
+} from '../services/paystackDvaLocal.js';
 
 export const kycRouter = Router();
 
@@ -68,22 +72,28 @@ kycRouter.get('/status', requireAuth, (req: any, res) => {
   const rules = db.getServiceSecurityRules();
 
   const tierLimits = {
-    0: { label: 'Level 0 — Unverified', daily_limit: 0, description: 'Restricted dashboard access. Verification required for financial operations.' },
-    1: { label: 'Level 1 — Basic', daily_limit: 20000, description: 'Basic profile verified. Standard telecom and utility airtime vending.' },
-    2: { label: 'Level 2 — Identity Verified', daily_limit: 200000, description: 'NIN / BVN verified with official document. High-speed VTU, Virtual Bank Account, and Digital Services.' },
-    3: { label: 'Level 3 — Enhanced Tier', daily_limit: 2000000, description: 'Proof of address and biometric selfie verified. Enterprise volume and unrestricted digital utilities.' },
+    0: { level: 0, name: 'Level 0 — Unverified', label: 'Level 0 — Unverified', daily_limit: 0, description: 'Restricted dashboard access. Verification required for financial operations.', allowed_services: ['Profile'] },
+    1: { level: 1, name: 'Level 1 — Basic', label: 'Level 1 — Basic', daily_limit: 20000, description: 'Basic profile verified. Standard telecom and utility airtime vending.', allowed_services: ['Airtime', 'Data', 'Cable TV', 'Electricity'] },
+    2: { level: 2, name: 'Level 2 — Identity Verified', label: 'Level 2 — Identity Verified', daily_limit: 200000, description: 'NIN / BVN verified with official document. High-speed VTU, Virtual Bank Account, and Digital Services.', allowed_services: ['All VTU', 'NIN/BVN Verification', 'Paystack Dedicated Bank Account', 'Printing Services'] },
+    3: { level: 3, name: 'Level 3 — Enhanced Tier', label: 'Level 3 — Enhanced Tier', daily_limit: 2000000, description: 'Proof of address and biometric selfie verified. Enterprise volume and unrestricted digital utilities.', allowed_services: ['Unlimited Services', 'Modification & Enrolment', 'Priority Settlement'] },
   };
+  const levelInfo = tierLimits[currentTier as keyof typeof tierLimits] || tierLimits[1];
+  const virtualAccountState = buildCustomerVirtualAccountState(user, false);
 
   res.json({
     success: true,
     user: sanitizeUser(user),
     kyc_status: user.kyc_status,
     current_tier: currentTier,
-    tier_info: tierLimits[currentTier as keyof typeof tierLimits] || tierLimits[1],
+    tier_info: levelInfo,
+    level_info: levelInfo,
     submission: submission || null,
+    active_submission: submission || null,
     has_transaction_pin: Boolean(user.transaction_pin_hash),
-    virtual_account: virtualAccount || null,
+    virtual_account: virtualAccountState.virtual_account || virtualAccount || null,
+    virtual_account_state: virtualAccountState,
     service_security_rules: rules,
+    rules,
   });
 });
 
@@ -268,12 +278,6 @@ kycRouter.post('/submit', requireAuth, async (req: any, res) => {
     if (newSubmission.bvn) userUpdates.bvn = newSubmission.bvn;
     if (initialStatus === 'approved') {
       userUpdates.tier = numLevel;
-      // Pre-provision virtual account if Level 2+
-      if (numLevel >= 2) {
-        db.assignVirtualAccount(req.user.id, {
-          account_name: `HAMBAK / ${newSubmission.full_legal_name.toUpperCase()}`,
-        });
-      }
     }
 
     const updatedUser = db.updateUser(req.user.id, userUpdates);
@@ -399,41 +403,24 @@ kycRouter.post('/authorize-purchase', requireAuth, (req: any, res) => {
 });
 
 // -------------------------------------------------------------
-// 3. FUTURE VIRTUAL BANK ACCOUNT ARCHITECTURE (Modular Partner Integration)
+// 3. PAYSTACK DEDICATED VIRTUAL ACCOUNTS (DVA)
 // -------------------------------------------------------------
 
-// GET /api/kyc/virtual-account - Retrieve customer virtual account
+// GET /api/kyc/virtual-account - Retrieve customer Paystack DVA state
 kycRouter.get('/virtual-account', requireAuth, (req: any, res) => {
-  const user = req.user;
-  const userKycLevel = user.tier || 1;
+  const syncPending = req.query.sync === '1' || req.query.sync === 'true' || req.query.sync_pending === '1';
+  res.json(buildCustomerVirtualAccountState(req.user, syncPending));
+});
 
-  if (userKycLevel < 2) {
-    return res.json({
-      success: true,
-      eligible: false,
-      status: 'pending_kyc',
-      message: 'Dedicated Virtual Bank Accounts require KYC Level 2 (Identity Verified). Complete NIN or BVN verification to unlock your personal account.',
-      virtual_account: null,
-    });
+// POST /api/kyc/virtual-account/provision - Request Paystack DVA assignment
+kycRouter.post('/virtual-account/provision', requireAuth, (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
+  try {
+    const result = provisionCustomerVirtualAccount(req.user, req.body || {});
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to provision Paystack Dedicated Virtual Account right now.' });
   }
-
-  let acc = db.getVirtualAccount(user.id);
-  if (!acc) {
-    acc = db.assignVirtualAccount(user.id, {
-      account_name: `HAMBAK / ${user.full_name.toUpperCase()}`,
-      bank_name: 'Providus Bank',
-      bank_code: '101',
-      provider: 'providus',
-    });
-  }
-
-  res.json({
-    success: true,
-    eligible: true,
-    status: acc.status,
-    virtual_account: acc,
-    instructions: 'Transfers made to this account number will credit your HambakTech wallet instantly via automated webhooks.',
-  });
 });
 
 // -------------------------------------------------------------
@@ -523,14 +510,8 @@ kycRouter.post('/admin/submissions/:id/review', requireAdmin, (req: any, res) =>
     if (targetUser) {
       targetUser.kyc_status = 'verified';
       targetUser.tier = tier;
+      targetUser.kyc_level = tier;
       targetUser.updated_at = nowIso;
-
-      // Assign virtual account if verified Level 2+
-      if (tier >= 2) {
-        db.assignVirtualAccount(targetUser.id, {
-          account_name: `HAMBAK / ${submission.full_legal_name.toUpperCase()}`,
-        });
-      }
     }
 
     db.addNotification(
@@ -652,8 +633,10 @@ kycRouter.post('/admin/submissions/:id/auto-verify', requireAdmin, async (req: a
       success: true,
       provider: '2SureVerify NIMC Registry',
       latency_ms: latency,
+      verified: result.success,
       verification_status: result.success ? 'VERIFIED' : 'FAILED',
       name_match: isNameMatch,
+      result: submission.automated_verification_result,
       registry_data: {
         firstname: result.data?.firstname,
         surname: result.data?.surname,

@@ -15,12 +15,16 @@ export function StoreComingSoonPage() {
   const [selectedItem, setSelectedItem] = useState<StoreItem | null>(null);
   const [waitlistEmail, setWaitlistEmail] = useState('');
   const [waitlistSuccess, setWaitlistSuccess] = useState(false);
+  const [waitlistSubmitting, setWaitlistSubmitting] = useState(false);
+  const [waitlistError, setWaitlistError] = useState<string | null>(null);
 
   useEffect(() => {
     api.getCustomerStore().then(res => {
       if (res?.success) {
         setItems(res.items || []);
         setSettings(res.settings || null);
+        if (res.waitlist_email) setWaitlistEmail(res.waitlist_email);
+        if (res.waitlist_subscribed) setWaitlistSuccess(true);
       }
     }).catch(err => {
       console.warn('Failed to load store catalog:', err);
@@ -38,14 +42,22 @@ export function StoreComingSoonPage() {
     return matchesCat && matchesSearch;
   });
 
-  const handleJoinWaitlist = (e: React.FormEvent) => {
+  const handleJoinWaitlist = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!waitlistEmail) return;
-    setWaitlistSuccess(true);
-    setTimeout(() => {
-      setWaitlistSuccess(false);
-      setWaitlistEmail('');
-    }, 4000);
+    if (!waitlistEmail.trim()) return;
+    setWaitlistSubmitting(true);
+    setWaitlistError(null);
+    try {
+      const res = await api.subscribeStoreWaitlist(waitlistEmail.trim());
+      if (res.success) {
+        setWaitlistSuccess(true);
+        setWaitlistEmail(res.waitlist_email || waitlistEmail.trim());
+      }
+    } catch (err: any) {
+      setWaitlistError(err?.message || 'Unable to save waitlist subscription.');
+    } finally {
+      setWaitlistSubmitting(false);
+    }
   };
 
   return (
@@ -56,7 +68,7 @@ export function StoreComingSoonPage() {
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold rounded-full">
               <Clock className="w-3.5 h-3.5" />
-              <span>Status: Coming Soon • Phase 8 Staged Module</span>
+              <span>Status: Coming Soon • Staged Store Module</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               {settings?.store_name || 'HambakTech Hardware & Agent Supplies Store'}
@@ -72,10 +84,15 @@ export function StoreComingSoonPage() {
               <Bell className="w-4 h-4 text-indigo-400" />
               <span>Launch Notification & Pre-Orders</span>
             </div>
+            {waitlistError && (
+              <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-300 text-[11px]">
+                {waitlistError}
+              </div>
+            )}
             {waitlistSuccess ? (
               <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-300 text-xs flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                <span>You're on the priority waitlist!</span>
+                <span>You&apos;re on the priority waitlist ({waitlistEmail})!</span>
               </div>
             ) : (
               <form onSubmit={handleJoinWaitlist} className="space-y-2">
@@ -89,9 +106,10 @@ export function StoreComingSoonPage() {
                 />
                 <button
                   type="submit"
-                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition shadow-md shadow-indigo-600/20"
+                  disabled={waitlistSubmitting}
+                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition shadow-md shadow-indigo-600/20"
                 >
-                  Join Store Waitlist
+                  {waitlistSubmitting ? 'Saving...' : 'Join Store Waitlist'}
                 </button>
               </form>
             )}

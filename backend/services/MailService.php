@@ -22,8 +22,15 @@ class MailService
         'reply_to' => 'support@hambaktech.com.ng',
     ];
 
+    public const SUPPORT_OPTIONS = [
+        'from_email' => 'support@hambaktech.com.ng',
+        'from_name' => 'HAMBAKTECH Support',
+        'reply_to' => 'support@hambaktech.com.ng',
+    ];
+
     private Database $db;
     private array $config;
+    private bool $hasDbOverride = false;
     private string $appUrl;
 
     public function __construct()
@@ -51,6 +58,7 @@ class MailService
         try {
             $row = $this->db->fetchOne('SELECT * FROM smtp_configs WHERE is_active = 1 LIMIT 1');
             if ($row && !empty($row['host'])) {
+                $this->hasDbOverride = true;
                 $this->config['host'] = $row['host'];
                 $this->config['port'] = (int)$row['port'];
                 $this->config['encryption'] = $row['encryption'] ?: (((int)$row['port'] === 465) ? 'ssl' : 'tls');
@@ -74,13 +82,47 @@ class MailService
     }
 
     /**
+     * Resolve effective sender identity, honoring active DB smtp_configs overrides when present.
+     */
+    public function getSenderIdentity(
+        string $defaultFromEmail = 'notifications@hambaktech.com.ng',
+        string $defaultFromName = 'HAMBAKTECH Support',
+        string $defaultReplyTo = 'support@hambaktech.com.ng'
+    ): array {
+        $cfgFrom = trim((string)($this->config['from_email'] ?? ''));
+        $cfgUser = trim((string)($this->config['user'] ?? ''));
+        $cfgName = trim((string)($this->config['from_name'] ?? ''));
+        $cfgReply = trim((string)($this->config['reply_to'] ?? ''));
+
+        $fromEmail = $defaultFromEmail;
+        if ($this->hasDbOverride && filter_var($cfgFrom, FILTER_VALIDATE_EMAIL)) {
+            $fromEmail = $cfgFrom;
+        } elseif (!$this->hasDbOverride && filter_var($cfgUser, FILTER_VALIDATE_EMAIL)) {
+            $fromEmail = $cfgUser;
+        }
+
+        return [
+            'from_email' => $fromEmail,
+            'from_name' => $this->hasDbOverride && $cfgName !== '' ? $cfgName : $defaultFromName,
+            'reply_to' => filter_var($cfgReply, FILTER_VALIDATE_EMAIL) ? $cfgReply : $defaultReplyTo,
+        ];
+    }
+
+    /**
      * Send OTP Verification Email
      */
     public function sendPasswordResetOtp(string $recipientEmail, string $recipientName, string $otpCode, string $resetToken): array
     {
         $subject = 'Your HambakTech Verification Code: ' . $otpCode;
         $html = $this->buildOtpHtml($recipientName, $otpCode, $resetToken);
-        return $this->send($recipientEmail, $recipientName, $subject, $html, $otpCode);
+        return $this->send(
+            $recipientEmail,
+            $recipientName,
+            $subject,
+            $html,
+            $otpCode,
+            self::NOTIFICATION_OPTIONS + ['audit_action' => 'OTP_DISPATCHED']
+        );
     }
 
     /**
@@ -105,13 +147,23 @@ class MailService
             . "This code and link expire in {$expiryMinutes} minutes. Never share your verification code with anyone.\n\n"
             . "Need assistance? Email support@hambaktech.com.ng or call 09127469686.\n";
 
-        return $this->send($recipientEmail, $recipientName, $subject, $html, null, [
-            'from_email' => 'notifications@hambaktech.com.ng',
-            'from_name' => 'HAMBAKTECH Support',
-            'reply_to' => 'support@hambaktech.com.ng',
-            'text_body' => $textBody,
-            'audit_action' => 'EMAIL_VERIFICATION_DISPATCHED',
-        ]);
+        $sender = $this->getSenderIdentity(
+            'notifications@hambaktech.com.ng',
+            'HAMBAKTECH Support',
+            'support@hambaktech.com.ng'
+        );
+
+        return $this->send(
+            $recipientEmail,
+            $recipientName,
+            $subject,
+            $html,
+            null,
+            $sender + [
+                'text_body' => $textBody,
+                'audit_action' => 'EMAIL_VERIFICATION_DISPATCHED',
+            ]
+        );
     }
 
     /**
@@ -159,7 +211,7 @@ class MailService
         // 1. Log in internal notifications table if user exists and OTP is set
         if ($otp) {
             try {
-                $user = $this->db->fetchOne('SELECT id FROM users WHERE email = :email', ['email' => $cleanEmail]);
+                $user = $this->db->fetchOne('SELECT id FROM users WHERE LOWER(email) = LOWER(:email) LIMIT 1', ['email' => $cleanEmail]);
                 if ($user) {
                     $this->db->execute(
                         'INSERT INTO notifications (id, user_id, title, message, type, is_read, created_at)
@@ -176,13 +228,36 @@ class MailService
             }
         }
 
-        // 2. Attempt authenticated SMTP dispatch via SmtpTransport
+        // 2. Attempt authenticated SMTP dispatch via SmtpTransport (with connection-only fallback if primary socket fails)
+        $activeHost = $host;
         try {
             if (!class_exists(\Hambak\Services\SmtpTransport::class)) {
                 require_once __DIR__ . '/SmtpTransport.php';
             }
             $transport = new \Hambak\Services\SmtpTransport($host, $port, $encryption, $username, $password, 15);
             $res = $transport->send($fromEmail, $fromName, $cleanEmail, $subject, $htmlBody, $textBody, $replyTo, $envelopeFrom);
+
+            if (empty($res['success'])) {
+                $errLower = strtolower((string)($res['error'] ?? ''));
+                $isConnectErr = str_contains($errLower, 'connection')
+                    || str_contains($errLower, 'handshake')
+                    || str_contains($errLower, 'starttls')
+                    || str_contains($errLower, 'timed out');
+                $fallbackHost = trim((string)($this->config['fallback_host'] ?? ''));
+                $fallbackPort = (int)($this->config['fallback_port'] ?? 587);
+                if ($isConnectErr && $fallbackHost !== '' && ($fallbackHost !== $host || $fallbackPort !== $port)) {
+                    $fbEnc = $fallbackPort === 465 ? 'ssl' : 'tls';
+                    $fbTransport = new \Hambak\Services\SmtpTransport($fallbackHost, $fallbackPort, $fbEnc, $username, $password, 15);
+                    $fbRes = $fbTransport->send($fromEmail, $fromName, $cleanEmail, $subject, $htmlBody, $textBody, $replyTo, $envelopeFrom);
+                    if (!empty($fbRes['success'])) {
+                        $res = $fbRes;
+                        $activeHost = $fallbackHost;
+                        $port = $fallbackPort;
+                        $encryption = $fbEnc;
+                    }
+                }
+            }
+
             $deliverySuccess = !empty($res['success']);
             $messageId = (string)($res['messageId'] ?? '');
             foreach ((array)($res['transcript'] ?? []) as $tRow) {
@@ -196,7 +271,7 @@ class MailService
                 $smtpResponse = (string)($last['entry'] ?? '');
             }
             $deliveryMessage = $deliverySuccess
-                ? "Email delivered via {$host}:{$port} ({$encryption})"
+                ? "Email delivered via {$activeHost}:{$port} ({$encryption})"
                 : (string)($res['error'] ?? 'SMTP delivery failed');
         } catch (Throwable $e) {
             $deliveryMessage = 'SMTP error: ' . $e->getMessage();
@@ -213,7 +288,7 @@ class MailService
                     'sub' => $subject,
                     'st' => $deliverySuccess ? 'sent' : 'failed',
                     'err' => $deliverySuccess ? null : $deliveryMessage,
-                    'host' => $host,
+                    'host' => $activeHost,
                 ]
             );
         } catch (Throwable) {

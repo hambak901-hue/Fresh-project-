@@ -15,6 +15,7 @@ export const DigitalServicesManagement: React.FC = () => {
   const [searchDisco, setSearchDisco] = useState('');
   const [selectedProvider, setSelectedProvider] = useState<string>('all');
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ kind: 'cable' | 'disco'; id: string; name: string } | null>(null);
 
   // Modal states for Cable
   const [isCableModalOpen, setIsCableModalOpen] = useState(false);
@@ -114,17 +115,8 @@ export const DigitalServicesManagement: React.FC = () => {
     }
   };
 
-  const handleDeleteCable = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${name}"?`)) return;
-    try {
-      const res = await api.deleteCablePackage(id);
-      if (res.success) {
-        setFeedback({ type: 'success', message: `Package "${name}" deleted` });
-        loadData();
-      }
-    } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || 'Failed to delete package' });
-    }
+  const handleDeleteCable = (id: string, name: string) => {
+    setConfirmDelete({ kind: 'cable', id, name });
   };
 
   const handleToggleCable = async (pkg: CablePackageItem) => {
@@ -190,16 +182,30 @@ export const DigitalServicesManagement: React.FC = () => {
     }
   };
 
-  const handleDeleteDisco = async (id: string, name: string) => {
-    if (!window.confirm(`Delete Disco "${name}"?`)) return;
+  const handleDeleteDisco = (id: string, name: string) => {
+    setConfirmDelete({ kind: 'disco', id, name });
+  };
+
+  const executeConfirmDelete = async () => {
+    if (!confirmDelete) return;
+    const target = confirmDelete;
+    setConfirmDelete(null);
     try {
-      const res = await api.deleteElectricityDisco(id);
-      if (res.success) {
-        setFeedback({ type: 'success', message: `Disco "${name}" deleted` });
-        loadData();
+      if (target.kind === 'cable') {
+        const res = await api.deleteCablePackage(target.id);
+        if (res.success) {
+          setFeedback({ type: 'success', message: `Package "${target.name}" deleted` });
+          loadData();
+        }
+      } else {
+        const res = await api.deleteElectricityDisco(target.id);
+        if (res.success) {
+          setFeedback({ type: 'success', message: `Disco "${target.name}" deleted` });
+          loadData();
+        }
       }
     } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || 'Failed to delete Disco' });
+      setFeedback({ type: 'error', message: err.message || `Failed to delete ${target.kind}` });
     }
   };
 
@@ -729,6 +735,36 @@ export const DigitalServicesManagement: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-bold text-white">
+              Delete {confirmDelete.kind === 'cable' ? 'Cable Bouquet' : 'Electricity Disco'}?
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Are you sure you want to delete <span className="text-white font-semibold">&ldquo;{confirmDelete.name}&rdquo;</span>?
+            </p>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(null)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeConfirmDelete}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-colors"
+              >
+                Confirm Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

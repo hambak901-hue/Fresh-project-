@@ -43,11 +43,12 @@ abstract class BaseProviderAdapter implements ServiceProviderAdapterInterface
             ?? $_ENV['JWT_SECRET'] 
             ?? getenv('ENCRYPTION_KEY') 
             ?? getenv('JWT_SECRET');
-        $appEnv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?? (getenv('NODE_ENV') ?: 'production');
+        $appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: (getenv('NODE_ENV') ?: 'production'))));
+        $isTestingOnly = ($appEnv === 'testing' && PHP_SAPI === 'cli');
 
         if (empty($secret)) {
-            if ($appEnv === 'production') {
-                throw new RuntimeException('SECURITY FATAL: ENCRYPTION_KEY or JWT_SECRET must be configured in production environment. Failing closed.');
+            if (!$isTestingOnly) {
+                throw new RuntimeException('SECURITY FATAL: ENCRYPTION_KEY or JWT_SECRET must be configured. Failing closed.');
             }
             // Strictly isolated test-fixture key for offline testing only — cannot be used in production
             $secret = 'test_fixture_only_deterministic_key';

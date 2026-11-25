@@ -411,54 +411,7 @@ class Auth
             return null;
         }
 
-        // Standardize wallet balance, KYC level, PIN flag, email verification, and JSON preferences
-        $user['wallet_balance'] = (float)($user['live_wallet_balance'] ?? $user['wallet_balance'] ?? 0);
-        $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
-        $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
-        $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
-        $user['email_verified'] = (bool)($user['email_verified'] ?? false);
-        $user['email_verification_required'] = (bool)($user['email_verification_required'] ?? false);
-        $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
-        $user['pin_failed_attempts'] = (int)($user['pin_failed_attempts'] ?? 0);
-        $user['pin_is_locked'] = !empty($user['pin_locked_until']) && strtotime((string)$user['pin_locked_until']) > time();
-
-        if (isset($user['notification_preferences']) && is_string($user['notification_preferences'])) {
-            $user['notification_preferences'] = json_decode($user['notification_preferences'], true);
-        }
-        if (isset($user['security_settings']) && is_string($user['security_settings'])) {
-            $user['security_settings'] = json_decode($user['security_settings'], true);
-        }
-
-        $perms = [];
-        $hasExplicitPerms = false;
-        foreach ([$user['assigned_permissions'] ?? null, $user['profile_permissions'] ?? null] as $rawPerm) {
-            if (is_string($rawPerm) && trim($rawPerm) !== '') {
-                $decoded = json_decode($rawPerm, true);
-                if (is_array($decoded)) {
-                    $perms = $decoded;
-                    $hasExplicitPerms = true;
-                    break;
-                }
-            } elseif (is_array($rawPerm)) {
-                $perms = $rawPerm;
-                $hasExplicitPerms = true;
-                break;
-            }
-        }
-        $normalizedRole = DashboardConfigService::normalizeRole((string)($user['role'] ?? 'customer'));
-        $user['role'] = $normalizedRole;
-        $user['assigned_dashboard'] = DashboardConfigService::normalizeDashboardKey(
-            $user['assigned_dashboard'] ?? null,
-            $normalizedRole
-        );
-
-        if ($normalizedRole === 'superadmin') {
-            $perms = ['*'];
-        } elseif (!$hasExplicitPerms && self::isConsoleRole($normalizedRole)) {
-            $perms = DashboardConfigService::getDefaultPermissionsForRole($normalizedRole);
-        }
-        $user['permissions'] = array_values(array_unique($perms));
-        unset($user['assigned_permissions'], $user['profile_permissions']);
+        $user = DashboardConfigService::hydrateUserPayload($db, $user, false);
 
         self::$cachedToken = $token;
         self::$cachedPayload = $payload;

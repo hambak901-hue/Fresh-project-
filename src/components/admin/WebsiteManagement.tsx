@@ -55,6 +55,8 @@ export function WebsiteManagement() {
   const [editingAnnouncement, setEditingAnnouncement] = useState<Partial<AnnouncementItem> | null>(null);
   // FAQ modal / form
   const [editingFaq, setEditingFaq] = useState<Partial<FaqItem> | null>(null);
+  // In-app delete confirmation dialog
+  const [confirmDelete, setConfirmDelete] = useState<{ kind: 'announcement' | 'faq'; id: string; label: string } | null>(null);
 
   useEffect(() => {
     if (branding) setBrandForm({ ...branding });
@@ -791,9 +793,7 @@ export function WebsiteManagement() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (window.confirm('Delete this announcement?')) deleteAnnouncement(ann.id);
-                    }}
+                    onClick={() => setConfirmDelete({ kind: 'announcement', id: ann.id, label: ann.title })}
                     className="p-1.5 rounded-lg bg-slate-800 text-red-400 hover:bg-red-500/20"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -916,9 +916,7 @@ export function WebsiteManagement() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (window.confirm('Delete this FAQ?')) deleteFaq(faq.id);
-                    }}
+                    onClick={() => setConfirmDelete({ kind: 'faq', id: faq.id, label: faq.question })}
                     className="p-1.5 rounded-lg bg-slate-800 text-red-400 hover:bg-red-500/20"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -974,6 +972,43 @@ export function WebsiteManagement() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-bold text-white">
+              Delete {confirmDelete.kind === 'announcement' ? 'Announcement' : 'FAQ'}?
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Are you sure you want to remove <span className="text-white font-semibold">&ldquo;{confirmDelete.label}&rdquo;</span>?
+            </p>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(null)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const target = confirmDelete;
+                  setConfirmDelete(null);
+                  if (target.kind === 'announcement') {
+                    await deleteAnnouncement(target.id);
+                  } else {
+                    await deleteFaq(target.id);
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold transition-colors"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

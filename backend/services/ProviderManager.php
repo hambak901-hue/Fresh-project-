@@ -1333,9 +1333,10 @@ class ProviderManager
             ?? $_ENV['JWT_SECRET'] 
             ?? getenv('ENCRYPTION_KEY') 
             ?? getenv('JWT_SECRET');
-        $appEnv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?? (getenv('NODE_ENV') ?: 'production');
+        $appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: (getenv('NODE_ENV') ?: 'production'))));
+        $isTestingOnly = ($appEnv === 'testing' && PHP_SAPI === 'cli');
         if (empty($secret)) {
-            if ($appEnv === 'production') {
+            if (!$isTestingOnly) {
                 throw new RuntimeException('SECURITY FATAL: ENCRYPTION_KEY or JWT_SECRET must be configured.');
             }
             $secret = 'test_fixture_only_deterministic_key';
@@ -1365,9 +1366,10 @@ class ProviderManager
             ?? $_ENV['JWT_SECRET'] 
             ?? getenv('ENCRYPTION_KEY') 
             ?? getenv('JWT_SECRET');
-        $appEnv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?? (getenv('NODE_ENV') ?: 'production');
+        $appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: (getenv('NODE_ENV') ?: 'production'))));
+        $isTestingOnly = ($appEnv === 'testing' && PHP_SAPI === 'cli');
         if (empty($secret)) {
-            if ($appEnv === 'production') {
+            if (!$isTestingOnly) {
                 throw new RuntimeException('SECURITY FATAL: ENCRYPTION_KEY or JWT_SECRET must be configured.');
             }
             $secret = 'test_fixture_only_deterministic_key';

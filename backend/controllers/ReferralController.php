@@ -1304,41 +1304,6 @@ class ReferralController
 
     private function sanitizeAuthUser(array $user): array
     {
-        $user['wallet_balance'] = (float)($user['live_balance'] ?? $user['wallet_balance'] ?? 0);
-        $user['kyc_level'] = (int)($user['kyc_level'] ?? $user['tier'] ?? 1);
-        $user['tier'] = (int)($user['tier'] ?? $user['kyc_level']);
-        $user['has_transaction_pin'] = (bool)($user['has_transaction_pin'] ?? false);
-        $user['mfa_enabled'] = (bool)($user['mfa_enabled'] ?? false);
-        $user['pin_is_locked'] = !empty($user['pin_locked_until']) && strtotime((string)$user['pin_locked_until']) > time();
-
-        if (isset($user['notification_preferences']) && is_string($user['notification_preferences'])) {
-            $user['notification_preferences'] = json_decode($user['notification_preferences'], true);
-        }
-        if (isset($user['security_settings']) && is_string($user['security_settings'])) {
-            $user['security_settings'] = json_decode($user['security_settings'], true);
-        }
-
-        $perms = [];
-        foreach ([$user['assigned_permissions'] ?? null, $user['profile_permissions'] ?? null] as $raw) {
-            if (is_string($raw) && $raw !== '') {
-                $d = json_decode($raw, true);
-                if (is_array($d)) {
-                    $perms = $d;
-                    break;
-                }
-            } elseif (is_array($raw)) {
-                $perms = $raw;
-                break;
-            }
-        }
-        if (($user['role'] ?? '') === 'superadmin') {
-            $perms = ['*'];
-        } elseif (($user['role'] ?? '') === 'admin' && empty($perms)) {
-            $perms = ['customers', 'wallet', 'kyc', 'services', 'support', 'reports', 'referrals', 'withdrawals'];
-        }
-        $user['permissions'] = $perms;
-
-        unset($user['password_hash'], $user['transaction_pin_hash'], $user['live_balance'], $user['assigned_permissions'], $user['profile_permissions']);
-        return $user;
+        return \HambakTech\Services\DashboardConfigService::hydrateUserPayload($this->db, $user, true);
     }
 }

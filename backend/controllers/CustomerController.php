@@ -870,7 +870,7 @@ class CustomerController
      */
     public function authorizePurchase(Request $request): void
     {
-        $user = Auth::requireAuth($request);
+        $user = Auth::requireVerifiedEmail($request);
         $serviceKey = trim((string)$request->input('service_key', ''));
         $amount = (float)$request->input('amount', 0);
         $pin = trim((string)$request->input('pin', ''));
@@ -1063,12 +1063,28 @@ class CustomerController
         exit;
     }
 
+    private function ensureFeatureSubscriptionsTable(): void
+    {
+        $this->db->execute(
+            'CREATE TABLE IF NOT EXISTS customer_feature_subscriptions (
+                id VARCHAR(64) PRIMARY KEY,
+                user_id VARCHAR(64) NOT NULL,
+                feature_key VARCHAR(64) NOT NULL,
+                email VARCHAR(191) NOT NULL,
+                status VARCHAR(32) NOT NULL DEFAULT "subscribed",
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_user_feature (user_id, feature_key)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+    }
+
     /**
      * GET /api/customer/store
      */
     public function storeItems(Request $request): void
     {
-        Auth::requireAuth($request);
+        $user = Auth::requireAuth($request);
         $items = [];
         try {
             $items = $this->db->fetchAll('SELECT * FROM store_items WHERE status != "draft" ORDER BY created_at DESC');
@@ -1082,8 +1098,25 @@ class CustomerController
         $settingRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "store_settings"');
         $settings = $settingRow ? (json_decode((string)$settingRow['setting_value'], true) ?: []) : [];
 
+        $waitlistSubscribed = false;
+        $waitlistEmail = null;
+        try {
+            $this->ensureFeatureSubscriptionsTable();
+            $subRow = $this->db->fetchOne(
+                'SELECT email, status FROM customer_feature_subscriptions WHERE user_id = :uid AND feature_key = "store_waitlist" LIMIT 1',
+                ['uid' => $user['id']]
+            );
+            if ($subRow && ($subRow['status'] ?? '') === 'subscribed') {
+                $waitlistSubscribed = true;
+                $waitlistEmail = $subRow['email'];
+            }
+        } catch (Throwable) {
+        }
+
         Response::success([
             'items' => $items,
+            'waitlist_subscribed' => $waitlistSubscribed,
+            'waitlist_email' => $waitlistEmail,
             'settings' => array_merge([
                 'store_enabled' => true,
                 'shipping_fee' => 2500,
@@ -1093,6 +1126,38 @@ class CustomerController
                 'notice' => 'Hardware orders ship nationwide within 24–72 business hours.',
             ], $settings),
         ]);
+    }
+
+    /**
+     * POST /api/customer/store/waitlist
+     */
+    public function subscribeStoreWaitlist(Request $request): void
+    {
+        $user = Auth::requireAuth($request);
+        $email = strtolower(trim((string)$request->input('email', $user['email'] ?? '')));
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            Response::error('Please provide a valid email address for the store waitlist.', 422);
+            return;
+        }
+
+        $this->ensureFeatureSubscriptionsTable();
+        $id = 'sub_' . bin2hex(random_bytes(8));
+        $this->db->execute(
+            'INSERT INTO customer_feature_subscriptions (id, user_id, feature_key, email, status)
+             VALUES (:id, :uid, "store_waitlist", :em, "subscribed")
+             ON DUPLICATE KEY UPDATE email = :em2, status = "subscribed", updated_at = NOW()',
+            [
+                'id' => $id,
+                'uid' => $user['id'],
+                'em' => $email,
+                'em2' => $email,
+            ]
+        );
+
+        Response::success([
+            'subscribed' => true,
+            'email' => $email,
+        ], 'You have been added to the priority hardware store waitlist.');
     }
 
     /**
@@ -1120,10 +1185,26 @@ class CustomerController
             ['uid' => $user['id']]
         );
 
+        $catRows = $this->db->fetchAll(
+            'SELECT category, COALESCE(SUM(amount), 0) as volume
+             FROM transactions
+             WHERE user_id = :uid AND type = "debit" AND status = "successful"
+             GROUP BY category',
+            ['uid' => $user['id']]
+        );
+        $catMap = [];
+        foreach ($catRows as $cr) {
+            $catMap[strtolower((string)($cr['category'] ?? ''))] = (float)($cr['volume'] ?? 0);
+        }
+
         $telecomBreakdown = $this->db->fetchAll(
             'SELECT service_type as category, COUNT(*) as count, COALESCE(SUM(amount), 0) as volume
              FROM telecom_orders WHERE user_id = :uid AND status = "successful"
              GROUP BY service_type',
+            ['uid' => $user['id']]
+        );
+        $ordersTotalRow = $this->db->fetchOne(
+            'SELECT COUNT(*) as total_orders FROM telecom_orders WHERE user_id = :uid',
             ['uid' => $user['id']]
         );
         $verifStats = $this->db->fetchOne(
@@ -1145,22 +1226,92 @@ class CustomerController
         $settingRow = $this->db->fetchOne('SELECT setting_value FROM system_settings WHERE setting_key = "reports_settings"');
         $settings = $settingRow ? (json_decode((string)$settingRow['setting_value'], true) ?: []) : [];
 
+        $notifySubscribed = false;
+        try {
+            $this->ensureFeatureSubscriptionsTable();
+            $subRow = $this->db->fetchOne(
+                'SELECT status FROM customer_feature_subscriptions WHERE user_id = :uid AND feature_key = "reports_release" LIMIT 1',
+                ['uid' => $user['id']]
+            );
+            $notifySubscribed = ($subRow && ($subRow['status'] ?? '') === 'subscribed');
+        } catch (Throwable) {
+        }
+
+        $totalFunded = (float)($txStats['total_credits'] ?? 0);
+        $totalSpent = (float)($txStats['total_debits'] ?? 0);
+        $ordersCount = (int)($ordersTotalRow['total_orders'] ?? 0);
+        $verificationsCount = (int)($verifStats['count'] ?? 0);
+        $totalTransactions = (int)($txStats['total_txns'] ?? 0);
+        $currentBalance = (float)($user['wallet_balance'] ?? 0);
+
+        $categoryBreakdown = [
+            'nin_verification' => (float)($catMap['nin_verification'] ?? 0),
+            'bvn_verification' => (float)($catMap['bvn_verification'] ?? 0),
+            'data_purchase' => (float)($catMap['data_purchase'] ?? 0),
+            'airtime' => (float)($catMap['airtime'] ?? 0),
+            'cable_tv' => (float)($catMap['cable_tv'] ?? 0),
+            'store_purchase' => (float)($catMap['store_purchase'] ?? 0),
+        ];
+
         Response::success([
+            'notify_subscribed' => $notifySubscribed,
             'settings' => array_merge([
                 'csv_export_enabled' => true,
                 'pdf_statement_enabled' => true,
                 'retention_days' => 365,
             ], $settings),
             'analytics' => [
-                'total_transactions' => (int)($txStats['total_txns'] ?? 0),
-                'total_funded' => (float)($txStats['total_credits'] ?? 0),
-                'total_spent' => (float)($txStats['total_debits'] ?? 0),
-                'verifications_count' => (int)($verifStats['count'] ?? 0),
+                'total_transactions' => $totalTransactions,
+                'total_funded' => $totalFunded,
+                'total_spent' => $totalSpent,
+                'verifications_count' => $verificationsCount,
                 'verifications_volume' => (float)($verifStats['volume'] ?? 0),
                 'telecom_breakdown' => $telecomBreakdown,
                 'monthly_series' => array_reverse($monthlySeries),
+                'totalSpent' => $totalSpent,
+                'totalFunded' => $totalFunded,
+                'currentBalance' => $currentBalance,
+                'ordersCount' => $ordersCount,
+                'verificationsCount' => $verificationsCount,
+                'transactionsCount' => $totalTransactions,
+                'categoryBreakdown' => $categoryBreakdown,
             ],
         ]);
+    }
+
+    /**
+     * POST /api/customer/reports/notify
+     */
+    public function subscribeReportsNotify(Request $request): void
+    {
+        $user = Auth::requireAuth($request);
+        $subscribedInput = $request->input('subscribed', true);
+        $subscribed = filter_var($subscribedInput, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($subscribed === null) {
+            $subscribed = true;
+        }
+        $status = $subscribed ? 'subscribed' : 'unsubscribed';
+        $email = (string)($user['email'] ?? '');
+
+        $this->ensureFeatureSubscriptionsTable();
+        $id = 'sub_' . bin2hex(random_bytes(8));
+        $this->db->execute(
+            'INSERT INTO customer_feature_subscriptions (id, user_id, feature_key, email, status)
+             VALUES (:id, :uid, "reports_release", :em, :st)
+             ON DUPLICATE KEY UPDATE email = :em2, status = :st2, updated_at = NOW()',
+            [
+                'id' => $id,
+                'uid' => $user['id'],
+                'em' => $email,
+                'st' => $status,
+                'em2' => $email,
+                'st2' => $status,
+            ]
+        );
+
+        Response::success([
+            'subscribed' => $subscribed,
+        ], $subscribed ? 'Subscribed to automated financial reports launch updates.' : 'Notification preference updated.');
     }
 
     /**

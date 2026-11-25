@@ -74,6 +74,11 @@ class Request
         return $this->body[$key] ?? $default;
     }
 
+    public function all(): array
+    {
+        return array_merge($this->queryParams, $this->body);
+    }
+
     public function header(string $name, ?string $default = null): ?string
     {
         return $this->getHeader($name, $default);

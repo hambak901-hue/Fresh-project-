@@ -1462,10 +1462,13 @@ class SchemaSync
                  ("set_id_auto_fb", "identity_auto_fallback", "1", "providers", "Enable Automatic Identity Provider Failover"),
                  ("set_act_tel", "active_telecom_provider", "ulamadata", "providers", "Active Telecom VTU Provider")'
             );
-            $db->execute(
-                'INSERT IGNORE INTO slip_templates (id, slip_code, name, category, price, demo_image_url, description, supported_service, is_active, display_order, is_recommended, badge, watermark_text)
-                 VALUES ("tpl_nin_special", "ninSpecial", "Special Slip", "NIN", 550.00, "/assets/aistudio/IMG_0603_1ff5c6a0.jpeg", "Official Special NIN Slip PDF issued via 2SureVerify.", "all_nin", 1, 6, 0, "Special Slip", "DEMO SPECIMEN - SAMPLE PREVIEW ONLY")'
-            );
+            $existingSpecial = $db->fetchOne('SELECT id FROM slip_templates WHERE slip_code = "ninSpecial" OR id = "tpl_nin_special" LIMIT 1');
+            if (!$existingSpecial) {
+                $db->execute(
+                    'INSERT IGNORE INTO slip_templates (id, slip_code, name, category, price, demo_image_url, description, supported_service, is_active, display_order, is_recommended, badge, watermark_text)
+                     VALUES ("tpl_nin_special", "ninSpecial", "Special Slip", "NIN", 550.00, "/assets/aistudio/IMG_0603_1ff5c6a0.jpeg", "Official Special NIN Slip PDF issued via 2SureVerify.", "all_nin", 1, 6, 0, "Special Slip", "DEMO SPECIMEN - SAMPLE PREVIEW ONLY")'
+                );
+            }
         } catch (Throwable $e) {
             $errors[] = 'seed_defaults => ' . $e->getMessage();
         }
@@ -4051,6 +4054,98 @@ class SchemaSync
         }
 
         return ['applied' => $applied, 'errors' => $errors];
+    }
+
+    public static function syncAcademyPhase1Schema(Database $db, bool $force = false): void
+    {
+        static $syncedAcademy = false;
+        if ($syncedAcademy && !$force) {
+            return;
+        }
+        $syncedAcademy = true;
+
+        try {
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS academy_application_events (
+                    id VARCHAR(36) PRIMARY KEY,
+                    application_id VARCHAR(36) NOT NULL,
+                    from_status VARCHAR(64) NULL,
+                    to_status VARCHAR(64) NOT NULL,
+                    action VARCHAR(64) NOT NULL,
+                    actor_user_id VARCHAR(36) NULL,
+                    actor_name VARCHAR(191) NOT NULL DEFAULT "System",
+                    actor_role VARCHAR(50) NOT NULL DEFAULT "system",
+                    notes TEXT NULL,
+                    metadata_json JSON NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_aae_app (application_id, created_at),
+                    INDEX idx_aae_status (to_status, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS academy_account_invitations (
+                    id VARCHAR(36) PRIMARY KEY,
+                    application_id VARCHAR(36) NOT NULL,
+                    email VARCHAR(191) NOT NULL,
+                    full_name VARCHAR(191) NOT NULL,
+                    phone VARCHAR(32) NULL,
+                    token_hash VARCHAR(64) NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    used_at DATETIME NULL,
+                    created_user_id VARCHAR(36) NULL,
+                    status ENUM("pending", "accepted", "expired", "revoked") NOT NULL DEFAULT "pending",
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_aai_token (token_hash),
+                    INDEX idx_aai_email (email),
+                    INDEX idx_aai_app (application_id, status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+
+            $appCols = [
+                'applicant_response' => 'TEXT NULL AFTER info_request_message',
+                'applicant_responded_at' => 'DATETIME NULL AFTER applicant_response',
+                'resubmission_count' => 'INT NOT NULL DEFAULT 0 AFTER applicant_responded_at',
+                'resubmit_token_hash' => 'VARCHAR(64) NULL AFTER resubmission_count',
+                'resubmit_token_expires_at' => 'DATETIME NULL AFTER resubmit_token_hash',
+                'enrollment_requirements_met' => 'TINYINT(1) NOT NULL DEFAULT 0 AFTER resubmit_token_expires_at',
+                'enrollment_exception' => 'TINYINT(1) NOT NULL DEFAULT 0 AFTER enrollment_requirements_met',
+                'enrollment_exception_reason' => 'TEXT NULL AFTER enrollment_exception',
+                'enrollment_exception_by' => 'VARCHAR(36) NULL AFTER enrollment_exception_reason',
+                'enrolled_at' => 'DATETIME NULL AFTER enrollment_exception_by',
+                'enrolled_by' => 'VARCHAR(36) NULL AFTER enrolled_at',
+                'withdrawn_at' => 'DATETIME NULL AFTER enrolled_by',
+                'withdrawal_reason' => 'TEXT NULL AFTER withdrawn_at',
+                'account_link_status' => 'ENUM("unlinked", "invited", "linked") NOT NULL DEFAULT "unlinked" AFTER withdrawal_reason',
+                'deleted_at' => 'DATETIME NULL AFTER account_link_status',
+            ];
+            foreach ($appCols as $col => $def) {
+                $exists = $db->fetchOne(
+                    'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "academy_applications" AND COLUMN_NAME = :c',
+                    ['c' => $col]
+                );
+                if (!$exists) {
+                    $db->execute("ALTER TABLE `academy_applications` ADD COLUMN `{$col}` {$def}");
+                }
+            }
+
+            $stuCols = [
+                'withdrawn_at' => 'DATETIME NULL AFTER academic_status',
+                'withdrawal_reason' => 'TEXT NULL AFTER withdrawn_at',
+                'deleted_at' => 'DATETIME NULL AFTER withdrawal_reason',
+            ];
+            foreach ($stuCols as $col => $def) {
+                $exists = $db->fetchOne(
+                    'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "academy_students" AND COLUMN_NAME = :c',
+                    ['c' => $col]
+                );
+                if (!$exists) {
+                    $db->execute("ALTER TABLE `academy_students` ADD COLUMN `{$col}` {$def}");
+                }
+            }
+        } catch (Throwable) {
+        }
     }
 }
 

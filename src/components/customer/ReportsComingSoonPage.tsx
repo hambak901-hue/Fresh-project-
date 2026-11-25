@@ -11,12 +11,16 @@ export function ReportsComingSoonPage() {
   const [settings, setSettings] = useState<ReportsSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [notified, setNotified] = useState(false);
+  const [notifySaving, setNotifySaving] = useState(false);
 
   useEffect(() => {
     api.getCustomerReports().then(res => {
       if (res?.success) {
         setAnalytics(res.analytics);
         setSettings(res.settings);
+        if (typeof res.notify_subscribed === 'boolean') {
+          setNotified(res.notify_subscribed);
+        }
       }
     }).catch(err => {
       console.warn('Failed to load customer reports analytics:', err);
@@ -25,20 +29,43 @@ export function ReportsComingSoonPage() {
     });
   }, []);
 
+  const handleToggleNotify = async () => {
+    setNotifySaving(true);
+    const targetState = !notified;
+    try {
+      const res = await api.subscribeReportsNotify(targetState);
+      if (res.success) {
+        setNotified(res.notify_subscribed);
+      }
+    } catch (err) {
+      console.warn('Failed to update notification subscription:', err);
+    } finally {
+      setNotifySaving(false);
+    }
+  };
+
   const handleExportCSV = () => {
     if (!analytics) return;
+    const breakdown = analytics.categoryBreakdown || {
+      nin_verification: 0,
+      bvn_verification: 0,
+      data_purchase: 0,
+      airtime: 0,
+      cable_tv: 0,
+      store_purchase: 0,
+    };
     const rows = [
       ['Account Metric', 'Amount (NGN)'],
-      ['Total Wallet Funding', analytics.totalFunded],
-      ['Total Service Spend', analytics.totalSpent],
-      ['Current Wallet Balance', analytics.currentBalance],
-      ['Total Telecom Orders', analytics.ordersCount],
-      ['Total Identity Verifications', analytics.verificationsCount],
-      ['NIN Verification Spend', analytics.categoryBreakdown.nin_verification],
-      ['BVN Verification Spend', analytics.categoryBreakdown.bvn_verification],
-      ['Data Purchase Spend', analytics.categoryBreakdown.data_purchase],
-      ['Airtime Recharge Spend', analytics.categoryBreakdown.airtime],
-      ['Cable TV Spend', analytics.categoryBreakdown.cable_tv],
+      ['Total Wallet Funding', analytics.totalFunded || 0],
+      ['Total Service Spend', analytics.totalSpent || 0],
+      ['Current Wallet Balance', analytics.currentBalance || 0],
+      ['Total Telecom Orders', analytics.ordersCount || 0],
+      ['Total Identity Verifications', analytics.verificationsCount || 0],
+      ['NIN Verification Spend', breakdown.nin_verification ?? 0],
+      ['BVN Verification Spend', breakdown.bvn_verification ?? 0],
+      ['Data Purchase Spend', breakdown.data_purchase ?? 0],
+      ['Airtime Recharge Spend', breakdown.airtime ?? 0],
+      ['Cable TV Spend', breakdown.cable_tv ?? 0],
     ];
 
     const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
@@ -59,7 +86,7 @@ export function ReportsComingSoonPage() {
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold rounded-full">
               <Clock className="w-3.5 h-3.5" />
-              <span>Module Status: Coming Soon • Phase 8 Financial Reports</span>
+              <span>Module Status: Coming Soon • Financial Reports</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               Customer Analytics & Spending Reports
@@ -80,8 +107,9 @@ export function ReportsComingSoonPage() {
             </button>
             <button
               type="button"
-              onClick={() => setNotified(!notified)}
-              className={`px-4 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-2 transition ${
+              disabled={notifySaving}
+              onClick={handleToggleNotify}
+              className={`px-4 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-2 transition disabled:opacity-60 ${
                 notified
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                   : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-600/20'
@@ -95,7 +123,7 @@ export function ReportsComingSoonPage() {
               ) : (
                 <>
                   <Bell className="w-4 h-4" />
-                  <span>Notify for Live Release</span>
+                  <span>{notifySaving ? 'Saving...' : 'Notify for Live Release'}</span>
                 </>
               )}
             </button>
@@ -124,7 +152,7 @@ export function ReportsComingSoonPage() {
           <p className="text-2xl font-bold font-mono text-emerald-400">
             ₦{(analytics?.totalFunded || 0).toLocaleString()}
           </p>
-          <p className="text-[11px] text-slate-500">Manual bank deposits + card gateways</p>
+          <p className="text-[11px] text-slate-500">Paystack Checkout &amp; Dedicated Accounts</p>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-2">
@@ -153,37 +181,37 @@ export function ReportsComingSoonPage() {
             <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl">
               <p className="text-[10px] uppercase font-mono text-slate-500">NIN Verification</p>
               <p className="text-sm font-bold font-mono text-white mt-1">
-                ₦{analytics.categoryBreakdown.nin_verification.toLocaleString()}
+                ₦{(analytics.categoryBreakdown?.nin_verification ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl">
               <p className="text-[10px] uppercase font-mono text-slate-500">BVN Verification</p>
               <p className="text-sm font-bold font-mono text-white mt-1">
-                ₦{analytics.categoryBreakdown.bvn_verification.toLocaleString()}
+                ₦{(analytics.categoryBreakdown?.bvn_verification ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl">
               <p className="text-[10px] uppercase font-mono text-slate-500">Data Bundles</p>
               <p className="text-sm font-bold font-mono text-white mt-1">
-                ₦{analytics.categoryBreakdown.data_purchase.toLocaleString()}
+                ₦{(analytics.categoryBreakdown?.data_purchase ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl">
               <p className="text-[10px] uppercase font-mono text-slate-500">Airtime VTU</p>
               <p className="text-sm font-bold font-mono text-white mt-1">
-                ₦{analytics.categoryBreakdown.airtime.toLocaleString()}
+                ₦{(analytics.categoryBreakdown?.airtime ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl">
               <p className="text-[10px] uppercase font-mono text-slate-500">Cable TV</p>
               <p className="text-sm font-bold font-mono text-white mt-1">
-                ₦{analytics.categoryBreakdown.cable_tv.toLocaleString()}
+                ₦{(analytics.categoryBreakdown?.cable_tv ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl">
               <p className="text-[10px] uppercase font-mono text-slate-500">Store / Supplies</p>
               <p className="text-sm font-bold font-mono text-white mt-1">
-                ₦{analytics.categoryBreakdown.store_purchase.toLocaleString()}
+                ₦{(analytics.categoryBreakdown?.store_purchase ?? 0).toLocaleString()}
               </p>
             </div>
           </div>

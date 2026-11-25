@@ -78,8 +78,12 @@ CALL `hambak_phase2_add_col`('enrolment_orders', 'result_retrieved_at', 'DATETIM
 
 DROP PROCEDURE IF EXISTS `hambak_phase2_add_col`;
 
--- Ensure ninSpecial template exists non-destructively (never overwrites existing admin edits)
-INSERT IGNORE INTO `slip_templates`
+-- Ensure ninSpecial template exists non-destructively (never overwrites or duplicates existing admin edits)
+INSERT INTO `slip_templates`
     (`id`, `slip_code`, `name`, `category`, `price`, `demo_image_url`, `description`, `supported_service`, `is_active`, `display_order`, `is_recommended`, `badge`, `watermark_text`)
-VALUES
-    ('tpl_nin_special', 'ninSpecial', 'Special Slip', 'NIN', 550.00, '/assets/aistudio/IMG_0603_1ff5c6a0.jpeg', 'Official Special NIN Slip PDF issued via 2SureVerify.', 'all_nin', 1, 6, 0, 'Special Slip', 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY');
+SELECT
+    'tpl_nin_special', 'ninSpecial', 'Special Slip', 'NIN', 550.00, '/assets/aistudio/IMG_0603_1ff5c6a0.jpeg', 'Official Special NIN Slip PDF issued via 2SureVerify.', 'all_nin', 1, 6, 0, 'Special Slip', 'DEMO SPECIMEN - SAMPLE PREVIEW ONLY'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `slip_templates` WHERE `slip_code` = 'ninSpecial' OR `id` = 'tpl_nin_special'
+);

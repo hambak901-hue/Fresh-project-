@@ -13,7 +13,7 @@ export const StoreManagement: React.FC = () => {
     status: 'coming_soon',
     coming_soon_message: 'Our hardware store for biometric scanners, card printers, and POS accessories is launching soon!',
     currency: 'NGN',
-    notification_email: 'store@hambaktech.com',
+    notification_email: 'store@hambaktech.com.ng',
     delivery_policy: 'Standard nationwide courier delivery within 3-5 business days across Nigeria.',
     allow_preorders: true,
   });
@@ -22,6 +22,7 @@ export const StoreManagement: React.FC = () => {
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingItem, setSavingItem] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -128,8 +129,14 @@ export const StoreManagement: React.FC = () => {
     }
   };
 
-  const handleDeleteItem = async (id: string, name: string) => {
-    if (!window.confirm(`Delete product "${name}"?`)) return;
+  const handleDeleteItem = (id: string, name: string) => {
+    setDeleteTarget({ id, name });
+  };
+
+  const confirmDeleteItem = async () => {
+    if (!deleteTarget) return;
+    const { id, name } = deleteTarget;
+    setDeleteTarget(null);
     try {
       const res = await api.deleteStoreItem(id);
       if (res.success) {
@@ -520,6 +527,34 @@ export const StoreManagement: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-bold text-white">Delete Product?</h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Are you sure you want to remove <span className="text-white font-semibold">&ldquo;{deleteTarget.name}&rdquo;</span> from the hardware catalog?
+            </p>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteItem}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-colors"
+              >
+                Delete Product
+              </button>
+            </div>
           </div>
         </div>
       )}

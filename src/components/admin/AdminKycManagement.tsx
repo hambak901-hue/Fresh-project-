@@ -116,12 +116,19 @@ export function AdminKycManagement() {
     setAutoVerifying(true);
     setAutoVerifyResult(null);
     try {
-      const res = await api.autoVerifyKycSubmission(id);
-      if (res.success) {
-        setAutoVerifyResult(res.result);
+      const res: any = await api.autoVerifyKycSubmission(id);
+      if (res?.success) {
+        const verifyResult = res.result || {
+          verified: res.verified ?? res.verification_status === 'VERIFIED',
+          provider: res.provider || '2sureverify',
+          reference: res.reference || '',
+          name_matched: Boolean(res.name_match),
+          timestamp: new Date().toISOString(),
+        };
+        setAutoVerifyResult(verifyResult);
         setFeedback({
           type: 'success',
-          message: `Automated registry match completed. Score verified: ${res.result.verified ? 'MATCH' : 'MISMATCH'}`
+          message: `Automated registry match completed. Score verified: ${verifyResult.verified ? 'MATCH' : 'MISMATCH'}`
         });
         loadSubmissions();
       }

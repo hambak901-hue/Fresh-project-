@@ -12,6 +12,14 @@ import { parseToken, hasUserPermission, hasAnyUserPermission, sanitizeUser } fro
 import { sendEmail, testSmtpConnection, reloadTransporter } from '../services/mailer.js';
 import { verificationManager } from '../adapters/verification/VerificationAdapter.js';
 import {
+  getAdminDvaStatus,
+  getAdminDvaCustomerDetail,
+  saveDvaPolicy,
+  requeryAdminDva,
+  performAdminDvaAction,
+  resolveAdminDvaSettlement,
+} from '../services/paystackDvaLocal.js';
+import {
   ALL_ROLES,
   CONSOLE_ROLES,
   PORTAL_ROLES,
@@ -2068,9 +2076,104 @@ adminRouter.post('/kyc/:id/action', requireAdmin, requirePermission('kyc'), (req
 });
 
 // GET /api/admin/support/tickets
-adminRouter.get('/support/tickets', requireAdmin, requirePermission('support'), (req, res) => {
-  res.json({ success: true, tickets: [] });
+adminRouter.get('/support/tickets', requireAdmin, requirePermission('support'), (req: any, res) => {
+  const storeData = db.data as any;
+  const allTickets: any[] = Array.isArray(storeData.support_tickets) ? storeData.support_tickets : [];
+  const status = String(req.query?.status || '').trim().toLowerCase();
+  const search = String(req.query?.search || '').trim().toLowerCase();
+
+  let filtered = allTickets;
+  if (status && status !== 'all') {
+    filtered = filtered.filter(t => String(t.status).toLowerCase() === status);
+  }
+  if (search) {
+    filtered = filtered.filter(t =>
+      String(t.subject || '').toLowerCase().includes(search) ||
+      String(t.customer_name || '').toLowerCase().includes(search) ||
+      String(t.customer_email || '').toLowerCase().includes(search) ||
+      String(t.id || '').toLowerCase().includes(search)
+    );
+  }
+
+  res.json({
+    success: true,
+    tickets: filtered,
+    metrics: {
+      total: allTickets.length,
+      open: allTickets.filter(t => t.status === 'open').length,
+      in_progress: allTickets.filter(t => t.status === 'in_progress' || t.status === 'pending').length,
+      waiting_customer: allTickets.filter(t => t.status === 'waiting_customer').length,
+      resolved: allTickets.filter(t => t.status === 'resolved').length,
+      closed: allTickets.filter(t => t.status === 'closed').length,
+    },
+  });
 });
+
+// GET /api/admin/support/tickets/:id
+adminRouter.get('/support/tickets/:id', requireAdmin, requirePermission('support'), (req: any, res) => {
+  const storeData = db.data as any;
+  const allTickets: any[] = Array.isArray(storeData.support_tickets) ? storeData.support_tickets : [];
+  const ticket = allTickets.find(t => String(t.id) === String(req.params.id));
+  if (!ticket) return res.status(404).json({ error: 'Support ticket not found' });
+  res.json({
+    success: true,
+    ticket,
+    replies: ticket.replies || [],
+  });
+});
+
+// POST /api/admin/support/tickets/:id/reply
+adminRouter.post('/support/tickets/:id/reply', requireAdmin, requirePermission('support'), (req: any, res) => {
+  const storeData = db.data as any;
+  const allTickets: any[] = Array.isArray(storeData.support_tickets) ? storeData.support_tickets : [];
+  const ticket = allTickets.find(t => String(t.id) === String(req.params.id));
+  if (!ticket) return res.status(404).json({ error: 'Support ticket not found' });
+  const message = String(req.body?.message || '').trim();
+  if (!message) return res.status(400).json({ error: 'Reply message is required' });
+
+  const nowIso = new Date().toISOString();
+  const reply = {
+    id: `rep_${Date.now()}`,
+    user_id: req.user.id,
+    is_staff: true,
+    message,
+    author_name: req.user.full_name,
+    author_role: req.user.role,
+    created_at: nowIso,
+  };
+  if (!Array.isArray(ticket.replies)) ticket.replies = [];
+  ticket.replies.push(reply);
+  ticket.reply_count = ticket.replies.length;
+  if (req.body?.status) {
+    ticket.status = String(req.body.status);
+  }
+  ticket.updated_at = nowIso;
+  db.saveDatabase();
+
+  db.addNotification(
+    ticket.user_id,
+    `Reply on Ticket ${ticket.id}`,
+    `Support responded to "${ticket.subject}": ${message.slice(0, 120)}`,
+    'info'
+  );
+
+  res.json({ success: true, message: 'Reply dispatched', reply, ticket });
+});
+
+// POST|PUT /api/admin/support/tickets/:id/status
+const handleSupportStatusUpdate = (req: any, res: any) => {
+  const storeData = db.data as any;
+  const allTickets: any[] = Array.isArray(storeData.support_tickets) ? storeData.support_tickets : [];
+  const ticket = allTickets.find(t => String(t.id) === String(req.params.id));
+  if (!ticket) return res.status(404).json({ error: 'Support ticket not found' });
+  if (req.body?.status) ticket.status = String(req.body.status);
+  if (req.body?.priority) ticket.priority = String(req.body.priority);
+  ticket.updated_at = new Date().toISOString();
+  db.saveDatabase();
+  res.json({ success: true, message: 'Ticket status updated', ticket });
+};
+adminRouter.post('/support/tickets/:id/status', requireAdmin, requirePermission('support'), handleSupportStatusUpdate);
+adminRouter.put('/support/tickets/:id/status', requireAdmin, requirePermission('support'), handleSupportStatusUpdate);
 
 // GET /api/admin/reports/analytics
 adminRouter.get('/reports/analytics', requireAdmin, requirePermission('reports'), (req, res) => {
@@ -2114,6 +2217,57 @@ adminRouter.get('/settings', requireAdmin, requirePermission('settings'), (req, 
 // POST /api/admin/settings
 adminRouter.post('/settings', requireAdmin, requirePermission('settings'), (req, res) => {
   res.json({ success: true, message: 'Settings saved successfully' });
+});
+
+// GET /api/admin/settings/all
+adminRouter.get('/settings/all', requireAdmin, requirePermission('settings'), (_req, res) => {
+  const categories = [
+    'general', 'company', 'branding', 'website', 'landing_page',
+    'customer_dashboard', 'admin_dashboard', 'auth', 'security', 'kyc',
+    'wallet', 'payment_gateways', 'provider_integration', 'service_pricing', 'transactions',
+    'smtp', 'email_templates', 'sms', 'notifications', 'upload',
+    'api', 'system_config',
+  ];
+  const storeData = db.data as any;
+  if (!storeData.global_settings_categories) {
+    storeData.global_settings_categories = {
+      general: { site_name: db.data.branding?.company_name || 'HambakTech', maintenance_mode: false },
+      company: { support_email: db.data.branding?.support_email || 'support@hambaktech.com.ng', phone: db.data.branding?.support_phone || '09127469686' },
+      branding: db.data.branding || {},
+      wallet: { active_payment_gateway: 'paystack', min_funding_amount: 100 },
+      payment_gateways: { active_payment_gateway: 'paystack', paystack_enabled: true },
+      kyc: { tier2_daily_limit: 200000, tier3_daily_limit: 2000000 },
+    };
+  }
+  res.json({
+    success: true,
+    categories,
+    settings: storeData.global_settings_categories,
+  });
+});
+
+// POST /api/admin/settings/update
+adminRouter.post('/settings/update', requireAdmin, requirePermission('settings'), (req: any, res) => {
+  const category = String(req.body?.category || '').trim();
+  const values = req.body?.values;
+  if (!category || !values || typeof values !== 'object') {
+    return res.status(400).json({ error: 'Valid category and values object are required.' });
+  }
+  const storeData = db.data as any;
+  if (!storeData.global_settings_categories) {
+    storeData.global_settings_categories = {};
+  }
+  storeData.global_settings_categories[category] = {
+    ...(storeData.global_settings_categories[category] || {}),
+    ...values,
+  };
+  db.saveDatabase();
+  db.logAudit('GLOBAL_SETTINGS_UPDATED', { category, keys: Object.keys(values) }, req.user?.id, req.user?.email);
+  res.json({
+    success: true,
+    message: `Updated ${Object.keys(values).length} setting(s) in ${category}.`,
+    updated: Object.keys(values).length,
+  });
 });
 
 // -------------------------------------------------------------
@@ -2280,5 +2434,76 @@ const handlePreviewDashboard = (req: any, res: any) => {
 
 adminRouter.get('/dashboard-preview', requireAdmin, requireAnyPermission(['settings', 'customers', 'staff']), handlePreviewDashboard);
 adminRouter.post('/dashboard-preview', requireAdmin, requireAnyPermission(['settings', 'customers', 'staff']), handlePreviewDashboard);
+
+// -------------------------------------------------------------
+// 17. PAYSTACK DEDICATED VIRTUAL ACCOUNTS (DVA) ADMIN CONSOLE
+// -------------------------------------------------------------
+
+// GET /api/admin/wallet/paystack/dva-status
+adminRouter.get('/wallet/paystack/dva-status', requireAdmin, requireAnyPermission(['wallet', 'reports']), (req: any, res) => {
+  res.json(getAdminDvaStatus(req.query));
+});
+
+// GET /api/admin/wallet/paystack/dva-customer/:id
+adminRouter.get('/wallet/paystack/dva-customer/:id', requireAdmin, requireAnyPermission(['wallet', 'reports']), (req: any, res) => {
+  const detail = getAdminDvaCustomerDetail(req.params.id);
+  if (!detail) {
+    return res.status(404).json({ error: 'Customer not found' });
+  }
+  res.json(detail);
+});
+
+// POST /api/admin/wallet/paystack/dva-settings
+adminRouter.post('/wallet/paystack/dva-settings', requireAdmin, requirePermission('wallet'), (req: any, res) => {
+  const policy = saveDvaPolicy(req.body || {});
+  db.logAudit('ADMIN_PAYSTACK_DVA_SETTINGS_UPDATED', policy, req.user?.id, req.user?.email);
+  res.json({
+    success: true,
+    message: 'Paystack DVA policy settings updated.',
+    policy,
+  });
+});
+
+// POST /api/admin/wallet/paystack/dva-requery
+adminRouter.post('/wallet/paystack/dva-requery', requireAdmin, requirePermission('wallet'), (req: any, res) => {
+  const userId = String(req.body?.user_id || '').trim();
+  if (!userId) return res.status(400).json({ error: 'user_id is required' });
+  try {
+    res.json(requeryAdminDva(userId, req.user));
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Failed to requery Paystack DVA' });
+  }
+});
+
+// POST /api/admin/wallet/paystack/dva-action
+adminRouter.post('/wallet/paystack/dva-action', requireAdmin, requirePermission('wallet'), (req: any, res) => {
+  const userId = String(req.body?.user_id || '').trim();
+  const action = String(req.body?.action || '').trim() as any;
+  const reason = req.body?.reason ? String(req.body.reason) : undefined;
+  if (!userId || !['provision', 'suspend', 'reactivate', 'deactivate', 'mark_under_review'].includes(action)) {
+    return res.status(400).json({ error: 'Valid user_id and action are required' });
+  }
+  try {
+    res.json(performAdminDvaAction(userId, action, reason, req.user));
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to execute Paystack DVA action' });
+  }
+});
+
+// POST /api/admin/wallet/paystack/dva-resolve-settlement
+adminRouter.post('/wallet/paystack/dva-resolve-settlement', requireAdmin, requirePermission('wallet'), (req: any, res) => {
+  const settlementId = String(req.body?.settlement_id || '').trim();
+  const action = String(req.body?.action || '').trim() as any;
+  const reason = req.body?.reason ? String(req.body.reason) : undefined;
+  if (!settlementId || !['reverify', 'mark_failed', 'verified_attribute'].includes(action)) {
+    return res.status(400).json({ error: 'Valid settlement_id and action are required' });
+  }
+  try {
+    res.json(resolveAdminDvaSettlement(settlementId, action, reason, req.body, req.user));
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to resolve DVA settlement' });
+  }
+});
+
 
 

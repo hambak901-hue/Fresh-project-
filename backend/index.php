@@ -256,6 +256,7 @@ $router->get('/api/customer/statement', [WalletController::class, 'statement']);
 $router->post('/api/customer/upload', [CustomerController::class, 'uploadDocument']);
 $router->get('/api/customer/document/:id', [CustomerController::class, 'getDocument']);
 $router->get('/api/customer/store', [CustomerController::class, 'storeItems']);
+$router->post('/api/customer/store/waitlist', [CustomerController::class, 'subscribeStoreWaitlist']);
 $router->get('/api/customer/academy', [AcademyController::class, 'customerAcademy']);
 $router->post('/api/customer/academy/apply', [AcademyController::class, 'customerApply']);
 $router->post('/api/customer/academy/applications/:id/respond', [AcademyController::class, 'customerRespondApplication']);
@@ -263,6 +264,7 @@ $router->post('/api/customer/academy/applications/:id/enroll', [AcademyControlle
 $router->post('/api/customer/academy/applications/:id/withdraw', [AcademyController::class, 'customerWithdrawApplication']);
 $router->post('/api/customer/academy/upload-passport', [AcademyController::class, 'customerUploadPassport']);
 $router->get('/api/customer/reports', [CustomerController::class, 'reports']);
+$router->post('/api/customer/reports/notify', [CustomerController::class, 'subscribeReportsNotify']);
 $router->get('/api/customer/messages', [CustomerController::class, 'messages']);
 $router->put('/api/customer/messages/:id/read', [CustomerController::class, 'markMessageRead']);
 

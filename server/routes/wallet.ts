@@ -16,6 +16,11 @@ import { paymentManager, PaystackAdapter } from '../adapters/payment/PaymentAdap
 import { parseToken, hasAnyUserPermission, requireVerifiedEmail } from './auth.js';
 import { sendEmail } from '../services/mailer.js';
 import { sanitizeCustomerError } from '../services/errorSanitizer.js';
+import {
+  NIGERIAN_DVA_BANKS,
+  buildCustomerVirtualAccountState,
+  provisionCustomerVirtualAccount,
+} from '../services/paystackDvaLocal.js';
 
 export const walletRouter = Router();
 
@@ -743,3 +748,34 @@ walletRouter.get('/admin/financial-reports', requireAdmin, (req, res) => {
     },
   });
 });
+
+// -------------------------------------------------------------
+// 8. PAYSTACK DEDICATED VIRTUAL ACCOUNTS (DVA)
+// -------------------------------------------------------------
+
+// GET /api/wallet/virtual-account
+walletRouter.get('/virtual-account', requireAuth, (req: any, res) => {
+  const syncPending = req.query.sync === '1' || req.query.sync === 'true' || req.query.sync_pending === '1';
+  const state = buildCustomerVirtualAccountState(req.user, syncPending);
+  res.json(state);
+});
+
+// GET /api/wallet/virtual-account/banks
+walletRouter.get('/virtual-account/banks', requireAuth, (_req: any, res) => {
+  res.json({
+    success: true,
+    banks: NIGERIAN_DVA_BANKS,
+  });
+});
+
+// POST /api/wallet/virtual-account/provision
+walletRouter.post('/virtual-account/provision', requireAuth, (req: any, res) => {
+  if (!requireVerifiedEmail(req, res)) return;
+  try {
+    const result = provisionCustomerVirtualAccount(req.user, req.body || {});
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Unable to provision Paystack Dedicated Virtual Account right now.' });
+  }
+});
+
