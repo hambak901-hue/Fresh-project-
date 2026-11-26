@@ -10,20 +10,27 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import {
+  AdditionalServiceCatalogItem,
+  AdditionalServicesAdminStats,
   ModificationAdminStats,
   ModificationBvnTypeItem,
   ModificationDocumentAttachment,
   ModificationRequestItem,
   ModificationServiceItem,
+  StaffAssigneeItem,
+  UnverifiedServiceNotice,
 } from '../../types';
 import { getModificationStatusStyle } from '../customer/ModificationSection';
+import { getChecklistStatusBadge } from '../customer/AdditionalServicesSection';
 import { ResultAvailabilityBadge } from '../common/ResultAvailabilityBadge';
 import {
   AlertCircle,
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Ban,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
   Code2,
   DollarSign,
@@ -33,6 +40,7 @@ import {
   FileText,
   Layers,
   Loader2,
+  MessageSquare,
   Plus,
   RefreshCw,
   Save,
@@ -40,17 +48,29 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
-  TrendingUp,
   Upload,
+  UserCheck,
   X,
 } from 'lucide-react';
 
 type AdminModTab = 'nin_requests' | 'bvn_requests' | 'all_requests' | 'services_config' | 'bvn_types';
+type EditableCatalogService = (ModificationServiceItem | AdditionalServiceCatalogItem) & {
+  is_refundable?: boolean;
+};
 
-export const ModificationManagement: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<AdminModTab>('nin_requests');
+interface ModificationManagementProps {
+  domainMode?: 'modifications' | 'additional';
+}
+
+export const ModificationManagement: React.FC<ModificationManagementProps> = ({
+  domainMode = 'modifications',
+}) => {
+  const isAdditionalMode = domainMode === 'additional';
+  const [activeTab, setActiveTab] = useState<AdminModTab>(
+    isAdditionalMode ? 'all_requests' : 'nin_requests'
+  );
   const [requests, setRequests] = useState<ModificationRequestItem[]>([]);
-  const [stats, setStats] = useState<ModificationAdminStats | null>(null);
+  const [stats, setStats] = useState<ModificationAdminStats | AdditionalServicesAdminStats | null>(null);
   const [loadingRequests, setLoadingRequests] = useState<boolean>(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [serviceKeyFilter, setServiceKeyFilter] = useState<string>('all');
@@ -64,9 +84,11 @@ export const ModificationManagement: React.FC = () => {
   // Services Config state
   const [ninServices, setNinServices] = useState<ModificationServiceItem[]>([]);
   const [bvnServices, setBvnServices] = useState<ModificationServiceItem[]>([]);
+  const [additionalServices, setAdditionalServices] = useState<AdditionalServiceCatalogItem[]>([]);
+  const [unverifiedServices, setUnverifiedServices] = useState<UnverifiedServiceNotice[]>([]);
   const [loadingServices, setLoadingServices] = useState<boolean>(false);
   const [serviceCatFilter, setServiceCatFilter] = useState<'ALL' | 'NIN' | 'BVN'>('ALL');
-  const [editingService, setEditingService] = useState<ModificationServiceItem | null>(null);
+  const [editingService, setEditingService] = useState<EditableCatalogService | null>(null);
   const [serviceModalTab, setServiceModalTab] = useState<'general' | 'fields' | 'documents' | 'mapping'>('general');
   const [savingService, setSavingService] = useState<boolean>(false);
 
@@ -105,6 +127,7 @@ export const ModificationManagement: React.FC = () => {
   const [updateStatusVal, setUpdateStatusVal] = useState<string>('pending');
   const [providerRemarksVal, setProviderRemarksVal] = useState<string>('');
   const [adminNotesVal, setAdminNotesVal] = useState<string>('');
+  const [requestedCorrectionsVal, setRequestedCorrectionsVal] = useState<string>('');
   const [estCompletionVal, setEstCompletionVal] = useState<string>('');
   const [savingUpdate, setSavingUpdate] = useState<boolean>(false);
   const [retryingResultId, setRetryingResultId] = useState<string | null>(null);
@@ -115,6 +138,17 @@ export const ModificationManagement: React.FC = () => {
   const [adminResultNotifyCustomer, setAdminResultNotifyCustomer] = useState<boolean>(true);
   const [uploadingResultPdf, setUploadingResultPdf] = useState<boolean>(false);
 
+  // Staff Assignment, Document Checklist & Clarification Review State
+  const [staffList, setStaffList] = useState<StaffAssigneeItem[]>([]);
+  const [assignStaffId, setAssignStaffId] = useState<string>('');
+  const [assignSetStatus, setAssignSetStatus] = useState<boolean>(true);
+  const [assigningStaff, setAssigningStaff] = useState<boolean>(false);
+  const [checklistDraft, setChecklistDraft] = useState<Record<string, { status: string; note: string }>>({});
+  const [savingChecklist, setSavingChecklist] = useState<boolean>(false);
+  const [reviewRemarksVal, setReviewRemarksVal] = useState<string>('');
+  const [reviewNextStatus, setReviewNextStatus] = useState<'under_review' | 'assigned' | 'processing'>('processing');
+  const [reviewingInfo, setReviewingInfo] = useState<boolean>(false);
+
   // Protected Document Preview Modal
   const [docPreview, setDocPreview] = useState<{
     name: string;
@@ -124,17 +158,28 @@ export const ModificationManagement: React.FC = () => {
   const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
 
   useEffect(() => {
+    setActiveTab(isAdditionalMode ? 'all_requests' : 'nin_requests');
+    setPage(1);
+    setStatusFilter('all');
+    setServiceKeyFilter('all');
+    setSelectedRequest(null);
+  }, [isAdditionalMode]);
+
+  useEffect(() => {
     if (activeTab === 'services_config') {
       loadServices();
-    } else if (activeTab === 'bvn_types') {
+    } else if (activeTab === 'bvn_types' && !isAdditionalMode) {
       loadBvnTypes(false);
     } else {
       loadRequests();
-      if (ninServices.length === 0 && bvnServices.length === 0) {
+      if (
+        (isAdditionalMode && additionalServices.length === 0) ||
+        (!isAdditionalMode && ninServices.length === 0 && bvnServices.length === 0)
+      ) {
         loadServices();
       }
     }
-  }, [activeTab, statusFilter, serviceKeyFilter, providerIdFilter, page]);
+  }, [activeTab, statusFilter, serviceKeyFilter, providerIdFilter, page, isAdditionalMode]);
 
   const resolveIdentityFilter = (): 'NIN' | 'BVN' | 'ALL' => {
     if (activeTab === 'nin_requests') return 'NIN';
@@ -142,28 +187,83 @@ export const ModificationManagement: React.FC = () => {
     return 'ALL';
   };
 
+  const syncSelectedRequestFields = (req: ModificationRequestItem) => {
+    setSelectedRequest(req);
+    setUpdateStatusVal(req.status);
+    setProviderRemarksVal(req.provider_remarks || '');
+    setAdminNotesVal(req.admin_notes || '');
+    setRequestedCorrectionsVal(req.requested_corrections || '');
+    setEstCompletionVal(req.estimated_completion_text || '');
+    setAdminResultTrackingId(req.provider_tracking_id || '');
+    setAssignStaffId(req.assigned_to || '');
+    const draft: Record<string, { status: string; note: string }> = {};
+    (req.supporting_documents || []).forEach(doc => {
+      const existing = req.document_review_checklist?.[doc.doc_key];
+      draft[doc.doc_key] = {
+        status: existing?.status || 'pending',
+        note: existing?.note || '',
+      };
+    });
+    if (req.document_review_checklist) {
+      Object.entries(req.document_review_checklist).forEach(([k, v]) => {
+        if (!draft[k]) {
+          draft[k] = { status: v?.status || 'pending', note: v?.note || '' };
+        }
+      });
+    }
+    setChecklistDraft(draft);
+  };
+
+  const loadStaffAssignees = async () => {
+    if (staffList.length > 0) return;
+    try {
+      const res = isAdditionalMode
+        ? await api.getAdminAdditionalServiceStaff()
+        : await api.getAdminModificationStaff();
+      if (res?.success) {
+        setStaffList(res.staff || []);
+      }
+    } catch {
+    }
+  };
+
   const loadRequests = async () => {
     try {
       setLoadingRequests(true);
       setErrorMsg(null);
-      const res = await api.getAdminModifications({
-        identity_type: resolveIdentityFilter(),
-        status: statusFilter,
-        service_key: serviceKeyFilter !== 'all' ? serviceKeyFilter : undefined,
-        provider_id: providerIdFilter !== 'all' ? providerIdFilter : undefined,
-        date_from: dateFrom || undefined,
-        date_to: dateTo || undefined,
-        search: searchQuery.trim() || undefined,
-        page,
-        limit: 25,
-      });
-      if (res?.success) {
-        setRequests(res.requests || []);
-        setStats(res.stats || null);
-        setTotalPages(res.pagination?.total_pages || 1);
+      if (isAdditionalMode) {
+        const res = await api.getAdminAdditionalServices({
+          status: statusFilter,
+          service_key: serviceKeyFilter !== 'all' ? serviceKeyFilter : undefined,
+          search: searchQuery.trim() || undefined,
+          page,
+          limit: 25,
+        });
+        if (res?.success) {
+          setRequests(res.requests || []);
+          setStats(res.stats || null);
+          setTotalPages(res.pagination?.total_pages || 1);
+        }
+      } else {
+        const res = await api.getAdminModifications({
+          identity_type: resolveIdentityFilter(),
+          status: statusFilter,
+          service_key: serviceKeyFilter !== 'all' ? serviceKeyFilter : undefined,
+          provider_id: providerIdFilter !== 'all' ? providerIdFilter : undefined,
+          date_from: dateFrom || undefined,
+          date_to: dateTo || undefined,
+          search: searchQuery.trim() || undefined,
+          page,
+          limit: 25,
+        });
+        if (res?.success) {
+          setRequests(res.requests || []);
+          setStats(res.stats || null);
+          setTotalPages(res.pagination?.total_pages || 1);
+        }
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Unable to load modification requests.');
+      setErrorMsg(err?.message || 'Unable to load requests.');
     } finally {
       setLoadingRequests(false);
     }
@@ -173,13 +273,21 @@ export const ModificationManagement: React.FC = () => {
     try {
       setLoadingServices(true);
       setErrorMsg(null);
-      const res = await api.getAdminModificationServices();
-      if (res?.success) {
-        setNinServices(res.nin_modification || []);
-        setBvnServices(res.bvn_modification || []);
+      if (isAdditionalMode) {
+        const res = await api.getAdminAdditionalServicesCatalog();
+        if (res?.success) {
+          setAdditionalServices(res.services || []);
+          setUnverifiedServices(res.unverified_services || []);
+        }
+      } else {
+        const res = await api.getAdminModificationServices();
+        if (res?.success) {
+          setNinServices(res.nin_modification || []);
+          setBvnServices(res.bvn_modification || []);
+        }
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Unable to load modification services catalog.');
+      setErrorMsg(err?.message || 'Unable to load services catalog.');
     } finally {
       setLoadingServices(false);
     }
@@ -222,16 +330,28 @@ export const ModificationManagement: React.FC = () => {
       setSyncingCatalog(true);
       setErrorMsg(null);
       setFeedbackMsg(null);
-      const res = await api.syncAdminModificationCatalog();
-      if (res?.success) {
-        setFeedbackMsg(
-          res.message ||
-            `Synced ${res.updated_services} wholesale service prices and ${res.bvn_types_count} BVN enrollment types.`
-        );
-        if (activeTab === 'services_config') {
-          await loadServices();
-        } else if (activeTab === 'bvn_types') {
-          await loadBvnTypes(false);
+      if (isAdditionalMode) {
+        const res = await api.syncAdminAdditionalServicesCatalog();
+        if (res?.success) {
+          setFeedbackMsg(
+            res.message || `Synced ${res.updated_services} wholesale additional service prices.`
+          );
+          if (activeTab === 'services_config') {
+            await loadServices();
+          }
+        }
+      } else {
+        const res = await api.syncAdminModificationCatalog();
+        if (res?.success) {
+          setFeedbackMsg(
+            res.message ||
+              `Synced ${res.updated_services} wholesale service prices and ${res.bvn_types_count} BVN enrollment types.`
+          );
+          if (activeTab === 'services_config') {
+            await loadServices();
+          } else if (activeTab === 'bvn_types') {
+            await loadBvnTypes(false);
+          }
         }
       }
     } catch (err: any) {
@@ -242,26 +362,20 @@ export const ModificationManagement: React.FC = () => {
   };
 
   const handleOpenDetail = async (req: ModificationRequestItem) => {
-    setSelectedRequest(req);
-    setUpdateStatusVal(req.status);
-    setProviderRemarksVal(req.provider_remarks || '');
-    setAdminNotesVal(req.admin_notes || '');
-    setEstCompletionVal(req.estimated_completion_text || '');
+    syncSelectedRequestFields(req);
     setAdminResultFile(null);
-    setAdminResultTrackingId(req.provider_tracking_id || '');
     setAdminResultRemarks('');
     setAdminResultMarkCompleted(true);
     setAdminResultNotifyCustomer(true);
+    setReviewRemarksVal('');
+    void loadStaffAssignees();
     try {
       setLoadingDetail(true);
-      const res = await api.getAdminModificationDetail(req.id);
+      const res = isAdditionalMode
+        ? await api.getAdminAdditionalServiceDetail(req.id)
+        : await api.getAdminModificationDetail(req.id);
       if (res?.success && res.request) {
-        setSelectedRequest(res.request);
-        setUpdateStatusVal(res.request.status);
-        setProviderRemarksVal(res.request.provider_remarks || '');
-        setAdminNotesVal(res.request.admin_notes || '');
-        setEstCompletionVal(res.request.estimated_completion_text || '');
-        setAdminResultTrackingId(res.request.provider_tracking_id || '');
+        syncSelectedRequestFields(res.request);
       }
     } catch {
     } finally {
@@ -273,12 +387,12 @@ export const ModificationManagement: React.FC = () => {
     try {
       setPollingId(id);
       setErrorMsg(null);
-      const res = await api.pollAdminModificationStatus(id);
+      const res = isAdditionalMode
+        ? await api.pollAdminAdditionalServiceStatus(id)
+        : await api.pollAdminModificationStatus(id);
       if (res?.success && res.request) {
         setFeedbackMsg(res.message);
-        setSelectedRequest(res.request);
-        setUpdateStatusVal(res.request.status);
-        setProviderRemarksVal(res.request.provider_remarks || '');
+        syncSelectedRequestFields(res.request);
         await loadRequests();
       }
     } catch (err: any) {
@@ -288,26 +402,102 @@ export const ModificationManagement: React.FC = () => {
     }
   };
 
+  const handleAssignStaff = async () => {
+    if (!selectedRequest || !assignStaffId) {
+      setErrorMsg('Please select a staff member before assigning.');
+      return;
+    }
+    try {
+      setAssigningStaff(true);
+      setErrorMsg(null);
+      const res = isAdditionalMode
+        ? await api.assignAdminAdditionalService(selectedRequest.id, assignStaffId, assignSetStatus)
+        : await api.assignAdminModification(selectedRequest.id, assignStaffId, assignSetStatus);
+      if (res?.success && res.request) {
+        setFeedbackMsg(res.message || 'Request assigned to staff.');
+        syncSelectedRequestFields(res.request);
+        await loadRequests();
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Unable to assign staff.');
+    } finally {
+      setAssigningStaff(false);
+    }
+  };
+
+  const handleSaveChecklist = async () => {
+    if (!selectedRequest) return;
+    try {
+      setSavingChecklist(true);
+      setErrorMsg(null);
+      const res = isAdditionalMode
+        ? await api.updateAdminAdditionalServiceChecklist(selectedRequest.id, checklistDraft)
+        : await api.updateAdminModificationChecklist(selectedRequest.id, checklistDraft);
+      if (res?.success && res.request) {
+        setFeedbackMsg(res.message || 'Document verification checklist saved.');
+        syncSelectedRequestFields(res.request);
+        await loadRequests();
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Unable to save document checklist.');
+    } finally {
+      setSavingChecklist(false);
+    }
+  };
+
+  const handleReviewCustomerInfo = async (decision: 'approve' | 'request_more' | 'reject') => {
+    if (!selectedRequest) return;
+    if (decision === 'request_more' && !reviewRemarksVal.trim()) {
+      setErrorMsg('Please enter correction instructions before requesting more details.');
+      return;
+    }
+    try {
+      setReviewingInfo(true);
+      setErrorMsg(null);
+      const payload = {
+        decision,
+        remarks: reviewRemarksVal.trim() || undefined,
+        next_status: decision === 'approve' ? reviewNextStatus : undefined,
+      };
+      const res = isAdditionalMode
+        ? await api.reviewAdminAdditionalServiceInfo(selectedRequest.id, payload)
+        : await api.reviewAdminModificationInfo(selectedRequest.id, payload);
+      if (res?.success && res.request) {
+        setFeedbackMsg(res.message || 'Clarification review recorded.');
+        setReviewRemarksVal('');
+        syncSelectedRequestFields(res.request);
+        await loadRequests();
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Unable to review customer clarification.');
+    } finally {
+      setReviewingInfo(false);
+    }
+  };
+
   const handleSaveRequestUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRequest) return;
     try {
       setSavingUpdate(true);
       setErrorMsg(null);
-      const res = await api.updateAdminModificationRequest(selectedRequest.id, {
+      const payload = {
         status: updateStatusVal,
         provider_remarks: providerRemarksVal.trim(),
         admin_notes: adminNotesVal.trim(),
+        requested_corrections: requestedCorrectionsVal.trim(),
         estimated_completion_text: estCompletionVal.trim(),
-      });
+      };
+      const res = isAdditionalMode
+        ? await api.updateAdminAdditionalServiceRequest(selectedRequest.id, payload)
+        : await api.updateAdminModificationRequest(selectedRequest.id, payload);
       if (res?.success && res.request) {
-        setFeedbackMsg(res.message || 'Modification request updated.');
-        setSelectedRequest(res.request);
-        setUpdateStatusVal(res.request.status);
+        setFeedbackMsg(res.message || 'Request updated.');
+        syncSelectedRequestFields(res.request);
         await loadRequests();
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to save modification update.');
+      setErrorMsg(err?.message || 'Failed to save request update.');
     } finally {
       setSavingUpdate(false);
     }
@@ -334,13 +524,12 @@ export const ModificationManagement: React.FC = () => {
       setRetryingResultId(id);
       setErrorMsg(null);
       setFeedbackMsg(null);
-      const res = await api.retryAdminModificationResult(id);
+      const res = isAdditionalMode
+        ? await api.retryAdminAdditionalServiceResult(id)
+        : await api.retryAdminModificationResult(id);
       if (res?.success && res.request) {
         setFeedbackMsg(res.message);
-        setSelectedRequest(res.request);
-        setUpdateStatusVal(res.request.status);
-        setProviderRemarksVal(res.request.provider_remarks || '');
-        setAdminResultTrackingId(res.request.provider_tracking_id || '');
+        syncSelectedRequestFields(res.request);
         await loadRequests();
       }
     } catch (err: any) {
@@ -367,12 +556,12 @@ export const ModificationManagement: React.FC = () => {
       fd.append('mark_completed', adminResultMarkCompleted ? '1' : '0');
       fd.append('notify_customer', adminResultNotifyCustomer ? '1' : '0');
 
-      const res = await api.uploadAdminModificationResultDocument(selectedRequest.id, fd);
+      const res = isAdditionalMode
+        ? await api.uploadAdminAdditionalServiceResultDocument(selectedRequest.id, fd)
+        : await api.uploadAdminModificationResultDocument(selectedRequest.id, fd);
       if (res?.success && res.request) {
         setFeedbackMsg(res.message || 'Official result PDF uploaded cleanly.');
-        setSelectedRequest(res.request);
-        setUpdateStatusVal(res.request.status);
-        setProviderRemarksVal(res.request.provider_remarks || '');
+        syncSelectedRequestFields(res.request);
         setAdminResultFile(null);
         await loadRequests();
       }
@@ -408,7 +597,7 @@ export const ModificationManagement: React.FC = () => {
     }
   };
 
-  const openEditServiceModal = (srv: ModificationServiceItem) => {
+  const openEditServiceModal = (srv: EditableCatalogService) => {
     setEditingService({
       ...srv,
       required_fields: [...(srv.required_fields || [])],
@@ -482,12 +671,13 @@ export const ModificationManagement: React.FC = () => {
         }));
       const derivedRequiredFields = cleanedSchema.filter(f => f.required).map(f => f.key);
 
-      const res = await api.updateAdminModificationService(key, {
+      const servicePayload = {
         name: editingService.name,
         description: editingService.description,
         selling_price: Number(editingService.selling_price),
         wholesale_cost: Number(editingService.wholesale_cost ?? 0),
         is_active: editingService.is_active,
+        ...(isAdditionalMode ? { is_refundable: editingService.is_refundable !== false } : {}),
         manual_label: editingService.manual_label,
         estimated_turnaround: editingService.estimated_turnaround,
         supported_notes: editingService.supported_notes,
@@ -496,14 +686,17 @@ export const ModificationManagement: React.FC = () => {
         required_fields: derivedRequiredFields,
         required_documents: cleanedDocs,
         form_schema: cleanedSchema,
-      });
+      };
+      const res = isAdditionalMode
+        ? await api.updateAdminAdditionalServiceConfig(key, servicePayload)
+        : await api.updateAdminModificationService(key, servicePayload);
       if (res?.success) {
         setFeedbackMsg(res.message || 'Service configuration & form schema saved.');
         setEditingService(null);
         await loadServices();
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to update modification service.');
+      setErrorMsg(err?.message || 'Failed to update service configuration.');
     } finally {
       setSavingService(false);
     }
@@ -579,12 +772,13 @@ export const ModificationManagement: React.FC = () => {
     }
   };
 
-  const displayedServices =
-    serviceCatFilter === 'NIN'
-      ? ninServices
-      : serviceCatFilter === 'BVN'
-      ? bvnServices
-      : [...ninServices, ...bvnServices];
+  const displayedServices: EditableCatalogService[] = isAdditionalMode
+    ? additionalServices
+    : serviceCatFilter === 'NIN'
+    ? ninServices
+    : serviceCatFilter === 'BVN'
+    ? bvnServices
+    : [...ninServices, ...bvnServices];
 
   const isSelectedDestructiveStatus =
     (updateStatusVal === 'failed' || updateStatusVal === 'rejected') &&
@@ -598,13 +792,17 @@ export const ModificationManagement: React.FC = () => {
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
         <div>
           <div className="text-[11px] font-bold uppercase tracking-wider text-blue-700 dark:text-emerald-400">
-            Stage 3 &middot; Sovereign Manual Operations
+            {isAdditionalMode ? 'Phase 4 · Verified Async & Clearance Operations' : 'Stage 3 · Sovereign Manual Operations'}
           </div>
           <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white mt-0.5">
-            NIN &amp; BVN Modifications Management
+            {isAdditionalMode
+              ? 'Clearance, Validation & Additional Services'
+              : 'NIN & BVN Modifications Management'}
           </h2>
           <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-2xl">
-            Manage strictly separated NIN and BVN modification queues, inspect uploaded documents, poll live 2SureVerify statuses, audit margins, and configure service turnaround rules.
+            {isAdditionalMode
+              ? 'Manage IPE Clearance, NIN Validation, Self-MOD Clearance, Personalisation, NPC Attestation, and NIN Delinking queues, staff assignment, document checklists, and unverified service guardrails.'
+              : 'Manage strictly separated NIN and BVN modification queues, inspect uploaded documents, poll live 2SureVerify statuses, audit margins, and configure service turnaround rules.'}
           </p>
         </div>
 
@@ -657,7 +855,9 @@ export const ModificationManagement: React.FC = () => {
               {stats.total_all ?? (stats as any).total ?? 0}
             </span>
             <span className="text-[10px] text-slate-500 dark:text-slate-400">
-              {stats.nin_count ?? 0} NIN &middot; {stats.bvn_count ?? 0} BVN
+              {isAdditionalMode
+                ? `${additionalServices.filter(s => s.is_active).length} active services`
+                : `${(stats as ModificationAdminStats).nin_count ?? 0} NIN · ${(stats as ModificationAdminStats).bvn_count ?? 0} BVN`}
             </span>
           </div>
 
@@ -717,13 +917,19 @@ export const ModificationManagement: React.FC = () => {
 
       {/* Sub-Navigation Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1">
-        {[
-          { id: 'nin_requests', label: 'NIN Modification Requests', icon: ShieldCheck },
-          { id: 'bvn_requests', label: 'BVN Modification Requests', icon: Layers },
-          { id: 'all_requests', label: 'All Requests', icon: FileText },
-          { id: 'services_config', label: 'Service & Pricing Config', icon: Settings },
-          { id: 'bvn_types', label: 'BVN Enrollment Types', icon: DollarSign },
-        ].map(t => {
+        {(isAdditionalMode
+          ? [
+              { id: 'all_requests', label: 'Service Requests Queue', icon: FileText },
+              { id: 'services_config', label: 'Services, Pricing & Unverified Policy', icon: Settings },
+            ]
+          : [
+              { id: 'nin_requests', label: 'NIN Modification Requests', icon: ShieldCheck },
+              { id: 'bvn_requests', label: 'BVN Modification Requests', icon: Layers },
+              { id: 'all_requests', label: 'All Requests', icon: FileText },
+              { id: 'services_config', label: 'Service & Pricing Config', icon: Settings },
+              { id: 'bvn_types', label: 'BVN Enrollment Types', icon: DollarSign },
+            ]
+        ).map(t => {
           const Icon = t.icon;
           const active = activeTab === t.id;
           return (
@@ -778,39 +984,45 @@ export const ModificationManagement: React.FC = () => {
                   }}
                   className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
                 >
-                  <option value="all">All Modification Services</option>
-                  {[...ninServices, ...bvnServices].map(srv => (
+                  <option value="all">
+                    {isAdditionalMode ? 'All Clearance & Additional Services' : 'All Modification Services'}
+                  </option>
+                  {(isAdditionalMode ? additionalServices : [...ninServices, ...bvnServices]).map(srv => (
                     <option key={srv.service_key || srv.key} value={srv.service_key || srv.key}>
                       {srv.name}
                     </option>
                   ))}
                 </select>
-                <select
-                  value={providerIdFilter}
-                  onChange={e => {
-                    setProviderIdFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
-                >
-                  <option value="all">All Providers</option>
-                  <option value="2sureverify">2SureVerify</option>
-                  <option value="veripine">Veripine</option>
-                </select>
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={e => setDateFrom(e.target.value)}
-                  title="From date"
-                  className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
-                />
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={e => setDateTo(e.target.value)}
-                  title="To date"
-                  className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
-                />
+                {!isAdditionalMode && (
+                  <>
+                    <select
+                      value={providerIdFilter}
+                      onChange={e => {
+                        setProviderIdFilter(e.target.value);
+                        setPage(1);
+                      }}
+                      className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                    >
+                      <option value="all">All Providers</option>
+                      <option value="2sureverify">2SureVerify</option>
+                      <option value="veripine">Veripine</option>
+                    </select>
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={e => setDateFrom(e.target.value)}
+                      title="From date"
+                      className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                    />
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={e => setDateTo(e.target.value)}
+                      title="To date"
+                      className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                    />
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -827,6 +1039,8 @@ export const ModificationManagement: React.FC = () => {
                 {[
                   { id: 'all', label: 'All' },
                   { id: 'pending', label: 'Pending' },
+                  { id: 'under_review', label: 'Under Review' },
+                  { id: 'assigned', label: 'Assigned' },
                   { id: 'processing', label: 'Processing' },
                   { id: 'query_required', label: 'Query Required' },
                   { id: 'completed', label: 'Completed' },
@@ -952,6 +1166,11 @@ export const ModificationManagement: React.FC = () => {
                             </span>
                             <ResultAvailabilityBadge state={req.result_availability_state} />
                           </div>
+                          {req.assigned_staff_name && (
+                            <div className="text-[10px] text-cyan-700 dark:text-cyan-300 font-semibold mt-0.5">
+                              Staff: {req.assigned_staff_name}
+                            </div>
+                          )}
                           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
                             {req.estimated_completion_text}
                           </div>
@@ -1016,32 +1235,38 @@ export const ModificationManagement: React.FC = () => {
           <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                Modification Services Pricing, Turnaround &amp; Endpoints
+                {isAdditionalMode
+                  ? 'Clearance, Validation & Additional Services Pricing & Policy'
+                  : 'Modification Services Pricing, Turnaround & Endpoints'}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Configure customer selling prices, private wholesale tariffs, manual processing labels, and turnaround SLAs across all NIN &amp; BVN modification services.
+                {isAdditionalMode
+                  ? 'Configure customer selling prices, wholesale tariffs, refundability policy, turnaround SLAs, and review services blocked as Not Yet Supported.'
+                  : 'Configure customer selling prices, private wholesale tariffs, manual processing labels, and turnaround SLAs across all NIN & BVN modification services.'}
               </p>
             </div>
-            <div className="flex items-center gap-1.5">
-              {(['ALL', 'NIN', 'BVN'] as const).map(f => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => setServiceCatFilter(f)}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
-                    serviceCatFilter === f
-                      ? 'bg-blue-700 text-white'
-                      : 'bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  {f === 'ALL'
-                    ? `All (${ninServices.length + bvnServices.length})`
-                    : f === 'NIN'
-                    ? `NIN Mod (${ninServices.length})`
-                    : `BVN Mod (${bvnServices.length})`}
-                </button>
-              ))}
-            </div>
+            {!isAdditionalMode && (
+              <div className="flex items-center gap-1.5">
+                {(['ALL', 'NIN', 'BVN'] as const).map(f => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setServiceCatFilter(f)}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
+                      serviceCatFilter === f
+                        ? 'bg-blue-700 text-white'
+                        : 'bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    {f === 'ALL'
+                      ? `All (${ninServices.length + bvnServices.length})`
+                      : f === 'NIN'
+                      ? `NIN Mod (${ninServices.length})`
+                      : `BVN Mod (${bvnServices.length})`}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="overflow-x-auto">
@@ -1119,6 +1344,19 @@ export const ModificationManagement: React.FC = () => {
                         <div className="text-[11px] text-slate-500 dark:text-slate-400">
                           {srv.estimated_turnaround}
                         </div>
+                        {isAdditionalMode && (
+                          <span
+                            className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              (srv as AdditionalServiceCatalogItem).is_refundable === false
+                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                            }`}
+                          >
+                            {(srv as AdditionalServiceCatalogItem).is_refundable === false
+                              ? 'Non-Refundable'
+                              : 'Refundable'}
+                          </span>
+                        )}
                       </td>
                       <td className="py-3.5 px-3 text-center">
                         <span
@@ -1147,6 +1385,40 @@ export const ModificationManagement: React.FC = () => {
               </tbody>
             </table>
           </div>
+
+          {isAdditionalMode && unverifiedServices.length > 0 && (
+            <div className="p-5 border-t border-slate-200 dark:border-slate-800 bg-amber-50/60 dark:bg-amber-950/20 space-y-3">
+              <div className="flex items-start gap-2.5">
+                <Ban className="w-4 h-4 text-amber-700 dark:text-amber-300 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                    Services Not Yet Supported (Hard-Disabled by Policy)
+                  </h4>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
+                    These services lack verified provider submission endpoints and remain non-purchasable on customer portals.
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {unverifiedServices.map(u => (
+                  <div
+                    key={u.service_key}
+                    className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-500/30 space-y-1"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-900 dark:text-white">{u.name}</span>
+                      <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[10px] font-bold">
+                        {u.label || 'Not Yet Supported'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                      {u.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1370,10 +1642,76 @@ export const ModificationManagement: React.FC = () => {
                   </span>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                  <span className="text-[10px] uppercase text-slate-500 block">Provider Ref</span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-white break-all">
+                  <span className="text-[10px] uppercase text-slate-500 block">Provider Ref / Txn ID</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white break-all block">
                     {selectedRequest.provider_reference || 'N/A'}
                   </span>
+                  {selectedRequest.provider_transaction_id && (
+                    <span className="font-mono text-[10px] text-slate-500 break-all block mt-0.5">
+                      Txn: {selectedRequest.provider_transaction_id}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {(selectedRequest.is_refundable === false || selectedRequest.provider_refunded) && (
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  {selectedRequest.is_refundable === false && (
+                    <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-800 dark:text-amber-300 font-semibold">
+                      Non-Refundable Service Policy Once Submitted Upstream
+                    </span>
+                  )}
+                  {selectedRequest.provider_refunded && (
+                    <span className="px-2.5 py-1 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-800 dark:text-purple-300 font-mono font-semibold">
+                      Provider Refunded: ₦{Number(selectedRequest.provider_refunded_amount || 0).toLocaleString('en-NG')}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Staff Assignment Control */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-cyan-600" />
+                    <span>Staff Assignment</span>
+                  </h4>
+                  {selectedRequest.assigned_staff_name && (
+                    <span className="px-2.5 py-0.5 rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-700 dark:text-cyan-300 text-[11px] font-semibold">
+                      Currently Assigned: {selectedRequest.assigned_staff_name}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <select
+                    value={assignStaffId}
+                    onChange={e => setAssignStaffId(e.target.value)}
+                    className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                  >
+                    <option value="">Select staff / admin assignee...</option>
+                    {staffList.map(st => (
+                      <option key={st.id} value={st.id}>
+                        {st.full_name} ({st.role}) — {st.email}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={assignSetStatus}
+                      onChange={e => setAssignSetStatus(e.target.checked)}
+                    />
+                    <span>Set status Assigned</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAssignStaff}
+                    disabled={assigningStaff || !assignStaffId}
+                    className="px-3.5 py-2 rounded-xl bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 text-white font-bold inline-flex items-center gap-1.5 shrink-0"
+                  >
+                    {assigningStaff ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
+                    <span>Assign</span>
+                  </button>
                 </div>
               </div>
 
@@ -1409,44 +1747,107 @@ export const ModificationManagement: React.FC = () => {
                 </div>
               </div>
 
-              {/* Supporting Documents */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Uploaded Supporting Documents
-                </h4>
+              {/* Supporting Documents & Per-Document Verification Checklist */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <ClipboardCheck className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Uploaded Supporting Documents &amp; Verification Checklist</span>
+                  </h4>
+                  {(selectedRequest.supporting_documents || []).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleSaveChecklist}
+                      disabled={savingChecklist}
+                      className="px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-[11px] font-bold inline-flex items-center gap-1.5"
+                    >
+                      {savingChecklist ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                      <span>Save Checklist</span>
+                    </button>
+                  )}
+                </div>
                 {(selectedRequest.supporting_documents || []).length === 0 ? (
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     No files uploaded with this request.
                   </p>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {selectedRequest.supporting_documents.map(doc => (
-                      <button
-                        key={doc.id}
-                        type="button"
-                        onClick={() => handleOpenDocumentPreview(doc)}
-                        disabled={loadingDocId === doc.id}
-                        className="px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 inline-flex items-center gap-2 transition"
-                      >
-                        {loadingDocId === doc.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-emerald-400" />
-                        )}
-                        <span>{doc.original_name || doc.file_name || doc.doc_key}</span>
-                      </button>
-                    ))}
+                  <div className="space-y-2">
+                    {selectedRequest.supporting_documents.map(doc => {
+                      const entry = checklistDraft[doc.doc_key] || { status: 'pending', note: '' };
+                      const badge = getChecklistStatusBadge(entry.status);
+                      return (
+                        <div
+                          key={doc.id}
+                          className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-emerald-400 shrink-0" />
+                              <span className="font-semibold text-slate-900 dark:text-white truncate">
+                                {doc.original_name || doc.file_name || doc.doc_key}
+                              </span>
+                              <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${badge.className}`}>
+                                {badge.label}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDocumentPreview(doc)}
+                              disabled={loadingDocId === doc.id}
+                              className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1.5 shrink-0"
+                            >
+                              {loadingDocId === doc.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Eye className="w-3 h-3" />
+                              )}
+                              <span>Inspect File</span>
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <select
+                              value={entry.status}
+                              onChange={e =>
+                                setChecklistDraft(prev => ({
+                                  ...prev,
+                                  [doc.doc_key]: { ...entry, status: e.target.value },
+                                }))
+                              }
+                              className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-900 dark:text-white"
+                            >
+                              <option value="pending">Pending Review</option>
+                              <option value="verified">Verified</option>
+                              <option value="needs_reupload">Needs Re-upload</option>
+                              <option value="rejected">Rejected</option>
+                            </select>
+                            <input
+                              type="text"
+                              value={entry.note}
+                              onChange={e =>
+                                setChecklistDraft(prev => ({
+                                  ...prev,
+                                  [doc.doc_key]: { ...entry, note: e.target.value },
+                                }))
+                              }
+                              placeholder="Reviewer note for this document..."
+                              className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-900 dark:text-white"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              {/* Additional Info History (Customer Query Responses) */}
+              {/* Additional Info History & Explicit Clarification Review Controls */}
               {Array.isArray(selectedRequest.additional_info_history) &&
                 selectedRequest.additional_info_history.length > 0 && (
-                  <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-500/30 space-y-2 text-xs">
+                  <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-500/30 space-y-3 text-xs">
                     <div className="flex items-center justify-between gap-2">
-                      <h4 className="font-bold text-slate-900 dark:text-white">
-                        Customer Clarification History
+                      <h4 className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Customer Clarification History &amp; Admin Review</span>
                       </h4>
                       {selectedRequest.query_review_status && (
                         <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-bold">
@@ -1458,15 +1859,69 @@ export const ModificationManagement: React.FC = () => {
                       {selectedRequest.additional_info_history.map((entry, idx) => (
                         <div
                           key={`${entry.submitted_at}_${idx}`}
-                          className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-slate-800 text-slate-700 dark:text-slate-300"
+                          className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-slate-800 text-slate-700 dark:text-slate-300 space-y-1"
                         >
-                          <div className="flex items-center justify-between text-[10px] text-slate-500 mb-0.5">
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
                             <span>{entry.submitted_at ? new Date(entry.submitted_at).toLocaleString('en-NG') : 'Submitted'}</span>
-                            <span>{entry.review_status || 'submitted_for_admin_review'}</span>
+                            <span className="font-semibold text-blue-700 dark:text-blue-300">
+                              {entry.review_status || entry.review_state || 'submitted_for_admin_review'}
+                            </span>
                           </div>
                           {entry.note && <p>{entry.note}</p>}
+                          {entry.admin_feedback && (
+                            <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                              Admin Feedback: {entry.admin_feedback}
+                            </p>
+                          )}
                         </div>
                       ))}
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-slate-800 space-y-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input
+                          type="text"
+                          value={reviewRemarksVal}
+                          onChange={e => setReviewRemarksVal(e.target.value)}
+                          placeholder="Review remarks / instructions (required for Request More)..."
+                          className="sm:col-span-2 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                        />
+                        <select
+                          value={reviewNextStatus}
+                          onChange={e => setReviewNextStatus(e.target.value as any)}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                        >
+                          <option value="processing">Resume as Processing</option>
+                          <option value="under_review">Resume as Under Review</option>
+                          <option value="assigned">Resume as Assigned</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleReviewCustomerInfo('approve')}
+                          disabled={reviewingInfo}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white text-[11px] font-bold"
+                        >
+                          Approve &amp; Resume
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReviewCustomerInfo('request_more')}
+                          disabled={reviewingInfo}
+                          className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-[11px] font-bold"
+                        >
+                          Request More Corrections
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReviewCustomerInfo('reject')}
+                          disabled={reviewingInfo}
+                          className="px-3 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white text-[11px] font-bold"
+                        >
+                          Reject Clarification
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1690,8 +2145,17 @@ export const ModificationManagement: React.FC = () => {
                   <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>
-                      Warning: Setting status to <strong>{updateStatusVal.toUpperCase()}</strong> will automatically issue a single atomic wallet refund (
-                      <span className="font-mono">REFUND_{selectedRequest.payment_reference}</span>) to the customer and notify them by email.
+                      {selectedRequest.is_refundable === false ? (
+                        <>
+                          Notice: This service has <strong>Non-Refundable</strong> upstream billing enabled once accepted. Setting status to{' '}
+                          <strong>{updateStatusVal.toUpperCase()}</strong> updates the record without issuing a wallet refund when upstream processing has commenced.
+                        </>
+                      ) : (
+                        <>
+                          Warning: Setting status to <strong>{updateStatusVal.toUpperCase()}</strong> will automatically issue a single atomic wallet refund (
+                          <span className="font-mono">REFUND_{selectedRequest.payment_reference}</span>) to the customer and notify them by email.
+                        </>
+                      )}
                     </span>
                   </div>
                 )}
@@ -1708,11 +2172,13 @@ export const ModificationManagement: React.FC = () => {
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white disabled:opacity-60"
                     >
                       <option value="pending">Pending Manual Processing</option>
+                      <option value="under_review">Under Review</option>
+                      <option value="assigned">Assigned to Staff</option>
                       <option value="processing">Processing</option>
                       <option value="query_required">Query / Additional Info Required</option>
                       <option value="completed">Completed</option>
-                      <option value="rejected">Rejected (Issues Single Refund)</option>
-                      <option value="failed">Failed (Issues Single Refund)</option>
+                      <option value="rejected">Rejected</option>
+                      <option value="failed">Failed</option>
                       {selectedRequest.status === 'refunded' && (
                         <option value="refunded">Refunded</option>
                       )}
@@ -1730,6 +2196,19 @@ export const ModificationManagement: React.FC = () => {
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Requested Corrections / Action Banner (Shown prominently when Query Required)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={requestedCorrectionsVal}
+                    onChange={e => setRequestedCorrectionsVal(e.target.value)}
+                    placeholder="Specific fields or documents the customer must correct or re-upload..."
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                  />
                 </div>
 
                 <div>
@@ -1932,17 +2411,33 @@ export const ModificationManagement: React.FC = () => {
                       />
                     </div>
 
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editingService.is_active}
-                        onChange={e => setEditingService({ ...editingService, is_active: e.target.checked })}
-                        className="rounded text-blue-600"
-                      />
-                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                        Service Active &amp; Visible to Customers
-                      </span>
-                    </label>
+                    <div className="flex flex-wrap items-center gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={editingService.is_active}
+                          onChange={e => setEditingService({ ...editingService, is_active: e.target.checked })}
+                          className="rounded text-blue-600"
+                        />
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          Service Active &amp; Visible to Customers
+                        </span>
+                      </label>
+
+                      {isAdditionalMode && (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={editingService.is_refundable !== false}
+                            onChange={e => setEditingService({ ...editingService, is_refundable: e.target.checked })}
+                            className="rounded text-blue-600"
+                          />
+                          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                            Refundable to Wallet on Upstream Failure
+                          </span>
+                        </label>
+                      )}
+                    </div>
                   </>
                 )}
 

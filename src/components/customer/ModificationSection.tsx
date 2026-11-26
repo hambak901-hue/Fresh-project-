@@ -18,6 +18,7 @@ import {
 } from '../../types';
 import { TransactionPinModal } from './TransactionPinModal';
 import { ResultAvailabilityBadge } from '../common/ResultAvailabilityBadge';
+import { getChecklistStatusBadge } from './AdditionalServicesSection';
 import {
   AlertCircle,
   ArrowRight,
@@ -77,6 +78,18 @@ export function getModificationStatusStyle(status: string): {
     return {
       label: 'Processing',
       classes: 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/25',
+    };
+  }
+  if (s === 'under_review') {
+    return {
+      label: 'Under Review',
+      classes: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/25',
+    };
+  }
+  if (s === 'assigned') {
+    return {
+      label: 'Assigned to Staff',
+      classes: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/25',
     };
   }
   if (s === 'query_required') {
@@ -1754,6 +1767,8 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
               {[
                 { id: 'all', label: 'All' },
                 { id: 'pending', label: 'Pending' },
+                { id: 'under_review', label: 'Under Review' },
+                { id: 'assigned', label: 'Assigned' },
                 { id: 'processing', label: 'Processing' },
                 { id: 'query_required', label: 'Query' },
                 { id: 'completed', label: 'Completed' },
@@ -1830,6 +1845,11 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                           {st.label}
                         </span>
                         <ResultAvailabilityBadge state={req.result_availability_state} />
+                        {req.assigned_staff_name && (
+                          <span className="px-2 py-0.5 rounded border border-cyan-500/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 text-[10px] font-semibold">
+                            Assigned: {req.assigned_staff_name}
+                          </span>
+                        )}
                         {awaitingAdminReview && req.status === 'query_required' && (
                           <span className="px-2 py-0.5 rounded border border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
                             Response Submitted — Awaiting Admin Review
@@ -1881,7 +1901,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                         </span>
                       </div>
 
-                      {['pending', 'processing', 'query_required'].includes(String(req.status).toLowerCase()) && (
+                      {['pending', 'under_review', 'assigned', 'processing', 'query_required'].includes(String(req.status).toLowerCase()) && (
                         <button
                           type="button"
                           onClick={() => handlePollStatus(req.id)}
@@ -1894,6 +1914,16 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                       )}
                     </div>
                   </div>
+
+                  {req.requested_corrections && (
+                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-500/30 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold block">Requested Corrections / Admin Query:</span>
+                        <span>{req.requested_corrections}</span>
+                      </div>
+                    </div>
+                  )}
 
                   {req.provider_remarks && (
                     <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
@@ -2069,22 +2099,37 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                   {/* Supporting Documents & Query Action Row */}
                   <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      {(req.supporting_documents || []).map(doc => (
-                        <button
-                          key={doc.id}
-                          type="button"
-                          onClick={() => handleViewDocument(doc)}
-                          disabled={loadingPreviewId === doc.id}
-                          className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-500 text-[11px] font-medium text-slate-700 dark:text-slate-300 inline-flex items-center gap-1.5 transition"
-                        >
-                          {loadingPreviewId === doc.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <FileText className="w-3 h-3 text-blue-600 dark:text-emerald-400" />
-                          )}
-                          <span>{doc.original_name || doc.file_name || doc.doc_key}</span>
-                        </button>
-                      ))}
+                      {(req.supporting_documents || []).map(doc => {
+                        const chk = req.document_review_checklist?.[doc.doc_key];
+                        const badge = chk ? getChecklistStatusBadge(chk.status) : null;
+                        return (
+                          <div key={doc.id} className="inline-flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleViewDocument(doc)}
+                              disabled={loadingPreviewId === doc.id}
+                              className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-500 text-[11px] font-medium text-slate-700 dark:text-slate-300 inline-flex items-center gap-1.5 transition"
+                            >
+                              {loadingPreviewId === doc.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <FileText className="w-3 h-3 text-blue-600 dark:text-emerald-400" />
+                              )}
+                              <span>{doc.original_name || doc.file_name || doc.doc_key}</span>
+                              {badge && (
+                                <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold ${badge.className}`}>
+                                  {badge.label}
+                                </span>
+                              )}
+                            </button>
+                            {chk?.note && (
+                              <span className="text-[10px] text-amber-700 dark:text-amber-300">
+                                ({chk.note})
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
 
                     {req.status === 'query_required' && !awaitingAdminReview && (

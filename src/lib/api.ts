@@ -1017,7 +1017,13 @@ export const api = {
     return request('/api/verification/banks/modification');
   },
 
-  async getBvnEnrollmentBanks(): Promise<{ success: boolean; data: Array<{ bank_name: string; price: number }> }> {
+  async getBvnEnrollmentBanks(): Promise<{
+    success: boolean;
+    data: Array<{ bank_name: string; price: number }>;
+    supported?: boolean;
+    status?: string;
+    message?: string;
+  }> {
     return request('/api/verification/banks/enrollment');
   },
 
@@ -3630,6 +3636,7 @@ export const api = {
     status: string;
     provider_remarks?: string;
     admin_notes?: string;
+    requested_corrections?: string;
     estimated_completion_text?: string;
     trigger_refund?: boolean;
   }): Promise<{
@@ -3639,6 +3646,61 @@ export const api = {
     refund?: any;
   }> {
     return request(`/api/admin/modifications/${encodeURIComponent(id)}/update`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminModificationStaff(): Promise<{
+    success: boolean;
+    staff: import('../types').StaffAssigneeItem[];
+  }> {
+    return request('/api/admin/modifications/staff');
+  },
+
+  async assignAdminModification(
+    id: string,
+    staffId: string,
+    setAssignedStatus = true
+  ): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').ModificationRequestItem;
+  }> {
+    return request(`/api/admin/modifications/${encodeURIComponent(id)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ staff_id: staffId, set_assigned_status: setAssignedStatus }),
+    });
+  },
+
+  async updateAdminModificationChecklist(
+    id: string,
+    checklist: Record<string, { status: string; note?: string }>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').ModificationRequestItem;
+  }> {
+    return request(`/api/admin/modifications/${encodeURIComponent(id)}/checklist`, {
+      method: 'POST',
+      body: JSON.stringify({ checklist }),
+    });
+  },
+
+  async reviewAdminModificationInfo(
+    id: string,
+    payload: {
+      decision: 'approve' | 'request_more' | 'reject';
+      remarks?: string;
+      next_status?: 'under_review' | 'assigned' | 'processing';
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').ModificationRequestItem;
+    refund?: any;
+  }> {
+    return request(`/api/admin/modifications/${encodeURIComponent(id)}/review-info`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
@@ -3909,6 +3971,7 @@ export const api = {
       status: string;
       provider_remarks?: string;
       admin_notes?: string;
+      requested_corrections?: string;
       estimated_completion_text?: string;
       trigger_refund?: boolean;
     }
@@ -3919,6 +3982,351 @@ export const api = {
     refund?: any;
   }> {
     return request(`/api/admin/enrolments/${encodeURIComponent(id)}/update`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminEnrolmentStaff(): Promise<{
+    success: boolean;
+    staff: import('../types').StaffAssigneeItem[];
+  }> {
+    return request('/api/admin/enrolments/staff');
+  },
+
+  async assignAdminEnrolment(
+    id: string,
+    staffId: string,
+    setAssignedStatus = true
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').EnrolmentOrderItem;
+  }> {
+    return request(`/api/admin/enrolments/${encodeURIComponent(id)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ staff_id: staffId, set_assigned_status: setAssignedStatus }),
+    });
+  },
+
+  async updateAdminEnrolmentChecklist(
+    id: string,
+    checklist: Record<string, { status: string; note?: string }>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').EnrolmentOrderItem;
+  }> {
+    return request(`/api/admin/enrolments/${encodeURIComponent(id)}/checklist`, {
+      method: 'POST',
+      body: JSON.stringify({ checklist }),
+    });
+  },
+
+  async reviewAdminEnrolmentInfo(
+    id: string,
+    payload: {
+      decision: 'approve' | 'request_more' | 'reject';
+      remarks?: string;
+      next_status?: 'under_review' | 'assigned' | 'processing';
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').EnrolmentOrderItem;
+    refund?: any;
+  }> {
+    return request(`/api/admin/enrolments/${encodeURIComponent(id)}/review-info`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  // Phase 4 — Verified Async Clearance, Validation, Personalisation & NPC Services
+  async getAdditionalServicesCatalog(): Promise<{
+    success: boolean;
+    services: import('../types').AdditionalServiceCatalogItem[];
+    count: number;
+    unverified_services: import('../types').UnverifiedServiceNotice[];
+  }> {
+    return request('/api/additional-services/catalog');
+  },
+
+  async uploadAdditionalServiceDocument(
+    file: File,
+    docKey: string,
+    serviceKey?: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    document: import('../types').ModificationDocumentAttachment;
+  }> {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('doc_key', docKey);
+    if (serviceKey) {
+      fd.append('service_key', serviceKey);
+    }
+    return request('/api/additional-services/upload', {
+      method: 'POST',
+      body: fd,
+      timeoutMs: 60000,
+    });
+  },
+
+  async submitAdditionalServiceRequest(payload: {
+    service_key: string;
+    fields: Record<string, any>;
+    document_ids?: Record<string, string>;
+    supporting_documents?: Array<{ id: string; doc_key: string }>;
+    consent: boolean;
+    pin?: string;
+    idempotency_key: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').AdditionalServiceRequest;
+    pending?: boolean;
+    status?: string;
+    balance_after?: number;
+    newBalance?: number;
+    payment_reference?: string;
+    provider_reference?: string;
+    idempotent_replay?: boolean;
+  }> {
+    return request('/api/additional-services/submit', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      timeoutMs: 45000,
+    });
+  },
+
+  async getAdditionalServiceHistory(params: {
+    status?: string;
+    service_key?: string;
+    search?: string;
+    limit?: number;
+  } = {}): Promise<{
+    success: boolean;
+    count: number;
+    requests: import('../types').AdditionalServiceRequest[];
+  }> {
+    const q = new URLSearchParams();
+    if (params.status && params.status !== 'all') q.set('status', params.status);
+    if (params.service_key && params.service_key !== 'all') q.set('service_key', params.service_key);
+    if (params.search) q.set('search', params.search);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return request(`/api/additional-services/history${qs ? `?${qs}` : ''}`);
+  },
+
+  async getAdditionalServiceStatus(id: string): Promise<{
+    success: boolean;
+    request: import('../types').AdditionalServiceRequest;
+  }> {
+    return request(`/api/additional-services/${encodeURIComponent(id)}/status`);
+  },
+
+  async pollAdditionalServiceStatus(id: string): Promise<{
+    success: boolean;
+    message: string;
+    updated: boolean;
+    request: import('../types').AdditionalServiceRequest;
+    refund?: any;
+  }> {
+    return request(`/api/additional-services/${encodeURIComponent(id)}/poll`, {
+      method: 'POST',
+    });
+  },
+
+  async submitAdditionalServiceInfo(
+    id: string,
+    payload: {
+      note?: string;
+      document_ids?: Record<string, string>;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    review_state?: string;
+    request: import('../types').AdditionalServiceRequest;
+  }> {
+    return request(`/api/additional-services/${encodeURIComponent(id)}/submit-info`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  // Phase 4 Admin Additional & Clearance Services Endpoints
+  async getAdminAdditionalServices(params: {
+    status?: string;
+    service_key?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{
+    success: boolean;
+    requests: import('../types').AdditionalServiceRequest[];
+    pagination: { total: number; page: number; limit: number; total_pages: number };
+    stats: import('../types').AdditionalServicesAdminStats;
+  }> {
+    const q = new URLSearchParams();
+    if (params.status && params.status !== 'all') q.set('status', params.status);
+    if (params.service_key && params.service_key !== 'all') q.set('service_key', params.service_key);
+    if (params.search) q.set('search', params.search);
+    if (params.page) q.set('page', String(params.page));
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return request(`/api/admin/additional-services${qs ? `?${qs}` : ''}`);
+  },
+
+  async getAdminAdditionalServiceDetail(id: string): Promise<{
+    success: boolean;
+    request: import('../types').AdditionalServiceRequest;
+  }> {
+    return request(`/api/admin/additional-services/${encodeURIComponent(id)}`);
+  },
+
+  async pollAdminAdditionalServiceStatus(id: string): Promise<{
+    success: boolean;
+    message: string;
+    updated: boolean;
+    request: import('../types').AdditionalServiceRequest;
+    refund?: any;
+  }> {
+    return request(`/api/admin/additional-services/${encodeURIComponent(id)}/poll`, {
+      method: 'POST',
+    });
+  },
+
+  async updateAdminAdditionalServiceRequest(
+    id: string,
+    payload: {
+      status: string;
+      provider_remarks?: string;
+      admin_notes?: string;
+      requested_corrections?: string;
+      estimated_completion_text?: string;
+      trigger_refund?: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').AdditionalServiceRequest;
+    refund?: any;
+  }> {
+    return request(`/api/admin/additional-services/${encodeURIComponent(id)}/update`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async retryAdminAdditionalServiceResult(id: string): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').AdditionalServiceRequest;
+  }> {
+    return request(`/api/admin/additional-services/${encodeURIComponent(id)}/retry-result`, {
+      method: 'POST',
+    });
+  },
+
+  async uploadAdminAdditionalServiceResultDocument(
+    id: string,
+    formData: FormData
+  ): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').AdditionalServiceRequest;
+  }> {
+    return request(`/api/admin/additional-services/${encodeURIComponent(id)}/result-document`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  async getAdminAdditionalServicesCatalog(): Promise<{
+    success: boolean;
+    services: import('../types').AdditionalServiceCatalogItem[];
+    unverified_services: import('../types').UnverifiedServiceNotice[];
+  }> {
+    return request('/api/admin/additional-services/services');
+  },
+
+  async updateAdminAdditionalServiceConfig(
+    key: string,
+    payload: Partial<import('../types').AdditionalServiceCatalogItem>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    service: import('../types').AdditionalServiceCatalogItem;
+  }> {
+    return request(`/api/admin/additional-services/services/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async syncAdminAdditionalServicesCatalog(): Promise<{
+    success: boolean;
+    message: string;
+    updated_services: number;
+  }> {
+    return request('/api/admin/additional-services/sync-catalog', {
+      method: 'POST',
+    });
+  },
+
+  async getAdminAdditionalServiceStaff(): Promise<{
+    success: boolean;
+    staff: import('../types').StaffAssigneeItem[];
+  }> {
+    return request('/api/admin/additional-services/staff');
+  },
+
+  async assignAdminAdditionalService(
+    id: string,
+    staffId: string,
+    setAssignedStatus = true
+  ): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').AdditionalServiceRequest;
+  }> {
+    return request(`/api/admin/additional-services/${encodeURIComponent(id)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ staff_id: staffId, set_assigned_status: setAssignedStatus }),
+    });
+  },
+
+  async updateAdminAdditionalServiceChecklist(
+    id: string,
+    checklist: Record<string, { status: string; note?: string }>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').AdditionalServiceRequest;
+  }> {
+    return request(`/api/admin/additional-services/${encodeURIComponent(id)}/checklist`, {
+      method: 'POST',
+      body: JSON.stringify({ checklist }),
+    });
+  },
+
+  async reviewAdminAdditionalServiceInfo(
+    id: string,
+    payload: {
+      decision: 'approve' | 'request_more' | 'reject';
+      remarks?: string;
+      next_status?: 'under_review' | 'assigned' | 'processing';
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    request: import('../types').AdditionalServiceRequest;
+    refund?: any;
+  }> {
+    return request(`/api/admin/additional-services/${encodeURIComponent(id)}/review-info`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });

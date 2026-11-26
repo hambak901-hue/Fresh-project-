@@ -506,10 +506,19 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
         $this->logTransaction($epNorm, ['method' => 'GET'], $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, null, 'GET');
 
-        if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
-            $decoded = json_decode($responseBody, true);
+        if ($responseBody) {
+            $decoded = json_decode((string)$responseBody, true);
             if (is_array($decoded)) {
-                return array_merge(['success' => !isset($decoded['success']) || (bool)$decoded['success']], $decoded);
+                if ($statusCode >= 200 && $statusCode < 300) {
+                    return array_merge(['success' => !isset($decoded['success']) || (bool)$decoded['success'], 'code' => $statusCode], $decoded);
+                }
+                return array_merge($decoded, [
+                    'success' => false,
+                    'status' => $decoded['status'] ?? 'error',
+                    'code' => $statusCode,
+                    'message' => (string)($decoded['message'] ?? $decoded['error'] ?? ('2SureVerify GET request failed (HTTP ' . $statusCode . ')')),
+                    'raw_error' => $responseBody,
+                ]);
             }
         }
 
@@ -537,13 +546,158 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
         return $this->executeGet('/api/v1/bvn_enrollment_banks.php');
     }
 
-    public function checkStatus(string $reference): array
+    public static function getStatusEndpointForService(?string $serviceKey): string
+    {
+        $sk = strtolower(trim((string)$serviceKey));
+        $map = [
+            'modification_clearance' => '/api/v1/modification_clearance_status.php',
+            'ipe_clearance' => '/api/v1/ipe_status.php',
+            'nin_validation' => '/api/v1/validation_status.php',
+            'nin_personalization' => '/api/v1/personalization_status.php',
+            'nin_personalization_2' => '/api/v1/personalization_status.php',
+            'npc_attestation' => '/api/v1/npc_attestation_status.php',
+            'nin_delinking' => '/api/v1/delinking_status.php',
+            'bvn_modification' => '/api/v1/bvn_modification_status.php',
+            'bvn_enroll_adult' => '/api/v1/bvn_enrollment_status.php',
+            'bvn_enroll_child' => '/api/v1/bvn_enrollment_status.php',
+        ];
+        if (isset($map[$sk])) {
+            return $map[$sk];
+        }
+        if (
+            str_starts_with($sk, 'nin_mod_')
+            || str_starts_with($sk, 'second_nin_mod_')
+            || in_array($sk, ['gender_modification', 'suspended_modification', 'bvn_generated_modification', 'child_modification', 'nin_over_age'], true)
+        ) {
+            return '/api/v1/nin_modification_status.php';
+        }
+        return '/api/v1/status.php';
+    }
+
+    /**
+     * Resolve configured 2SureVerify webhook secrets (env, system_settings, or providers.secret_key).
+     */
+    public function resolveWebhookSecrets(): array
+    {
+        $secrets = [];
+        $envSecret = trim((string)(getenv('TWOSUREVERIFY_WEBHOOK_SECRET') ?: ''));
+        if ($envSecret !== '') {
+            $secrets[] = $envSecret;
+        }
+        try {
+            $db = Database::getInstance();
+            $setRow = $db->fetchOne(
+                'SELECT setting_value FROM system_settings WHERE setting_key = "twosureverify_webhook_secret" LIMIT 1'
+            );
+            $sVal = trim((string)($setRow['setting_value'] ?? ''));
+            if ($sVal !== '' && !in_array($sVal, $secrets, true)) {
+                $secrets[] = $sVal;
+            }
+            $provRow = $db->fetchOne(
+                'SELECT secret_key FROM providers WHERE id = "2sureverify" LIMIT 1'
+            );
+            $pSecret = trim((string)($provRow['secret_key'] ?? ''));
+            if ($pSecret !== '' && !in_array($pSecret, $secrets, true)) {
+                $secrets[] = $pSecret;
+            }
+        } catch (\Throwable) {
+        }
+        return $secrets;
+    }
+
+    /**
+     * Verify incoming 2SureVerify webhook HMAC-SHA256 / signature header cleanly (fail-closed when invalid).
+     */
+    public function verifyWebhookSignature(string $rawBody, ?string $signatureHeader = null, ?string $authHeader = null): array
+    {
+        $secrets = $this->resolveWebhookSecrets();
+        if (empty($secrets)) {
+            return [
+                'valid' => false,
+                'configured' => false,
+                'reason' => 'No 2SureVerify webhook secret configured on server.',
+            ];
+        }
+
+        $sigRaw = trim((string)$signatureHeader);
+        $sigHex = $sigRaw;
+        if (str_starts_with(strtolower($sigHex), 'sha256=')) {
+            $sigHex = trim(substr($sigHex, 7));
+        }
+
+        $authRaw = trim((string)$authHeader);
+        $bearer = str_starts_with(strtolower($authRaw), 'bearer ') ? trim(substr($authRaw, 7)) : '';
+
+        foreach ($secrets as $secret) {
+            $expectedHmac = hash_hmac('sha256', $rawBody, $secret);
+            if ($sigRaw !== '' && (hash_equals($secret, $sigRaw) || hash_equals($expectedHmac, strtolower($sigHex)))) {
+                return ['valid' => true, 'configured' => true, 'reason' => 'verified'];
+            }
+            if ($bearer !== '' && hash_equals($secret, $bearer)) {
+                return ['valid' => true, 'configured' => true, 'reason' => 'verified_bearer'];
+            }
+        }
+
+        return [
+            'valid' => false,
+            'configured' => true,
+            'reason' => $sigRaw === '' && $bearer === '' ? 'Missing webhook signature header.' : 'Webhook signature mismatch.',
+        ];
+    }
+
+    public function checkStatus(string $reference = '', ?string $serviceKey = null, ?string $transactionId = null): array
     {
         $cleanRef = trim($reference);
-        if ($cleanRef === '') {
-            return ['success' => false, 'status' => 'error', 'code' => 422, 'message' => 'Reference is required for status lookup.'];
+        $cleanTx = trim((string)$transactionId);
+        if ($cleanRef === '' && $cleanTx === '') {
+            return ['success' => false, 'status' => 'error', 'code' => 422, 'message' => 'Reference or transaction_id is required for status lookup.'];
         }
-        return $this->executeGet('/api/v1/status.php?reference=' . rawurlencode($cleanRef));
+
+        $primaryEndpoint = self::getStatusEndpointForService($serviceKey);
+        $queryParts = [];
+        if ($cleanRef !== '') {
+            $queryParts[] = 'reference=' . rawurlencode($cleanRef);
+        }
+        if ($cleanTx !== '') {
+            $queryParts[] = 'transaction_id=' . rawurlencode($cleanTx);
+        }
+
+        $res = $this->executeGet($primaryEndpoint . '?' . implode('&', $queryParts));
+        $httpCode = (int)($res['code'] ?? 0);
+
+        // If reference query missed but transaction_id exists, try transaction_id-only on primary endpoint
+        if (empty($res['success']) && $cleanRef !== '' && $cleanTx !== '' && in_array($httpCode, [400, 404, 422], true)) {
+            $txOnly = $this->executeGet($primaryEndpoint . '?transaction_id=' . rawurlencode($cleanTx));
+            if (!empty($txOnly['success']) || !empty($txOnly['data']) || !empty($txOnly['status'])) {
+                $res = $txOnly;
+                $httpCode = (int)($res['code'] ?? 0);
+            }
+        }
+
+        // Safe fallback to generic /api/v1/status.php if per-service endpoint returns 404/unsupported
+        if (empty($res['success']) && $primaryEndpoint !== '/api/v1/status.php' && in_array($httpCode, [404, 405], true)) {
+            $fallbackRes = $this->executeGet('/api/v1/status.php?' . implode('&', $queryParts));
+            if (!empty($fallbackRes['success']) || !empty($fallbackRes['data']) || !empty($fallbackRes['status'])) {
+                $res = $fallbackRes;
+            }
+        }
+
+        $nested = is_array($res['data'] ?? null) ? $res['data'] : [];
+        $txId = trim((string)($res['transaction_id'] ?? $nested['transaction_id'] ?? $cleanTx));
+        if ($txId !== '') {
+            $res['provider_transaction_id'] = $txId;
+        }
+
+        $rawRefunded = $res['refunded'] ?? $nested['refunded'] ?? null;
+        if ($rawRefunded !== null) {
+            $res['provider_refunded'] = filter_var($rawRefunded, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        }
+        $refundAmt = $res['refund_amount'] ?? $nested['refund_amount'] ?? null;
+        if (is_numeric($refundAmt)) {
+            $res['provider_refunded_amount'] = (float)$refundAmt;
+        }
+
+        return $res;
     }
 
     public static function getAllModificationMappingSpecs(): array
@@ -1079,7 +1233,8 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             $decoded = json_decode($responseBody, true);
             if (is_array($decoded)) {
                 $nested = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
-                $provRef = (string)($decoded['reference'] ?? $nested['reference'] ?? $decoded['request_id'] ?? $decoded['transaction_id'] ?? $ref);
+                $provRef = trim((string)($decoded['reference'] ?? $nested['reference'] ?? $decoded['request_id'] ?? $nested['request_id'] ?? $decoded['transaction_id'] ?? $nested['transaction_id'] ?? $ref));
+                $provTxId = trim((string)($decoded['transaction_id'] ?? $nested['transaction_id'] ?? ''));
                 $statusLower = strtolower(trim((string)($decoded['status'] ?? $nested['status'] ?? '')));
                 $pendingFlag = $decoded['pending'] ?? $nested['pending'] ?? null;
                 $isPending = ($pendingFlag === true || $pendingFlag === 1 || strtolower((string)$pendingFlag) === 'true' || in_array($statusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true));
@@ -1096,6 +1251,9 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                     }
                 }
 
+                $rawRefunded = $decoded['refunded'] ?? $nested['refunded'] ?? null;
+                $providerRefunded = $rawRefunded !== null ? filter_var($rawRefunded, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) : null;
+
                 if ($isPending) {
                     return [
                         'success' => true,
@@ -1105,8 +1263,10 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                         'provider_status' => $statusLower !== '' ? $statusLower : 'pending',
                         'reference' => $provRef,
                         'provider_reference' => $provRef,
+                        'provider_transaction_id' => $provTxId !== '' ? $provTxId : null,
                         'provider_cost' => $providerCost,
-                        'message' => (string)($decoded['message'] ?? 'Request received by 2SureVerify and queued for manual processing.'),
+                        'provider_refunded' => $providerRefunded,
+                        'message' => (string)($decoded['message'] ?? 'Request received by 2SureVerify and queued for processing.'),
                         'raw' => $decoded,
                     ];
                 }
@@ -1118,12 +1278,14 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                         'success' => true,
                         'accepted' => true,
                         'pending' => false,
-                        'status' => in_array($statusLower, ['completed', 'success', 'approved'], true) ? 'completed' : 'pending',
+                        'status' => in_array($statusLower, ['completed', 'complete', 'success', 'successful', 'approved', 'done', 'delivered'], true) ? 'completed' : 'pending',
                         'provider_status' => $statusLower !== '' ? $statusLower : 'submitted',
                         'reference' => $provRef,
                         'provider_reference' => $provRef,
+                        'provider_transaction_id' => $provTxId !== '' ? $provTxId : null,
                         'provider_cost' => $providerCost,
-                        'message' => (string)($decoded['message'] ?? 'Modification request accepted.'),
+                        'provider_refunded' => $providerRefunded,
+                        'message' => (string)($decoded['message'] ?? 'Request accepted.'),
                         'raw' => $decoded,
                     ];
                 }
@@ -1135,7 +1297,10 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                     'status' => 'failed',
                     'code' => $statusCode,
                     'reference' => $provRef,
-                    'message' => (string)($decoded['message'] ?? $decoded['error'] ?? 'Provider rejected modification request.'),
+                    'provider_transaction_id' => $provTxId !== '' ? $provTxId : null,
+                    'provider_cost' => $providerCost,
+                    'provider_refunded' => $providerRefunded,
+                    'message' => (string)($decoded['message'] ?? $decoded['error'] ?? 'Provider rejected request.'),
                     'raw' => $decoded,
                 ];
             }
@@ -1439,7 +1604,8 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             $decoded = json_decode($responseBody, true);
             if (is_array($decoded)) {
                 $nested = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
-                $provRef = (string)($decoded['reference'] ?? $nested['reference'] ?? $decoded['request_id'] ?? $ref);
+                $provRef = trim((string)($decoded['reference'] ?? $nested['reference'] ?? $decoded['request_id'] ?? $nested['request_id'] ?? $decoded['transaction_id'] ?? $nested['transaction_id'] ?? $ref));
+                $provTxId = trim((string)($decoded['transaction_id'] ?? $nested['transaction_id'] ?? ''));
                 $statusLower = strtolower(trim((string)($decoded['status'] ?? $nested['status'] ?? '')));
                 $pendingFlag = $decoded['pending'] ?? $nested['pending'] ?? null;
                 $isPending = ($pendingFlag === true || $pendingFlag === 1 || strtolower((string)$pendingFlag) === 'true' || in_array($statusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true));
@@ -1469,6 +1635,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                         'status' => 'failed',
                         'code' => $statusCode,
                         'reference' => $provRef,
+                        'provider_transaction_id' => $provTxId !== '' ? $provTxId : null,
                         'message' => (string)($decoded['message'] ?? $decoded['error'] ?? 'Provider rejected enrolment request.'),
                         'raw' => $decoded,
                     ];
@@ -1480,6 +1647,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                     'status' => 'pending',
                     'provider_status' => $statusLower !== '' ? $statusLower : 'pending',
                     'reference' => $provRef,
+                    'provider_transaction_id' => $provTxId !== '' ? $provTxId : null,
                     'provider_cost' => $providerCost,
                     'message' => (string)($decoded['message'] ?? 'NIN Enrolment order accepted and queued for manual processing.'),
                     'raw' => $decoded,
@@ -1524,7 +1692,319 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
     /**
      * Poll 2SureVerify /api/v1/status.php?reference=... for an existing modification request.
      */
-    public function pollModificationStatus(string $providerReference): array
+    public static function getAllAdditionalMappingSpecs(): array
+    {
+        return [
+            'ipe_clearance' => [
+                'endpoint' => '/api/v1/ipe_clearance.php',
+                'status_endpoint' => '/api/v1/ipe_status.php',
+                'method' => 'POST',
+                'is_refundable' => true,
+                'fields' => [
+                    'ticket_id' => 'ticket_id',
+                    'sub_type' => 'sub_type',
+                ],
+                'files' => ['supporting_doc' => 'supporting_doc'],
+            ],
+            'nin_validation' => [
+                'endpoint' => '/api/v1/validation.php',
+                'status_endpoint' => '/api/v1/validation_status.php',
+                'method' => 'POST',
+                'is_refundable' => true,
+                'fields' => [
+                    'nin' => 'nin',
+                    'sub_type' => 'sub_type',
+                ],
+                'files' => ['supporting_doc' => 'supporting_doc'],
+            ],
+            'modification_clearance' => [
+                'endpoint' => '/api/v1/modification_clearance.php',
+                'status_endpoint' => '/api/v1/modification_clearance_status.php',
+                'method' => 'POST',
+                'is_refundable' => true,
+                'fields' => [
+                    'tracking_id' => 'tracking_id',
+                    'modification_type' => 'modification_type',
+                ],
+                'files' => ['supporting_doc' => 'supporting_doc'],
+            ],
+            'nin_personalization' => [
+                'endpoint' => '/api/v1/personalization.php',
+                'status_endpoint' => '/api/v1/personalization_status.php',
+                'method' => 'POST',
+                'is_refundable' => false,
+                'fields' => [
+                    'tracking_id' => 'tracking_id',
+                ],
+                'files' => [],
+            ],
+            'nin_personalization_2' => [
+                'endpoint' => '/api/v1/personalization_2.php',
+                'status_endpoint' => '/api/v1/personalization_status.php',
+                'method' => 'POST',
+                'is_refundable' => false,
+                'fields' => [
+                    'tracking_id' => 'tracking_id',
+                    'type' => 'type',
+                ],
+                'files' => [],
+            ],
+            'npc_attestation' => [
+                'endpoint' => '/api/v1/npc_attestation.php',
+                'status_endpoint' => '/api/v1/npc_attestation_status.php',
+                'method' => 'POST',
+                'is_refundable' => true,
+                'fields' => [
+                    'nin' => 'nin',
+                    'firstname' => 'firstname',
+                    'surname' => 'surname',
+                    'middlename' => 'middlename',
+                    'dob' => 'dob',
+                    'phone' => 'phone',
+                    'email' => 'email',
+                    'state' => 'state',
+                    'lga' => 'lga',
+                    'town' => 'town',
+                    'origin_state' => 'origin_state',
+                    'origin_lga' => 'origin_lga',
+                    'address' => 'address',
+                    'father_nin' => 'father_nin',
+                    'father_firstname' => 'father_firstname',
+                    'father_surname' => 'father_surname',
+                    'father_middlename' => 'father_middlename',
+                    'father_state' => 'father_state',
+                    'father_lga' => 'father_lga',
+                    'mother_nin' => 'mother_nin',
+                    'mother_firstname' => 'mother_firstname',
+                    'mother_surname' => 'mother_surname',
+                    'mother_middlename' => 'mother_middlename',
+                    'mother_state' => 'mother_state',
+                    'mother_lga' => 'mother_lga',
+                ],
+                'files' => ['supporting_doc' => 'supporting_doc'],
+            ],
+            'nin_delinking' => [
+                'endpoint' => '/api/v1/delinking.php',
+                'status_endpoint' => '/api/v1/delinking_status.php',
+                'method' => 'POST',
+                'is_refundable' => true,
+                'fields' => [
+                    'nin' => 'nin',
+                    'sub_type' => 'sub_type',
+                    'email' => 'email',
+                ],
+                'files' => ['supporting_doc' => 'supporting_doc'],
+            ],
+        ];
+    }
+
+    public static function getAdditionalMappingSpec(string $serviceKey): ?array
+    {
+        $specs = self::getAllAdditionalMappingSpecs();
+        return $specs[strtolower(trim($serviceKey))] ?? null;
+    }
+
+    public function submitAdditionalService(string $serviceKey, array $fields, array $files = [], ?string $endpointOverride = null): array
+    {
+        if (empty($this->apiKey)) {
+            return [
+                'success' => false,
+                'accepted' => false,
+                'pending' => false,
+                'status' => 'failed',
+                'code' => 503,
+                'message' => '2SureVerify API key is not configured on this server.',
+            ];
+        }
+
+        $spec = self::getAdditionalMappingSpec($serviceKey);
+        if (!$spec) {
+            return [
+                'success' => false,
+                'accepted' => false,
+                'pending' => false,
+                'status' => 'failed',
+                'code' => 422,
+                'message' => 'Unsupported additional service key: ' . $serviceKey,
+            ];
+        }
+
+        $endpoint = trim((string)($endpointOverride ?: $spec['endpoint']));
+        $epNorm = '/' . ltrim($endpoint, '/');
+        if (!str_starts_with($epNorm, '/api/')) {
+            $epNorm = '/api/v1' . $epNorm;
+        }
+        $url = $this->baseUrl . $epNorm;
+
+        $fieldMap = $spec['fields'] ?? [];
+        $mappedFields = [];
+        foreach ($fields as $k => $v) {
+            if ($v === null || $v === '') {
+                continue;
+            }
+            $targetKey = $fieldMap[$k] ?? $k;
+            $mappedFields[$targetKey] = $v;
+        }
+
+        $ref = trim((string)($fields['reference'] ?? ('HBK-ADD-' . strtoupper(bin2hex(random_bytes(5))))));
+        $cleanFields = array_filter($mappedFields, static fn($v) => $v !== null && $v !== '');
+        $cleanFields['reference'] = $ref;
+
+        $curlFiles = [];
+        $fileMap = $spec['files'] ?? [];
+        foreach ($files as $fKey => $fMeta) {
+            $path = is_array($fMeta) ? (string)($fMeta['file_path'] ?? '') : '';
+            if ($path !== '' && is_file($path)) {
+                $targetFileKey = $fileMap[$fKey] ?? $fKey;
+                $mime = (string)($fMeta['mime_type'] ?? 'application/octet-stream');
+                $origName = (string)($fMeta['original_name'] ?? basename($path));
+                $curlFiles[$targetFileKey] = new \CURLFile($path, $mime, $origName);
+            }
+        }
+
+        $startTime = microtime(true);
+        $ch = curl_init($url);
+
+        if (!empty($curlFiles)) {
+            $postBody = array_merge($cleanFields, ['api_key' => $this->apiKey], $curlFiles);
+            $headers = [
+                'Accept: application/json',
+                'Expect:',
+                'Authorization: Bearer ' . $this->apiKey,
+                'X-Api-Key: ' . $this->apiKey,
+            ];
+        } else {
+            $postBody = json_encode(array_merge($cleanFields, ['api_key' => $this->apiKey]));
+            $headers = [
+                'Content-Type: application/json',
+                'Accept: application/json',
+                'Authorization: Bearer ' . $this->apiKey,
+                'X-Api-Key: ' . $this->apiKey,
+            ];
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $postBody,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_CONNECTTIMEOUT => 12,
+            CURLOPT_TIMEOUT => $this->timeout,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+
+        $responseBody = curl_exec($ch);
+        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErrno = curl_errno($ch);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
+        $logPayload = $cleanFields;
+        if (!empty($curlFiles)) {
+            $logPayload['_attached_files'] = array_keys($curlFiles);
+        }
+        $this->logTransaction($epNorm, $logPayload, $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $ref, 'POST');
+
+        if ($responseBody && $statusCode >= 200 && $statusCode < 300) {
+            $decoded = json_decode($responseBody, true);
+            if (is_array($decoded)) {
+                $nested = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
+                $provRef = trim((string)($decoded['reference'] ?? $nested['reference'] ?? $decoded['request_id'] ?? $nested['request_id'] ?? $decoded['transaction_id'] ?? $nested['transaction_id'] ?? $ref));
+                $provTxId = trim((string)($decoded['transaction_id'] ?? $nested['transaction_id'] ?? ''));
+                $statusLower = strtolower(trim((string)($decoded['status'] ?? $nested['status'] ?? '')));
+                $pendingFlag = $decoded['pending'] ?? $nested['pending'] ?? null;
+                $isPending = ($pendingFlag === true || $pendingFlag === 1 || strtolower((string)$pendingFlag) === 'true' || in_array($statusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true));
+
+                $providerCost = 0.0;
+                foreach (['amount_charged', 'charge', 'cost', 'price'] as $costKey) {
+                    if (isset($decoded[$costKey]) && is_numeric($decoded[$costKey])) {
+                        $providerCost = (float)$decoded[$costKey];
+                        break;
+                    }
+                    if (isset($nested[$costKey]) && is_numeric($nested[$costKey])) {
+                        $providerCost = (float)$nested[$costKey];
+                        break;
+                    }
+                }
+
+                $rawRefunded = $decoded['refunded'] ?? $nested['refunded'] ?? null;
+                $providerRefunded = $rawRefunded !== null ? filter_var($rawRefunded, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) : null;
+                $explicitSuccess = $decoded['success'] ?? null;
+                $isFailed = !$isPending && (
+                    $explicitSuccess === false
+                    || strtolower((string)$explicitSuccess) === 'false'
+                    || in_array($statusLower, ['failed', 'error', 'rejected', 'declined'], true)
+                );
+
+                $acceptedByProvider = ($providerCost > 0) || ($provTxId !== '') || ($provRef !== '' && $provRef !== $ref);
+
+                if ($isFailed) {
+                    return [
+                        'success' => false,
+                        'accepted' => $acceptedByProvider,
+                        'pending' => false,
+                        'status' => 'failed',
+                        'code' => $statusCode,
+                        'reference' => $provRef,
+                        'provider_transaction_id' => $provTxId !== '' ? $provTxId : null,
+                        'provider_cost' => $providerCost,
+                        'provider_refunded' => $providerRefunded,
+                        'message' => (string)($decoded['message'] ?? $decoded['error'] ?? 'Provider rejected service request.'),
+                        'raw' => $decoded,
+                    ];
+                }
+
+                $mappedStatus = 'pending';
+                if (!$isPending && in_array($statusLower, ['completed', 'complete', 'success', 'successful', 'approved', 'done', 'delivered'], true)) {
+                    $mappedStatus = 'completed';
+                } elseif (in_array($statusLower, ['processing', 'in_progress', 'in-progress'], true)) {
+                    $mappedStatus = 'processing';
+                }
+
+                return [
+                    'success' => true,
+                    'accepted' => true,
+                    'pending' => $mappedStatus !== 'completed',
+                    'status' => $mappedStatus,
+                    'provider_status' => $statusLower !== '' ? $statusLower : 'pending',
+                    'reference' => $provRef,
+                    'provider_reference' => $provRef,
+                    'provider_transaction_id' => $provTxId !== '' ? $provTxId : null,
+                    'provider_cost' => $providerCost,
+                    'provider_refunded' => $providerRefunded,
+                    'message' => (string)($decoded['message'] ?? 'Service request submitted to 2SureVerify.'),
+                    'raw' => $decoded,
+                ];
+            }
+        }
+
+        $errorMsg = 'Provider additional service request failed.';
+        $decodedErr = $responseBody ? json_decode((string)$responseBody, true) : null;
+        if ($curlErrno === CURLE_OPERATION_TIMEDOUT) {
+            $errorMsg = 'Gateway timed out while submitting request.';
+        } elseif (is_array($decodedErr) && !empty($decodedErr['message'])) {
+            $errorMsg = (string)$decodedErr['message'];
+        } elseif ($curlError) {
+            $errorMsg = 'Connection error: ' . $curlError;
+        }
+
+        return [
+            'success' => false,
+            'accepted' => false,
+            'pending' => false,
+            'status' => 'failed',
+            'code' => $curlErrno === CURLE_OPERATION_TIMEDOUT ? 504 : ($statusCode ?: 502),
+            'message' => $errorMsg,
+            'reference' => $ref,
+            'raw_error' => $responseBody ?: $curlError,
+        ];
+    }
+
+    /**
+     * Poll 2SureVerify per-service status endpoint (supporting reference + transaction_id) with safe fallback.
+     */
+    public function pollModificationStatus(string $providerReference, ?string $serviceKey = null, ?string $transactionId = null): array
     {
         if (empty($this->apiKey)) {
             return [
@@ -1535,62 +2015,17 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             ];
         }
 
-        $epNorm = '/api/v1/status.php?reference=' . urlencode($providerReference);
-        $url = $this->baseUrl . $epNorm;
-        $startTime = microtime(true);
-
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPGET => true,
-            CURLOPT_HTTPHEADER => [
-                'Accept: application/json',
-                'Authorization: Bearer ' . $this->apiKey,
-                'X-Api-Key: ' . $this->apiKey,
-            ],
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT => $this->timeout,
-            CURLOPT_SSL_VERIFYPEER => true,
-        ]);
-
-        $responseBody = curl_exec($ch);
-        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-
-        $latencyMs = (int)round((microtime(true) - $startTime) * 1000);
-        $this->logTransaction('/api/v1/status.php', ['reference' => $providerReference], $responseBody === false ? $curlError : (string)$responseBody, $statusCode, $latencyMs, $providerReference, 'GET');
-
-        if ($responseBody === false || $statusCode === 0) {
-            return [
-                'success' => false,
-                'code' => 502,
-                'status' => null,
-                'message' => 'Unable to reach verification status desk.',
-                'raw' => null,
-            ];
-        }
-
-        $decoded = json_decode((string)$responseBody, true);
-        if (!is_array($decoded)) {
-            return [
-                'success' => false,
-                'code' => $statusCode,
-                'status' => null,
-                'message' => 'Unexpected status response.',
-                'raw' => ['raw_text' => mb_substr((string)$responseBody, 0, 500)],
-            ];
-        }
-
-        $nested = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
-        $rawStatus = strtolower(trim((string)($nested['status'] ?? $decoded['status'] ?? '')));
-        $isPending = !empty($decoded['pending']) || !empty($nested['pending']);
+        $res = $this->checkStatus($providerReference, $serviceKey, $transactionId);
+        $statusCode = (int)($res['code'] ?? ($res['success'] ? 200 : 502));
+        $nested = is_array($res['data'] ?? null) ? $res['data'] : [];
+        $rawStatus = strtolower(trim((string)($nested['status'] ?? $res['status'] ?? '')));
+        $isPending = !empty($res['pending']) || !empty($nested['pending']);
         $remarks = trim((string)(
             $nested['remarks']
             ?? $nested['reason']
             ?? $nested['note']
-            ?? $decoded['remarks']
-            ?? $decoded['message']
+            ?? $res['remarks']
+            ?? $res['message']
             ?? ''
         ));
 
@@ -1609,20 +2044,23 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             $mapped = 'pending';
         }
 
-        $extracted = \HambakTech\Services\ResultDocumentService::extractProviderResult($decoded);
+        $extracted = \HambakTech\Services\ResultDocumentService::extractProviderResult($res);
 
         return [
-            'success' => $statusCode >= 200 && $statusCode < 300,
+            'success' => !empty($res['success']) || ($statusCode >= 200 && $statusCode < 300),
             'code' => $statusCode,
             'status' => $mapped,
             'provider_status' => $rawStatus ?: ($isPending ? 'pending' : 'unknown'),
+            'provider_transaction_id' => $res['provider_transaction_id'] ?? null,
+            'provider_refunded' => $res['provider_refunded'] ?? null,
+            'provider_refunded_amount' => $res['provider_refunded_amount'] ?? 0.0,
             'remarks' => $remarks,
             'tracking_id' => $extracted['tracking_id'],
             'extracted_files' => $extracted['extracted_files'],
             'result_urls' => $extracted['result_urls'],
             'result_details' => $extracted['result_details'],
             'data' => $nested,
-            'raw' => $decoded,
+            'raw' => $res,
         ];
     }
 

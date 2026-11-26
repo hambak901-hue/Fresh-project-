@@ -982,36 +982,47 @@ class SchemaSync
                 id VARCHAR(36) PRIMARY KEY,
                 request_number VARCHAR(64) NOT NULL UNIQUE,
                 user_id VARCHAR(36) NOT NULL,
-                identity_type ENUM("NIN", "BVN") NOT NULL,
+                identity_type ENUM("NIN", "BVN", "ADDITIONAL") NOT NULL,
                 service_key VARCHAR(100) NOT NULL,
                 service_name VARCHAR(191) NOT NULL,
                 masked_identifier VARCHAR(40) NOT NULL,
                 submitted_fields JSON NOT NULL,
                 supporting_documents JSON NULL,
+                document_review_checklist JSON NULL,
                 enrollment_type VARCHAR(150) NULL,
                 customer_price DECIMAL(15, 2) NOT NULL,
                 provider_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 profit DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                is_refundable TINYINT(1) NOT NULL DEFAULT 1,
                 provider_id VARCHAR(50) NOT NULL DEFAULT "2sureverify",
                 endpoint VARCHAR(150) NOT NULL,
                 payment_reference VARCHAR(120) NOT NULL UNIQUE,
                 refund_reference VARCHAR(120) NULL UNIQUE,
+                provider_refunded TINYINT(1) NULL,
+                provider_refunded_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 idempotency_key VARCHAR(120) NULL,
                 provider_reference VARCHAR(120) NULL,
+                provider_transaction_id VARCHAR(120) NULL,
                 provider_status VARCHAR(64) NULL,
                 provider_remarks TEXT NULL,
                 provider_response JSON NULL,
                 admin_notes TEXT NULL,
+                requested_corrections TEXT NULL,
                 reviewed_by VARCHAR(100) NULL,
                 reviewed_at DATETIME NULL,
+                assigned_to VARCHAR(36) NULL,
+                assigned_staff_name VARCHAR(150) NULL,
+                assigned_at DATETIME NULL,
                 estimated_completion_text VARCHAR(150) NULL,
-                status ENUM("pending", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
+                status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
                 completed_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_mr_user (user_id),
                 INDEX idx_mr_type_status (identity_type, status),
                 INDEX idx_mr_prov_ref (provider_reference),
+                INDEX idx_mr_prov_tx (provider_transaction_id),
+                INDEX idx_mr_assigned (assigned_to),
                 INDEX idx_mr_idemp (user_id, idempotency_key),
                 INDEX idx_mr_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
@@ -1040,29 +1051,40 @@ class SchemaSync
                 applicant_phone_masked VARCHAR(40) NULL,
                 submitted_fields JSON NOT NULL,
                 supporting_documents JSON NULL,
+                document_review_checklist JSON NULL,
                 customer_price DECIMAL(15, 2) NOT NULL,
                 provider_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 profit DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                is_refundable TINYINT(1) NOT NULL DEFAULT 1,
                 provider_id VARCHAR(50) NOT NULL DEFAULT "2sureverify",
                 endpoint VARCHAR(150) NOT NULL,
                 payment_reference VARCHAR(120) NOT NULL UNIQUE,
                 refund_reference VARCHAR(120) NULL UNIQUE,
+                provider_refunded TINYINT(1) NULL,
+                provider_refunded_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                 idempotency_key VARCHAR(120) NULL,
                 provider_reference VARCHAR(120) NULL,
+                provider_transaction_id VARCHAR(120) NULL,
                 provider_status VARCHAR(64) NULL,
                 provider_remarks TEXT NULL,
                 provider_response JSON NULL,
                 admin_notes TEXT NULL,
+                requested_corrections TEXT NULL,
                 reviewed_by VARCHAR(100) NULL,
                 reviewed_at DATETIME NULL,
+                assigned_to VARCHAR(36) NULL,
+                assigned_staff_name VARCHAR(150) NULL,
+                assigned_at DATETIME NULL,
                 estimated_completion_text VARCHAR(150) NULL,
-                status ENUM("pending", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
+                status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
                 completed_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_eo_user (user_id),
                 INDEX idx_eo_domain_status (identity_domain, status),
                 INDEX idx_eo_prov_ref (provider_reference),
+                INDEX idx_eo_prov_tx (provider_transaction_id),
+                INDEX idx_eo_assigned (assigned_to),
                 INDEX idx_eo_idemp (user_id, idempotency_key),
                 INDEX idx_eo_created (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
@@ -1492,6 +1514,15 @@ class SchemaSync
             $errors[] = 'syncEnrolmentCatalog => ' . $e->getMessage();
         }
 
+        // Ensure Phase 4 verified Additional & Clearance services exist
+        try {
+            $addSync = self::syncAdditionalServicesCatalog($db);
+            $applied = array_merge($applied, $addSync['applied'] ?? []);
+            $errors = array_merge($errors, $addSync['errors'] ?? []);
+        } catch (Throwable $e) {
+            $errors[] = 'syncAdditionalServicesCatalog => ' . $e->getMessage();
+        }
+
         // Ensure Stage 5 Referral, Rewards, Compulsory PIN & Session/MFA Security tables exist
         try {
             $secRefSync = self::syncSecurityAndReferralSchema($db, true);
@@ -1705,7 +1736,7 @@ class SchemaSync
         $applied = [];
         $errors = [];
 
-        // 1. Ensure Stage 3 service_catalogue metadata columns exist even outside full sync()
+        // 1. Ensure Stage 3 & Phase 4 service_catalogue metadata columns exist even outside full sync()
         $catCols = [
             'processing_type' => 'ADD COLUMN processing_type ENUM("instant", "manual") NOT NULL DEFAULT "instant"',
             'manual_label' => 'ADD COLUMN manual_label VARCHAR(80) NULL DEFAULT "Manual Processing"',
@@ -1713,6 +1744,7 @@ class SchemaSync
             'required_documents' => 'ADD COLUMN required_documents JSON NULL',
             'form_schema' => 'ADD COLUMN form_schema JSON NULL',
             'supported_notes' => 'ADD COLUMN supported_notes TEXT NULL',
+            'is_refundable' => 'ADD COLUMN is_refundable TINYINT(1) NOT NULL DEFAULT 1',
         ];
         foreach ($catCols as $col => $clause) {
             try {
@@ -1736,36 +1768,47 @@ class SchemaSync
                     id VARCHAR(36) PRIMARY KEY,
                     request_number VARCHAR(64) NOT NULL UNIQUE,
                     user_id VARCHAR(36) NOT NULL,
-                    identity_type ENUM("NIN", "BVN") NOT NULL,
+                    identity_type ENUM("NIN", "BVN", "ADDITIONAL") NOT NULL,
                     service_key VARCHAR(100) NOT NULL,
                     service_name VARCHAR(191) NOT NULL,
                     masked_identifier VARCHAR(40) NOT NULL,
                     submitted_fields JSON NOT NULL,
                     supporting_documents JSON NULL,
+                    document_review_checklist JSON NULL,
                     enrollment_type VARCHAR(150) NULL,
                     customer_price DECIMAL(15, 2) NOT NULL,
                     provider_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                     profit DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                    is_refundable TINYINT(1) NOT NULL DEFAULT 1,
                     provider_id VARCHAR(50) NOT NULL DEFAULT "2sureverify",
                     endpoint VARCHAR(150) NOT NULL,
                     payment_reference VARCHAR(120) NOT NULL UNIQUE,
                     refund_reference VARCHAR(120) NULL UNIQUE,
+                    provider_refunded TINYINT(1) NULL,
+                    provider_refunded_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                     idempotency_key VARCHAR(120) NULL,
                     provider_reference VARCHAR(120) NULL,
+                    provider_transaction_id VARCHAR(120) NULL,
                     provider_status VARCHAR(64) NULL,
                     provider_remarks TEXT NULL,
                     provider_response JSON NULL,
                     admin_notes TEXT NULL,
+                    requested_corrections TEXT NULL,
                     reviewed_by VARCHAR(100) NULL,
                     reviewed_at DATETIME NULL,
+                    assigned_to VARCHAR(36) NULL,
+                    assigned_staff_name VARCHAR(150) NULL,
+                    assigned_at DATETIME NULL,
                     estimated_completion_text VARCHAR(150) NULL,
-                    status ENUM("pending", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
+                    status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
                     completed_at DATETIME NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_mr_user (user_id),
                     INDEX idx_mr_type_status (identity_type, status),
                     INDEX idx_mr_prov_ref (provider_reference),
+                    INDEX idx_mr_prov_tx (provider_transaction_id),
+                    INDEX idx_mr_assigned (assigned_to),
                     INDEX idx_mr_idemp (user_id, idempotency_key),
                     INDEX idx_mr_created (created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
@@ -1821,6 +1864,15 @@ class SchemaSync
                 'result_retrieval_error' => 'ADD COLUMN result_retrieval_error TEXT NULL',
                 'result_retrieved_at' => 'ADD COLUMN result_retrieved_at DATETIME NULL',
                 'additional_info_history' => 'ADD COLUMN additional_info_history JSON NULL',
+                'provider_transaction_id' => 'ADD COLUMN provider_transaction_id VARCHAR(120) NULL',
+                'is_refundable' => 'ADD COLUMN is_refundable TINYINT(1) NOT NULL DEFAULT 1',
+                'provider_refunded' => 'ADD COLUMN provider_refunded TINYINT(1) NULL',
+                'provider_refunded_amount' => 'ADD COLUMN provider_refunded_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00',
+                'assigned_to' => 'ADD COLUMN assigned_to VARCHAR(36) NULL',
+                'assigned_staff_name' => 'ADD COLUMN assigned_staff_name VARCHAR(150) NULL',
+                'assigned_at' => 'ADD COLUMN assigned_at DATETIME NULL',
+                'document_review_checklist' => 'ADD COLUMN document_review_checklist JSON NULL',
+                'requested_corrections' => 'ADD COLUMN requested_corrections TEXT NULL',
             ];
             foreach ($modResultCols as $col => $clause) {
                 $exists = $db->fetchOne(
@@ -1831,6 +1883,23 @@ class SchemaSync
                     $db->execute("ALTER TABLE modification_requests {$clause}");
                     $applied[] = "col:modification_requests.{$col}";
                 }
+            }
+            try {
+                $idTypeCol = $db->fetchOne(
+                    'SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "modification_requests" AND COLUMN_NAME = "identity_type"'
+                );
+                if ($idTypeCol && !str_contains((string)($idTypeCol['COLUMN_TYPE'] ?? ''), 'ADDITIONAL')) {
+                    $db->execute('ALTER TABLE modification_requests MODIFY COLUMN identity_type ENUM("NIN", "BVN", "ADDITIONAL") NOT NULL');
+                    $applied[] = 'enum:modification_requests.identity_type';
+                }
+                $mrStatusCol = $db->fetchOne(
+                    'SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "modification_requests" AND COLUMN_NAME = "status"'
+                );
+                if ($mrStatusCol && !str_contains((string)($mrStatusCol['COLUMN_TYPE'] ?? ''), 'under_review')) {
+                    $db->execute('ALTER TABLE modification_requests MODIFY COLUMN status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending"');
+                    $applied[] = 'enum:modification_requests.status';
+                }
+            } catch (Throwable) {
             }
         } catch (Throwable $e) {
             $errors[] = 'mod_tables => ' . $e->getMessage();
@@ -2352,7 +2421,7 @@ class SchemaSync
             }
         }
 
-        // Phase 3: Ensure modification_status_history table, backfill provider_service_mappings, and keep BVN bank tables in sync
+        // Phase 3 & 4: Ensure status history, webhook deliveries, backfill provider_service_mappings, and keep BVN bank tables in sync
         try {
             $db->execute(
                 'CREATE TABLE IF NOT EXISTS modification_status_history (
@@ -2366,6 +2435,24 @@ class SchemaSync
                     is_customer_visible TINYINT(1) NOT NULL DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     INDEX idx_mod_hist_req (request_id, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS identity_webhook_deliveries (
+                    id VARCHAR(36) PRIMARY KEY,
+                    delivery_id VARCHAR(150) NOT NULL UNIQUE,
+                    provider_id VARCHAR(50) NOT NULL DEFAULT "2sureverify",
+                    reference VARCHAR(120) NULL,
+                    transaction_id VARCHAR(120) NULL,
+                    event_type VARCHAR(80) NULL,
+                    status_received VARCHAR(64) NULL,
+                    payload_hash VARCHAR(64) NOT NULL,
+                    domain VARCHAR(32) NULL,
+                    record_id VARCHAR(36) NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_iwd_ref (reference),
+                    INDEX idx_iwd_tx (transaction_id),
+                    INDEX idx_iwd_created (created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
             );
             $db->execute(
@@ -2416,7 +2503,7 @@ class SchemaSync
         $applied = [];
         $errors = [];
 
-        // 1. Ensure Stage 4 metadata columns on service_catalogue exist
+        // 1. Ensure Stage 4 & Phase 4 metadata columns on service_catalogue exist
         $catCols = [
             'processing_type' => 'ADD COLUMN processing_type ENUM("instant", "manual") NOT NULL DEFAULT "instant"',
             'manual_label' => 'ADD COLUMN manual_label VARCHAR(80) NULL DEFAULT "Manual Processing"',
@@ -2424,6 +2511,7 @@ class SchemaSync
             'required_documents' => 'ADD COLUMN required_documents JSON NULL',
             'form_schema' => 'ADD COLUMN form_schema JSON NULL',
             'supported_notes' => 'ADD COLUMN supported_notes TEXT NULL',
+            'is_refundable' => 'ADD COLUMN is_refundable TINYINT(1) NOT NULL DEFAULT 1',
         ];
         foreach ($catCols as $col => $clause) {
             try {
@@ -2455,31 +2543,74 @@ class SchemaSync
                     applicant_phone_masked VARCHAR(40) NULL,
                     submitted_fields JSON NOT NULL,
                     supporting_documents JSON NULL,
+                    document_review_checklist JSON NULL,
                     customer_price DECIMAL(15, 2) NOT NULL,
                     provider_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                     profit DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+                    is_refundable TINYINT(1) NOT NULL DEFAULT 1,
                     provider_id VARCHAR(50) NOT NULL DEFAULT "2sureverify",
                     endpoint VARCHAR(150) NOT NULL,
                     payment_reference VARCHAR(120) NOT NULL UNIQUE,
                     refund_reference VARCHAR(120) NULL UNIQUE,
+                    provider_refunded TINYINT(1) NULL,
+                    provider_refunded_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                     idempotency_key VARCHAR(120) NULL,
                     provider_reference VARCHAR(120) NULL,
+                    provider_transaction_id VARCHAR(120) NULL,
                     provider_status VARCHAR(64) NULL,
                     provider_remarks TEXT NULL,
                     provider_response JSON NULL,
                     admin_notes TEXT NULL,
+                    requested_corrections TEXT NULL,
                     reviewed_by VARCHAR(100) NULL,
                     reviewed_at DATETIME NULL,
+                    assigned_to VARCHAR(36) NULL,
+                    assigned_staff_name VARCHAR(150) NULL,
+                    assigned_at DATETIME NULL,
                     estimated_completion_text VARCHAR(150) NULL,
-                    status ENUM("pending", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
+                    status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
                     completed_at DATETIME NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_eo_user (user_id),
                     INDEX idx_eo_domain_status (identity_domain, status),
                     INDEX idx_eo_prov_ref (provider_reference),
+                    INDEX idx_eo_prov_tx (provider_transaction_id),
+                    INDEX idx_eo_assigned (assigned_to),
                     INDEX idx_eo_idemp (user_id, idempotency_key),
                     INDEX idx_eo_created (created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS enrolment_status_history (
+                    id VARCHAR(36) PRIMARY KEY,
+                    order_id VARCHAR(36) NOT NULL,
+                    previous_status VARCHAR(40) NULL,
+                    new_status VARCHAR(40) NOT NULL,
+                    actor_type ENUM("customer", "provider", "admin", "system") NOT NULL DEFAULT "system",
+                    actor_id VARCHAR(36) NULL,
+                    remarks TEXT NULL,
+                    is_customer_visible TINYINT(1) NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_enr_hist_order (order_id, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS identity_webhook_deliveries (
+                    id VARCHAR(36) PRIMARY KEY,
+                    delivery_id VARCHAR(150) NOT NULL UNIQUE,
+                    provider_id VARCHAR(50) NOT NULL DEFAULT "2sureverify",
+                    reference VARCHAR(120) NULL,
+                    transaction_id VARCHAR(120) NULL,
+                    event_type VARCHAR(80) NULL,
+                    status_received VARCHAR(64) NULL,
+                    payload_hash VARCHAR(64) NOT NULL,
+                    domain VARCHAR(32) NULL,
+                    record_id VARCHAR(36) NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_iwd_ref (reference),
+                    INDEX idx_iwd_tx (transaction_id),
+                    INDEX idx_iwd_created (created_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
             );
             $db->execute(
@@ -2508,6 +2639,15 @@ class SchemaSync
                 'result_retrieval_error' => 'ADD COLUMN result_retrieval_error TEXT NULL',
                 'result_retrieved_at' => 'ADD COLUMN result_retrieved_at DATETIME NULL',
                 'additional_info_history' => 'ADD COLUMN additional_info_history JSON NULL',
+                'provider_transaction_id' => 'ADD COLUMN provider_transaction_id VARCHAR(120) NULL',
+                'is_refundable' => 'ADD COLUMN is_refundable TINYINT(1) NOT NULL DEFAULT 1',
+                'provider_refunded' => 'ADD COLUMN provider_refunded TINYINT(1) NULL',
+                'provider_refunded_amount' => 'ADD COLUMN provider_refunded_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00',
+                'assigned_to' => 'ADD COLUMN assigned_to VARCHAR(36) NULL',
+                'assigned_staff_name' => 'ADD COLUMN assigned_staff_name VARCHAR(150) NULL',
+                'assigned_at' => 'ADD COLUMN assigned_at DATETIME NULL',
+                'document_review_checklist' => 'ADD COLUMN document_review_checklist JSON NULL',
+                'requested_corrections' => 'ADD COLUMN requested_corrections TEXT NULL',
             ];
             foreach ($enrResultCols as $col => $clause) {
                 $exists = $db->fetchOne(
@@ -2518,6 +2658,16 @@ class SchemaSync
                     $db->execute("ALTER TABLE enrolment_orders {$clause}");
                     $applied[] = "col:enrolment_orders.{$col}";
                 }
+            }
+            try {
+                $eoStatusCol = $db->fetchOne(
+                    'SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "enrolment_orders" AND COLUMN_NAME = "status"'
+                );
+                if ($eoStatusCol && !str_contains((string)($eoStatusCol['COLUMN_TYPE'] ?? ''), 'under_review')) {
+                    $db->execute('ALTER TABLE enrolment_orders MODIFY COLUMN status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending"');
+                    $applied[] = 'enum:enrolment_orders.status';
+                }
+            } catch (Throwable) {
             }
         } catch (Throwable $e) {
             $errors[] = 'enr_tables => ' . $e->getMessage();
@@ -2740,6 +2890,320 @@ class SchemaSync
         $accSync = self::syncAccountingSchema($db, true);
         $applied = array_merge($applied, $accSync['applied'] ?? []);
         $errors = array_merge($errors, $accSync['errors'] ?? []);
+
+        return ['applied' => $applied, 'errors' => $errors];
+    }
+
+    public static function syncAdditionalServicesCatalog(Database $db, bool $force = false): array
+    {
+        static $addSynced = false;
+        if ($addSynced && !$force) {
+            return ['applied' => [], 'errors' => []];
+        }
+        $addSynced = true;
+
+        $applied = [];
+        $errors = [];
+
+        // Ensure prerequisite tables & columns exist via modification sync
+        self::syncModificationCatalog($db, $force);
+
+        try {
+            $db->execute(
+                'INSERT INTO service_categories (id, code, name, icon, display_order, is_active)
+                 VALUES ("cat_add", "additional_services", "Additional Services", "Layers", 7, 1)
+                 ON DUPLICATE KEY UPDATE name = VALUES(name), code = VALUES(code)'
+            );
+        } catch (Throwable $e) {
+            $errors[] = 'add_category => ' . $e->getMessage();
+        }
+
+        $docSupportOptional = [
+            'key' => 'supporting_doc',
+            'provider_file_param' => 'supporting_doc',
+            'label' => 'Supporting Document / Slip (Optional)',
+            'required' => false,
+            'accepted_formats' => ['JPG', 'PNG', 'WEBP', 'PDF'],
+            'max_size_mb' => 5,
+            'description' => 'Optional copy of your existing NIN slip, tracking slip, or supporting verification document.',
+        ];
+
+        $additionalCatalog = [
+            [
+                'id' => 'srv_add_ipe_clearance',
+                'category_id' => 'cat_add',
+                'service_key' => 'ipe_clearance',
+                'name' => 'IPE Clearance (Tracking Clearance)',
+                'description' => 'Clear stuck or "In Processing Error" (IPE) NIMC tracking requests and retrieve resolved NIN / new tracking reference.',
+                'endpoint' => '/api/v1/ipe_clearance.php',
+                'wholesale_cost' => 300.00,
+                'selling_price' => 600.00,
+                'is_refundable' => 1,
+                'estimated_turnaround' => '24 – 72 Hours (Subject to NIMC IPE queue)',
+                'supported_notes' => 'Provide the exact NIMC Ticket / Tracking ID (1–20 alphanumeric characters) and select the applicable clearance category.',
+                'required_fields' => ['ticket_id', 'sub_type'],
+                'required_documents' => [$docSupportOptional],
+                'form_schema' => [
+                    ['key' => 'ticket_id', 'provider_param' => 'ticket_id', 'label' => 'NIMC Ticket / Tracking ID', 'type' => 'text', 'required' => true, 'maxLength' => 20, 'placeholder' => 'e.g., 0B1234567890XYZ', 'help_text' => '1 to 20 alphanumeric characters printed on your enrolment or modification slip.'],
+                    ['key' => 'sub_type', 'provider_param' => 'sub_type', 'label' => 'Clearance Category', 'type' => 'select', 'required' => true, 'help_text' => 'Choose the category that matches your NIMC IPE issue.', 'options' => [
+                        ['value' => 'normal', 'label' => 'Normal IPE Clearance'],
+                        ['value' => 'nc_or_hit', 'label' => 'No Record / Biometric Hit (NC or Hit)'],
+                        ['value' => 'block', 'label' => 'Blocked / Suspended IPE'],
+                        ['value' => 'modification', 'label' => 'Modification IPE'],
+                    ]],
+                ],
+            ],
+            [
+                'id' => 'srv_add_nin_validation',
+                'category_id' => 'cat_add',
+                'service_key' => 'nin_validation',
+                'name' => 'NIN Validation & Synchronisation',
+                'description' => 'Synchronise and validate unverified or mismatched NIMC NIN records across banks, SIM registration, passport, or portal errors.',
+                'endpoint' => '/api/v1/validation.php',
+                'wholesale_cost' => 700.00,
+                'selling_price' => 1200.00,
+                'is_refundable' => 1,
+                'estimated_turnaround' => '24 – 72 Hours (Subject to NIMC backend sync)',
+                'supported_notes' => 'Select the exact validation issue reported by your bank, telco, or portal.',
+                'required_fields' => ['nin', 'sub_type'],
+                'required_documents' => [$docSupportOptional],
+                'form_schema' => [
+                    ['key' => 'nin', 'provider_param' => 'nin', 'label' => '11-Digit NIN Number', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => 'Enter 11-digit NIN', 'help_text' => '11-digit National Identification Number requiring validation.'],
+                    ['key' => 'sub_type', 'provider_param' => 'sub_type', 'label' => 'Validation Type', 'type' => 'select', 'required' => true, 'help_text' => 'Select the specific NIMC validation channel required.', 'options' => [
+                        ['value' => 'fast', 'label' => 'Fast Validation'],
+                        ['value' => 'no_record', 'label' => 'No Record Found'],
+                        ['value' => 'sim', 'label' => 'SIM Registration Validation'],
+                        ['value' => 'v.nin_validation', 'label' => 'Virtual NIN (vNIN) Validation'],
+                        ['value' => 'update_records', 'label' => 'Update Records Sync'],
+                        ['value' => 'bank_validation', 'label' => 'Bank / BVN Validation'],
+                        ['value' => 'modification', 'label' => 'Post-Modification Validation'],
+                        ['value' => 'photo_error', 'label' => 'Passport / Photo Error'],
+                    ]],
+                ],
+            ],
+            [
+                'id' => 'srv_add_mod_clearance',
+                'category_id' => 'cat_add',
+                'service_key' => 'modification_clearance',
+                'name' => 'Self-MOD IPE (Modification Clearance)',
+                'description' => 'Clear pending NIMC self-service modification requests and retrieve updated NIN, new tracking ID, and official PDF/premium slip.',
+                'endpoint' => '/api/v1/modification_clearance.php',
+                'wholesale_cost' => 800.00,
+                'selling_price' => 1500.00,
+                'is_refundable' => 1,
+                'estimated_turnaround' => '24 – 72 Hours (Subject to NIMC clearance)',
+                'supported_notes' => 'Enter the Tracking ID generated by the NIMC Self-Service Modification portal and select what was modified. Official slip & PDF report are fetched automatically once completed.',
+                'required_fields' => ['tracking_id', 'modification_type'],
+                'required_documents' => [$docSupportOptional],
+                'form_schema' => [
+                    ['key' => 'tracking_id', 'provider_param' => 'tracking_id', 'label' => 'Self-Modification Tracking ID', 'type' => 'text', 'required' => true, 'maxLength' => 20, 'placeholder' => 'Enter 1–20 char tracking ID', 'help_text' => 'Alphanumeric tracking ID from your NIMC self-service modification submission.'],
+                    ['key' => 'modification_type', 'provider_param' => 'modification_type', 'label' => 'Modification Category', 'type' => 'select', 'required' => true, 'help_text' => 'Select the biodata field modified on NIMC self-service.', 'options' => [
+                        ['value' => 'name', 'label' => 'Name Correction'],
+                        ['value' => 'dob', 'label' => 'Date of Birth Correction'],
+                        ['value' => 'phone', 'label' => 'Phone Number Correction'],
+                        ['value' => 'address', 'label' => 'Residential Address'],
+                        ['value' => 'gender', 'label' => 'Gender Correction'],
+                        ['value' => 'over_age', 'label' => 'Over-Age DOB Adjustment'],
+                        ['value' => 'dob_name', 'label' => 'DOB & Name Combination'],
+                        ['value' => 'name_phone', 'label' => 'Name & Phone Combination'],
+                    ]],
+                ],
+            ],
+            [
+                'id' => 'srv_add_personalization',
+                'category_id' => 'cat_add',
+                'service_key' => 'nin_personalization',
+                'name' => 'NIN Personalisation (Standard)',
+                'description' => 'Retrieve NIN personalisation details and official slip using your NIMC enrolment Tracking ID. Note: Non-refundable once submitted.',
+                'endpoint' => '/api/v1/personalization.php',
+                'wholesale_cost' => 170.00,
+                'selling_price' => 500.00,
+                'is_refundable' => 0,
+                'estimated_turnaround' => 'Instant – 24 Hours (Subject to NIMC response)',
+                'supported_notes' => 'IMPORTANT — NON-REFUNDABLE SERVICE: Verify your Tracking ID carefully before submitting. Provider/NIMC does not refund personalisation fees if a tracking ID is invalid or fails.',
+                'required_fields' => ['tracking_id'],
+                'required_documents' => [],
+                'form_schema' => [
+                    ['key' => 'tracking_id', 'provider_param' => 'tracking_id', 'label' => 'NIMC Enrolment Tracking ID', 'type' => 'text', 'required' => true, 'maxLength' => 20, 'placeholder' => 'Enter 1–20 char tracking ID', 'help_text' => 'Double-check every character — this service is strictly non-refundable once submitted.'],
+                ],
+            ],
+            [
+                'id' => 'srv_add_personalization_2',
+                'category_id' => 'cat_add',
+                'service_key' => 'nin_personalization_2',
+                'name' => 'NIN Personalisation V2 (Slip Tier)',
+                'description' => 'Retrieve NIN personalisation record and downloadable slip format (Info, Standard, or Premium). Note: Non-refundable once submitted.',
+                'endpoint' => '/api/v1/personalization_2.php',
+                'wholesale_cost' => 140.00,
+                'selling_price' => 450.00,
+                'is_refundable' => 0,
+                'estimated_turnaround' => 'Instant – 24 Hours (Subject to NIMC response)',
+                'supported_notes' => 'IMPORTANT — NON-REFUNDABLE SERVICE: Double-check your Tracking ID before payment. Provider does not issue refunds for failed tracking lookups.',
+                'required_fields' => ['tracking_id', 'type'],
+                'required_documents' => [],
+                'form_schema' => [
+                    ['key' => 'tracking_id', 'provider_param' => 'tracking_id', 'label' => 'NIMC Enrolment Tracking ID', 'type' => 'text', 'required' => true, 'maxLength' => 20, 'placeholder' => 'Enter 1–20 char tracking ID', 'help_text' => 'Double-check every character — strictly non-refundable once submitted.'],
+                    ['key' => 'type', 'provider_param' => 'type', 'label' => 'Personalisation Slip Type', 'type' => 'select', 'required' => true, 'help_text' => 'Choose the output slip format returned once personalisation succeeds.', 'options' => [
+                        ['value' => 'info', 'label' => 'Information Slip'],
+                        ['value' => 'standard', 'label' => 'Standard Slip'],
+                        ['value' => 'premium', 'label' => 'Premium Slip'],
+                    ]],
+                ],
+            ],
+            [
+                'id' => 'srv_add_npc_attestation',
+                'category_id' => 'cat_add',
+                'service_key' => 'npc_attestation',
+                'name' => 'NPC Birth Attestation Certificate',
+                'description' => 'National Population Commission (NPC) Birth Attestation application and digital PDF certificate retrieval.',
+                'endpoint' => '/api/v1/npc_attestation.php',
+                'wholesale_cost' => 21000.00,
+                'selling_price' => 26000.00,
+                'is_refundable' => 1,
+                'estimated_turnaround' => '3 – 10 Business Days (Subject to NPC processing)',
+                'supported_notes' => 'Provide accurate applicant and parent details exactly matching birth and NIN records.',
+                'required_fields' => ['nin', 'firstname', 'surname', 'dob', 'phone', 'email'],
+                'required_documents' => [$docSupportOptional],
+                'form_schema' => [
+                    ['key' => 'nin', 'provider_param' => 'nin', 'label' => 'Applicant 11-Digit NIN', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => '11-digit NIN', 'help_text' => 'Applicant\'s existing National Identification Number.'],
+                    ['key' => 'firstname', 'provider_param' => 'firstname', 'label' => 'First Name', 'type' => 'text', 'required' => true, 'placeholder' => 'First name'],
+                    ['key' => 'surname', 'provider_param' => 'surname', 'label' => 'Surname / Last Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Surname'],
+                    ['key' => 'middlename', 'provider_param' => 'middlename', 'label' => 'Middle Name (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'Middle name'],
+                    ['key' => 'dob', 'provider_param' => 'dob', 'label' => 'Date of Birth', 'type' => 'date', 'required' => true],
+                    ['key' => 'phone', 'provider_param' => 'phone', 'label' => 'Contact Phone', 'type' => 'tel', 'required' => true, 'maxLength' => 11, 'placeholder' => '080...'],
+                    ['key' => 'email', 'provider_param' => 'email', 'label' => 'Contact Email', 'type' => 'email', 'required' => true, 'placeholder' => 'applicant@example.com'],
+                    ['key' => 'state', 'provider_param' => 'state', 'label' => 'State of Residence (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'lga', 'provider_param' => 'lga', 'label' => 'LGA of Residence (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'town', 'provider_param' => 'town', 'label' => 'Town / City (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'origin_state', 'provider_param' => 'origin_state', 'label' => 'State of Origin (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'origin_lga', 'provider_param' => 'origin_lga', 'label' => 'LGA of Origin (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'address', 'provider_param' => 'address', 'label' => 'Residential Address (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'father_nin', 'provider_param' => 'father_nin', 'label' => 'Father\'s NIN (Optional)', 'type' => 'text', 'required' => false, 'maxLength' => 11],
+                    ['key' => 'father_firstname', 'provider_param' => 'father_firstname', 'label' => 'Father\'s First Name (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'father_surname', 'provider_param' => 'father_surname', 'label' => 'Father\'s Surname (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'father_middlename', 'provider_param' => 'father_middlename', 'label' => 'Father\'s Middle Name (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'father_state', 'provider_param' => 'father_state', 'label' => 'Father\'s State of Origin (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'father_lga', 'provider_param' => 'father_lga', 'label' => 'Father\'s LGA of Origin (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'mother_nin', 'provider_param' => 'mother_nin', 'label' => 'Mother\'s NIN (Optional)', 'type' => 'text', 'required' => false, 'maxLength' => 11],
+                    ['key' => 'mother_firstname', 'provider_param' => 'mother_firstname', 'label' => 'Mother\'s First Name (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'mother_surname', 'provider_param' => 'mother_surname', 'label' => 'Mother\'s Surname (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'mother_middlename', 'provider_param' => 'mother_middlename', 'label' => 'Mother\'s Middle Name (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'mother_state', 'provider_param' => 'mother_state', 'label' => 'Mother\'s State of Origin (Optional)', 'type' => 'text', 'required' => false],
+                    ['key' => 'mother_lga', 'provider_param' => 'mother_lga', 'label' => 'Mother\'s LGA of Origin (Optional)', 'type' => 'text', 'required' => false],
+                ],
+            ],
+            [
+                'id' => 'srv_add_delinking',
+                'category_id' => 'cat_add',
+                'service_key' => 'nin_delinking',
+                'name' => 'NIN Delinking / Email Retrieval',
+                'description' => 'Retrieve the email address linked to an existing NIN profile or delink an unauthorised email/device.',
+                'endpoint' => '/api/v1/delinking.php',
+                'wholesale_cost' => 3500.00,
+                'selling_price' => 5000.00,
+                'is_refundable' => 1,
+                'estimated_turnaround' => '2 – 7 Business Days (Subject to NIMC review)',
+                'supported_notes' => 'Choose "Email Retrieval" to uncover the linked email, or "Delinking" (requires your new preferred email address).',
+                'required_fields' => ['nin', 'sub_type'],
+                'required_documents' => [$docSupportOptional],
+                'form_schema' => [
+                    ['key' => 'nin', 'provider_param' => 'nin', 'label' => '11-Digit NIN Number', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => 'Enter 11-digit NIN'],
+                    ['key' => 'sub_type', 'provider_param' => 'sub_type', 'label' => 'Service Mode', 'type' => 'select', 'required' => true, 'options' => [
+                        ['value' => 'email_retrieval', 'label' => 'Email Retrieval Only'],
+                        ['value' => 'delinking', 'label' => 'Delink & Link New Email'],
+                    ]],
+                    ['key' => 'email', 'provider_param' => 'email', 'label' => 'New Email Address (For Delinking)', 'type' => 'email', 'required' => true, 'conditional_on' => ['field' => 'sub_type', 'values' => ['delinking']], 'placeholder' => 'newemail@example.com', 'help_text' => 'Required when requesting NIN email delinking.'],
+                ],
+            ],
+        ];
+
+        foreach ($additionalCatalog as $srv) {
+            try {
+                $existing = $db->fetchOne(
+                    'SELECT id, category_id, processing_type, manual_label, estimated_turnaround, required_documents, form_schema, supported_notes, is_refundable FROM service_catalogue WHERE service_key = :sk LIMIT 1',
+                    ['sk' => $srv['service_key']]
+                );
+                if (!$existing) {
+                    $db->execute(
+                        'INSERT INTO service_catalogue
+                         (id, category_id, service_key, name, description, provider_id, endpoint, wholesale_cost, selling_price, required_fields, slip_type_supported, is_refundable, is_active, processing_type, manual_label, estimated_turnaround, required_documents, form_schema, supported_notes)
+                         VALUES
+                         (:id, :cat, :sk, :nm, :desc, "2sureverify", :ep, :wc, :sp, :rf, 0, :ir, 1, "manual", "Provider Async Processing", :eta, :rdocs, :fschema, :notes)',
+                        [
+                            'id' => $srv['id'],
+                            'cat' => $srv['category_id'],
+                            'sk' => $srv['service_key'],
+                            'nm' => $srv['name'],
+                            'desc' => $srv['description'],
+                            'ep' => $srv['endpoint'],
+                            'wc' => $srv['wholesale_cost'],
+                            'sp' => $srv['selling_price'],
+                            'rf' => json_encode($srv['required_fields']),
+                            'ir' => (int)$srv['is_refundable'],
+                            'eta' => $srv['estimated_turnaround'],
+                            'rdocs' => json_encode($srv['required_documents']),
+                            'fschema' => json_encode($srv['form_schema']),
+                            'notes' => $srv['supported_notes'],
+                        ]
+                    );
+                    $applied[] = 'add_insert:' . $srv['service_key'];
+                } else {
+                    $updCols = ['processing_type = "manual"', 'category_id = "cat_add"'];
+                    $updParams = ['id' => $existing['id']];
+                    if ((int)($existing['is_refundable'] ?? 1) !== (int)$srv['is_refundable']) {
+                        $updCols[] = 'is_refundable = :ir';
+                        $updParams['ir'] = (int)$srv['is_refundable'];
+                    }
+                    if (empty($existing['manual_label'])) {
+                        $updCols[] = 'manual_label = "Provider Async Processing"';
+                    }
+                    if (empty($existing['estimated_turnaround'])) {
+                        $updCols[] = 'estimated_turnaround = :eta';
+                        $updParams['eta'] = $srv['estimated_turnaround'];
+                    }
+                    if (empty($existing['supported_notes'])) {
+                        $updCols[] = 'supported_notes = :notes';
+                        $updParams['notes'] = $srv['supported_notes'];
+                    }
+                    $curDocs = is_string($existing['required_documents'] ?? null)
+                        ? json_decode((string)$existing['required_documents'], true)
+                        : ($existing['required_documents'] ?? null);
+                    if (!is_array($curDocs)) {
+                        $updCols[] = 'required_documents = :rdocs';
+                        $updParams['rdocs'] = json_encode($srv['required_documents']);
+                    }
+                    $curSchema = is_string($existing['form_schema'] ?? null)
+                        ? json_decode((string)$existing['form_schema'], true)
+                        : ($existing['form_schema'] ?? null);
+                    if (empty($curSchema) || !is_array($curSchema)) {
+                        $updCols[] = 'form_schema = :fschema';
+                        $updParams['fschema'] = json_encode($srv['form_schema']);
+                    }
+                    if (count($updCols) > 2 || ($existing['processing_type'] ?? '') !== 'manual' || ($existing['category_id'] ?? '') !== 'cat_add') {
+                        $db->execute(
+                            'UPDATE service_catalogue SET ' . implode(', ', $updCols) . ' WHERE id = :id',
+                            $updParams
+                        );
+                        $applied[] = 'add_backfill:' . $srv['service_key'];
+                    }
+                }
+            } catch (Throwable $e) {
+                $errors[] = 'add_srv:' . $srv['service_key'] . ' => ' . $e->getMessage();
+            }
+        }
+
+        try {
+            $db->execute(
+                'INSERT INTO provider_service_mappings (id, provider_id, service_key, provider_endpoint, provider_plan_code, wholesale_cost, is_active)
+                 SELECT UUID(), s.provider_id, s.service_key, s.endpoint, NULL, s.wholesale_cost, s.is_active
+                 FROM service_catalogue s
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM provider_service_mappings psm WHERE psm.service_key = s.service_key
+                 )'
+            );
+        } catch (Throwable $e) {
+            $errors[] = 'add_psm_sync => ' . $e->getMessage();
+        }
 
         return ['applied' => $applied, 'errors' => $errors];
     }

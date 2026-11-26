@@ -135,6 +135,7 @@ export type AdminTabKey =
   | 'printing'
   | 'modifications_admin'
   | 'enrolments_admin'
+  | 'additional_admin'
   | 'digital_services'
   | 'store_admin'
   | 'academy_admin'
@@ -242,6 +243,8 @@ function resolveConfiguredConsoleTab(defaultTab?: string): AdminTabKey | null {
     printing: 'printing',
     modifications_admin: 'modifications_admin',
     enrolments_admin: 'enrolments_admin',
+    additional_admin: 'additional_admin',
+    additional_services: 'additional_admin',
     digital_services: 'digital_services',
     store_admin: 'store_admin',
     academy_admin: 'academy_admin',
@@ -293,6 +296,7 @@ const CONSOLE_TAB_MODULE_MAP: Record<string, string> = {
   services: 'services',
   modifications_admin: 'services',
   enrolments_admin: 'services',
+  additional_admin: 'services',
   digital_services: 'services',
   store_admin: 'services',
   referrals_admin: 'referrals_admin',
@@ -327,6 +331,7 @@ const CONSOLE_TAB_REQUIRED_PERMS: Record<string, string[]> = {
   printing: ['printing', 'printing_pricing'],
   modifications_admin: ['services'],
   enrolments_admin: ['services'],
+  additional_admin: ['services'],
   digital_services: ['services'],
   store_admin: ['services'],
   academy_admin: ['services', 'academy'],
@@ -1002,6 +1007,7 @@ export function SuperAdminDashboard({
         { id: 'printing', label: 'Printing & Document Services', icon: Printer, badge: 'Print', permissionsAny: ['printing', 'printing_pricing'] },
         { id: 'modifications_admin', label: 'NIN & BVN Modifications', icon: ShieldCheck, badge: 'Stage 3', permission: 'services' },
         { id: 'enrolments_admin', label: 'Enrolment Centre', icon: UserPlus, badge: 'Stage 4', permission: 'services' },
+        { id: 'additional_admin', label: 'Clearance & Additional Services', icon: ShieldCheck, badge: 'Phase 4', permission: 'services' },
         { id: 'digital_services', label: 'Digital Utilities (Cable & Disco)', icon: Tv, badge: 'Phase 8', permission: 'services' },
         { id: 'store_admin', label: 'Hardware Store', icon: ShoppingBag, badge: 'Catalog', permission: 'services' },
         { id: 'academy_admin', label: 'Digital Training Academy', icon: GraduationCap, badge: '12 Courses', permissionsAny: ['services', 'academy'] },
@@ -1324,9 +1330,11 @@ export function SuperAdminDashboard({
               <AdminPrintingManagement initialOrderRef={initialPrintOrderRef} />
             )}
 
-            {safeActiveTab === 'modifications_admin' && <ModificationManagement />}
+            {safeActiveTab === 'modifications_admin' && <ModificationManagement domainMode="modifications" />}
 
             {safeActiveTab === 'enrolments_admin' && <EnrolmentManagement />}
+
+            {safeActiveTab === 'additional_admin' && <ModificationManagement domainMode="additional" />}
 
             {safeActiveTab === 'digital_services' && <DigitalServicesManagement />}
 

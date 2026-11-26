@@ -17,11 +17,13 @@ import {
   ModificationServiceItem,
   ModificationRequestItem,
   EnrolmentOrderItem,
+  AdditionalServiceRequest,
 } from '../../types';
 import { IdentitySlipModal } from './IdentitySlipModal';
 import { TransactionPinModal } from './TransactionPinModal';
 import { ModificationSection, getModificationStatusStyle } from './ModificationSection';
 import { EnrolmentSection, getEnrolmentStatusStyle } from './EnrolmentSection';
+import { AdditionalServicesSection, getAdditionalServiceStatusStyle } from './AdditionalServicesSection';
 import { downloadVerificationReportPdf, extractVerificationReport } from '../../lib/pdfReport';
 import {
   ShieldCheck,
@@ -132,7 +134,8 @@ export const NinServicesPage: React.FC = () => {
   const [history, setHistory] = useState<VerificationRecord[]>([]);
   const [modHistory, setModHistory] = useState<ModificationRequestItem[]>([]);
   const [enrolmentHistory, setEnrolmentHistory] = useState<EnrolmentOrderItem[]>([]);
-  const [historyTabFilter, setHistoryTabFilter] = useState<'instant' | 'nin_mod' | 'bvn_mod' | 'enrolment'>('instant');
+  const [additionalHistory, setAdditionalHistory] = useState<AdditionalServiceRequest[]>([]);
+  const [historyTabFilter, setHistoryTabFilter] = useState<'instant' | 'nin_mod' | 'bvn_mod' | 'enrolment' | 'additional'>('instant');
   const [ninModServices, setNinModServices] = useState<ModificationServiceItem[]>([]);
   const [bvnModServices, setBvnModServices] = useState<ModificationServiceItem[]>([]);
   const [loadingModServices, setLoadingModServices] = useState<boolean>(true);
@@ -235,7 +238,7 @@ export const NinServicesPage: React.FC = () => {
   const loadHistory = async () => {
     try {
       setHistoryLoading(true);
-      const [verRes, modRes, enrRes] = await Promise.all([
+      const [verRes, modRes, enrRes, addRes] = await Promise.all([
         api.getVerificationHistory(undefined, historySearch.trim() || undefined),
         api.getModificationHistory({
           identity_type: 'ALL',
@@ -243,6 +246,10 @@ export const NinServicesPage: React.FC = () => {
           limit: 50,
         }).catch(() => null),
         api.getEnrolmentHistory({
+          search: historySearch.trim() || undefined,
+          limit: 50,
+        }).catch(() => null),
+        api.getAdditionalServiceHistory({
           search: historySearch.trim() || undefined,
           limit: 50,
         }).catch(() => null),
@@ -255,6 +262,9 @@ export const NinServicesPage: React.FC = () => {
       }
       if (enrRes && enrRes.success) {
         setEnrolmentHistory(enrRes.orders || []);
+      }
+      if (addRes && addRes.success) {
+        setAdditionalHistory(addRes.requests || []);
       }
     } catch {
       setHistory([]);
@@ -974,8 +984,8 @@ export const NinServicesPage: React.FC = () => {
           { id: 'nin_mod', label: 'NIN Modification', icon: Edit3 },
           { id: 'bvn_mod', label: 'BVN Modification', icon: Briefcase },
           { id: 'enrolment', label: 'Enrolment', icon: GraduationCap },
-          { id: 'additional', label: 'Additional Services', icon: Briefcase },
-          { id: 'history', label: 'Verification History', icon: FileText, count: history.length + modHistory.length + enrolmentHistory.length },
+          { id: 'additional', label: 'Clearance & Additional Services', icon: Briefcase },
+          { id: 'history', label: 'Verification History', icon: FileText, count: history.length + modHistory.length + enrolmentHistory.length + additionalHistory.length },
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeCategory === tab.id;
@@ -1039,6 +1049,17 @@ export const NinServicesPage: React.FC = () => {
           }}
           onOpenHistoryTab={() => {
             setHistoryTabFilter('enrolment');
+            handleSwitchCategory('history');
+          }}
+        />
+      ) : activeCategory === 'additional' ? (
+        <AdditionalServicesSection
+          key="additional-services-workspace"
+          onRequestUpdated={() => {
+            void loadHistory();
+          }}
+          onOpenHistoryTab={() => {
+            setHistoryTabFilter('additional');
             handleSwitchCategory('history');
           }}
         />
@@ -2307,6 +2328,7 @@ export const NinServicesPage: React.FC = () => {
               { id: 'nin_mod', label: `NIN Modifications (${modHistory.filter(m => m.identity_type === 'NIN').length})` },
               { id: 'bvn_mod', label: `BVN Modifications (${modHistory.filter(m => m.identity_type === 'BVN').length})` },
               { id: 'enrolment', label: `NIN Enrolments (${enrolmentHistory.length})` },
+              { id: 'additional', label: `Clearance & Additional (${additionalHistory.length})` },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -2511,6 +2533,130 @@ export const NinServicesPage: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => handleSwitchCategory('enrolment')}
+                              className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-semibold"
+                            >
+                              Open Tracker
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : historyTabFilter === 'additional' ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-semibold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="py-3 px-4">Request #</th>
+                    <th className="py-3 px-4">Service</th>
+                    <th className="py-3 px-4">Identifier</th>
+                    <th className="py-3 px-4">Charge</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Submitted</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {additionalHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-500">
+                        No clearance or additional service requests found yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    additionalHistory.map(item => {
+                      const st = getAdditionalServiceStatusStyle(item.status);
+                      const hasResultPdf = Boolean(item.has_result_document && item.result_document?.file_url);
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
+                            <div>{item.request_number}</div>
+                            {item.provider_tracking_id && (
+                              <div className="text-[10px] font-mono font-normal text-blue-700 dark:text-emerald-400">
+                                Tracking: {item.provider_tracking_id}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white">
+                            <div>{item.service_name}</div>
+                            {item.is_refundable === false && (
+                              <div className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold mt-0.5">
+                                Non-Refundable
+                              </div>
+                            )}
+                            {item.refund_reference && (
+                              <div className="text-[10px] font-mono text-purple-600 dark:text-purple-300 mt-0.5">
+                                Refund: {item.refund_reference}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-blue-700 dark:text-emerald-400">
+                            {item.masked_identifier}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white tabular-nums">
+                            ₦{Number(item.customer_price).toLocaleString('en-NG')}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${st.badgeClass}`}>
+                              {st.label}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px]">
+                            {new Date(item.created_at).toLocaleString('en-NG')}
+                          </td>
+                          <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
+                            {hasResultPdf && item.result_document && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOfficialResultFile(
+                                      `add_prev_${item.id}`,
+                                      item.result_document!.file_url,
+                                      item.result_document!.original_name || `HAMBAK_RESULT_${item.request_number}.pdf`,
+                                      item.result_document!.mime_type,
+                                      'preview'
+                                    )
+                                  }
+                                  disabled={loadingOfficialDocId === `add_prev_${item.id}`}
+                                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold inline-flex items-center gap-1"
+                                >
+                                  {loadingOfficialDocId === `add_prev_${item.id}` ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Eye className="w-3 h-3" />
+                                  )}
+                                  <span>Preview</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOfficialResultFile(
+                                      `add_dl_${item.id}`,
+                                      item.result_document!.file_url,
+                                      item.result_document!.original_name || `HAMBAK_RESULT_${item.request_number}.pdf`,
+                                      item.result_document!.mime_type,
+                                      'download'
+                                    )
+                                  }
+                                  disabled={loadingOfficialDocId === `add_dl_${item.id}`}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-semibold inline-flex items-center gap-1"
+                                >
+                                  {loadingOfficialDocId === `add_dl_${item.id}` ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Download className="w-3 h-3" />
+                                  )}
+                                  <span>Official PDF</span>
+                                </button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchCategory('additional')}
                               className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-semibold"
                             >
                               Open Tracker

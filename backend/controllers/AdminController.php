@@ -6482,8 +6482,12 @@ class AdminController
                 str_contains($e, '@test.hambaktech.com.ng') ||
                 str_contains($e, '@hambaktest.com') ||
                 str_ends_with($e, '@example.com') ||
+                str_ends_with($e, '@mailinator.com') ||
                 $e === 'customer@hambaktech.com.ng' ||
                 $e === 'amina.yusuf.test@gmail.com' ||
+                str_starts_with($e, 'e2e_') ||
+                str_starts_with($e, 'probe_') ||
+                str_starts_with($e, 'synthetic_') ||
                 str_starts_with($e, 'live_vtu_') ||
                 str_starts_with($e, 'customer_phase6_') ||
                 str_starts_with($e, 'vtpass_test_') ||
@@ -6539,6 +6543,20 @@ class AdminController
             $this->db->execute("DELETE FROM customer_messages WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM user_profiles WHERE user_id IN ($placeholders)", $testUserIds);
             $this->db->execute("DELETE FROM notifications WHERE user_id IN ($placeholders)", $testUserIds);
+            foreach ([
+                'modification_requests',
+                'enrolment_orders',
+                'printing_orders',
+                'academy_enrollments',
+                'academy_applications',
+                'activity_footprints',
+                'audit_logs',
+            ] as $extraTbl) {
+                try {
+                    $this->db->execute("DELETE FROM {$extraTbl} WHERE user_id IN ($placeholders)", $testUserIds);
+                } catch (Throwable) {
+                }
+            }
             $this->db->execute("DELETE FROM users WHERE id IN ($placeholders)", $testUserIds);
         }
 

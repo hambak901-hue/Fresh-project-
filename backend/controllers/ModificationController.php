@@ -229,6 +229,9 @@ class ModificationController
         } catch (Throwable) {
         }
 
+        $checklist = $this->decodeJsonColumn($row['document_review_checklist'] ?? null, []);
+        $isRefundable = array_key_exists('is_refundable', $row) ? (bool)(int)$row['is_refundable'] : true;
+
         $item = array_merge([
             'id' => (string)($row['id'] ?? ''),
             'request_number' => (string)($row['request_number'] ?? ''),
@@ -239,11 +242,17 @@ class ModificationController
             'masked_identifier' => (string)($row['masked_identifier'] ?? ''),
             'submitted_fields' => $fields,
             'supporting_documents' => $docs,
+            'document_review_checklist' => is_array($checklist) ? $checklist : [],
             'enrollment_type' => $row['enrollment_type'] ?? null,
             'customer_price' => $customerPrice,
+            'is_refundable' => $isRefundable,
             'payment_reference' => (string)($row['payment_reference'] ?? ''),
             'refund_reference' => $row['refund_reference'] ?? null,
             'provider_remarks' => $row['provider_remarks'] ?? null,
+            'requested_corrections' => $row['requested_corrections'] ?? null,
+            'assigned_to' => $row['assigned_to'] ?? null,
+            'assigned_staff_name' => $row['assigned_staff_name'] ?? null,
+            'assigned_at' => $row['assigned_at'] ?? null,
             'estimated_completion_text' => (string)($row['estimated_completion_text'] ?? 'Manual Processing'),
             'status' => (string)($row['status'] ?? 'pending'),
             'query_review_status' => $queryReviewStatus !== '' ? $queryReviewStatus : null,
@@ -257,7 +266,10 @@ class ModificationController
 
         if ($isAdmin) {
             $item['provider_reference'] = $row['provider_reference'] ?? null;
+            $item['provider_transaction_id'] = $row['provider_transaction_id'] ?? null;
             $item['provider_status'] = $row['provider_status'] ?? null;
+            $item['provider_refunded'] = isset($row['provider_refunded']) ? (bool)(int)$row['provider_refunded'] : null;
+            $item['provider_refunded_amount'] = (float)($row['provider_refunded_amount'] ?? 0);
             $item['customer_name'] = $row['customer_name'] ?? null;
             $item['customer_email'] = $row['customer_email'] ?? null;
             $item['customer_phone'] = $row['customer_phone'] ?? null;
@@ -1320,6 +1332,7 @@ class ModificationController
 
         // 10. Evaluate provider response: PENDING MUST STAY PENDING & NEVER AUTO-REFUND!
         $provRef = (string)($providerRes['reference'] ?? $paymentRef);
+        $provTxId = !empty($providerRes['provider_transaction_id']) ? (string)$providerRes['provider_transaction_id'] : null;
         $actualCost = !empty($providerRes['provider_cost']) && (float)$providerRes['provider_cost'] > 0
             ? (float)$providerRes['provider_cost']
             : $expectedWholesale;
@@ -1333,6 +1346,7 @@ class ModificationController
             $this->db->execute(
                 'UPDATE modification_requests
                  SET provider_reference = :pr,
+                     provider_transaction_id = COALESCE(:ptx, provider_transaction_id),
                      provider_status = :pst,
                      provider_remarks = :prem,
                      provider_response = :pres,
@@ -1344,6 +1358,7 @@ class ModificationController
                  WHERE id = :id',
                 [
                     'pr' => $provRef,
+                    'ptx' => $provTxId,
                     'pst' => $provStatus,
                     'prem' => $provMsg,
                     'pres' => json_encode($providerRes['raw'] ?? $providerRes),
@@ -1509,7 +1524,7 @@ class ModificationController
         $search = trim((string)$request->query('search', ''));
         $limit = min(100, max(1, (int)$request->query('limit', 40)));
 
-        $where = 'WHERE user_id = :uid ';
+        $where = 'WHERE user_id = :uid AND identity_type IN ("NIN", "BVN") ';
         $params = ['uid' => $user['id']];
 
         if (in_array($identityType, ['NIN', 'BVN'], true)) {
@@ -1592,8 +1607,9 @@ class ModificationController
     private function syncProviderStatusForRow(array $row, ?string $actorId = null): array
     {
         $lookupRef = trim((string)($row['provider_reference'] ?: $row['payment_reference']));
-        if ($lookupRef === '') {
-            return ['updated' => false, 'message' => 'No provider reference attached to this request.', 'row' => $row];
+        $lookupTxId = trim((string)($row['provider_transaction_id'] ?? ''));
+        if ($lookupRef === '' && $lookupTxId === '') {
+            return ['updated' => false, 'message' => 'No provider reference or transaction_id attached to this request.', 'row' => $row];
         }
 
         $adapter = new TwoSureVerifyAdapter();
@@ -1604,9 +1620,14 @@ class ModificationController
             return ['updated' => false, 'message' => Security::ERR_PROVIDER_AUTH, 'row' => $row];
         }
 
-        $res = $adapter->checkStatus($lookupRef);
+        $res = $adapter->checkStatus($lookupRef, (string)($row['service_key'] ?? ''), $lookupTxId !== '' ? $lookupTxId : null);
         $rawStatus = strtolower(trim((string)($res['status'] ?? $res['data']['status'] ?? '')));
         $remarks = trim((string)($res['message'] ?? $res['remarks'] ?? $res['data']['remarks'] ?? $res['data']['admin_note'] ?? $res['data']['message'] ?? ''));
+        $resolvedTxId = trim((string)($res['provider_transaction_id'] ?? $res['transaction_id'] ?? $res['data']['transaction_id'] ?? $lookupTxId));
+        $provRefundedVal = array_key_exists('provider_refunded', $res) && $res['provider_refunded'] !== null
+            ? ($res['provider_refunded'] ? 1 : 0)
+            : null;
+        $provRefundedAmt = (float)($res['provider_refunded_amount'] ?? 0);
 
         if ($rawStatus === '' && empty($res['success'])) {
             Security::logPrivateError('ModificationPollStatus', $remarks ?: 'Empty status response', [
@@ -1634,7 +1655,8 @@ class ModificationController
         }
 
         $refundInfo = null;
-        if (!$isTerminal && in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference'])) {
+        $rowIsRefundable = !array_key_exists('is_refundable', $row) || (int)$row['is_refundable'] === 1;
+        if (!$isTerminal && in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference']) && $rowIsRefundable) {
             $refundInfo = $this->issueSingleAtomicRefund(
                 (string)$row['id'],
                 $remarks ?: 'Provider marked request as ' . $newStatus,
@@ -1642,11 +1664,20 @@ class ModificationController
                 'refunded'
             );
             $newStatus = !empty($refundInfo['refunded']) ? 'refunded' : 'failed';
+            if ($resolvedTxId !== '' || $provRefundedVal !== null) {
+                $this->db->execute(
+                    'UPDATE modification_requests SET provider_transaction_id = COALESCE(NULLIF(:ptx, ""), provider_transaction_id), provider_refunded = COALESCE(:pref, provider_refunded), provider_refunded_amount = CASE WHEN :prefa > 0 THEN :prefa2 ELSE provider_refunded_amount END WHERE id = :id',
+                    ['ptx' => $resolvedTxId, 'pref' => $provRefundedVal, 'prefa' => $provRefundedAmt, 'prefa2' => $provRefundedAmt, 'id' => $row['id']]
+                );
+            }
         } elseif (!$isTerminal) {
             $this->db->execute(
                 'UPDATE modification_requests
                  SET status = :st,
                      provider_status = :pst,
+                     provider_transaction_id = COALESCE(NULLIF(:ptx, ""), provider_transaction_id),
+                     provider_refunded = COALESCE(:pref, provider_refunded),
+                     provider_refunded_amount = CASE WHEN :prefa > 0 THEN :prefa2 ELSE provider_refunded_amount END,
                      provider_remarks = COALESCE(NULLIF(:prem, ""), provider_remarks),
                      provider_response = :pres,
                      completed_at = CASE WHEN :st2 = "completed" AND completed_at IS NULL THEN NOW() ELSE completed_at END,
@@ -1655,11 +1686,20 @@ class ModificationController
                 [
                     'st' => $newStatus,
                     'pst' => $rawStatus ?: $row['provider_status'],
+                    'ptx' => $resolvedTxId,
+                    'pref' => $provRefundedVal,
+                    'prefa' => $provRefundedAmt,
+                    'prefa2' => $provRefundedAmt,
                     'prem' => $remarks,
                     'pres' => json_encode($res),
                     'st2' => $newStatus,
                     'id' => $row['id'],
                 ]
+            );
+        } elseif ($resolvedTxId !== '' && empty($row['provider_transaction_id'])) {
+            $this->db->execute(
+                'UPDATE modification_requests SET provider_transaction_id = :ptx WHERE id = :id',
+                ['ptx' => $resolvedTxId, 'id' => $row['id']]
             );
         }
 
@@ -1921,23 +1961,25 @@ class ModificationController
      */
     public function webhook(Request $request): void
     {
+        SchemaSync::syncModificationCatalog($this->db);
+
         $rawInput = file_get_contents('php://input') ?: '';
-        $configuredSecret = trim((string)(getenv('TWOSUREVERIFY_WEBHOOK_SECRET') ?: ''));
-        if ($configuredSecret !== '') {
-            $sigHeader = trim((string)(
-                $request->header('x-2sureverify-signature')
-                ?: $request->header('x-webhook-signature')
-                ?: $request->header('x-signature')
-                ?: ''
-            ));
-            $authHeader = trim((string)($request->header('authorization') ?: ''));
-            $bearer = str_starts_with(strtolower($authHeader), 'bearer ') ? trim(substr($authHeader, 7)) : '';
-            $expectedHmac = hash_hmac('sha256', $rawInput, $configuredSecret);
-            $validSig = ($sigHeader !== '' && (hash_equals($configuredSecret, $sigHeader) || hash_equals($expectedHmac, strtolower($sigHeader))))
-                || ($bearer !== '' && hash_equals($configuredSecret, $bearer));
-            if (!$validSig) {
-                Response::unauthorized('Invalid webhook signature.');
-            }
+        $sigHeader = trim((string)(
+            $request->header('x-2sureverify-signature')
+            ?: $request->header('x-webhook-signature')
+            ?: $request->header('x-signature')
+            ?: ''
+        ));
+        $authHeader = trim((string)($request->header('authorization') ?: ''));
+
+        $adapter = new TwoSureVerifyAdapter();
+        $sigCheck = $adapter->verifyWebhookSignature($rawInput, $sigHeader, $authHeader);
+        if (empty($sigCheck['valid'])) {
+            Security::logPrivateError('ModificationWebhookRejected', (string)($sigCheck['reason'] ?? 'Invalid webhook signature'), [
+                'ip' => Security::resolveClientIp(),
+                'configured' => (bool)($sigCheck['configured'] ?? false),
+            ]);
+            Response::unauthorized('Invalid or missing webhook signature.');
         }
 
         $body = $request->getBody();
@@ -1948,59 +1990,152 @@ class ModificationController
             }
         }
 
-        $ref = trim((string)($body['reference'] ?? $body['data']['reference'] ?? $body['request_id'] ?? ''));
-        if ($ref === '') {
-            Response::error('Reference missing in webhook payload.', 422);
+        $deliveryId = trim((string)(
+            $request->header('x-delivery-id')
+            ?: $request->header('x-webhook-id')
+            ?: $body['delivery_id']
+            ?: $body['data']['delivery_id']
+            ?: $body['event_id']
+            ?: ''
+        ));
+        $ref = trim((string)($body['reference'] ?? $body['data']['reference'] ?? $body['request_id'] ?? $body['data']['request_id'] ?? ''));
+        $txId = trim((string)($body['transaction_id'] ?? $body['data']['transaction_id'] ?? ''));
+        $eventType = trim((string)($body['event'] ?? $body['event_type'] ?? ''));
+        $statusRaw = strtolower(trim((string)($body['status'] ?? $body['data']['status'] ?? '')));
+
+        if ($deliveryId !== '') {
+            try {
+                $existingDelivery = $this->db->fetchOne(
+                    'SELECT id, status_received, domain, record_id FROM identity_webhook_deliveries WHERE delivery_id = :did LIMIT 1',
+                    ['did' => $deliveryId]
+                );
+                if ($existingDelivery) {
+                    Response::success([
+                        'processed' => false,
+                        'duplicate_delivery' => true,
+                        'delivery_id' => $deliveryId,
+                        'status' => $existingDelivery['status_received'] ?? null,
+                    ], 'Duplicate webhook delivery safely ignored.');
+                }
+            } catch (Throwable) {
+            }
         }
 
-        $row = $this->db->fetchOne(
-            'SELECT * FROM modification_requests WHERE provider_reference = :r1 OR payment_reference = :r2 OR request_number = :r3 LIMIT 1',
-            ['r1' => $ref, 'r2' => $ref, 'r3' => $ref]
-        );
+        if ($ref === '' && $txId === '') {
+            Response::error('Reference or transaction_id missing in webhook payload.', 422);
+        }
+
+        $row = null;
+        if ($ref !== '' && $txId !== '') {
+            $row = $this->db->fetchOne(
+                'SELECT * FROM modification_requests WHERE provider_reference = :r1 OR payment_reference = :r2 OR request_number = :r3 OR provider_transaction_id = :tx1 LIMIT 1',
+                ['r1' => $ref, 'r2' => $ref, 'r3' => $ref, 'tx1' => $txId]
+            );
+        } elseif ($ref !== '') {
+            $row = $this->db->fetchOne(
+                'SELECT * FROM modification_requests WHERE provider_reference = :r1 OR payment_reference = :r2 OR request_number = :r3 OR provider_transaction_id = :r4 LIMIT 1',
+                ['r1' => $ref, 'r2' => $ref, 'r3' => $ref, 'r4' => $ref]
+            );
+        } else {
+            $row = $this->db->fetchOne(
+                'SELECT * FROM modification_requests WHERE provider_transaction_id = :tx1 OR provider_reference = :tx2 LIMIT 1',
+                ['tx1' => $txId, 'tx2' => $txId]
+            );
+        }
+
+        $recordDelivery = function (string $domain, ?string $recordId) use ($deliveryId, $ref, $txId, $eventType, $statusRaw, $rawInput): void {
+            if ($deliveryId === '') {
+                return;
+            }
+            try {
+                $this->db->execute(
+                    'INSERT IGNORE INTO identity_webhook_deliveries
+                        (id, delivery_id, provider_id, reference, transaction_id, event_type, status_received, payload_hash, domain, record_id, created_at)
+                     VALUES (:id, :did, "2sureverify", :ref, :tx, :ev, :st, :ph, :dom, :rid, NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'did' => $deliveryId,
+                        'ref' => $ref !== '' ? $ref : null,
+                        'tx' => $txId !== '' ? $txId : null,
+                        'ev' => $eventType !== '' ? $eventType : null,
+                        'st' => $statusRaw !== '' ? $statusRaw : null,
+                        'ph' => hash('sha256', $rawInput),
+                        'dom' => $domain,
+                        'rid' => $recordId,
+                    ]
+                );
+            } catch (Throwable) {
+            }
+        };
+
         if (!$row) {
-            // Single 2SureVerify webhook URL also serves NIN Enrolment orders cleanly
             $enrolmentController = new EnrolmentController();
             $enrRes = $enrolmentController->handleWebhookPayload($body);
             if (!empty($enrRes['matched'])) {
+                $recordDelivery('enrolment', (string)($enrRes['record_id'] ?? null));
                 Response::success($enrRes);
             }
-            Response::notFound('No matching modification or enrolment record found for reference.');
+            Response::notFound('No matching modification, additional service, or enrolment record found for reference/transaction_id.');
+        }
+
+        // Delegate ADDITIONAL service records cleanly to AdditionalServicesController
+        if (strtoupper((string)($row['identity_type'] ?? '')) === 'ADDITIONAL') {
+            $addCtrl = new AdditionalServicesController();
+            $addRes = $addCtrl->handleWebhookPayload($body, $row);
+            $recordDelivery('additional', (string)$row['id']);
+            Response::success($addRes);
         }
 
         $prevStatus = (string)$row['status'];
         $isTerminal = in_array($prevStatus, ['completed', 'refunded'], true);
-        $adapter = new TwoSureVerifyAdapter();
 
         if ($isTerminal) {
-            // Recover missing official PDF or tracking ID even if completed webhook arrives twice
+            if ($txId !== '' && empty($row['provider_transaction_id'])) {
+                $this->db->execute('UPDATE modification_requests SET provider_transaction_id = :ptx WHERE id = :id', ['ptx' => $txId, 'id' => $row['id']]);
+            }
             if ($prevStatus === 'completed' && empty($row['result_document_id'])) {
                 ResultDocumentService::syncFromProviderPayload($this->db, 'modification', $row, $body, $adapter->getAuthHeaders());
             }
+            $recordDelivery('modification', (string)$row['id']);
             Response::success(['processed' => false, 'status' => $prevStatus, 'message' => 'Terminal state preserved.']);
         }
 
-        $statusRaw = strtolower(trim((string)($body['status'] ?? $body['data']['status'] ?? '')));
         $remarks = trim((string)($body['message'] ?? $body['remarks'] ?? $body['data']['remarks'] ?? $body['data']['admin_note'] ?? ''));
+        $rawRefunded = $body['refunded'] ?? $body['data']['refunded'] ?? null;
+        $provRefundedVal = $rawRefunded !== null ? (filter_var($rawRefunded, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ? 1 : 0) : null;
+        $provRefundedAmt = is_numeric($body['refund_amount'] ?? $body['data']['refund_amount'] ?? null)
+            ? (float)($body['refund_amount'] ?? $body['data']['refund_amount'])
+            : 0.0;
         $newStatus = $prevStatus;
 
         if (in_array($statusRaw, ['completed', 'complete', 'approved', 'success', 'successful', 'done', 'delivered'], true)) {
             $newStatus = 'completed';
-        } elseif (in_array($statusRaw, ['processing', 'in_progress'], true)) {
+        } elseif (in_array($statusRaw, ['processing', 'in_progress', 'in-progress', 'reviewing'], true)) {
             $newStatus = 'processing';
-        } elseif (in_array($statusRaw, ['query', 'query_required', 'info_required'], true)) {
+        } elseif (in_array($statusRaw, ['query', 'query_required', 'info_required', 'action_required'], true)) {
             $newStatus = 'query_required';
-        } elseif (in_array($statusRaw, ['failed', 'rejected', 'declined', 'error', 'refunded'], true)) {
+        } elseif ($statusRaw === 'refunded' || in_array($statusRaw, ['failed', 'rejected', 'declined', 'error'], true)) {
             $newStatus = 'rejected';
         }
 
-        if (in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference'])) {
-            $this->issueSingleAtomicRefund((string)$row['id'], $remarks ?: 'Provider webhook reported failure', null, 'refunded');
-            $newStatus = 'refunded';
+        $rowIsRefundable = !array_key_exists('is_refundable', $row) || (int)$row['is_refundable'] === 1;
+        if (in_array($newStatus, ['failed', 'rejected'], true) && empty($row['refund_reference']) && $rowIsRefundable) {
+            $refundRes = $this->issueSingleAtomicRefund((string)$row['id'], $remarks ?: 'Provider webhook reported failure', null, 'refunded');
+            $newStatus = !empty($refundRes['refunded']) ? 'refunded' : 'failed';
+            if ($txId !== '' || $provRefundedVal !== null) {
+                $this->db->execute(
+                    'UPDATE modification_requests SET provider_transaction_id = COALESCE(NULLIF(:ptx, ""), provider_transaction_id), provider_refunded = COALESCE(:pref, provider_refunded), provider_refunded_amount = CASE WHEN :prefa > 0 THEN :prefa2 ELSE provider_refunded_amount END WHERE id = :id',
+                    ['ptx' => $txId, 'pref' => $provRefundedVal, 'prefa' => $provRefundedAmt, 'prefa2' => $provRefundedAmt, 'id' => $row['id']]
+                );
+            }
         } else {
             $this->db->execute(
                 'UPDATE modification_requests
                  SET status = :st,
                      provider_status = COALESCE(NULLIF(:pst, ""), provider_status),
+                     provider_transaction_id = COALESCE(NULLIF(:ptx, ""), provider_transaction_id),
+                     provider_refunded = COALESCE(:pref, provider_refunded),
+                     provider_refunded_amount = CASE WHEN :prefa > 0 THEN :prefa2 ELSE provider_refunded_amount END,
                      provider_remarks = COALESCE(NULLIF(:prem, ""), provider_remarks),
                      provider_response = :pres,
                      completed_at = CASE WHEN :st2 = "completed" AND completed_at IS NULL THEN NOW() ELSE completed_at END,
@@ -2009,6 +2144,10 @@ class ModificationController
                 [
                     'st' => $newStatus,
                     'pst' => $statusRaw,
+                    'ptx' => $txId,
+                    'pref' => $provRefundedVal,
+                    'prefa' => $provRefundedAmt,
+                    'prefa2' => $provRefundedAmt,
                     'prem' => $remarks,
                     'pres' => json_encode($body),
                     'st2' => $newStatus,
@@ -2020,15 +2159,20 @@ class ModificationController
         if ($newStatus === 'completed') {
             $freshForDoc = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
             $docSync = ResultDocumentService::syncFromProviderPayload($this->db, 'modification', $freshForDoc, $body, $adapter->getAuthHeaders());
-            // If webhook omitted base64 PDF file (e.g. lightweight notification), immediately poll status.php before 4-day window
-            if (empty($docSync['document']) && !empty($row['provider_reference'])) {
-                $polled = $adapter->checkStatus((string)$row['provider_reference']);
+            // If webhook omitted base64 PDF file, poll per-service status endpoint using reference & transaction_id
+            if (empty($docSync['document']) && (!empty($row['provider_reference']) || $txId !== '' || !empty($row['provider_transaction_id']))) {
+                $polled = $adapter->checkStatus(
+                    (string)($row['provider_reference'] ?? ''),
+                    (string)($row['service_key'] ?? ''),
+                    $txId !== '' ? $txId : ($row['provider_transaction_id'] ?? null)
+                );
                 if (!empty($polled)) {
                     ResultDocumentService::syncFromProviderPayload($this->db, 'modification', $freshForDoc, $polled, $adapter->getAuthHeaders());
                 }
             }
         }
 
+        $recordDelivery('modification', (string)$row['id']);
         $updatedRow = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $row['id']]) ?: $row;
 
         if ($newStatus !== $prevStatus) {
@@ -2103,7 +2247,7 @@ class ModificationController
         $limit = min(100, max(10, (int)$request->query('limit', 25)));
         $offset = ($page - 1) * $limit;
 
-        $where = 'WHERE 1=1 ';
+        $where = 'WHERE mr.identity_type IN ("NIN", "BVN") ';
         $params = [];
 
         if (in_array($identityType, ['NIN', 'BVN'], true)) {
@@ -2131,7 +2275,7 @@ class ModificationController
             $params['dt'] = $dateTo . ' 23:59:59';
         }
         if ($search !== '') {
-            $where .= 'AND (mr.request_number LIKE :q1 OR mr.service_name LIKE :q2 OR mr.masked_identifier LIKE :q3 OR mr.payment_reference LIKE :q4 OR mr.provider_reference LIKE :q5 OR u.full_name LIKE :q6 OR u.email LIKE :q7) ';
+            $where .= 'AND (mr.request_number LIKE :q1 OR mr.service_name LIKE :q2 OR mr.masked_identifier LIKE :q3 OR mr.payment_reference LIKE :q4 OR mr.provider_reference LIKE :q5 OR mr.provider_transaction_id LIKE :q8 OR u.full_name LIKE :q6 OR u.email LIKE :q7) ';
             $like = '%' . $search . '%';
             $params['q1'] = $like;
             $params['q2'] = $like;
@@ -2140,6 +2284,7 @@ class ModificationController
             $params['q5'] = $like;
             $params['q6'] = $like;
             $params['q7'] = $like;
+            $params['q8'] = $like;
         }
 
         $countRow = $this->db->fetchOne(
@@ -2175,13 +2320,13 @@ class ModificationController
             }
         }
 
-        // Summary KPI counts
+        // Summary KPI counts strictly scoped to NIN & BVN modifications
         $statsRow = $this->db->fetchOne(
             'SELECT
                 COUNT(*) as total_all,
                 SUM(CASE WHEN identity_type = "NIN" THEN 1 ELSE 0 END) as nin_count,
                 SUM(CASE WHEN identity_type = "BVN" THEN 1 ELSE 0 END) as bvn_count,
-                SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_count,
+                SUM(CASE WHEN status IN ("pending", "under_review", "assigned") THEN 1 ELSE 0 END) as pending_count,
                 SUM(CASE WHEN status = "processing" THEN 1 ELSE 0 END) as processing_count,
                 SUM(CASE WHEN status = "query_required" THEN 1 ELSE 0 END) as query_count,
                 SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_count,
@@ -2190,7 +2335,8 @@ class ModificationController
                 COALESCE(SUM(CASE WHEN status != "refunded" THEN customer_price ELSE 0 END), 0) as total_revenue,
                 COALESCE(SUM(CASE WHEN status != "refunded" THEN provider_cost ELSE 0 END), 0) as total_provider_cost,
                 COALESCE(SUM(CASE WHEN status != "refunded" THEN profit ELSE 0 END), 0) as total_margin
-             FROM modification_requests'
+             FROM modification_requests
+             WHERE identity_type IN ("NIN", "BVN")'
         );
 
         Response::success([
@@ -2291,7 +2437,7 @@ class ModificationController
             Response::notFound('Modification request not found.');
         }
 
-        $allowedStatuses = ['pending', 'processing', 'query_required', 'completed', 'failed', 'rejected', 'refunded'];
+        $allowedStatuses = ['pending', 'under_review', 'assigned', 'processing', 'query_required', 'completed', 'failed', 'rejected', 'refunded'];
         $targetStatus = strtolower(trim((string)($body['status'] ?? $row['status'])));
         if (!in_array($targetStatus, $allowedStatuses, true)) {
             Response::error('Invalid target status specified.', 422);
@@ -2299,6 +2445,9 @@ class ModificationController
 
         $remarks = array_key_exists('provider_remarks', $body) ? trim((string)$body['provider_remarks']) : (string)($row['provider_remarks'] ?? '');
         $adminNotes = array_key_exists('admin_notes', $body) ? trim((string)$body['admin_notes']) : (string)($row['admin_notes'] ?? '');
+        $requestedCorrections = array_key_exists('requested_corrections', $body)
+            ? trim((string)$body['requested_corrections'])
+            : (string)($row['requested_corrections'] ?? '');
         $etaText = array_key_exists('estimated_completion_text', $body) ? trim((string)$body['estimated_completion_text']) : (string)($row['estimated_completion_text'] ?? '');
         $triggerRefund = !array_key_exists('trigger_refund', $body) || (bool)$body['trigger_refund'];
 
@@ -2320,11 +2469,22 @@ class ModificationController
                 $this->db->execute('UPDATE modification_requests SET admin_notes = :an WHERE id = :id', ['an' => $adminNotes, 'id' => $id]);
             }
         } else {
+            $submittedFields = $this->decodeJsonColumn($row['submitted_fields'] ?? null, []);
+            if ($targetStatus === 'query_required') {
+                $submittedFields['query_review_status'] = 'awaiting_customer_response';
+                if ($requestedCorrections === '' && $remarks !== '') {
+                    $requestedCorrections = $remarks;
+                }
+            } elseif (in_array($targetStatus, ['processing', 'completed', 'under_review', 'assigned'], true) && !empty($submittedFields['query_review_status'])) {
+                $submittedFields['query_review_status'] = 'approved';
+            }
             $this->db->execute(
                 'UPDATE modification_requests
                  SET status = :st,
+                     submitted_fields = :sf,
                      provider_remarks = :prem,
                      admin_notes = :anotes,
+                     requested_corrections = :reqcorr,
                      estimated_completion_text = :eta,
                      reviewed_by = :rby,
                      reviewed_at = NOW(),
@@ -2333,8 +2493,10 @@ class ModificationController
                  WHERE id = :id',
                 [
                     'st' => $targetStatus,
+                    'sf' => json_encode($submittedFields),
                     'prem' => $remarks,
                     'anotes' => $adminNotes,
+                    'reqcorr' => $requestedCorrections !== '' ? $requestedCorrections : null,
                     'eta' => $etaText,
                     'rby' => $admin['full_name'] ?? $admin['email'] ?? $admin['id'],
                     'st2' => $targetStatus,
@@ -3089,5 +3251,313 @@ class ModificationController
             'bvn_live_synced' => $bvnRes['live_synced'] ?? false,
             'sync_note' => $bvnRes['message'] ?? '',
         ], "Synchronized {$updatedServices} service wholesale tariffs and " . count($bvnRes['rows'] ?? []) . ' BVN enrollment types.');
+    }
+
+    /**
+     * GET /api/admin/modifications/staff
+     * Lightweight staff list for operator assignment dropdown (scoped to 'services' permission).
+     */
+    public function adminStaffList(Request $request): void
+    {
+        Auth::requirePermission($request, 'services');
+        $rows = $this->db->fetchAll(
+            'SELECT id, full_name, email, role
+             FROM users
+             WHERE role IN ("support", "staff", "manager", "admin", "superadmin")
+               AND status = "active"
+             ORDER BY full_name ASC'
+        );
+        Response::success(['staff' => $rows ?: []]);
+    }
+
+    /**
+     * POST /api/admin/modifications/:id/assign
+     */
+    public function adminAssign(Request $request, array $params): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        $id = trim((string)($params['id'] ?? ''));
+        $body = $request->getBody();
+
+        $row = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id1 OR request_number = :id2 LIMIT 1', ['id1' => $id, 'id2' => $id]);
+        if (!$row) {
+            Response::notFound('Request record not found.');
+        }
+
+        $staffId = trim((string)($body['staff_id'] ?? $body['assigned_to'] ?? ''));
+        $staffName = null;
+        if ($staffId !== '') {
+            $staffRow = $this->db->fetchOne(
+                'SELECT id, full_name, email, role FROM users WHERE id = :sid AND role IN ("support", "staff", "manager", "admin", "superadmin") AND status = "active" LIMIT 1',
+                ['sid' => $staffId]
+            );
+            if (!$staffRow) {
+                Response::error('Selected staff assignee was not found or is inactive.', 422);
+            }
+            $staffName = (string)($staffRow['full_name'] ?: $staffRow['email']);
+        }
+
+        $prevStatus = (string)$row['status'];
+        $transitionToAssigned = ($staffId !== '') && in_array($prevStatus, ['pending', 'under_review'], true) && (!array_key_exists('set_assigned_status', $body) || (bool)$body['set_assigned_status']);
+        $newStatus = $transitionToAssigned ? 'assigned' : $prevStatus;
+
+        $this->db->execute(
+            'UPDATE modification_requests
+             SET assigned_to = :ato,
+                 assigned_staff_name = :aname,
+                 assigned_at = CASE WHEN :ato2 IS NOT NULL THEN NOW() ELSE NULL END,
+                 status = :st,
+                 updated_at = NOW()
+             WHERE id = :id',
+            [
+                'ato' => $staffId !== '' ? $staffId : null,
+                'aname' => $staffName,
+                'ato2' => $staffId !== '' ? $staffId : null,
+                'st' => $newStatus,
+                'id' => $row['id'],
+            ]
+        );
+
+        $this->appendStatusHistory(
+            (string)$row['id'],
+            $prevStatus,
+            $newStatus,
+            'admin',
+            (string)$admin['id'],
+            $staffId !== '' ? "Assigned to staff officer: {$staffName}" : 'Staff assignment cleared',
+            false
+        );
+
+        $this->recordAudit($admin, 'ADMIN_REQUEST_ASSIGNED', [
+            'request_id' => $row['id'],
+            'request_number' => $row['request_number'],
+            'assigned_to' => $staffId !== '' ? $staffId : null,
+            'assigned_staff_name' => $staffName,
+        ], $request);
+
+        $fresh = $this->db->fetchOne(
+            'SELECT mr.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
+             FROM modification_requests mr LEFT JOIN users u ON u.id = mr.user_id WHERE mr.id = :id LIMIT 1',
+            ['id' => $row['id']]
+        );
+        Response::success(['request' => $fresh ? $this->formatRequestRow($fresh, true) : null], $staffId !== '' ? "Assigned to {$staffName}." : 'Assignment cleared.');
+    }
+
+    /**
+     * POST /api/admin/modifications/:id/checklist
+     */
+    public function adminUpdateChecklist(Request $request, array $params): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        $id = trim((string)($params['id'] ?? ''));
+        $body = $request->getBody();
+
+        $row = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id1 OR request_number = :id2 LIMIT 1', ['id1' => $id, 'id2' => $id]);
+        if (!$row) {
+            Response::notFound('Request record not found.');
+        }
+
+        $rawChecklist = $body['checklist'] ?? [];
+        if (!is_array($rawChecklist)) {
+            Response::error('Invalid document checklist payload.', 422);
+        }
+
+        $normalized = [];
+        $reviewerLabel = (string)($admin['full_name'] ?? $admin['email'] ?? $admin['id']);
+        $now = date('Y-m-d H:i:s');
+        $allowedStates = ['pending', 'verified', 'rejected', 'needs_reupload'];
+
+        foreach ($rawChecklist as $docKey => $entry) {
+            $k = preg_replace('/[^A-Za-z0-9_\-]/', '', (string)$docKey) ?? '';
+            if ($k === '' || !is_array($entry)) {
+                continue;
+            }
+            $st = strtolower(trim((string)($entry['status'] ?? 'pending')));
+            if (!in_array($st, $allowedStates, true)) {
+                $st = 'pending';
+            }
+            $normalized[$k] = [
+                'status' => $st,
+                'note' => trim((string)($entry['note'] ?? '')),
+                'reviewed_by' => $reviewerLabel,
+                'reviewed_at' => $now,
+            ];
+        }
+
+        $this->db->execute(
+            'UPDATE modification_requests SET document_review_checklist = :chk, reviewed_by = :rby, reviewed_at = NOW(), updated_at = NOW() WHERE id = :id',
+            [
+                'chk' => json_encode($normalized),
+                'rby' => $reviewerLabel,
+                'id' => $row['id'],
+            ]
+        );
+
+        $this->recordAudit($admin, 'ADMIN_DOCUMENT_CHECKLIST_UPDATED', [
+            'request_id' => $row['id'],
+            'request_number' => $row['request_number'],
+            'checklist_count' => count($normalized),
+        ], $request);
+
+        $fresh = $this->db->fetchOne(
+            'SELECT mr.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
+             FROM modification_requests mr LEFT JOIN users u ON u.id = mr.user_id WHERE mr.id = :id LIMIT 1',
+            ['id' => $row['id']]
+        );
+        Response::success(['request' => $fresh ? $this->formatRequestRow($fresh, true) : null], 'Document verification checklist saved.');
+    }
+
+    /**
+     * POST /api/admin/modifications/:id/review-info
+     * Explicit admin review decision for customer clarification / re-submitted docs: approve | request_more | reject
+     */
+    public function adminReviewInfo(Request $request, array $params): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        $id = trim((string)($params['id'] ?? ''));
+        $body = $request->getBody();
+
+        $row = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id1 OR request_number = :id2 LIMIT 1', ['id1' => $id, 'id2' => $id]);
+        if (!$row) {
+            Response::notFound('Request record not found.');
+        }
+
+        $decision = strtolower(trim((string)($body['decision'] ?? $body['action'] ?? '')));
+        if (!in_array($decision, ['approve', 'request_more', 'reject'], true)) {
+            Response::error('Invalid clarification review decision. Use approve, request_more, or reject.', 422);
+        }
+
+        $remarks = trim((string)($body['remarks'] ?? $body['requested_corrections'] ?? $body['note'] ?? ''));
+        $prevStatus = (string)$row['status'];
+        if (in_array($prevStatus, ['completed', 'refunded'], true)) {
+            Response::error('Terminal request cannot be modified.', 422);
+        }
+
+        $submittedFields = $this->decodeJsonColumn($row['submitted_fields'] ?? null, []);
+        $infoHistory = $this->decodeJsonColumn($row['additional_info_history'] ?? null, []);
+        if (!empty($infoHistory)) {
+            $lastIdx = count($infoHistory) - 1;
+            $infoHistory[$lastIdx]['review_state'] = $decision === 'approve'
+                ? 'approved'
+                : ($decision === 'request_more' ? 'needs_more_correction' : 'rejected');
+            $infoHistory[$lastIdx]['reviewed_at'] = date('Y-m-d H:i:s');
+            if ($remarks !== '') {
+                $infoHistory[$lastIdx]['admin_feedback'] = $remarks;
+            }
+        }
+
+        $refundRes = null;
+        if ($decision === 'approve') {
+            $targetStatus = strtolower(trim((string)($body['next_status'] ?? 'processing')));
+            if (!in_array($targetStatus, ['under_review', 'assigned', 'processing'], true)) {
+                $targetStatus = 'processing';
+            }
+            $submittedFields['query_review_status'] = 'approved';
+            $this->db->execute(
+                'UPDATE modification_requests
+                 SET status = :st,
+                     submitted_fields = :sf,
+                     additional_info_history = :aih,
+                     requested_corrections = NULL,
+                     provider_remarks = COALESCE(NULLIF(:prem, ""), provider_remarks),
+                     reviewed_by = :rby,
+                     reviewed_at = NOW(),
+                     updated_at = NOW()
+                 WHERE id = :id',
+                [
+                    'st' => $targetStatus,
+                    'sf' => json_encode($submittedFields),
+                    'aih' => json_encode($infoHistory),
+                    'prem' => $remarks,
+                    'rby' => $admin['full_name'] ?? $admin['email'] ?? $admin['id'],
+                    'id' => $row['id'],
+                ]
+            );
+            $this->appendStatusHistory((string)$row['id'], $prevStatus, $targetStatus, 'admin', (string)$admin['id'], $remarks ?: 'Clarification approved by administrator; resumed processing.', true);
+            $this->notifyCustomer(
+                (string)$row['user_id'],
+                "{$row['identity_type']} Clarification Approved",
+                "Your additional information for {$row['request_number']} ({$row['service_name']}) was verified and approved. Processing has resumed.",
+                'success',
+                (string)$row['request_number']
+            );
+        } elseif ($decision === 'request_more') {
+            if ($remarks === '') {
+                Response::error('Please specify what corrections or missing documents the customer should re-submit.', 422);
+            }
+            $submittedFields['query_review_status'] = 'awaiting_customer_response';
+            $this->db->execute(
+                'UPDATE modification_requests
+                 SET status = "query_required",
+                     submitted_fields = :sf,
+                     additional_info_history = :aih,
+                     requested_corrections = :reqcorr,
+                     provider_remarks = :prem,
+                     reviewed_by = :rby,
+                     reviewed_at = NOW(),
+                     updated_at = NOW()
+                 WHERE id = :id',
+                [
+                    'sf' => json_encode($submittedFields),
+                    'aih' => json_encode($infoHistory),
+                    'reqcorr' => $remarks,
+                    'prem' => $remarks,
+                    'rby' => $admin['full_name'] ?? $admin['email'] ?? $admin['id'],
+                    'id' => $row['id'],
+                ]
+            );
+            $this->appendStatusHistory((string)$row['id'], $prevStatus, 'query_required', 'admin', (string)$admin['id'], 'Further correction requested: ' . $remarks, true);
+            $this->notifyCustomer(
+                (string)$row['user_id'],
+                "{$row['identity_type']} Further Correction Needed",
+                "Please provide updated information for {$row['request_number']}: {$remarks}",
+                'warning',
+                (string)$row['request_number']
+            );
+        } else {
+            $rowIsRefundable = !array_key_exists('is_refundable', $row) || (int)$row['is_refundable'] === 1;
+            $rejectReason = $remarks ?: 'Clarification rejected by administrator';
+            if ($rowIsRefundable) {
+                $refundRes = $this->issueSingleAtomicRefund((string)$row['id'], $rejectReason, (string)$admin['id'], 'refunded');
+                $finalSt = !empty($refundRes['refunded']) ? 'refunded' : 'rejected';
+            } else {
+                $this->db->execute(
+                    'UPDATE modification_requests SET status = "rejected", provider_remarks = :prem, reviewed_by = :rby, reviewed_at = NOW(), updated_at = NOW() WHERE id = :id',
+                    ['prem' => $rejectReason, 'rby' => $admin['full_name'] ?? $admin['email'] ?? $admin['id'], 'id' => $row['id']]
+                );
+                $finalSt = 'rejected';
+            }
+            $submittedFields['query_review_status'] = 'rejected';
+            $this->db->execute(
+                'UPDATE modification_requests SET submitted_fields = :sf, additional_info_history = :aih WHERE id = :id',
+                ['sf' => json_encode($submittedFields), 'aih' => json_encode($infoHistory), 'id' => $row['id']]
+            );
+            $this->appendStatusHistory((string)$row['id'], $prevStatus, $finalSt, 'admin', (string)$admin['id'], $rejectReason, true);
+            $this->notifyCustomer(
+                (string)$row['user_id'],
+                "{$row['identity_type']} Request Rejected",
+                "Your {$row['service_name']} request ({$row['request_number']}) was rejected ({$rejectReason})." . (!empty($refundRes['refunded']) ? ' Your wallet has been refunded.' : ''),
+                'warning',
+                (string)$row['request_number']
+            );
+        }
+
+        $this->recordAudit($admin, 'ADMIN_CLARIFICATION_REVIEWED', [
+            'request_id' => $row['id'],
+            'request_number' => $row['request_number'],
+            'decision' => $decision,
+            'remarks' => $remarks,
+            'refunded' => !empty($refundRes['refunded']),
+        ], $request);
+
+        $fresh = $this->db->fetchOne(
+            'SELECT mr.*, u.full_name as customer_name, u.email as customer_email, u.phone_number as customer_phone
+             FROM modification_requests mr LEFT JOIN users u ON u.id = mr.user_id WHERE mr.id = :id LIMIT 1',
+            ['id' => $row['id']]
+        );
+        Response::success([
+            'request' => $fresh ? $this->formatRequestRow($fresh, true) : null,
+            'refund' => $refundRes,
+        ], 'Clarification review recorded.');
     }
 }

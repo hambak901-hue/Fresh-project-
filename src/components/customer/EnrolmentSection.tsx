@@ -23,6 +23,7 @@ import {
 } from '../../types';
 import { TransactionPinModal } from './TransactionPinModal';
 import { ResultAvailabilityBadge } from '../common/ResultAvailabilityBadge';
+import { getChecklistStatusBadge } from './AdditionalServicesSection';
 import {
   AlertCircle,
   ArrowRight,
@@ -78,6 +79,18 @@ export function getEnrolmentStatusStyle(status: string): {
     return {
       label: 'Processing',
       classes: 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/25',
+    };
+  }
+  if (s === 'under_review') {
+    return {
+      label: 'Under Review',
+      classes: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/25',
+    };
+  }
+  if (s === 'assigned') {
+    return {
+      label: 'Assigned to Staff',
+      classes: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/25',
     };
   }
   if (s === 'query_required') {
@@ -1307,10 +1320,12 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center flex-wrap gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
               {[
                 { id: 'all', label: 'All' },
                 { id: 'pending', label: 'Pending' },
+                { id: 'under_review', label: 'Under Review' },
+                { id: 'assigned', label: 'Assigned' },
                 { id: 'processing', label: 'Processing' },
                 { id: 'query_required', label: 'Query Required' },
                 { id: 'completed', label: 'Completed' },
@@ -1415,6 +1430,11 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                             {st.label}
                           </span>
                           <ResultAvailabilityBadge state={order.result_availability_state} />
+                          {order.assigned_staff_name && (
+                            <span className="px-2 py-0.5 rounded border border-cyan-500/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 text-[10px] font-semibold whitespace-nowrap">
+                              {order.assigned_staff_name}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">
@@ -1642,6 +1662,14 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                     </span>
                   </div>
                 )}
+                {detailOrder.assigned_staff_name && (
+                  <div>
+                    <span className="text-slate-500 block text-[11px]">Assigned Staff</span>
+                    <span className="text-slate-900 dark:text-white font-semibold mt-0.5 block">
+                      {detailOrder.assigned_staff_name}
+                    </span>
+                  </div>
+                )}
                 {detailOrder.completed_at && (
                   <div>
                     <span className="text-slate-500 block text-[11px]">Completed At</span>
@@ -1651,6 +1679,16 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                   </div>
                 )}
               </div>
+
+              {detailOrder.requested_corrections && (
+                <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-500/30 text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block mb-0.5">Requested Corrections / Admin Query</span>
+                    <p className="leading-relaxed">{detailOrder.requested_corrections}</p>
+                  </div>
+                </div>
+              )}
 
               {/* Official Enrolment Result Document & Details (Strictly Separate from Verification Slips) */}
               {(detailOrder.has_result_document ||
@@ -1955,43 +1993,96 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                     Supporting Documents
                   </h5>
                   <div className="space-y-2">
-                    {detailOrder.supporting_documents.map(doc => (
-                      <div
-                        key={doc.id}
-                        className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-                          <div className="min-w-0">
-                            <p className="font-semibold text-slate-900 dark:text-white truncate">
-                              {doc.original_name || doc.doc_key}
-                            </p>
-                            <p className="text-[11px] text-slate-500">
-                              {doc.doc_key.replace(/_/g, ' ')}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openProtectedFile(
-                              doc.id,
-                              doc.file_url,
-                              doc.original_name || doc.doc_key,
-                              doc.mime_type,
-                              'preview'
-                            )
-                          }
-                          disabled={loadingPreviewId === doc.id}
-                          className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1.5 hover:bg-slate-100 transition shrink-0"
+                    {detailOrder.supporting_documents.map(doc => {
+                      const chk = detailOrder.document_review_checklist?.[doc.doc_key];
+                      const badge = chk ? getChecklistStatusBadge(chk.status) : null;
+                      return (
+                        <div
+                          key={doc.id}
+                          className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800"
                         >
-                          {loadingPreviewId === doc.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Eye className="w-3.5 h-3.5" />
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-semibold text-slate-900 dark:text-white truncate">
+                                  {doc.original_name || doc.doc_key}
+                                </p>
+                                {badge && (
+                                  <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${badge.className}`}>
+                                    {badge.label}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-500">
+                                {doc.doc_key.replace(/_/g, ' ')}
+                                {chk?.note ? ` · Review note: ${chk.note}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openProtectedFile(
+                                doc.id,
+                                doc.file_url,
+                                doc.original_name || doc.doc_key,
+                                doc.mime_type,
+                                'preview'
+                              )
+                            }
+                            disabled={loadingPreviewId === doc.id}
+                            className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1.5 hover:bg-slate-100 transition shrink-0"
+                          >
+                            {loadingPreviewId === doc.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Eye className="w-3.5 h-3.5" />
+                            )}
+                            <span>Preview</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {Array.isArray(detailOrder.status_history) && detailOrder.status_history.length > 0 && (
+                <div>
+                  <h5 className="font-bold text-slate-900 dark:text-white mb-2">
+                    Status Timeline
+                  </h5>
+                  <div className="space-y-1.5">
+                    {detailOrder.status_history.map(item => (
+                      <div
+                        key={item.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px]"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {item.previous_status && (
+                              <>
+                                <span className="font-mono text-[10px] text-slate-500 uppercase">
+                                  {item.previous_status}
+                                </span>
+                                <span className="text-slate-400">&rarr;</span>
+                              </>
+                            )}
+                            <span className="font-mono text-[10px] font-bold text-slate-900 dark:text-white uppercase">
+                              {item.new_status}
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 capitalize">
+                              {item.actor_type}
+                            </span>
+                          </div>
+                          {item.remarks && (
+                            <p className="text-slate-600 dark:text-slate-300">{item.remarks}</p>
                           )}
-                          <span>Preview</span>
-                        </button>
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                          {new Date(item.created_at).toLocaleString('en-NG')}
+                        </span>
                       </div>
                     ))}
                   </div>

@@ -666,6 +666,7 @@ class VerificationController
         self::ensureSlipSchemaAndDefaults($this->db);
         SchemaSync::syncModificationCatalog($this->db);
         SchemaSync::syncEnrolmentCatalog($this->db);
+        SchemaSync::syncAdditionalServicesCatalog($this->db);
 
         $user = Auth::user($request);
         $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
@@ -841,6 +842,15 @@ class VerificationController
             } else {
                 $serviceKey = $pickFirstActiveKey($prioritizeVersion(['bvn_v1', 'bvn_v2', 'bvn_v3']));
             }
+        }
+
+        $asyncAdditionalKeys = ['ipe_clearance', 'nin_validation', 'modification_clearance', 'nin_personalization', 'nin_personalization_2', 'npc_attestation', 'nin_delinking'];
+        if (in_array(strtolower($serviceKey), $asyncAdditionalKeys, true)) {
+            Response::error('Please submit clearance, validation, personalisation, NPC attestation, or delinking requests through the Additional & Clearance Services portal.', 422);
+        }
+        $unverifiedKeys = ['nin_tracking', 'bvn_enrolment', 'nin_bvn_arrangement'];
+        if (in_array(strtolower($serviceKey), $unverifiedKeys, true)) {
+            Response::error('This service is not yet supported because its upstream fulfillment endpoint is not verified.', 422);
         }
 
         $isBvnInputKey = str_starts_with(strtolower($serviceKey), 'bvn_') || str_contains(strtolower($serviceKey), 'bvn');
@@ -1577,17 +1587,16 @@ class VerificationController
 
     /**
      * GET /api/verification/banks/enrollment
+     * Returns honest unsupported status — no unverified BVN enrolment banks may be fabricated.
      */
     public function enrollmentBanks(Request $request): void
     {
-        $banks = [
-            ['bank_name' => 'First Bank BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'Access Bank BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'UBA BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'Zenith Bank BVN Enrolment', 'price' => 3500],
-            ['bank_name' => 'Wema Bank BVN Enrolment', 'price' => 3500],
-        ];
-        Response::success(['data' => $banks]);
+        Response::success([
+            'data' => [],
+            'supported' => false,
+            'status' => 'not_yet_supported',
+            'message' => 'BVN Enrolment bank endpoints are not yet supported on the active provider.',
+        ]);
     }
 
     /**

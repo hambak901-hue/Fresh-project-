@@ -34,6 +34,7 @@ use HambakTech\Controllers\EnrolmentController;
 use HambakTech\Controllers\ReferralController;
 use HambakTech\Controllers\AccountingController;
 use HambakTech\Controllers\PrintingController;
+use HambakTech\Controllers\AdditionalServicesController;
 
 $request = new Request();
 RateLimitMiddleware::handle($request);
@@ -190,6 +191,20 @@ $router->post('/api/enrolments/:id/poll', [EnrolmentController::class, 'pollStat
 $router->post('/api/enrolments/:id/submit-info', [EnrolmentController::class, 'submitAdditionalInfo']);
 $router->post('/api/enrolments/:id/submit-additional-info', [EnrolmentController::class, 'submitAdditionalInfo']);
 $router->post('/api/enrolments/webhook', [EnrolmentController::class, 'webhook']);
+
+// -----------------------------------------------------------------------------
+// 5D. VERIFIED ASYNC CLEARANCE, VALIDATION, PERSONALISATION & NPC SERVICES (PHASE 4)
+// -----------------------------------------------------------------------------
+$router->get('/api/additional-services/catalog', [AdditionalServicesController::class, 'catalog']);
+$router->post('/api/additional-services/upload', [AdditionalServicesController::class, 'uploadDocument']);
+$router->get('/api/additional-services/document/:id', [AdditionalServicesController::class, 'getDocument']);
+$router->get('/api/additional-services/:id/result-document', [AdditionalServicesController::class, 'downloadResultDocument']);
+$router->post('/api/additional-services/submit', [AdditionalServicesController::class, 'submit']);
+$router->get('/api/additional-services/history', [AdditionalServicesController::class, 'history']);
+$router->get('/api/additional-services/:id/status', [AdditionalServicesController::class, 'requestStatus']);
+$router->post('/api/additional-services/:id/poll', [AdditionalServicesController::class, 'pollStatus']);
+$router->post('/api/additional-services/:id/submit-info', [AdditionalServicesController::class, 'submitAdditionalInfo']);
+$router->post('/api/additional-services/webhook', [AdditionalServicesController::class, 'webhook']);
 
 // -----------------------------------------------------------------------------
 // 6. TELECOMMUNICATIONS (DATA, AIRTIME, BILLS, PINS, EXAMS, SWAP, BULKSMS)
@@ -353,8 +368,9 @@ $router->post('/api/admin/services/catalog', [AdminController::class, 'createCat
 $router->put('/api/admin/services/catalog/:key', [AdminController::class, 'updateCatalogService']);
 $router->delete('/api/admin/services/catalog/:key', [AdminController::class, 'deleteCatalogService']);
 
-// Admin NIN & BVN Modification Operations (Stage 3)
+// Admin NIN & BVN Modification Operations (Stage 3 + Phase 4 Manual Review)
 $router->get('/api/admin/modifications', [ModificationController::class, 'adminList']);
+$router->get('/api/admin/modifications/staff', [ModificationController::class, 'adminStaffList']);
 $router->get('/api/admin/modifications/services', [ModificationController::class, 'adminServices']);
 $router->put('/api/admin/modifications/services/:key', [ModificationController::class, 'adminUpdateService']);
 $router->get('/api/admin/modifications/bvn-types', [ModificationController::class, 'adminBvnTypes']);
@@ -366,9 +382,13 @@ $router->post('/api/admin/modifications/:id/poll', [ModificationController::clas
 $router->post('/api/admin/modifications/:id/retry-result', [ModificationController::class, 'adminRetryResultFetch']);
 $router->post('/api/admin/modifications/:id/result-document', [ModificationController::class, 'adminUploadResultDocument']);
 $router->post('/api/admin/modifications/:id/update', [ModificationController::class, 'adminUpdateRequest']);
+$router->post('/api/admin/modifications/:id/assign', [ModificationController::class, 'adminAssign']);
+$router->post('/api/admin/modifications/:id/checklist', [ModificationController::class, 'adminUpdateChecklist']);
+$router->post('/api/admin/modifications/:id/review-info', [ModificationController::class, 'adminReviewInfo']);
 
-// Admin Enrolment Centre Operations (Stage 4)
+// Admin Enrolment Centre Operations (Stage 4 + Phase 4 Manual Review)
 $router->get('/api/admin/enrolments', [EnrolmentController::class, 'adminList']);
+$router->get('/api/admin/enrolments/staff', [EnrolmentController::class, 'adminStaffList']);
 $router->get('/api/admin/enrolments/services', [EnrolmentController::class, 'adminServices']);
 $router->put('/api/admin/enrolments/services/:key', [EnrolmentController::class, 'adminUpdateService']);
 $router->post('/api/admin/enrolments/services/:key/sample', [EnrolmentController::class, 'adminUploadSample']);
@@ -379,6 +399,24 @@ $router->post('/api/admin/enrolments/:id/poll', [EnrolmentController::class, 'ad
 $router->post('/api/admin/enrolments/:id/retry-result', [EnrolmentController::class, 'adminRetryResultFetch']);
 $router->post('/api/admin/enrolments/:id/result-document', [EnrolmentController::class, 'adminUploadResultDocument']);
 $router->post('/api/admin/enrolments/:id/update', [EnrolmentController::class, 'adminUpdateOrder']);
+$router->post('/api/admin/enrolments/:id/assign', [EnrolmentController::class, 'adminAssign']);
+$router->post('/api/admin/enrolments/:id/checklist', [EnrolmentController::class, 'adminUpdateChecklist']);
+$router->post('/api/admin/enrolments/:id/review-info', [EnrolmentController::class, 'adminReviewInfo']);
+
+// Admin Additional & Clearance Services Operations (Phase 4)
+$router->get('/api/admin/additional-services', [AdditionalServicesController::class, 'adminList']);
+$router->get('/api/admin/additional-services/staff', [AdditionalServicesController::class, 'adminStaffList']);
+$router->get('/api/admin/additional-services/services', [AdditionalServicesController::class, 'adminServices']);
+$router->put('/api/admin/additional-services/services/:key', [AdditionalServicesController::class, 'adminUpdateService']);
+$router->post('/api/admin/additional-services/sync-catalog', [AdditionalServicesController::class, 'adminSyncCatalog']);
+$router->get('/api/admin/additional-services/:id', [AdditionalServicesController::class, 'adminDetail']);
+$router->post('/api/admin/additional-services/:id/poll', [AdditionalServicesController::class, 'adminPollStatus']);
+$router->post('/api/admin/additional-services/:id/retry-result', [AdditionalServicesController::class, 'adminRetryResultFetch']);
+$router->post('/api/admin/additional-services/:id/result-document', [AdditionalServicesController::class, 'adminUploadResultDocument']);
+$router->post('/api/admin/additional-services/:id/update', [AdditionalServicesController::class, 'adminUpdateRequest']);
+$router->post('/api/admin/additional-services/:id/assign', [AdditionalServicesController::class, 'adminAssign']);
+$router->post('/api/admin/additional-services/:id/checklist', [AdditionalServicesController::class, 'adminUpdateChecklist']);
+$router->post('/api/admin/additional-services/:id/review-info', [AdditionalServicesController::class, 'adminReviewInfo']);
 
 // Store & Academy aliases under /api/admin/services/*
 $router->post('/api/admin/services/store', [AdminController::class, 'saveStoreItem']);

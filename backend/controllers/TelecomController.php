@@ -761,11 +761,11 @@ class TelecomController
 
             $dataPlans = $this->db->fetchAll($sql, $params);
             foreach ($dataPlans as &$p) {
-                $p['wholesale_cost'] = (float)$p['wholesale_cost'];
-                $p['price'] = (float)$p['price'];
-                $p['fixed_price'] = $p['fixed_price'] !== null ? (float)$p['fixed_price'] : null;
-                $p['markup_percent'] = $p['markup_percent'] !== null ? (float)$p['markup_percent'] : null;
-                $p['discount_percent'] = $p['discount_percent'] !== null ? (float)$p['discount_percent'] : null;
+                $p['wholesale_cost'] = round((float)$p['wholesale_cost'], 2);
+                $p['price'] = round((float)$p['price'], 2);
+                $p['fixed_price'] = $p['fixed_price'] !== null ? round((float)$p['fixed_price'], 2) : null;
+                $p['markup_percent'] = $p['markup_percent'] !== null ? round((float)$p['markup_percent'], 2) : null;
+                $p['discount_percent'] = $p['discount_percent'] !== null ? round((float)$p['discount_percent'], 2) : null;
                 $p['admin_price_locked'] = (bool)($p['admin_price_locked'] ?? false);
                 $p['margin'] = round($p['price'] - $p['wholesale_cost'], 2);
                 $p['enabled'] = (bool)$p['enabled'];
@@ -783,7 +783,7 @@ class TelecomController
 
             $dataPlans = $this->db->fetchAll($sql, $params);
             foreach ($dataPlans as &$p) {
-                $p['price'] = (float)$p['price'];
+                $p['price'] = round((float)$p['price'], 2);
                 $p['enabled'] = (bool)$p['enabled'];
             }
         }

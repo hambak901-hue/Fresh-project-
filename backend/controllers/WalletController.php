@@ -710,6 +710,18 @@ class WalletController
     }
 
     /**
+     * Retired Flutterwave Webhook Endpoint Guard
+     * Paystack is the sole active automated funding gateway; reject safely without fatal error.
+     */
+    public function flutterwaveWebhook(Request $request): void
+    {
+        Security::logPrivateError('FlutterwaveWebhookIgnored', 'Retired Flutterwave webhook endpoint called', [
+            'ip' => Security::resolveClientIp(),
+        ]);
+        Response::error('Flutterwave gateway is retired; Paystack is the sole active wallet funding gateway.', 410);
+    }
+
+    /**
      * 6. POST /api/wallet/paystack/webhook
      * Official Paystack Webhook Handler with HMAC-SHA512 validation
      */

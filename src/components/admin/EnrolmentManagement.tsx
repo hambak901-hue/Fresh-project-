@@ -18,8 +18,10 @@ import {
   EnrolmentUnverifiedNotice,
   ModificationFormField,
   ModificationRequiredDocument,
+  StaffAssigneeItem,
 } from '../../types';
 import { getEnrolmentStatusStyle } from '../customer/EnrolmentSection';
+import { getChecklistStatusBadge } from '../customer/AdditionalServicesSection';
 import { ResultAvailabilityBadge } from '../common/ResultAvailabilityBadge';
 import {
   AlertCircle,
@@ -27,6 +29,7 @@ import {
   ArrowDown,
   ArrowUp,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
   DollarSign,
   Download,
@@ -35,6 +38,7 @@ import {
   FileText,
   Layers,
   Loader2,
+  MessageSquare,
   Plus,
   RefreshCw,
   Save,
@@ -45,6 +49,7 @@ import {
   Trash2,
   TrendingUp,
   Upload,
+  UserCheck,
   X,
 } from 'lucide-react';
 
@@ -73,6 +78,7 @@ export const EnrolmentManagement: React.FC = () => {
   const [updateStatusVal, setUpdateStatusVal] = useState<string>('pending');
   const [providerRemarksVal, setProviderRemarksVal] = useState<string>('');
   const [adminNotesVal, setAdminNotesVal] = useState<string>('');
+  const [requestedCorrectionsVal, setRequestedCorrectionsVal] = useState<string>('');
   const [estCompletionVal, setEstCompletionVal] = useState<string>('');
   const [triggerRefundVal, setTriggerRefundVal] = useState<boolean>(true);
   const [savingUpdate, setSavingUpdate] = useState<boolean>(false);
@@ -83,6 +89,17 @@ export const EnrolmentManagement: React.FC = () => {
   const [adminResultMarkCompleted, setAdminResultMarkCompleted] = useState<boolean>(true);
   const [adminResultNotifyCustomer, setAdminResultNotifyCustomer] = useState<boolean>(true);
   const [uploadingResultPdf, setUploadingResultPdf] = useState<boolean>(false);
+
+  // Staff Assignment, Document Checklist & Clarification Review state
+  const [staffList, setStaffList] = useState<StaffAssigneeItem[]>([]);
+  const [assignStaffId, setAssignStaffId] = useState<string>('');
+  const [assignSetStatus, setAssignSetStatus] = useState<boolean>(true);
+  const [assigningStaff, setAssigningStaff] = useState<boolean>(false);
+  const [checklistDraft, setChecklistDraft] = useState<Record<string, { status: string; note: string }>>({});
+  const [savingChecklist, setSavingChecklist] = useState<boolean>(false);
+  const [reviewRemarksVal, setReviewRemarksVal] = useState<string>('');
+  const [reviewNextStatus, setReviewNextStatus] = useState<'under_review' | 'assigned' | 'processing'>('processing');
+  const [reviewingInfo, setReviewingInfo] = useState<boolean>(false);
 
   // Services & Unverified Guardrails state
   const [services, setServices] = useState<EnrolmentServiceItem[]>([]);
@@ -183,28 +200,58 @@ export const EnrolmentManagement: React.FC = () => {
     }
   };
 
-  const handleOpenDetail = async (ord: EnrolmentOrderItem) => {
+  const syncSelectedOrderFields = (ord: EnrolmentOrderItem) => {
     setSelectedOrder(ord);
     setUpdateStatusVal(ord.status);
     setProviderRemarksVal(ord.provider_remarks || '');
     setAdminNotesVal(ord.admin_notes || '');
+    setRequestedCorrectionsVal(ord.requested_corrections || '');
     setEstCompletionVal(ord.estimated_completion_text || '');
+    setAdminResultTrackingId(ord.provider_tracking_id || '');
+    setAssignStaffId(ord.assigned_to || '');
+    const draft: Record<string, { status: string; note: string }> = {};
+    (ord.supporting_documents || []).forEach(doc => {
+      const existing = ord.document_review_checklist?.[doc.doc_key];
+      draft[doc.doc_key] = {
+        status: existing?.status || 'pending',
+        note: existing?.note || '',
+      };
+    });
+    if (ord.document_review_checklist) {
+      Object.entries(ord.document_review_checklist).forEach(([k, v]) => {
+        if (!draft[k]) {
+          draft[k] = { status: v?.status || 'pending', note: v?.note || '' };
+        }
+      });
+    }
+    setChecklistDraft(draft);
+  };
+
+  const loadStaffAssignees = async () => {
+    if (staffList.length > 0) return;
+    try {
+      const res = await api.getAdminEnrolmentStaff();
+      if (res?.success) {
+        setStaffList(res.staff || []);
+      }
+    } catch {
+    }
+  };
+
+  const handleOpenDetail = async (ord: EnrolmentOrderItem) => {
+    syncSelectedOrderFields(ord);
     setTriggerRefundVal(true);
     setAdminResultFile(null);
-    setAdminResultTrackingId(ord.provider_tracking_id || '');
     setAdminResultRemarks('');
     setAdminResultMarkCompleted(true);
     setAdminResultNotifyCustomer(true);
+    setReviewRemarksVal('');
+    void loadStaffAssignees();
     try {
       setLoadingDetail(true);
       const res = await api.getAdminEnrolmentDetail(ord.id);
       if (res?.success && res.order) {
-        setSelectedOrder(res.order);
-        setUpdateStatusVal(res.order.status);
-        setProviderRemarksVal(res.order.provider_remarks || '');
-        setAdminNotesVal(res.order.admin_notes || '');
-        setEstCompletionVal(res.order.estimated_completion_text || '');
-        setAdminResultTrackingId(res.order.provider_tracking_id || '');
+        syncSelectedOrderFields(res.order);
       }
     } catch {
     } finally {
@@ -219,15 +266,79 @@ export const EnrolmentManagement: React.FC = () => {
       const res = await api.pollAdminEnrolmentStatus(id);
       if (res?.success && res.order) {
         setFeedbackMsg(res.message);
-        setSelectedOrder(res.order);
-        setUpdateStatusVal(res.order.status);
-        setProviderRemarksVal(res.order.provider_remarks || '');
+        syncSelectedOrderFields(res.order);
         await loadOrders();
       }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Unable to poll 2SureVerify for status update.');
     } finally {
       setPollingId(null);
+    }
+  };
+
+  const handleAssignStaff = async () => {
+    if (!selectedOrder || !assignStaffId) {
+      setErrorMsg('Please select a staff member before assigning.');
+      return;
+    }
+    try {
+      setAssigningStaff(true);
+      setErrorMsg(null);
+      const res = await api.assignAdminEnrolment(selectedOrder.id, assignStaffId, assignSetStatus);
+      if (res?.success && res.order) {
+        setFeedbackMsg(res.message || 'Enrolment order assigned to staff.');
+        syncSelectedOrderFields(res.order);
+        await loadOrders();
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Unable to assign staff.');
+    } finally {
+      setAssigningStaff(false);
+    }
+  };
+
+  const handleSaveChecklist = async () => {
+    if (!selectedOrder) return;
+    try {
+      setSavingChecklist(true);
+      setErrorMsg(null);
+      const res = await api.updateAdminEnrolmentChecklist(selectedOrder.id, checklistDraft);
+      if (res?.success && res.order) {
+        setFeedbackMsg(res.message || 'Document verification checklist saved.');
+        syncSelectedOrderFields(res.order);
+        await loadOrders();
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Unable to save document checklist.');
+    } finally {
+      setSavingChecklist(false);
+    }
+  };
+
+  const handleReviewCustomerInfo = async (decision: 'approve' | 'request_more' | 'reject') => {
+    if (!selectedOrder) return;
+    if (decision === 'request_more' && !reviewRemarksVal.trim()) {
+      setErrorMsg('Please enter correction instructions before requesting more details.');
+      return;
+    }
+    try {
+      setReviewingInfo(true);
+      setErrorMsg(null);
+      const res = await api.reviewAdminEnrolmentInfo(selectedOrder.id, {
+        decision,
+        remarks: reviewRemarksVal.trim() || undefined,
+        next_status: decision === 'approve' ? reviewNextStatus : undefined,
+      });
+      if (res?.success && res.order) {
+        setFeedbackMsg(res.message || 'Clarification review recorded.');
+        setReviewRemarksVal('');
+        syncSelectedOrderFields(res.order);
+        await loadOrders();
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Unable to review customer clarification.');
+    } finally {
+      setReviewingInfo(false);
     }
   };
 
@@ -242,12 +353,12 @@ export const EnrolmentManagement: React.FC = () => {
         status: updateStatusVal,
         provider_remarks: providerRemarksVal,
         admin_notes: adminNotesVal,
+        requested_corrections: requestedCorrectionsVal.trim(),
         estimated_completion_text: estCompletionVal,
         trigger_refund: triggerRefundVal,
       });
       if (res?.success && res.order) {
-        setSelectedOrder(res.order);
-        setUpdateStatusVal(res.order.status);
+        syncSelectedOrderFields(res.order);
         setFeedbackMsg(
           res.refund?.refunded
             ? `Order updated & wallet refunded cleanly (${res.refund.refund_reference}).`
@@ -270,10 +381,7 @@ export const EnrolmentManagement: React.FC = () => {
       const res = await api.retryAdminEnrolmentResult(id);
       if (res?.success && res.order) {
         setFeedbackMsg(res.message);
-        setSelectedOrder(res.order);
-        setUpdateStatusVal(res.order.status);
-        setProviderRemarksVal(res.order.provider_remarks || '');
-        setAdminResultTrackingId(res.order.provider_tracking_id || '');
+        syncSelectedOrderFields(res.order);
         await loadOrders();
       }
     } catch (err: any) {
@@ -303,9 +411,7 @@ export const EnrolmentManagement: React.FC = () => {
       const res = await api.uploadAdminEnrolmentResultDocument(selectedOrder.id, fd);
       if (res?.success && res.order) {
         setFeedbackMsg(res.message || 'Official enrolment PDF uploaded cleanly.');
-        setSelectedOrder(res.order);
-        setUpdateStatusVal(res.order.status);
-        setProviderRemarksVal(res.order.provider_remarks || '');
+        syncSelectedOrderFields(res.order);
         setAdminResultFile(null);
         await loadOrders();
       }
@@ -732,6 +838,8 @@ export const EnrolmentManagement: React.FC = () => {
               >
                 <option value="all">All Statuses</option>
                 <option value="pending">Pending Manual Processing</option>
+                <option value="under_review">Under Review</option>
+                <option value="assigned">Assigned to Staff</option>
                 <option value="processing">Processing</option>
                 <option value="query_required">Action Required</option>
                 <option value="completed">Completed</option>
@@ -878,6 +986,11 @@ export const EnrolmentManagement: React.FC = () => {
                             </span>
                             <ResultAvailabilityBadge state={order.result_availability_state} />
                           </div>
+                          {order.assigned_staff_name && (
+                            <div className="text-[10px] text-cyan-700 dark:text-cyan-300 font-semibold mt-0.5">
+                              Staff: {order.assigned_staff_name}
+                            </div>
+                          )}
                           {order.refund_reference && (
                             <div className="text-[10px] font-mono text-purple-600 dark:text-purple-300 mt-1">
                               {order.refund_reference}
@@ -1127,6 +1240,66 @@ export const EnrolmentManagement: React.FC = () => {
                     ₦{Number(selectedOrder.profit || 0).toLocaleString('en-NG')}
                   </span>
                 </div>
+                {(selectedOrder.provider_transaction_id || selectedOrder.provider_refunded) && (
+                  <div className="col-span-2 sm:col-span-4 pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-3 text-[11px]">
+                    {selectedOrder.provider_transaction_id && (
+                      <span className="text-slate-600 dark:text-slate-300">
+                        Provider Txn ID: <strong className="text-slate-900 dark:text-white">{selectedOrder.provider_transaction_id}</strong>
+                      </span>
+                    )}
+                    {selectedOrder.provider_refunded && (
+                      <span className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-700 dark:text-purple-300 font-semibold">
+                        Provider Refunded: ₦{Number(selectedOrder.provider_refunded_amount || 0).toLocaleString('en-NG')}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Staff Assignment Control */}
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h5 className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-cyan-600" />
+                    <span>Staff Assignment</span>
+                  </h5>
+                  {selectedOrder.assigned_staff_name && (
+                    <span className="px-2.5 py-0.5 rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-700 dark:text-cyan-300 text-[11px] font-semibold">
+                      Currently Assigned: {selectedOrder.assigned_staff_name}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <select
+                    value={assignStaffId}
+                    onChange={e => setAssignStaffId(e.target.value)}
+                    className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white"
+                  >
+                    <option value="">Select staff / admin assignee...</option>
+                    {staffList.map(st => (
+                      <option key={st.id} value={st.id}>
+                        {st.full_name} ({st.role}) — {st.email}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={assignSetStatus}
+                      onChange={e => setAssignSetStatus(e.target.checked)}
+                    />
+                    <span>Set status Assigned</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAssignStaff}
+                    disabled={assigningStaff || !assignStaffId}
+                    className="px-3.5 py-2 rounded-xl bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 text-white font-semibold inline-flex items-center gap-1.5 shrink-0"
+                  >
+                    {assigningStaff ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
+                    <span>Assign</span>
+                  </button>
+                </div>
               </div>
 
               {/* Submitted Fields */}
@@ -1148,75 +1321,128 @@ export const EnrolmentManagement: React.FC = () => {
                 </div>
               </div>
 
-              {/* Supporting Documents */}
+              {/* Supporting Documents & Verification Checklist */}
               {(selectedOrder.supporting_documents || []).length > 0 && (
                 <div>
-                  <h5 className="font-bold text-slate-900 dark:text-white mb-2">
-                    Customer Supporting Documents
-                  </h5>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <h5 className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <ClipboardCheck className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Customer Supporting Documents &amp; Checklist</span>
+                    </h5>
+                    <button
+                      type="button"
+                      onClick={handleSaveChecklist}
+                      disabled={savingChecklist}
+                      className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-[11px] font-semibold inline-flex items-center gap-1"
+                    >
+                      {savingChecklist ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                      <span>Save Checklist</span>
+                    </button>
+                  </div>
                   <div className="space-y-2">
-                    {selectedOrder.supporting_documents.map(doc => (
-                      <div
-                        key={doc.id}
-                        className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-                          <div className="min-w-0">
-                            <p className="font-semibold text-slate-900 dark:text-white truncate">
-                              {doc.original_name || doc.doc_key}
-                            </p>
-                            <p className="text-[11px] text-slate-500">{doc.doc_key.replace(/_/g, ' ')}</p>
+                    {selectedOrder.supporting_documents.map(doc => {
+                      const entry = checklistDraft[doc.doc_key] || { status: 'pending', note: '' };
+                      const badge = getChecklistStatusBadge(entry.status);
+                      return (
+                        <div
+                          key={doc.id}
+                          className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-semibold text-slate-900 dark:text-white truncate">
+                                    {doc.original_name || doc.doc_key}
+                                  </p>
+                                  <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${badge.className}`}>
+                                    {badge.label}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-500">{doc.doc_key.replace(/_/g, ' ')}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openProtectedDocument(
+                                    doc.id,
+                                    doc.file_url,
+                                    doc.original_name || doc.doc_key,
+                                    doc.mime_type,
+                                    'preview'
+                                  )
+                                }
+                                disabled={loadingDocId === doc.id}
+                                className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-semibold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1"
+                              >
+                                {loadingDocId === doc.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
+                                <span>Preview</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openProtectedDocument(
+                                    `dl_${doc.id}`,
+                                    doc.file_url,
+                                    doc.original_name || doc.doc_key,
+                                    doc.mime_type,
+                                    'download'
+                                  )
+                                }
+                                className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold inline-flex items-center gap-1"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>Download</span>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <select
+                              value={entry.status}
+                              onChange={e =>
+                                setChecklistDraft(prev => ({
+                                  ...prev,
+                                  [doc.doc_key]: { ...entry, status: e.target.value },
+                                }))
+                              }
+                              className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-[11px] text-slate-900 dark:text-white"
+                            >
+                              <option value="pending">Pending Review</option>
+                              <option value="verified">Verified</option>
+                              <option value="needs_reupload">Needs Re-upload</option>
+                              <option value="rejected">Rejected</option>
+                            </select>
+                            <input
+                              type="text"
+                              value={entry.note}
+                              onChange={e =>
+                                setChecklistDraft(prev => ({
+                                  ...prev,
+                                  [doc.doc_key]: { ...entry, note: e.target.value },
+                                }))
+                              }
+                              placeholder="Reviewer note for this document..."
+                              className="sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-[11px] text-slate-900 dark:text-white"
+                            />
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openProtectedDocument(
-                                doc.id,
-                                doc.file_url,
-                                doc.original_name || doc.doc_key,
-                                doc.mime_type,
-                                'preview'
-                              )
-                            }
-                            disabled={loadingDocId === doc.id}
-                            className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-semibold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1"
-                          >
-                            {loadingDocId === doc.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
-                            <span>Preview</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openProtectedDocument(
-                                `dl_${doc.id}`,
-                                doc.file_url,
-                                doc.original_name || doc.doc_key,
-                                doc.mime_type,
-                                'download'
-                              )
-                            }
-                            className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white font-semibold inline-flex items-center gap-1"
-                          >
-                            <Download className="w-3 h-3" />
-                            <span>Download</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
-              {/* Customer Clarification History Thread */}
+              {/* Customer Clarification History & Explicit Admin Review */}
               {Array.isArray(selectedOrder.additional_info_history) &&
                 selectedOrder.additional_info_history.length > 0 && (
-                  <div className="p-4 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-500/30 space-y-2">
+                  <div className="p-4 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-500/30 space-y-2.5">
                     <div className="flex items-center justify-between gap-2">
-                      <h5 className="font-bold text-slate-900 dark:text-white">
-                        Customer Clarification History
+                      <h5 className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Customer Clarification History &amp; Review</span>
                       </h5>
                       {selectedOrder.query_review_status && (
                         <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-bold">
@@ -1239,6 +1465,11 @@ export const EnrolmentManagement: React.FC = () => {
                             <span>{entry.review_state || entry.review_status || 'submitted_for_admin_review'}</span>
                           </div>
                           {entry.note && <p>{entry.note}</p>}
+                          {entry.admin_feedback && (
+                            <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                              Admin Feedback: {entry.admin_feedback}
+                            </p>
+                          )}
                           {Array.isArray(entry.documents) && entry.documents.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 pt-1">
                               {entry.documents.map(doc => {
@@ -1277,8 +1508,96 @@ export const EnrolmentManagement: React.FC = () => {
                         </div>
                       ))}
                     </div>
+
+                    <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-slate-800 space-y-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input
+                          type="text"
+                          value={reviewRemarksVal}
+                          onChange={e => setReviewRemarksVal(e.target.value)}
+                          placeholder="Review remarks / instructions (required for Request More)..."
+                          className="sm:col-span-2 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                        />
+                        <select
+                          value={reviewNextStatus}
+                          onChange={e => setReviewNextStatus(e.target.value as any)}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                        >
+                          <option value="processing">Resume as Processing</option>
+                          <option value="under_review">Resume as Under Review</option>
+                          <option value="assigned">Resume as Assigned</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleReviewCustomerInfo('approve')}
+                          disabled={reviewingInfo}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white text-[11px] font-semibold"
+                        >
+                          Approve &amp; Resume
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReviewCustomerInfo('request_more')}
+                          disabled={reviewingInfo}
+                          className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-[11px] font-semibold"
+                        >
+                          Request More Corrections
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleReviewCustomerInfo('reject')}
+                          disabled={reviewingInfo}
+                          className="px-3 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white text-[11px] font-semibold"
+                        >
+                          Reject Clarification
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
+
+              {Array.isArray(selectedOrder.status_history) && selectedOrder.status_history.length > 0 && (
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                  <h5 className="font-bold text-slate-900 dark:text-white">
+                    Audit &amp; Status History Timeline
+                  </h5>
+                  <div className="space-y-1.5">
+                    {selectedOrder.status_history.map(item => (
+                      <div
+                        key={item.id}
+                        className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-[11px]"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {item.previous_status && (
+                              <>
+                                <span className="font-mono text-[10px] text-slate-500 uppercase">
+                                  {item.previous_status}
+                                </span>
+                                <span className="text-slate-400">&rarr;</span>
+                              </>
+                            )}
+                            <span className="font-mono text-[10px] font-bold text-slate-900 dark:text-white uppercase">
+                              {item.new_status}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono text-slate-600 dark:text-slate-300">
+                              {item.actor_type}
+                            </span>
+                          </div>
+                          {item.remarks && (
+                            <p className="text-slate-700 dark:text-slate-300">{item.remarks}</p>
+                          )}
+                        </div>
+                        <span className="font-mono text-[10px] text-slate-500 shrink-0">
+                          {new Date(item.created_at).toLocaleString('en-NG')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Phase 2: Official Result Retrieval, Tracking ID & Manual Admin PDF Upload */}
               <div className="p-4 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/30 space-y-3">
@@ -1483,6 +1802,8 @@ export const EnrolmentManagement: React.FC = () => {
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
                     >
                       <option value="pending">Pending Manual Processing</option>
+                      <option value="under_review">Under Review</option>
+                      <option value="assigned">Assigned to Staff</option>
                       <option value="processing">Processing</option>
                       <option value="query_required">Query / Info Required</option>
                       <option value="completed">Completed</option>
@@ -1503,6 +1824,19 @@ export const EnrolmentManagement: React.FC = () => {
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Requested Corrections / Action Banner
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={requestedCorrectionsVal}
+                    onChange={e => setRequestedCorrectionsVal(e.target.value)}
+                    placeholder="Specific applicant fields or documents the customer needs to correct..."
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white"
+                  />
                 </div>
 
                 <div>

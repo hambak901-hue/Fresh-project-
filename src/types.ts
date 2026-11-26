@@ -1631,6 +1631,8 @@ export interface ModificationDocumentAttachment {
 
 export type ModificationRequestStatus =
   | 'pending'
+  | 'under_review'
+  | 'assigned'
   | 'processing'
   | 'query_required'
   | 'completed'
@@ -1638,22 +1640,47 @@ export type ModificationRequestStatus =
   | 'rejected'
   | 'refunded';
 
+export type DocumentChecklistStatus = 'pending' | 'verified' | 'needs_reupload' | 'rejected';
+
+export interface DocumentChecklistEntry {
+  status: DocumentChecklistStatus | string;
+  note?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+}
+
+export interface StaffAssigneeItem {
+  id: string;
+  full_name: string;
+  email: string;
+  role: string;
+}
+
 export interface ModificationRequestItem {
   id: string;
   request_number: string;
   user_id: string;
-  identity_type: 'NIN' | 'BVN';
+  identity_type: 'NIN' | 'BVN' | 'ADDITIONAL' | string;
   service_key: string;
   service_name: string;
   masked_identifier: string;
   submitted_fields: Record<string, any>;
   supporting_documents: ModificationDocumentAttachment[];
+  document_review_checklist?: Record<string, DocumentChecklistEntry>;
+  requested_corrections?: string | null;
+  assigned_to?: string | null;
+  assigned_staff_name?: string | null;
+  assigned_at?: string | null;
   enrollment_type?: string | null;
   customer_price: number;
+  is_refundable?: boolean;
   payment_reference: string;
   refund_reference?: string | null;
   provider_reference?: string | null;
+  provider_transaction_id?: string | null;
   provider_status?: string | null;
+  provider_refunded?: boolean | null;
+  provider_refunded_amount?: number;
   provider_remarks?: string | null;
   estimated_completion_text: string;
   status: ModificationRequestStatus | string;
@@ -1711,6 +1738,8 @@ export interface ResultDocumentMeta {
   provider_tracking_id?: string | null;
   created_at?: string | null;
   file_url: string;
+  preview_url?: string;
+  download_url?: string;
 }
 
 export interface AdditionalInfoHistoryEntry {
@@ -1721,12 +1750,73 @@ export interface AdditionalInfoHistoryEntry {
   documents?: Array<{ id: string; original_name?: string }>;
   review_status?: string;
   review_state?: string;
+  reviewed_at?: string;
+  admin_feedback?: string;
 }
 
 export interface ModificationAdminStats {
   total_all: number;
   nin_count: number;
   bvn_count: number;
+  pending_count: number;
+  processing_count: number;
+  query_count: number;
+  completed_count: number;
+  failed_count: number;
+  refunded_count: number;
+  total_revenue: number;
+  total_provider_cost: number;
+  total_margin: number;
+}
+
+export interface UnverifiedServiceNotice {
+  service_key: string;
+  name: string;
+  supported: false;
+  status: 'not_yet_supported' | string;
+  label: string;
+  description: string;
+  alternative_service_key?: string | null;
+  alternative_label?: string | null;
+}
+
+export interface AdditionalServiceCatalogItem {
+  id: string;
+  key: string;
+  service_key: string;
+  category: 'additional_services' | string;
+  identity_type: 'ADDITIONAL' | string;
+  name: string;
+  description: string;
+  selling_price: number;
+  price: number;
+  is_active: boolean;
+  enabled: boolean;
+  is_refundable: boolean;
+  processing_type: 'manual' | string;
+  manual_label: string;
+  estimated_turnaround: string;
+  supported_notes?: string;
+  required_fields: string[];
+  required_documents: ModificationRequiredDocument[];
+  form_schema: ModificationFormField[];
+  updated_at?: string | null;
+  // Admin-only fields
+  provider_id?: string;
+  provider?: string;
+  endpoint?: string;
+  status_endpoint?: string;
+  wholesale_cost?: number;
+  profit?: number;
+  margin_percent?: number;
+  provider_schema_verified?: boolean;
+  payload_mapping?: any;
+}
+
+export type AdditionalServiceRequest = ModificationRequestItem;
+
+export interface AdditionalServicesAdminStats {
+  total_all: number;
   pending_count: number;
   processing_count: number;
   query_count: number;
@@ -1789,6 +1879,8 @@ export interface EnrolmentServiceItem {
 
 export type EnrolmentOrderStatus =
   | 'pending'
+  | 'under_review'
+  | 'assigned'
   | 'processing'
   | 'query_required'
   | 'completed'
@@ -1808,6 +1900,11 @@ export interface EnrolmentOrderItem {
   applicant_phone_masked: string;
   submitted_fields: Record<string, any>;
   supporting_documents: ModificationDocumentAttachment[];
+  document_review_checklist?: Record<string, DocumentChecklistEntry>;
+  requested_corrections?: string | null;
+  assigned_to?: string | null;
+  assigned_staff_name?: string | null;
+  assigned_at?: string | null;
   customer_price: number;
   payment_reference: string;
   refund_reference?: string | null;
@@ -1831,9 +1928,13 @@ export interface EnrolmentOrderItem {
   result_availability_state?: ResultAvailabilityState;
   query_review_status?: string | null;
   additional_info_history?: AdditionalInfoHistoryEntry[];
+  status_history?: ModificationStatusHistoryItem[];
   // Admin-only fields
   provider_reference?: string | null;
+  provider_transaction_id?: string | null;
   provider_status?: string | null;
+  provider_refunded?: boolean | null;
+  provider_refunded_amount?: number;
   customer_name?: string | null;
   customer_email?: string | null;
   customer_phone?: string | null;
