@@ -2352,6 +2352,56 @@ class SchemaSync
             }
         }
 
+        // Phase 3: Ensure modification_status_history table, backfill provider_service_mappings, and keep BVN bank tables in sync
+        try {
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS modification_status_history (
+                    id VARCHAR(36) PRIMARY KEY,
+                    request_id VARCHAR(36) NOT NULL,
+                    previous_status VARCHAR(40) NULL,
+                    new_status VARCHAR(40) NOT NULL,
+                    actor_type ENUM("customer", "provider", "admin", "system") NOT NULL DEFAULT "system",
+                    actor_id VARCHAR(36) NULL,
+                    remarks TEXT NULL,
+                    is_customer_visible TINYINT(1) NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_mod_hist_req (request_id, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+            $db->execute(
+                'INSERT INTO provider_service_mappings (id, provider_id, service_key, provider_endpoint, provider_plan_code, wholesale_cost, is_active)
+                 SELECT UUID(), s.provider_id, s.service_key, s.endpoint, NULL, s.wholesale_cost, s.is_active
+                 FROM service_catalogue s
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM provider_service_mappings psm WHERE psm.service_key = s.service_key
+                 )'
+            );
+            // Reconcile bvn_modification_banks <-> modification_bvn_types while strictly preserving ACCESS BANK is_active = 0
+            $db->execute(
+                'INSERT INTO bvn_modification_banks (enrollment_type, bank_name, provider_cost, customer_price, is_active, display_order)
+                 SELECT t.enrollment_type, t.label, t.wholesale_cost, t.selling_price,
+                        CASE WHEN UPPER(t.enrollment_type) = "ACCESS BANK" THEN 0 ELSE t.is_active END,
+                        50
+                 FROM modification_bvn_types t
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM bvn_modification_banks b WHERE UPPER(b.enrollment_type) = UPPER(t.enrollment_type)
+                 )'
+            );
+            $db->execute(
+                'INSERT INTO modification_bvn_types (id, enrollment_type, label, wholesale_cost, selling_price, is_active, provider_synced_at)
+                 SELECT CONCAT("bvnt_", SUBSTRING(MD5(LOWER(b.enrollment_type)), 1, 12)),
+                        b.enrollment_type, b.bank_name, b.provider_cost, b.customer_price,
+                        CASE WHEN UPPER(b.enrollment_type) = "ACCESS BANK" THEN 0 ELSE b.is_active END,
+                        NULL
+                 FROM bvn_modification_banks b
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM modification_bvn_types t WHERE UPPER(t.enrollment_type) = UPPER(b.enrollment_type)
+                 )'
+            );
+        } catch (Throwable $e) {
+            $errors[] = 'phase3_sync => ' . $e->getMessage();
+        }
+
         return ['applied' => $applied, 'errors' => $errors];
     }
 
@@ -2457,6 +2507,7 @@ class SchemaSync
                 'result_retrieval_status' => 'ADD COLUMN result_retrieval_status VARCHAR(32) NULL',
                 'result_retrieval_error' => 'ADD COLUMN result_retrieval_error TEXT NULL',
                 'result_retrieved_at' => 'ADD COLUMN result_retrieved_at DATETIME NULL',
+                'additional_info_history' => 'ADD COLUMN additional_info_history JSON NULL',
             ];
             foreach ($enrResultCols as $col => $clause) {
                 $exists = $db->fetchOne(
@@ -4143,6 +4194,53 @@ class SchemaSync
                 if (!$exists) {
                     $db->execute("ALTER TABLE `academy_students` ADD COLUMN `{$col}` {$def}");
                 }
+            }
+        } catch (Throwable) {
+        }
+    }
+
+    public static function syncProviderServiceMapping(
+        Database $db,
+        string $providerId,
+        string $serviceKey,
+        string $endpoint,
+        float $wholesaleCost,
+        int $isActive = 1
+    ): void {
+        $sk = trim($serviceKey);
+        if ($sk === '') {
+            return;
+        }
+        try {
+            $existing = $db->fetchOne(
+                'SELECT id FROM provider_service_mappings WHERE service_key = :sk LIMIT 1',
+                ['sk' => $sk]
+            );
+            if ($existing) {
+                $db->execute(
+                    'UPDATE provider_service_mappings
+                     SET provider_id = :pid, provider_endpoint = :ep, wholesale_cost = :wc, is_active = :act
+                     WHERE id = :id',
+                    [
+                        'pid' => $providerId !== '' ? $providerId : '2sureverify',
+                        'ep' => $endpoint,
+                        'wc' => max(0.0, $wholesaleCost),
+                        'act' => $isActive ? 1 : 0,
+                        'id' => $existing['id'],
+                    ]
+                );
+            } else {
+                $db->execute(
+                    'INSERT INTO provider_service_mappings (id, provider_id, service_key, provider_endpoint, provider_plan_code, wholesale_cost, is_active)
+                     VALUES (UUID(), :pid, :sk, :ep, NULL, :wc, :act)',
+                    [
+                        'pid' => $providerId !== '' ? $providerId : '2sureverify',
+                        'sk' => $sk,
+                        'ep' => $endpoint,
+                        'wc' => max(0.0, $wholesaleCost),
+                        'act' => $isActive ? 1 : 0,
+                    ]
+                );
             }
         } catch (Throwable) {
         }

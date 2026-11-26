@@ -253,6 +253,8 @@ class EnrolmentController
         $profit = (float)($row['profit'] ?? ($customerPrice - $providerCost));
 
         $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $row, 'enrolment', $isAdmin);
+        $infoHistory = $this->decodeJsonColumn($row['additional_info_history'] ?? null, []);
+        $queryReviewStatus = (string)($fields['query_review_status'] ?? '');
 
         $item = array_merge([
             'id' => (string)($row['id'] ?? ''),
@@ -272,6 +274,8 @@ class EnrolmentController
             'provider_remarks' => $row['provider_remarks'] ?? null,
             'estimated_completion_text' => (string)($row['estimated_completion_text'] ?? '3 – 7 Business Days (Manual Processing)'),
             'status' => (string)($row['status'] ?? 'pending'),
+            'query_review_status' => $queryReviewStatus !== '' ? $queryReviewStatus : null,
+            'additional_info_history' => $infoHistory,
             'reviewed_at' => $row['reviewed_at'] ?? null,
             'completed_at' => $row['completed_at'] ?? null,
             'created_at' => $row['created_at'] ?? null,
@@ -298,6 +302,25 @@ class EnrolmentController
         }
 
         return $item;
+    }
+
+    private function recordAudit(array $admin, string $action, array $details, ?Request $request = null): void
+    {
+        try {
+            $this->db->execute(
+                'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+                 VALUES (:id, :uid, :email, :act, :det, :ip, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => (string)($admin['id'] ?? ''),
+                    'email' => (string)($admin['email'] ?? ''),
+                    'act' => $action,
+                    'det' => json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                    'ip' => $request ? $request->getIp() : ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0'),
+                ]
+            );
+        } catch (Throwable) {
+        }
     }
 
     private function notifyCustomer(string $userId, string $title, string $body, string $notifType, string $reference, array $emailMeta = []): void
@@ -1473,6 +1496,152 @@ class EnrolmentController
     }
 
     /**
+     * POST /api/enrolments/:id/submit-info
+     * POST /api/enrolments/:id/submit-additional-info
+     * Records customer clarification/document response and queues for HAMBAK administrator review.
+     */
+    public function submitAdditionalInfo(Request $request, array $params): void
+    {
+        SchemaSync::syncEnrolmentCatalog($this->db);
+
+        $user = Auth::requireAuth($request);
+        $id = trim((string)($params['id'] ?? ''));
+        $body = $request->getBody();
+
+        $row = $this->db->fetchOne(
+            'SELECT * FROM enrolment_orders WHERE (id = :id1 OR order_number = :id2) AND user_id = :uid LIMIT 1',
+            ['id1' => $id, 'id2' => $id, 'uid' => $user['id']]
+        );
+        if (!$row) {
+            Response::notFound('Enrolment order not found.');
+        }
+        if ($row['status'] !== 'query_required') {
+            Response::error('Additional information can only be submitted when the order status is Query / Info Required.', 422);
+        }
+
+        $existingFields = $this->decodeJsonColumn($row['submitted_fields'] ?? null, []);
+        if (($existingFields['query_review_status'] ?? '') === 'submitted_for_admin_review') {
+            Response::error('Additional clarification has already been submitted and is currently queued for HAMBAK administrator review.', 409);
+        }
+
+        $note = trim((string)($body['note'] ?? $body['response_note'] ?? ''));
+        $newDocIds = [];
+        if (is_array($body['document_ids'] ?? null)) {
+            foreach ($body['document_ids'] as $k => $v) {
+                if (is_string($v) && trim($v) !== '') {
+                    $newDocIds[] = ['id' => trim($v), 'doc_key' => is_string($k) ? $k : 'query_response'];
+                } elseif (is_array($v) && !empty($v['id'])) {
+                    $newDocIds[] = ['id' => trim((string)$v['id']), 'doc_key' => (string)($v['doc_key'] ?? 'query_response')];
+                }
+            }
+        }
+
+        if ($note === '' && empty($newDocIds)) {
+            Response::error('Please provide an explanation note or attach the requested document.', 422);
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $existingFields['query_review_status'] = 'submitted_for_admin_review';
+        $existingFields['customer_query_responded_at'] = $now;
+        if ($note !== '') {
+            $existingFields['customer_query_response'] = $note;
+        }
+
+        $existingDocs = $this->decodeJsonColumn($row['supporting_documents'] ?? null, []);
+        $attachedDocMeta = [];
+        if (!empty($newDocIds)) {
+            $onlyIds = array_values(array_unique(array_column($newDocIds, 'id')));
+            $phs = [];
+            $qParams = ['uid' => $user['id']];
+            foreach ($onlyIds as $idx => $did) {
+                $phs[] = ':eqid_' . $idx;
+                $qParams['eqid_' . $idx] = $did;
+            }
+            $docRows = $this->db->fetchAll(
+                'SELECT * FROM uploaded_documents WHERE user_id = :uid AND id IN (' . implode(', ', $phs) . ')',
+                $qParams
+            );
+            $existingDocIds = array_column($existingDocs, 'id');
+            foreach ($docRows as $dr) {
+                $docEntry = [
+                    'id' => $dr['id'],
+                    'doc_key' => str_replace('enrolment_', '', (string)$dr['document_type']),
+                    'original_name' => $dr['original_name'],
+                    'mime_type' => $dr['mime_type'],
+                    'file_size' => (int)($dr['file_size'] ?? 0),
+                    'file_url' => '/api/enrolments/document/' . $dr['id'],
+                ];
+                $attachedDocMeta[] = ['id' => $dr['id'], 'original_name' => $dr['original_name']];
+                if (!in_array($dr['id'], $existingDocIds, true)) {
+                    $existingDocs[] = $docEntry;
+                }
+            }
+        }
+
+        $infoHistory = $this->decodeJsonColumn($row['additional_info_history'] ?? null, []);
+        $infoHistory[] = [
+            'id' => Security::generateUuid(),
+            'submitted_at' => $now,
+            'note' => $note,
+            'documents' => $attachedDocMeta,
+            'review_state' => 'submitted_for_admin_review',
+        ];
+
+        $this->db->execute(
+            'UPDATE enrolment_orders
+             SET submitted_fields = :sf,
+                 supporting_documents = :sd,
+                 additional_info_history = :aih,
+                 updated_at = NOW()
+             WHERE id = :id',
+            [
+                'sf' => json_encode($existingFields),
+                'sd' => json_encode($existingDocs),
+                'aih' => json_encode($infoHistory),
+                'id' => $row['id'],
+            ]
+        );
+
+        FootprintService::record([
+            'user_id' => $user['id'],
+            'user_email' => $user['email'] ?? null,
+            'user_name' => $user['full_name'] ?? null,
+            'category' => 'services',
+            'action' => 'CUSTOMER_ENROLMENT_QUERY_RESPONDED',
+            'service_type' => $row['service_key'] ?? 'enrolment',
+            'reference' => $row['order_number'] ?? $row['id'],
+            'status' => 'processing',
+            'metadata' => [
+                'review_state' => 'submitted_for_admin_review',
+                'documents_attached' => count($attachedDocMeta),
+            ],
+        ]);
+
+        try {
+            $adminRow = $this->db->fetchOne('SELECT id FROM users WHERE role IN ("superadmin", "admin") ORDER BY created_at ASC LIMIT 1');
+            if ($adminRow) {
+                $this->db->execute(
+                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, action_link, created_at)
+                     VALUES (:id, :uid, :title, :msg, "info", 0, "#enrolment", NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'uid' => $adminRow['id'],
+                        'title' => 'Enrolment Clarification Submitted: ' . ($row['order_number'] ?? $row['id']),
+                        'msg' => 'Customer submitted additional clarification/documents for enrolment order ' . ($row['order_number'] ?? $row['id']) . '. Manual administrator review required.',
+                    ]
+                );
+            }
+        } catch (Throwable) {
+        }
+
+        $updated = $this->db->fetchOne('SELECT * FROM enrolment_orders WHERE id = :id LIMIT 1', ['id' => $row['id']]);
+        Response::success([
+            'review_state' => 'submitted_for_admin_review',
+            'order' => $updated ? $this->formatOrderRow($updated, false) : null,
+        ], 'Additional clarification submitted and queued for HAMBAK administrator review.');
+    }
+
+    /**
      * POST /api/enrolments/webhook
      */
     public function webhook(Request $request): void
@@ -1640,6 +1809,11 @@ class EnrolmentController
 
         $serviceKey = trim((string)$request->query('service_key', 'all'));
         $status = strtolower(trim((string)$request->query('status', 'all')));
+        $providerId = trim((string)$request->query('provider_id', 'all'));
+        $rawFrom = trim((string)$request->query('date_from', ''));
+        $rawTo = trim((string)$request->query('date_to', ''));
+        $dateFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawFrom) ? $rawFrom : '';
+        $dateTo = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawTo) ? $rawTo : '';
         $search = trim((string)$request->query('search', ''));
         $page = max(1, (int)$request->query('page', 1));
         $limit = min(100, max(10, (int)$request->query('limit', 25)));
@@ -1655,6 +1829,18 @@ class EnrolmentController
         if ($status !== '' && $status !== 'all') {
             $where .= 'AND eo.status = :st ';
             $params['st'] = $status;
+        }
+        if ($providerId !== '' && $providerId !== 'all') {
+            $where .= 'AND eo.provider_id = :pid ';
+            $params['pid'] = $providerId;
+        }
+        if ($dateFrom !== '') {
+            $where .= 'AND eo.created_at >= :df ';
+            $params['df'] = $dateFrom . ' 00:00:00';
+        }
+        if ($dateTo !== '') {
+            $where .= 'AND eo.created_at <= :dt ';
+            $params['dt'] = $dateTo . ' 23:59:59';
         }
         if ($search !== '') {
             $where .= 'AND (eo.order_number LIKE :q1 OR eo.service_name LIKE :q2 OR eo.applicant_name LIKE :q3 OR eo.payment_reference LIKE :q4 OR eo.provider_reference LIKE :q5 OR u.full_name LIKE :q6 OR u.email LIKE :q7) ';
@@ -1894,6 +2080,13 @@ class EnrolmentController
             'amount' => (float)$row['customer_price'],
             'metadata' => ['previous_status' => $prevStatus, 'new_status' => $finalStatus, 'refund' => $refundRes],
         ]);
+        $this->recordAudit($admin, 'ADMIN_ENROLMENT_ORDER_UPDATED', [
+            'order_id' => $id,
+            'order_number' => $row['order_number'],
+            'previous_status' => $prevStatus,
+            'new_status' => $finalStatus,
+            'refunded' => !empty($refundRes['refunded']),
+        ], $request);
 
         if ($finalStatus !== $prevStatus || $remarks !== (string)($row['provider_remarks'] ?? '')) {
             $title = "{$row['service_name']} Update: " . strtoupper(str_replace('_', ' ', $finalStatus));
@@ -2069,6 +2262,12 @@ class EnrolmentController
                 'tracking_id' => $trackingId !== '' ? $trackingId : null,
             ],
         ]);
+        $this->recordAudit($admin, 'ADMIN_ENROLMENT_RESULT_UPLOADED', [
+            'order_id' => $row['id'],
+            'order_number' => $row['order_number'],
+            'document_id' => $doc['id'],
+            'mark_completed' => $markCompleted,
+        ], $request);
 
         if ($notifyCustomerFlag) {
             $this->notifyCustomer(
@@ -2225,6 +2424,17 @@ class EnrolmentController
         );
         $samples = $this->fetchSamplesByService($key, false);
 
+        if ($fresh) {
+            SchemaSync::syncProviderServiceMapping(
+                $this->db,
+                (string)($fresh['provider_id'] ?? '2sureverify'),
+                $key,
+                (string)($fresh['endpoint'] ?? ''),
+                (float)($fresh['wholesale_cost'] ?? 0),
+                !empty($fresh['is_active']) ? 1 : 0
+            );
+        }
+
         FootprintService::record([
             'user_id' => $admin['id'],
             'user_email' => $admin['email'] ?? null,
@@ -2235,6 +2445,12 @@ class EnrolmentController
             'reference' => $key,
             'status' => 'successful',
         ]);
+        $this->recordAudit($admin, 'ADMIN_ENROLMENT_SERVICE_UPDATED', [
+            'service_key' => $key,
+            'selling_price' => $targetSelling,
+            'wholesale_cost' => $targetWholesale,
+            'is_active' => $fresh ? (bool)$fresh['is_active'] : null,
+        ], $request);
 
         Response::success([
             'service' => $fresh ? $this->formatServiceRow($fresh, true, $samples) : null,

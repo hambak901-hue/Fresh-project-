@@ -17,6 +17,7 @@ import {
   ModificationServiceItem,
 } from '../../types';
 import { TransactionPinModal } from './TransactionPinModal';
+import { ResultAvailabilityBadge } from '../common/ResultAvailabilityBadge';
 import {
   AlertCircle,
   ArrowRight,
@@ -843,9 +844,12 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
               <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
                 Current Status
               </span>
-              <span className="font-bold text-amber-700 dark:text-amber-300 mt-0.5 block">
-                {getModificationStatusStyle(submittedRequest.status).label}
-              </span>
+              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                <span className="font-bold text-amber-700 dark:text-amber-300">
+                  {getModificationStatusStyle(submittedRequest.status).label}
+                </span>
+                <ResultAvailabilityBadge state={submittedRequest.result_availability_state} />
+              </div>
             </div>
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
               <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
@@ -1825,6 +1829,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                         <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${st.classes}`}>
                           {st.label}
                         </span>
+                        <ResultAvailabilityBadge state={req.result_availability_state} />
                         {awaitingAdminReview && req.status === 'query_required' && (
                           <span className="px-2 py-0.5 rounded border border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
                             Response Submitted — Awaiting Admin Review
@@ -2016,6 +2021,48 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                           {entry.note && <p>{entry.note}</p>}
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Chronological Status History Timeline */}
+                  {Array.isArray(req.status_history) && req.status_history.length > 0 && (
+                    <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2 text-[11px]">
+                      <div className="font-bold text-slate-800 dark:text-slate-200">
+                        Status Timeline
+                      </div>
+                      <div className="space-y-1.5">
+                        {req.status_history.map(item => (
+                          <div
+                            key={item.id}
+                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 p-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800"
+                          >
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {item.previous_status && (
+                                  <>
+                                    <span className="font-mono text-[10px] text-slate-500 uppercase">
+                                      {item.previous_status}
+                                    </span>
+                                    <span className="text-slate-400">&rarr;</span>
+                                  </>
+                                )}
+                                <span className="font-mono text-[10px] font-bold text-slate-900 dark:text-white uppercase">
+                                  {item.new_status}
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 capitalize">
+                                  {item.actor_type}
+                                </span>
+                              </div>
+                              {item.remarks && (
+                                <p className="text-slate-600 dark:text-slate-300">{item.remarks}</p>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                              {new Date(item.created_at).toLocaleString('en-NG')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 

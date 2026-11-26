@@ -20,6 +20,7 @@ import {
   ModificationRequiredDocument,
 } from '../../types';
 import { getEnrolmentStatusStyle } from '../customer/EnrolmentSection';
+import { ResultAvailabilityBadge } from '../common/ResultAvailabilityBadge';
 import {
   AlertCircle,
   AlertTriangle,
@@ -58,6 +59,9 @@ export const EnrolmentManagement: React.FC = () => {
   const [loadingOrders, setLoadingOrders] = useState<boolean>(false);
   const [serviceFilter, setServiceFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [providerFilter, setProviderFilter] = useState<string>('all');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
@@ -116,7 +120,7 @@ export const EnrolmentManagement: React.FC = () => {
     } else {
       loadServices();
     }
-  }, [activeTab, serviceFilter, statusFilter, page]);
+  }, [activeTab, serviceFilter, statusFilter, providerFilter, page]);
 
   const loadOrders = async () => {
     try {
@@ -125,6 +129,9 @@ export const EnrolmentManagement: React.FC = () => {
       const res = await api.getAdminEnrolments({
         service_key: serviceFilter,
         status: statusFilter,
+        provider_id: providerFilter,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
         search: searchQuery.trim() || undefined,
         page,
         limit: 25,
@@ -731,10 +738,38 @@ export const EnrolmentManagement: React.FC = () => {
                 <option value="refunded">Refunded</option>
                 <option value="failed">Failed / Rejected</option>
               </select>
+
+              <select
+                value={providerFilter}
+                onChange={e => {
+                  setProviderFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white"
+              >
+                <option value="all">All Providers</option>
+                <option value="2sureverify">2SureVerify</option>
+                <option value="veripine">Veripine</option>
+              </select>
+
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={e => setDateFrom(e.target.value)}
+                title="From date"
+                className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white"
+              />
+              <input
+                type="date"
+                value={dateTo}
+                onChange={e => setDateTo(e.target.value)}
+                title="To date"
+                className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white"
+              />
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="relative flex-1 sm:w-64">
+              <div className="relative flex-1 sm:w-56">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -758,7 +793,15 @@ export const EnrolmentManagement: React.FC = () => {
                 }}
                 className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition"
               >
-                Search
+                Apply
+              </button>
+              <button
+                type="button"
+                onClick={() => loadOrders()}
+                title="Refresh orders"
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingOrders ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
@@ -829,9 +872,12 @@ export const EnrolmentManagement: React.FC = () => {
                           </div>
                         </td>
                         <td className="py-3.5 px-4">
-                          <span className={`px-2 py-0.5 rounded border text-[10px] font-bold whitespace-nowrap ${st.classes}`}>
-                            {st.label}
-                          </span>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className={`px-2 py-0.5 rounded border text-[10px] font-bold whitespace-nowrap ${st.classes}`}>
+                              {st.label}
+                            </span>
+                            <ResultAvailabilityBadge state={order.result_availability_state} />
+                          </div>
                           {order.refund_reference && (
                             <div className="text-[10px] font-mono text-purple-600 dark:text-purple-300 mt-1">
                               {order.refund_reference}
@@ -1027,9 +1073,12 @@ export const EnrolmentManagement: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl my-8">
             <div className="flex items-center justify-between px-5 py-4 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
               <div>
-                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                  {selectedOrder.service_name} &middot; {selectedOrder.order_number}
-                </h4>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {selectedOrder.service_name} &middot; {selectedOrder.order_number}
+                  </h4>
+                  <ResultAvailabilityBadge state={selectedOrder.result_availability_state} />
+                </div>
                 <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                   Payment Ref: {selectedOrder.payment_reference}
                   {selectedOrder.provider_reference ? ` · Provider Ref: ${selectedOrder.provider_reference}` : ''}
@@ -1160,6 +1209,76 @@ export const EnrolmentManagement: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Customer Clarification History Thread */}
+              {Array.isArray(selectedOrder.additional_info_history) &&
+                selectedOrder.additional_info_history.length > 0 && (
+                  <div className="p-4 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-500/30 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <h5 className="font-bold text-slate-900 dark:text-white">
+                        Customer Clarification History
+                      </h5>
+                      {selectedOrder.query_review_status && (
+                        <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-bold">
+                          {selectedOrder.query_review_status}
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      {selectedOrder.additional_info_history.map((entry, idx) => (
+                        <div
+                          key={`${entry.submitted_at}_${idx}`}
+                          className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-slate-800 text-slate-700 dark:text-slate-300 space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span>
+                              {entry.submitted_at
+                                ? new Date(entry.submitted_at).toLocaleString('en-NG')
+                                : 'Submitted'}
+                            </span>
+                            <span>{entry.review_state || entry.review_status || 'submitted_for_admin_review'}</span>
+                          </div>
+                          {entry.note && <p>{entry.note}</p>}
+                          {Array.isArray(entry.documents) && entry.documents.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              {entry.documents.map(doc => {
+                                const matched = (selectedOrder.supporting_documents || []).find(
+                                  sd => sd.id === doc.id
+                                );
+                                return matched ? (
+                                  <button
+                                    key={doc.id}
+                                    type="button"
+                                    onClick={() =>
+                                      openProtectedDocument(
+                                        matched.id,
+                                        matched.file_url,
+                                        matched.original_name || doc.original_name || matched.doc_key,
+                                        matched.mime_type,
+                                        'preview'
+                                      )
+                                    }
+                                    className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-[10px] font-semibold inline-flex items-center gap-1"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>{doc.original_name || matched.original_name}</span>
+                                  </button>
+                                ) : (
+                                  <span
+                                    key={doc.id}
+                                    className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono"
+                                  >
+                                    {doc.original_name || doc.id}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               {/* Phase 2: Official Result Retrieval, Tracking ID & Manual Admin PDF Upload */}
               <div className="p-4 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/30 space-y-3">

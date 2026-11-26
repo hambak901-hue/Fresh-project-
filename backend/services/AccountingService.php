@@ -316,10 +316,13 @@ class AccountingService
         return 0.0;
     }
 
-    private function classifyServiceDomain(string $category, string $reference, ?array $telecomOrder, ?array $verRecord, ?array $modReq, ?array $enrOrder, ?array $footprint = null): string
+    private function classifyServiceDomain(string $category, string $reference, ?array $telecomOrder, ?array $verRecord, ?array $modReq, ?array $enrOrder, ?array $footprint = null, ?array $printingOrder = null): string
     {
         if ($telecomOrder && !empty($telecomOrder['service_type'])) {
             return strtolower((string)$telecomOrder['service_type']);
+        }
+        if ($printingOrder) {
+            return 'printing';
         }
         if ($verRecord) {
             $sk = strtolower((string)($verRecord['service_key'] ?? ''));
@@ -338,6 +341,7 @@ class AccountingService
         }
         if ($footprint && !empty($footprint['service_type'])) {
             $fpSvc = strtolower(trim((string)$footprint['service_type']));
+            if (str_contains($fpSvc, 'printing')) return 'printing';
             if (str_contains($fpSvc, 'bvn_mod')) return 'bvn_modification';
             if (str_contains($fpSvc, 'bvn')) return 'bvn_verification';
             if (str_contains($fpSvc, 'nin_mod')) return 'nin_modification';
@@ -346,6 +350,7 @@ class AccountingService
         }
         $cat = strtolower(trim($category));
         $ref = strtoupper(trim($reference));
+        if (str_contains($cat, 'printing') || str_starts_with($ref, 'PRTPAY_') || str_starts_with($ref, 'PRT')) return 'printing';
         if (str_contains($cat, 'bvn_mod') || str_starts_with($ref, 'MOD_BVN')) return 'bvn_modification';
         if (str_contains($cat, 'nin_mod') || str_contains($cat, 'modification') || str_starts_with($ref, 'MOD_')) return 'nin_modification';
         if (str_contains($cat, 'enrol') || str_starts_with($ref, 'ENR_')) return 'enrolment';
@@ -416,6 +421,26 @@ class AccountingService
             if (!empty($e['payment_reference'])) {
                 $enrByRef[(string)$e['payment_reference']] = $e;
             }
+        }
+
+        $printingByRef = [];
+        try {
+            foreach ($this->db->fetchAll('SELECT id, order_number, user_id, service_category, total_amount, amount_paid, internal_production_cost, status, payment_reference FROM printing_orders') as $po) {
+                if (!empty($po['order_number'])) {
+                    $printingByRef[(string)$po['order_number']] = $po;
+                }
+                if (!empty($po['payment_reference'])) {
+                    $printingByRef[(string)$po['payment_reference']] = $po;
+                }
+                $printingByRef[$po['id']] = $po;
+            }
+            foreach ($this->db->fetchAll('SELECT payment_reference, order_id FROM printing_payments WHERE payment_reference IS NOT NULL AND payment_reference != ""') as $pp) {
+                $prRef = (string)$pp['payment_reference'];
+                if (!isset($printingByRef[$prRef]) && !empty($pp['order_id']) && isset($printingByRef[(string)$pp['order_id']])) {
+                    $printingByRef[$prRef] = $printingByRef[(string)$pp['order_id']];
+                }
+            }
+        } catch (Throwable) {
         }
 
         $payByRef = [];
@@ -560,6 +585,7 @@ class AccountingService
             $vRec = null;
             $mReq = null;
             $eOrd = null;
+            $pOrd = null;
             $fp = $footprintByRef[$ref] ?? null;
 
             if ($type === 'credit') {
@@ -571,11 +597,12 @@ class AccountingService
                     $vRec = $verifByRef[$origRef] ?? null;
                     $mReq = $modByRef[$origRef] ?? null;
                     $eOrd = $enrByRef[$origRef] ?? null;
+                    $pOrd = $printingByRef[$origRef] ?? null;
                     $origFp = $footprintByRef[$origRef] ?? null;
 
-                    if (($origTx && strtolower((string)$origTx['type']) === 'debit') || $tOrder || $vRec || $mReq || $eOrd) {
+                    if (($origTx && strtolower((string)$origTx['type']) === 'debit') || $tOrder || $vRec || $mReq || $eOrd || $pOrd) {
                         $entryCategory = 'customer_refund';
-                        $serviceDomain = $this->classifyServiceDomain((string)($origTx['category'] ?? $cat), $origRef, $tOrder, $vRec, $mReq, $eOrd, $origFp);
+                        $serviceDomain = $this->classifyServiceDomain((string)($origTx['category'] ?? $cat), $origRef, $tOrder, $vRec, $mReq, $eOrd, $origFp, $pOrd);
                         $revenue = -$amount;
                         $cost = 0.0;
                         $costSource = 'customer_refund';
@@ -730,8 +757,9 @@ class AccountingService
                     $vRec = $verifByRef[$ref] ?? null;
                     $mReq = $modByRef[$ref] ?? null;
                     $eOrd = $enrByRef[$ref] ?? null;
+                    $pOrd = $printingByRef[$ref] ?? ($orderIdMeta !== '' ? ($printingByRef[$orderIdMeta] ?? null) : null);
 
-                    $isAdminDebitAdj = in_array($cat, ['manual_adjustment', 'administrative_adjustment', 'withdrawal'], true) && !$tOrder && !$vRec && !$mReq && !$eOrd;
+                    $isAdminDebitAdj = in_array($cat, ['manual_adjustment', 'administrative_adjustment', 'withdrawal'], true) && !$tOrder && !$vRec && !$mReq && !$eOrd && !$pOrd;
                     if ($isAdminDebitAdj) {
                         $entryCategory = 'wallet_debit_adjustment';
                         $serviceDomain = 'wallet_adjustment';
@@ -742,7 +770,7 @@ class AccountingService
                         $accountCode = 'LIABILITY_CUSTOMER_WALLETS';
                     } else {
                         $entryCategory = 'website_service_sale';
-                        $serviceDomain = $this->classifyServiceDomain($cat, $ref, $tOrder, $vRec, $mReq, $eOrd, $fp);
+                        $serviceDomain = $this->classifyServiceDomain($cat, $ref, $tOrder, $vRec, $mReq, $eOrd, $fp, $pOrd);
                         $revenue = $amount;
                         $liabilityDelta = $isCustomer ? -$amount : 0.0;
                         $paymentChannel = 'wallet';
@@ -752,7 +780,8 @@ class AccountingService
                     $orderFailed = ($tOrder && strtolower((string)($tOrder['status'] ?? '')) !== 'successful')
                         || ($vRec && strtolower((string)($vRec['status'] ?? '')) !== 'completed')
                         || ($mReq && in_array(strtolower((string)($mReq['status'] ?? '')), ['failed', 'rejected', 'refunded'], true))
-                        || ($eOrd && in_array(strtolower((string)($eOrd['status'] ?? '')), ['failed', 'rejected', 'refunded'], true));
+                        || ($eOrd && in_array(strtolower((string)($eOrd['status'] ?? '')), ['failed', 'rejected', 'refunded'], true))
+                        || ($pOrd && in_array(strtolower((string)($pOrd['status'] ?? '')), ['rejected', 'cancelled', 'refunded'], true));
 
                     if ($hasMatchingRefund || $orderFailed) {
                         $cost = 0.0;
@@ -798,6 +827,10 @@ class AccountingService
                         $cost = round((float)($eOrd['provider_cost'] ?? 0), 2);
                         $costVerified = $cost > 0;
                         $costSource = $costVerified ? 'enrolment_orders' : 'unverified_enrolment_zero_cost';
+                    } elseif ($pOrd && !in_array(strtolower((string)($pOrd['status'] ?? '')), ['rejected', 'cancelled', 'refunded'], true)) {
+                        $cost = round((float)($pOrd['internal_production_cost'] ?? 0), 2);
+                        $costVerified = true;
+                        $costSource = 'printing_orders';
                     } elseif ($fp && strtolower((string)($fp['status'] ?? '')) === 'successful') {
                         // Authoritative match via existing activity_footprints + catalogue / plan table
                         $fpSvc = strtolower(trim((string)($fp['service_type'] ?? '')));
@@ -865,7 +898,7 @@ class AccountingService
                 'original_type' => $tx['type'] ?? '',
                 'gateway' => $gateway,
                 'user_role' => $userRole,
-                'order_status' => $tOrder['status'] ?? ($vRec['status'] ?? ($mReq['status'] ?? ($eOrd['status'] ?? ($fp['status'] ?? null)))),
+                'order_status' => $tOrder['status'] ?? ($vRec['status'] ?? ($mReq['status'] ?? ($eOrd['status'] ?? ($pOrd['status'] ?? ($fp['status'] ?? null))))),
                 'cost_verified' => $costVerified,
                 'cost_source' => $costSource,
             ];
@@ -952,6 +985,7 @@ class AccountingService
                     'rev' => '0.00',
                     'cost' => '0.00',
                     'fee' => number_format($feeAmt, 2, '.', ''),
+                    'cbfee' => '0.00',
                     'exp' => number_format($netAmt, 2, '.', ''),
                     'profit' => number_format($profitImpact, 2, '.', ''),
                     'liab' => '0.00',

@@ -31,9 +31,24 @@ import {
   Clock,
   Upload,
   Star,
+  X,
 } from 'lucide-react';
 import { api } from '../../lib/api';
-import { StoreItem, AcademyCourse, IdentityService, ProviderConfigItem, ProviderLogItem, SlipTemplateItem, TelecomPlanItem, TelecomOrder, AirtimePinDenomination, DataPinDenomination } from '../../types';
+import {
+  StoreItem,
+  AcademyCourse,
+  IdentityService,
+  ProviderConfigItem,
+  ProviderLogItem,
+  ProviderServiceMapping,
+  ServiceCategoryItem,
+  PaginationMeta,
+  SlipTemplateItem,
+  TelecomPlanItem,
+  TelecomOrder,
+  AirtimePinDenomination,
+  DataPinDenomination,
+} from '../../types';
 
 interface ServiceManagementProps {
   onOpenAcademyAdmin?: () => void;
@@ -52,18 +67,61 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
 
   // Phase 5 Identity Services & Providers State
   const [identityServices, setIdentityServices] = useState<IdentityService[]>([]);
+  const [serviceCategories, setServiceCategories] = useState<ServiceCategoryItem[]>([]);
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceCategoryFilter, setServiceCategoryFilter] = useState('all');
   const [syncingWholesale, setSyncingWholesale] = useState(false);
   const [editingPriceMap, setEditingPriceMap] = useState<Record<string, number>>({});
   const [savingPriceKey, setSavingPriceKey] = useState<string | null>(null);
 
+  // Phase 3 Service & Category Catalog CRUD Modals
+  const [catalogModalMode, setCatalogModalMode] = useState<'create' | 'edit' | null>(null);
+  const [editingCatalogKey, setEditingCatalogKey] = useState<string | null>(null);
+  const [catalogForm, setCatalogForm] = useState({
+    service_key: '',
+    name: '',
+    description: '',
+    category_code: 'nin_verification',
+    provider_id: '2sureverify',
+    endpoint: '',
+    wholesale_cost: 0,
+    selling_price: 0,
+    processing_type: 'instant' as 'instant' | 'manual',
+    manual_label: '',
+    estimated_turnaround: '',
+    slip_type_supported: false,
+    is_active: true,
+    required_fields_text: 'nin',
+  });
+  const [savingCatalogService, setSavingCatalogService] = useState(false);
+  const [confirmDeleteService, setConfirmDeleteService] = useState<IdentityService | null>(null);
+  const [deletingCatalogKey, setDeletingCatalogKey] = useState<string | null>(null);
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [categoryForm, setCategoryForm] = useState({
+    code: '',
+    name: '',
+    description: '',
+    display_order: 10,
+    is_active: true,
+  });
+  const [savingCategory, setSavingCategory] = useState(false);
+
   const [providerConfigs, setProviderConfigs] = useState<ProviderConfigItem[]>([]);
+  const [providerMappings, setProviderMappings] = useState<ProviderServiceMapping[]>([]);
   const [editingProvider, setEditingProvider] = useState<Partial<ProviderConfigItem> | null>(null);
   const [savingProvider, setSavingProvider] = useState(false);
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, { success: boolean; message: string; latency_ms: number }>>({});
   const [providerLogs, setProviderLogs] = useState<ProviderLogItem[]>([]);
+  const [logProviderFilter, setLogProviderFilter] = useState<string>('all');
+  const [logStatusGroupFilter, setLogStatusGroupFilter] = useState<string>('all');
+  const [logSearch, setLogSearch] = useState<string>('');
+  const [logDateFrom, setLogDateFrom] = useState<string>('');
+  const [logDateTo, setLogDateTo] = useState<string>('');
+  const [logPage, setLogPage] = useState<number>(1);
+  const [logPagination, setLogPagination] = useState<PaginationMeta | null>(null);
+  const [loadingProviderLogs, setLoadingProviderLogs] = useState<boolean>(false);
+  const [inspectedLog, setInspectedLog] = useState<ProviderLogItem | null>(null);
   const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({});
 
   // Slip Templates State (NIN & BVN Slip Management)
@@ -198,14 +256,38 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
     }
   };
 
+  const fetchProviderLogs = async (targetPage = logPage) => {
+    setLoadingProviderLogs(true);
+    try {
+      const logsRes = await api.getAdminProviderLogs({
+        provider: logProviderFilter,
+        status_group: logStatusGroupFilter,
+        search: logSearch.trim() || undefined,
+        date_from: logDateFrom || undefined,
+        date_to: logDateTo || undefined,
+        page: targetPage,
+        limit: 25,
+      });
+      if (logsRes?.logs) {
+        setProviderLogs(logsRes.logs);
+      }
+      setLogPagination(logsRes?.pagination || null);
+      setLogPage(targetPage);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingProviderLogs(false);
+    }
+  };
+
   const fetchServices = async () => {
     setLoading(true);
     try {
-      const [res, pricingRes, providersRes, logsRes, templatesRes] = await Promise.all([
+      const [res, pricingRes, categoriesRes, providersRes, templatesRes] = await Promise.all([
         api.getAdminServices(),
         api.getAdminVerificationPricing().catch(() => ({ services: [] })),
-        api.getAdminProviders().catch(() => ({ providers: [], routing: undefined })),
-        api.getAdminProviderLogs().catch(() => ({ logs: [] })),
+        api.getAdminServiceCategories().catch(() => ({ categories: [] })),
+        api.getAdminProviders().catch(() => ({ providers: [], provider_service_mappings: [], routing: undefined })),
         api.getAdminSlipTemplates().catch(() => ({ templates: [] })),
       ]);
       setSettings(res.settings || {});
@@ -222,8 +304,14 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
         });
         setEditingPriceMap(map);
       }
+      if (categoriesRes?.categories) {
+        setServiceCategories(categoriesRes.categories);
+      }
       if (providersRes?.providers) {
         setProviderConfigs(providersRes.providers);
+      }
+      if (providersRes?.provider_service_mappings) {
+        setProviderMappings(providersRes.provider_service_mappings);
       }
       if (providersRes?.routing) {
         setProviderRouting(prev => ({ ...prev, ...providersRes.routing }));
@@ -237,9 +325,7 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
           identity_auto_fallback: res.settings.identity_auto_fallback !== undefined ? Boolean(Number(res.settings.identity_auto_fallback) || res.settings.identity_auto_fallback === true) : prev.identity_auto_fallback,
         }));
       }
-      if (logsRes?.logs) {
-        setProviderLogs(logsRes.logs);
-      }
+      await fetchProviderLogs(1);
       if (templatesRes?.templates) {
         setSlipTemplates(templatesRes.templates);
       }
@@ -618,6 +704,169 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
     }
   };
 
+  const handleOpenCreateService = () => {
+    setCatalogModalMode('create');
+    setEditingCatalogKey(null);
+    setCatalogForm({
+      service_key: '',
+      name: '',
+      description: '',
+      category_code: serviceCategoryFilter !== 'all' ? serviceCategoryFilter : 'nin_verification',
+      provider_id: '2sureverify',
+      endpoint: '',
+      wholesale_cost: 0,
+      selling_price: 0,
+      processing_type: 'instant',
+      manual_label: '',
+      estimated_turnaround: '',
+      slip_type_supported: false,
+      is_active: true,
+      required_fields_text: 'nin',
+    });
+  };
+
+  const handleOpenEditService = (srv: IdentityService) => {
+    setCatalogModalMode('edit');
+    setEditingCatalogKey(srv.key);
+    setCatalogForm({
+      service_key: srv.key,
+      name: srv.name || '',
+      description: srv.description || '',
+      category_code: srv.category || 'nin_verification',
+      provider_id: srv.provider || srv.provider_id || '2sureverify',
+      endpoint: srv.endpoint || '',
+      wholesale_cost: Number(srv.wholesale_cost ?? 0),
+      selling_price: Number(srv.price ?? srv.selling_price ?? 0),
+      processing_type: srv.processing_type === 'manual' ? 'manual' : 'instant',
+      manual_label: srv.manual_label || '',
+      estimated_turnaround: srv.estimated_turnaround || '',
+      slip_type_supported: Boolean(srv.slip_type_supported),
+      is_active: srv.enabled !== false && srv.is_active !== false,
+      required_fields_text: Array.isArray(srv.required_fields) ? srv.required_fields.join(', ') : '',
+    });
+  };
+
+  const handleSaveCatalogService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const wholesale = Number(catalogForm.wholesale_cost || 0);
+    const selling = Number(catalogForm.selling_price || 0);
+    if (!catalogForm.name.trim() || !catalogForm.endpoint.trim()) {
+      setErrorMsg('Service name and provider endpoint are required.');
+      return;
+    }
+    if (selling < 0 || wholesale < 0) {
+      setErrorMsg('Prices cannot be negative.');
+      return;
+    }
+    if (selling < wholesale) {
+      setErrorMsg('Selling price cannot be lower than wholesale cost.');
+      return;
+    }
+    const reqFields = catalogForm.required_fields_text
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    setSavingCatalogService(true);
+    setErrorMsg(null);
+    try {
+      if (catalogModalMode === 'create') {
+        if (!catalogForm.service_key.trim()) {
+          setErrorMsg('Service key is required.');
+          setSavingCatalogService(false);
+          return;
+        }
+        const res = await api.createAdminCatalogService({
+          service_key: catalogForm.service_key.trim().toLowerCase(),
+          name: catalogForm.name.trim(),
+          description: catalogForm.description.trim(),
+          category_code: catalogForm.category_code,
+          provider_id: catalogForm.provider_id,
+          endpoint: catalogForm.endpoint.trim(),
+          wholesale_cost: wholesale,
+          selling_price: selling,
+          processing_type: catalogForm.processing_type,
+          manual_label: catalogForm.manual_label.trim() || undefined,
+          estimated_turnaround: catalogForm.estimated_turnaround.trim() || undefined,
+          slip_type_supported: catalogForm.slip_type_supported,
+          is_active: catalogForm.is_active,
+          required_fields: reqFields,
+        });
+        setSuccessMsg(res.message || `Service "${catalogForm.name}" created.`);
+      } else if (catalogModalMode === 'edit' && editingCatalogKey) {
+        const res = await api.updateAdminCatalogService(editingCatalogKey, {
+          name: catalogForm.name.trim(),
+          description: catalogForm.description.trim(),
+          category_code: catalogForm.category_code,
+          provider_id: catalogForm.provider_id,
+          endpoint: catalogForm.endpoint.trim(),
+          wholesale_cost: wholesale,
+          selling_price: selling,
+          processing_type: catalogForm.processing_type,
+          manual_label: catalogForm.manual_label.trim(),
+          estimated_turnaround: catalogForm.estimated_turnaround.trim(),
+          slip_type_supported: catalogForm.slip_type_supported,
+          is_active: catalogForm.is_active,
+          required_fields: reqFields,
+        });
+        setSuccessMsg(res.message || `Service "${catalogForm.name}" updated.`);
+      }
+      setCatalogModalMode(null);
+      await fetchServices();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to save catalog service.');
+    } finally {
+      setSavingCatalogService(false);
+    }
+  };
+
+  const handleConfirmDeleteService = async () => {
+    if (!confirmDeleteService) return;
+    setDeletingCatalogKey(confirmDeleteService.key);
+    setErrorMsg(null);
+    try {
+      const res = await api.deleteAdminCatalogService(confirmDeleteService.key);
+      setSuccessMsg(res.message || `Service "${confirmDeleteService.name}" deleted.`);
+      setConfirmDeleteService(null);
+      await fetchServices();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Unable to delete service.');
+      setConfirmDeleteService(null);
+    } finally {
+      setDeletingCatalogKey(null);
+    }
+  };
+
+  const handleSaveCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = categoryForm.code.trim().toLowerCase().replace(/\s+/g, '_');
+    const name = categoryForm.name.trim();
+    if (!code || !name) {
+      setErrorMsg('Category code and name are required.');
+      return;
+    }
+    setSavingCategory(true);
+    setErrorMsg(null);
+    try {
+      const res = await api.saveAdminServiceCategory({
+        code,
+        name,
+        description: categoryForm.description.trim() || undefined,
+        display_order: Number(categoryForm.display_order || 10),
+        is_active: categoryForm.is_active,
+      });
+      setSuccessMsg(res.message || `Category "${name}" saved.`);
+      setCreatingCategory(false);
+      setCategoryForm({ code: '', name: '', description: '', display_order: 10, is_active: true });
+      const catRes = await api.getAdminServiceCategories().catch(() => ({ categories: [] }));
+      if (catRes?.categories) setServiceCategories(catRes.categories);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to save service category.');
+    } finally {
+      setSavingCategory(false);
+    }
+  };
+
   const handleTestProvider = async (providerId: string) => {
     setTestingProvider(providerId);
     try {
@@ -630,9 +879,7 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
           latency_ms: res.latency_ms,
         },
       }));
-      // refresh logs
-      const logsRes = await api.getAdminProviderLogs().catch(() => ({ logs: [] }));
-      if (logsRes?.logs) setProviderLogs(logsRes.logs);
+      await fetchProviderLogs(1);
     } catch (err: any) {
       setTestResult(prev => ({
         ...prev,
@@ -924,7 +1171,23 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                   Manage customer selling prices, wholesale tariffs, and profit spreads across all 42 identity &amp; verification services.
                 </p>
               </div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setCreatingCategory(true)}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl font-semibold flex items-center gap-1.5 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>New Category</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenCreateService}
+                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold flex items-center gap-1.5 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Create Service</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleSyncWholesale}
@@ -943,22 +1206,29 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Filter 42 services by name, key, or endpoint (e.g. nin_mod_name)..."
+                  placeholder="Filter services by name, key, or endpoint (e.g. nin_mod_name)..."
                   value={serviceSearch}
                   onChange={e => setServiceSearch(e.target.value)}
                   className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 text-xs"
                 />
               </div>
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-                {[
-                  { id: 'all', label: `All (${identityServices.length})` },
-                  { id: 'nin_verification', label: 'NIN' },
-                  { id: 'bvn_verification', label: 'BVN' },
-                  { id: 'nin_modification', label: 'NIN Modification' },
-                  { id: 'bvn_modification', label: 'BVN Modification' },
-                  { id: 'enrolment', label: 'Enrolment' },
-                  { id: 'additional_services', label: 'Additional' },
-                ].map(cat => (
+                {(() => {
+                  const baseCats = [
+                    { id: 'all', label: `All (${identityServices.length})` },
+                    { id: 'nin_verification', label: 'NIN' },
+                    { id: 'bvn_verification', label: 'BVN' },
+                    { id: 'nin_modification', label: 'NIN Modification' },
+                    { id: 'bvn_modification', label: 'BVN Modification' },
+                    { id: 'enrolment', label: 'Enrolment' },
+                    { id: 'additional_services', label: 'Additional' },
+                  ];
+                  const seen = new Set(baseCats.map(c => c.id));
+                  const dynamicCats = serviceCategories
+                    .filter(c => !seen.has(c.code))
+                    .map(c => ({ id: c.code, label: c.name }));
+                  return [...baseCats, ...dynamicCats];
+                })().map(cat => (
                   <button
                     key={cat.id}
                     type="button"
@@ -1093,15 +1363,33 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                             </button>
                           </td>
                           <td className="py-3.5 px-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleSavePrice(srv.key)}
-                              disabled={isSaving}
-                              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold flex items-center gap-1 text-[11px] ml-auto transition"
-                            >
-                              {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                              <span>Save</span>
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleSavePrice(srv.key)}
+                                disabled={isSaving}
+                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold flex items-center gap-1 text-[11px] transition"
+                              >
+                                {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                <span>Save</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditService(srv)}
+                                title="Edit service metadata"
+                                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteService(srv)}
+                                title="Delete service"
+                                className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg transition"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1882,78 +2170,240 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
             </div>
           )}
 
-          {/* Provider Transaction & Request Logs */}
+          {/* Provider-to-Service Endpoint & Cost Mappings */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-indigo-400" />
-                  <span>Real-Time Provider Transaction &amp; Audit Logs</span>
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  <span>Provider-to-Service Endpoint &amp; Cost Mappings</span>
                 </h3>
-                <p className="text-slate-400 mt-0.5">Recorded upstream request timestamps, HTTP response codes, latency, and references.</p>
+                <p className="text-slate-400 mt-0.5">
+                  Normalized provider endpoint bindings, wholesale tariffs, and active routing status across providers.
+                </p>
               </div>
-              <button
-                type="button"
-                onClick={fetchServices}
-                className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg flex items-center gap-1.5 transition text-xs"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Refresh Logs</span>
-              </button>
+              <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-mono text-[11px]">
+                {providerMappings.length} Mappings
+              </span>
             </div>
-
-            {providerLogs.length === 0 ? (
-              <div className="text-center py-8 text-slate-500">
-                <Server className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p>No upstream provider calls recorded yet. Execute a verification to inspect live logs.</p>
-              </div>
+            {providerMappings.length === 0 ? (
+              <p className="text-slate-500 text-center py-6">No provider service mappings registered yet.</p>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-72">
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                      <th className="py-2.5 px-3">Timestamp</th>
-                      <th className="py-2.5 px-3">Provider</th>
-                      <th className="py-2.5 px-3">Endpoint</th>
-                      <th className="py-2.5 px-3 text-center">Status</th>
-                      <th className="py-2.5 px-3 text-right">Latency</th>
-                      <th className="py-2.5 px-3">Reference</th>
+                      <th className="py-2 px-3">Service</th>
+                      <th className="py-2 px-3">Provider</th>
+                      <th className="py-2 px-3">Upstream Endpoint</th>
+                      <th className="py-2 px-3 text-right">Wholesale</th>
+                      <th className="py-2 px-3 text-right">Selling</th>
+                      <th className="py-2 px-3 text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
-                    {providerLogs.slice(0, 25).map(log => (
-                      <tr key={log.id} className="hover:bg-slate-800/30">
-                        <td className="py-2.5 px-3 text-slate-400">
-                          {new Date(log.created_at).toLocaleTimeString()}
+                    {providerMappings.map(m => (
+                      <tr key={m.id} className="hover:bg-slate-800/30">
+                        <td className="py-2 px-3 font-sans">
+                          <div className="font-semibold text-white">{m.service_name || m.service_key}</div>
+                          <div className="text-[10px] font-mono text-slate-500">{m.service_key}</div>
                         </td>
-                        <td className="py-2.5 px-3 text-white font-semibold">
-                          {log.provider || log.provider_id || 'unknown'}
+                        <td className="py-2 px-3 text-indigo-300">{m.provider_id}</td>
+                        <td className="py-2 px-3 text-slate-300">{m.provider_endpoint}</td>
+                        <td className="py-2 px-3 text-right text-slate-400">
+                          ₦{Number(m.wholesale_cost || 0).toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-3 text-indigo-300">
-                          {log.endpoint}
+                        <td className="py-2 px-3 text-right text-emerald-400">
+                          {m.selling_price != null ? `₦${Number(m.selling_price).toLocaleString()}` : '—'}
                         </td>
-                        <td className="py-2.5 px-3 text-center">
+                        <td className="py-2 px-3 text-center">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              log.status_code >= 200 && log.status_code < 300
-                                ? 'bg-emerald-500/10 text-emerald-400'
-                                : 'bg-rose-500/10 text-rose-400'
+                              m.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
                             }`}
                           >
-                            {log.status_code}
+                            {m.is_active ? 'Active' : 'Disabled'}
                           </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-slate-300">
-                          {log.latency_ms}ms
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-400 truncate max-w-[150px]">
-                          {log.reference || '—'}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+
+          {/* Provider Transaction & Request Logs */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-indigo-400" />
+                  <span>Real-Time Provider Transaction &amp; Audit Logs</span>
+                </h3>
+                <p className="text-slate-400 mt-0.5">
+                  Server-paginated upstream request logs with request/response payload inspection.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void fetchProviderLogs(logPage)}
+                disabled={loadingProviderLogs}
+                className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg flex items-center gap-1.5 transition text-xs shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingProviderLogs ? 'animate-spin' : ''}`} />
+                <span>Refresh Logs</span>
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <select
+                value={logProviderFilter}
+                onChange={e => setLogProviderFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-300"
+              >
+                <option value="all">All Providers</option>
+                <option value="2sureverify">2SureVerify</option>
+                <option value="veripine">Veripine</option>
+                <option value="ulamadata">UlamaData</option>
+                <option value="paystack">Paystack</option>
+              </select>
+              <select
+                value={logStatusGroupFilter}
+                onChange={e => setLogStatusGroupFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-300"
+              >
+                <option value="all">All Status Codes</option>
+                <option value="2xx">2xx Success</option>
+                <option value="4xx">4xx Client Error</option>
+                <option value="5xx">5xx Server Error</option>
+                <option value="error">All Errors (&ge;400)</option>
+              </select>
+              <input
+                type="text"
+                value={logSearch}
+                onChange={e => setLogSearch(e.target.value)}
+                placeholder="Search endpoint or reference..."
+                className="flex-1 min-w-[180px] px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500"
+              />
+              <input
+                type="date"
+                value={logDateFrom}
+                onChange={e => setLogDateFrom(e.target.value)}
+                title="From date"
+                className="px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-300"
+              />
+              <input
+                type="date"
+                value={logDateTo}
+                onChange={e => setLogDateTo(e.target.value)}
+                title="To date"
+                className="px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-300"
+              />
+              <button
+                type="button"
+                onClick={() => void fetchProviderLogs(1)}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold"
+              >
+                Apply
+              </button>
+            </div>
+
+            {providerLogs.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                <Server className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                <p>No upstream provider calls match your filters.</p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                        <th className="py-2.5 px-3">Timestamp</th>
+                        <th className="py-2.5 px-3">Provider</th>
+                        <th className="py-2.5 px-3">Method</th>
+                        <th className="py-2.5 px-3">Endpoint</th>
+                        <th className="py-2.5 px-3 text-center">Status</th>
+                        <th className="py-2.5 px-3 text-right">Latency</th>
+                        <th className="py-2.5 px-3">Reference</th>
+                        <th className="py-2.5 px-3 text-right">Inspect</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                      {providerLogs.map(log => (
+                        <tr key={log.id} className="hover:bg-slate-800/30">
+                          <td className="py-2.5 px-3 text-slate-400 whitespace-nowrap">
+                            {new Date(log.created_at).toLocaleString('en-NG')}
+                          </td>
+                          <td className="py-2.5 px-3 text-white font-semibold">
+                            {log.provider || log.provider_id || 'unknown'}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-300">
+                            {log.method || 'POST'}
+                          </td>
+                          <td className="py-2.5 px-3 text-indigo-300">
+                            {log.endpoint}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                log.status_code >= 200 && log.status_code < 300
+                                  ? 'bg-emerald-500/10 text-emerald-400'
+                                  : 'bg-rose-500/10 text-rose-400'
+                              }`}
+                            >
+                              {log.status_code}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-slate-300">
+                            {log.latency_ms}ms
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-400 truncate max-w-[150px]">
+                            {log.reference || '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => setInspectedLog(log)}
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[10px] font-sans font-semibold inline-flex items-center gap-1"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Inspect</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {logPagination && logPagination.total_pages > 1 && (
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs text-slate-400">
+                    <span>
+                      Page {logPagination.page} of {logPagination.total_pages} &middot; Total {logPagination.total}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={logPage <= 1 || loadingProviderLogs}
+                        onClick={() => void fetchProviderLogs(Math.max(1, logPage - 1))}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        disabled={logPage >= logPagination.total_pages || loadingProviderLogs}
+                        onClick={() => void fetchProviderLogs(logPage + 1)}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -3168,6 +3618,409 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
               <p className="text-slate-400">Production API Ingress</p>
               <p className="text-lg font-bold font-mono text-white mt-1">hambaktech.com.ng</p>
               <p className="text-[11px] text-indigo-400 mt-1">TLS Gateway Active</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE / EDIT CATALOG SERVICE MODAL */}
+      {catalogModalMode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-8 text-xs">
+            <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white">
+                {catalogModalMode === 'create'
+                  ? 'Create Catalog Service'
+                  : `Edit Service · ${editingCatalogKey}`}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setCatalogModalMode(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveCatalogService} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Service Key *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={catalogModalMode === 'edit'}
+                    value={catalogForm.service_key}
+                    onChange={e => setCatalogForm(prev => ({ ...prev, service_key: e.target.value }))}
+                    placeholder="e.g. nin_premium_lookup"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono disabled:opacity-60"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Service Display Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={catalogForm.name}
+                    onChange={e => setCatalogForm(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={catalogForm.category_code}
+                    onChange={e => setCatalogForm(prev => ({ ...prev, category_code: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                  >
+                    <option value="nin_verification">NIN Verification</option>
+                    <option value="bvn_verification">BVN Verification</option>
+                    <option value="nin_modification">NIN Modification</option>
+                    <option value="bvn_modification">BVN Modification</option>
+                    <option value="enrolment">Enrolment</option>
+                    <option value="additional_services">Additional Services</option>
+                    {serviceCategories
+                      .filter(
+                        c =>
+                          ![
+                            'nin_verification',
+                            'bvn_verification',
+                            'nin_modification',
+                            'bvn_modification',
+                            'enrolment',
+                            'additional_services',
+                          ].includes(c.code)
+                      )
+                      .map(c => (
+                        <option key={c.code} value={c.code}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Assigned Provider
+                  </label>
+                  <select
+                    value={catalogForm.provider_id}
+                    onChange={e => setCatalogForm(prev => ({ ...prev, provider_id: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                  >
+                    <option value="2sureverify">2SureVerify</option>
+                    <option value="veripine">Veripine</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Provider API Endpoint *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={catalogForm.endpoint}
+                    onChange={e => setCatalogForm(prev => ({ ...prev, endpoint: e.target.value }))}
+                    placeholder="e.g. api/v1/nin_verify.php"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-indigo-300 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Wholesale Cost (₦)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={10}
+                    value={catalogForm.wholesale_cost}
+                    onChange={e => setCatalogForm(prev => ({ ...prev, wholesale_cost: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Selling Price (₦) *
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={10}
+                    required
+                    value={catalogForm.selling_price}
+                    onChange={e => setCatalogForm(prev => ({ ...prev, selling_price: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Processing Type
+                  </label>
+                  <select
+                    value={catalogForm.processing_type}
+                    onChange={e =>
+                      setCatalogForm(prev => ({
+                        ...prev,
+                        processing_type: e.target.value === 'manual' ? 'manual' : 'instant',
+                      }))
+                    }
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                  >
+                    <option value="instant">Instant Automated</option>
+                    <option value="manual">Manual Processing</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Required Fields (comma separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={catalogForm.required_fields_text}
+                    onChange={e => setCatalogForm(prev => ({ ...prev, required_fields_text: e.target.value }))}
+                    placeholder="nin, phone"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
+                  />
+                </div>
+                {catalogForm.processing_type === 'manual' && (
+                  <>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        Manual Badge Label
+                      </label>
+                      <input
+                        type="text"
+                        value={catalogForm.manual_label}
+                        onChange={e => setCatalogForm(prev => ({ ...prev, manual_label: e.target.value }))}
+                        placeholder="e.g. Manual Processing"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        Estimated Turnaround
+                      </label>
+                      <input
+                        type="text"
+                        value={catalogForm.estimated_turnaround}
+                        onChange={e => setCatalogForm(prev => ({ ...prev, estimated_turnaround: e.target.value }))}
+                        placeholder="e.g. 3–7 business days"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                      />
+                    </div>
+                  </>
+                )}
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={catalogForm.description}
+                    onChange={e => setCatalogForm(prev => ({ ...prev, description: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                  />
+                </div>
+                <div className="sm:col-span-2 flex flex-wrap items-center gap-4 pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={catalogForm.slip_type_supported}
+                      onChange={e => setCatalogForm(prev => ({ ...prev, slip_type_supported: e.target.checked }))}
+                    />
+                    <span>Supports NIN/BVN Slip Generation</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={catalogForm.is_active}
+                      onChange={e => setCatalogForm(prev => ({ ...prev, is_active: e.target.checked }))}
+                    />
+                    <span>Service Active</span>
+                  </label>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCatalogModalMode(null)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCatalogService}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold flex items-center gap-1.5"
+                >
+                  {savingCatalogService && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{catalogModalMode === 'create' ? 'Create Service' : 'Save Changes'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* NEW SERVICE CATEGORY MODAL */}
+      {creatingCategory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl text-xs">
+            <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white">Create / Update Service Category</h3>
+              <button
+                type="button"
+                onClick={() => setCreatingCategory(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveCategory} className="p-6 space-y-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Category Code *</label>
+                <input
+                  type="text"
+                  required
+                  value={categoryForm.code}
+                  onChange={e => setCategoryForm(prev => ({ ...prev, code: e.target.value }))}
+                  placeholder="e.g. corporate_kyc"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Category Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={categoryForm.name}
+                  onChange={e => setCategoryForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g. Corporate KYC"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">Description</label>
+                <input
+                  type="text"
+                  value={categoryForm.description}
+                  onChange={e => setCategoryForm(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCreatingCategory(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCategory}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold flex items-center gap-1.5"
+                >
+                  {savingCategory && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Save Category</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CATALOG SERVICE CONFIRMATION MODAL */}
+      {confirmDeleteService && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-xs">
+            <h3 className="text-sm font-bold text-white">Delete Service from Catalog?</h3>
+            <p className="text-slate-300">
+              You are about to remove <strong className="text-white">{confirmDeleteService.name}</strong> (
+              <span className="font-mono">{confirmDeleteService.key}</span>). Services with historical orders cannot be deleted and must be disabled instead.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteService(null)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingCatalogKey === confirmDeleteService.key}
+                onClick={() => void handleConfirmDeleteService()}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold flex items-center gap-1.5"
+              >
+                {deletingCatalogKey === confirmDeleteService.key && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Confirm Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PROVIDER LOG REQUEST / RESPONSE INSPECTOR MODAL */}
+      {inspectedLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-8 text-xs">
+            <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">
+                  Provider Request / Response Inspector
+                </h3>
+                <p className="text-[11px] font-mono text-slate-400">
+                  {inspectedLog.provider || inspectedLog.provider_id} &middot; {inspectedLog.method || 'POST'} {inspectedLog.endpoint}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectedLog(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono">
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                  <span className="text-[10px] text-slate-500 block">Status</span>
+                  <span className={inspectedLog.status_code >= 200 && inspectedLog.status_code < 300 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                    {inspectedLog.status_code}
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                  <span className="text-[10px] text-slate-500 block">Latency</span>
+                  <span className="text-white font-bold">{inspectedLog.latency_ms}ms</span>
+                </div>
+                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl col-span-2">
+                  <span className="text-[10px] text-slate-500 block">Reference &amp; Time</span>
+                  <span className="text-slate-200 break-all">
+                    {inspectedLog.reference || '—'} &middot; {new Date(inspectedLog.created_at).toLocaleString('en-NG')}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <span className="text-[11px] font-bold text-slate-400 uppercase block mb-1">
+                  Request Payload (Masked)
+                </span>
+                <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-200 overflow-x-auto whitespace-pre-wrap break-words max-h-56">
+                  {inspectedLog.request_body || 'Empty'}
+                </pre>
+              </div>
+              <div>
+                <span className="text-[11px] font-bold text-slate-400 uppercase block mb-1">
+                  Response Payload
+                </span>
+                <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap break-words max-h-64">
+                  {inspectedLog.response_body || 'Empty'}
+                </pre>
+              </div>
             </div>
           </div>
         </div>

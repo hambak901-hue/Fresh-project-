@@ -187,6 +187,8 @@ $router->get('/api/enrolments/history', [EnrolmentController::class, 'history'])
 $router->get('/api/enrolments/:id/status', [EnrolmentController::class, 'orderStatus']);
 $router->get('/api/enrolments/:id/result-document', [EnrolmentController::class, 'downloadResultDocument']);
 $router->post('/api/enrolments/:id/poll', [EnrolmentController::class, 'pollStatus']);
+$router->post('/api/enrolments/:id/submit-info', [EnrolmentController::class, 'submitAdditionalInfo']);
+$router->post('/api/enrolments/:id/submit-additional-info', [EnrolmentController::class, 'submitAdditionalInfo']);
 $router->post('/api/enrolments/webhook', [EnrolmentController::class, 'webhook']);
 
 // -----------------------------------------------------------------------------
@@ -345,12 +347,18 @@ $router->put('/api/admin/services/providers', [AdminController::class, 'updatePr
 $router->get('/api/admin/services/verification', [AdminController::class, 'verificationServices']);
 $router->put('/api/admin/services/verification/:key', [AdminController::class, 'updateVerificationService']);
 $router->post('/api/admin/services/verification/sync-wholesale', [AdminController::class, 'syncWholesalePrices']);
+$router->get('/api/admin/service-categories', [AdminController::class, 'listServiceCategories']);
+$router->post('/api/admin/service-categories', [AdminController::class, 'saveServiceCategory']);
+$router->post('/api/admin/services/catalog', [AdminController::class, 'createCatalogService']);
+$router->put('/api/admin/services/catalog/:key', [AdminController::class, 'updateCatalogService']);
+$router->delete('/api/admin/services/catalog/:key', [AdminController::class, 'deleteCatalogService']);
 
 // Admin NIN & BVN Modification Operations (Stage 3)
 $router->get('/api/admin/modifications', [ModificationController::class, 'adminList']);
 $router->get('/api/admin/modifications/services', [ModificationController::class, 'adminServices']);
 $router->put('/api/admin/modifications/services/:key', [ModificationController::class, 'adminUpdateService']);
 $router->get('/api/admin/modifications/bvn-types', [ModificationController::class, 'adminBvnTypes']);
+$router->post('/api/admin/modifications/bvn-types', [ModificationController::class, 'adminCreateBvnType']);
 $router->put('/api/admin/modifications/bvn-types/:id', [ModificationController::class, 'adminUpdateBvnType']);
 $router->post('/api/admin/modifications/sync-catalog', [ModificationController::class, 'adminSyncCatalog']);
 $router->get('/api/admin/modifications/:id', [ModificationController::class, 'adminDetail']);

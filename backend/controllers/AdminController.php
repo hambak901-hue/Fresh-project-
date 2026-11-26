@@ -41,6 +41,25 @@ class AdminController
         SchemaSync::syncSecurityAndReferralSchema($this->db);
     }
 
+    private function recordAdminAudit(array $admin, string $action, array $details, ?Request $request = null): void
+    {
+        try {
+            $this->db->execute(
+                'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+                 VALUES (:id, :uid, :email, :act, :det, :ip, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => (string)($admin['id'] ?? ''),
+                    'email' => (string)($admin['email'] ?? ''),
+                    'act' => $action,
+                    'det' => json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                    'ip' => $request ? $request->getIp() : ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0'),
+                ]
+            );
+        } catch (Throwable) {
+        }
+    }
+
     private function hydrateCustomerRow(string $customerId): ?array
     {
         try {
@@ -1029,6 +1048,12 @@ class AdminController
                 } catch (Throwable) {
                 }
             }
+            $this->recordAdminAudit($admin, 'ADMIN_TRANSACTION_REVERSED', [
+                'transaction_id' => $txId,
+                'original_reference' => $txRow['reference'] ?? null,
+                'original_type' => $txRow['type'] ?? null,
+                'reason' => $reason,
+            ], $request);
             Response::success($res, 'Transaction reversed and ledger updated successfully.');
         } catch (Throwable $e) {
             $msg = $e->getMessage();
@@ -1124,6 +1149,38 @@ class AdminController
         } catch (Throwable) {
         }
 
+        // Printing Orders & Payments (realized active revenue & production cost without double-counting wallet deposits)
+        $printingAgg = ['sales' => 0.0, 'cost' => 0.0, 'orders_count' => 0, 'completed_count' => 0];
+        $printingChannels = [];
+        try {
+            $pRow = $this->db->fetchOne(
+                'SELECT
+                    COUNT(*) as orders_count,
+                    SUM(CASE WHEN status = "Completed" THEN 1 ELSE 0 END) as completed_count,
+                    COALESCE(SUM(CASE WHEN status = "Completed" THEN GREATEST(amount_paid, total_amount) ELSE amount_paid END), 0) as realized_sales,
+                    COALESCE(SUM(internal_production_cost), 0) as total_cost
+                 FROM printing_orders
+                 WHERE status NOT IN ("Rejected", "Cancelled", "Refunded")'
+            );
+            if ($pRow) {
+                $printingAgg = [
+                    'sales' => round((float)($pRow['realized_sales'] ?? 0), 2),
+                    'cost' => round((float)($pRow['total_cost'] ?? 0), 2),
+                    'orders_count' => (int)($pRow['orders_count'] ?? 0),
+                    'completed_count' => (int)($pRow['completed_count'] ?? 0),
+                ];
+            }
+            $printingChannels = $this->db->fetchAll(
+                'SELECT LOWER(COALESCE(NULLIF(payment_gateway, ""), NULLIF(payment_method, ""), "cash")) as channel,
+                        COUNT(*) as payment_count,
+                        COALESCE(SUM(amount), 0) as collected_amount
+                 FROM printing_payments
+                 WHERE LOWER(status) IN ("confirmed", "paid", "successful")
+                 GROUP BY LOWER(COALESCE(NULLIF(payment_gateway, ""), NULLIF(payment_method, ""), "cash"))'
+            );
+        } catch (Throwable) {
+        }
+
         // Strictly exclude internal admin/console wallets from Customer Wallet Float Liability
         $floatStats = $this->db->fetchOne(
             'SELECT 
@@ -1162,9 +1219,13 @@ class AdminController
         $identitySales = (float)($vrfAgg['vrf_sales'] ?? 0) + $modAgg['sales'] + $enrAgg['sales'];
         $identityCost = (float)($vrfAgg['vrf_cost'] ?? 0) + $modAgg['cost'] + $enrAgg['cost'];
 
-        $totalSales = $telecomSales + $identitySales;
-        $totalExpenditure = $telecomCost + $identityCost;
-        $grossProfit = $telecomProfit + ($identitySales - $identityCost);
+        $printingSales = (float)$printingAgg['sales'];
+        $printingCost = (float)$printingAgg['cost'];
+        $printingProfit = round($printingSales - $printingCost, 2);
+
+        $totalSales = $telecomSales + $identitySales + $printingSales;
+        $totalExpenditure = $telecomCost + $identityCost + $printingCost;
+        $grossProfit = $telecomProfit + ($identitySales - $identityCost) + $printingProfit;
         $profitMargin = $totalSales > 0 ? round(($grossProfit / $totalSales) * 100, 2) : 0;
 
         $dvaStats = [
@@ -1268,15 +1329,26 @@ class AdminController
                     'totalServiceSales' => $totalSales,
                     'telecomSales' => $telecomSales,
                     'identityVerificationSales' => $identitySales,
+                    'printingSales' => $printingSales,
                 ],
                 'expenditure' => [
                     'totalProviderExpenditure' => $totalExpenditure,
                     'telecomProviderCost' => $telecomCost,
                     'identityProviderCost' => $identityCost,
+                    'printingCost' => $printingCost,
                 ],
                 'profit' => [
                     'grossProfit' => $grossProfit,
                     'profitMarginPercent' => $profitMargin,
+                    'printingProfit' => $printingProfit,
+                ],
+                'printing' => [
+                    'ordersCount' => $printingAgg['orders_count'],
+                    'completedCount' => $printingAgg['completed_count'],
+                    'sales' => $printingSales,
+                    'cost' => $printingCost,
+                    'profit' => $printingProfit,
+                    'paymentChannels' => $printingChannels,
                 ],
                 'float' => [
                     'totalCustomerFloat' => (float)($floatStats['total_customer_float'] ?? 0),
@@ -1738,7 +1810,71 @@ class AdminController
              FROM providers'
         );
 
-        // 8. Profit Report (true completed service sales & wholesale COGS across all 4 vertical lines)
+        // 7B. Printing Hub Orders & Payments Report (reconciled without double-counting wallet deposits)
+        $printingSummary = [
+            'total_orders' => 0,
+            'completed_orders' => 0,
+            'active_orders' => 0,
+            'cancelled_or_rejected_orders' => 0,
+            'total_revenue' => 0.0,
+            'total_cost' => 0.0,
+            'gross_profit' => 0.0,
+            'outstanding_balance' => 0.0,
+        ];
+        $printingCategories = [];
+        $printingPaymentChannels = [];
+        try {
+            $prtRange = $buildRange('created_at', 'prt');
+            $prtRow = $this->db->fetchOne(
+                'SELECT
+                    COUNT(*) as total_orders,
+                    SUM(CASE WHEN status = "Completed" THEN 1 ELSE 0 END) as completed_orders,
+                    SUM(CASE WHEN status NOT IN ("Completed", "Rejected", "Cancelled", "Refunded") THEN 1 ELSE 0 END) as active_orders,
+                    SUM(CASE WHEN status IN ("Rejected", "Cancelled", "Refunded") THEN 1 ELSE 0 END) as cancelled_or_rejected_orders,
+                    COALESCE(SUM(CASE WHEN status NOT IN ("Rejected", "Cancelled", "Refunded") THEN CASE WHEN status = "Completed" THEN GREATEST(amount_paid, total_amount) ELSE amount_paid END ELSE 0 END), 0) as total_revenue,
+                    COALESCE(SUM(CASE WHEN status NOT IN ("Rejected", "Cancelled", "Refunded") THEN internal_production_cost ELSE 0 END), 0) as total_cost,
+                    COALESCE(SUM(CASE WHEN status NOT IN ("Rejected", "Cancelled", "Refunded") THEN GREATEST(0, balance_due) ELSE 0 END), 0) as outstanding_balance
+                 FROM printing_orders WHERE 1=1' . $prtRange['sql'],
+                $prtRange['params']
+            );
+            if ($prtRow) {
+                $pRev = round((float)($prtRow['total_revenue'] ?? 0), 2);
+                $pCost = round((float)($prtRow['total_cost'] ?? 0), 2);
+                $printingSummary = [
+                    'total_orders' => (int)($prtRow['total_orders'] ?? 0),
+                    'completed_orders' => (int)($prtRow['completed_orders'] ?? 0),
+                    'active_orders' => (int)($prtRow['active_orders'] ?? 0),
+                    'cancelled_or_rejected_orders' => (int)($prtRow['cancelled_or_rejected_orders'] ?? 0),
+                    'total_revenue' => $pRev,
+                    'total_cost' => $pCost,
+                    'gross_profit' => round($pRev - $pCost, 2),
+                    'outstanding_balance' => round((float)($prtRow['outstanding_balance'] ?? 0), 2),
+                ];
+            }
+            $printingCategories = $this->db->fetchAll(
+                'SELECT service_category as category,
+                        COUNT(*) as orders_count,
+                        COALESCE(SUM(CASE WHEN status = "Completed" THEN GREATEST(amount_paid, total_amount) ELSE amount_paid END), 0) as revenue,
+                        COALESCE(SUM(internal_production_cost), 0) as cost
+                 FROM printing_orders
+                 WHERE status NOT IN ("Rejected", "Cancelled", "Refunded")' . $prtRange['sql'] . '
+                 GROUP BY service_category ORDER BY revenue DESC',
+                $prtRange['params']
+            );
+            $prtpRange = $buildRange('created_at', 'prtp');
+            $printingPaymentChannels = $this->db->fetchAll(
+                'SELECT LOWER(COALESCE(NULLIF(payment_gateway, ""), NULLIF(payment_method, ""), "cash")) as channel,
+                        COUNT(*) as payment_count,
+                        COALESCE(SUM(amount), 0) as collected_amount
+                 FROM printing_payments
+                 WHERE LOWER(status) IN ("confirmed", "paid", "successful")' . $prtpRange['sql'] . '
+                 GROUP BY LOWER(COALESCE(NULLIF(payment_gateway, ""), NULLIF(payment_method, ""), "cash"))',
+                $prtpRange['params']
+            );
+        } catch (Throwable) {
+        }
+
+        // 8. Profit Report (true completed service sales & wholesale COGS across all vertical lines incl. Printing)
         $telecomRevenue = (float)($telecomSummary['total_sales'] ?? 0);
         $telecomCost = (float)($telecomSummary['total_cost'] ?? 0);
         $telecomProfit = (float)($telecomSummary['gross_profit'] ?? 0);
@@ -1754,9 +1890,13 @@ class AdminController
         $ninCost = $vrfCost + $modCost + $enrCost;
         $identityProfit = $identityTotalRevenue - $ninCost;
 
-        $totalServiceRevenue = $telecomRevenue + $identityTotalRevenue;
-        $totalExpenditure = $telecomCost + $ninCost;
-        $totalGrossProfit = $telecomProfit + $identityProfit;
+        $printingRevenue = (float)$printingSummary['total_revenue'];
+        $printingCost = (float)$printingSummary['total_cost'];
+        $printingProfit = (float)$printingSummary['gross_profit'];
+
+        $totalServiceRevenue = $telecomRevenue + $identityTotalRevenue + $printingRevenue;
+        $totalExpenditure = $telecomCost + $ninCost + $printingCost;
+        $totalGrossProfit = $telecomProfit + $identityProfit + $printingProfit;
         $marginPercent = $totalServiceRevenue > 0 ? round(($totalGrossProfit / $totalServiceRevenue) * 100, 2) : 0;
 
         // 9. Manual Funding Report
@@ -1865,6 +2005,7 @@ class AdminController
                 'telecom_cost' => $telecomCost,
                 'nin_wholesale_cost' => $ninCost,
                 'identity_wholesale_cost' => $ninCost,
+                'printing_cost' => $printingCost,
                 'total_cost' => $totalExpenditure,
                 'providers' => $providerExpenditures,
             ],
@@ -1878,8 +2019,16 @@ class AdminController
                 'margin_percent' => $marginPercent,
                 'telecom_profit' => $telecomProfit,
                 'nin_profit' => $identityProfit,
+                'printing_revenue' => $printingRevenue,
+                'printing_cost' => $printingCost,
+                'printing_profit' => $printingProfit,
                 'modification_revenue' => $modRevenue,
                 'enrolment_revenue' => $enrRevenue,
+            ],
+            'printing_report' => [
+                'summary' => $printingSummary,
+                'categories' => $printingCategories,
+                'payment_channels' => $printingPaymentChannels,
             ],
             'manual_funding_report' => $manualFundingSummary,
             'kyc_report' => $kycSummary,
@@ -2494,6 +2643,13 @@ class AdminController
         } catch (Throwable) {
         }
 
+        $this->recordAdminAudit($admin, 'ADMIN_CUSTOMER_KYC_REVIEWED', [
+            'customer_id' => $customerId,
+            'status' => $status,
+            'tier' => $tier,
+            'notes' => $notes,
+        ], $request);
+
         $updated = $this->hydrateCustomerRow($customerId);
         Response::success(['customer' => $updated], "Customer KYC status updated to {$status}");
     }
@@ -2585,13 +2741,29 @@ class AdminController
 
     public function updateServicePrice(Request $request): void
     {
-        Auth::requirePermission($request, 'services');
-        $serviceKey = (string)$request->input('serviceKey', $request->input('service_key', ''));
+        $admin = Auth::requirePermission($request, 'services');
+        $serviceKey = trim((string)$request->input('serviceKey', $request->input('service_key', '')));
         $price = (float)($request->input('sellingPrice') ?? $request->input('selling_price', 0));
 
-        if (empty($serviceKey) || $price <= 0) {
+        if ($serviceKey === '' || $price <= 0) {
             Response::error('Valid serviceKey and price are required.', 422);
             return;
+        }
+
+        $existing = $this->db->fetchOne(
+            'SELECT id, provider_id, endpoint, wholesale_cost, selling_price, is_active FROM service_catalogue WHERE service_key = :k LIMIT 1',
+            ['k' => $serviceKey]
+        );
+        if (!$existing) {
+            Response::notFound('Service not found in catalogue.');
+        }
+
+        $wholesale = (float)($existing['wholesale_cost'] ?? 0);
+        if ($price < $wholesale) {
+            Response::error(
+                'Customer selling price (₦' . number_format($price, 2) . ') cannot be lower than wholesale cost (₦' . number_format($wholesale, 2) . ').',
+                422
+            );
         }
 
         $this->db->execute(
@@ -2599,13 +2771,29 @@ class AdminController
             ['pr' => $price, 'k' => $serviceKey]
         );
 
+        SchemaSync::syncProviderServiceMapping(
+            $this->db,
+            (string)($existing['provider_id'] ?? '2sureverify'),
+            $serviceKey,
+            (string)($existing['endpoint'] ?? ''),
+            $wholesale,
+            !empty($existing['is_active']) ? 1 : 0
+        );
+
+        $this->recordAdminAudit($admin, 'ADMIN_SERVICE_PRICE_UPDATED', [
+            'service_key' => $serviceKey,
+            'previous_selling_price' => (float)$existing['selling_price'],
+            'new_selling_price' => $price,
+            'wholesale_cost' => $wholesale,
+        ], $request);
+
         $srv = $this->db->fetchOne('SELECT * FROM service_catalogue WHERE service_key = :k', ['k' => $serviceKey]);
         Response::success(['service' => $srv], 'Service price updated successfully');
     }
 
     public function updatePricing(Request $request): void
     {
-        Auth::requirePermission($request, 'services');
+        $admin = Auth::requirePermission($request, 'services');
         $b = $request->getBody();
 
         foreach ($b as $k => $v) {
@@ -2622,12 +2810,13 @@ class AdminController
             );
         }
 
+        $this->recordAdminAudit($admin, 'ADMIN_PLATFORM_PRICING_UPDATED', ['keys' => array_keys($b)], $request);
         Response::success(null, 'Platform tariffs and pricing updated successfully');
     }
 
     public function updateProviders(Request $request): void
     {
-        Auth::requireSuperAdmin($request);
+        $admin = Auth::requireSuperAdmin($request);
         $b = $request->getBody();
 
         foreach ($b as $k => $v) {
@@ -2658,6 +2847,16 @@ class AdminController
             );
         }
 
+        try {
+            $this->db->execute(
+                'UPDATE provider_service_mappings psm
+                 INNER JOIN service_catalogue s ON s.service_key = psm.service_key
+                 SET psm.provider_id = s.provider_id, psm.provider_endpoint = s.endpoint, psm.wholesale_cost = s.wholesale_cost, psm.is_active = s.is_active'
+            );
+        } catch (Throwable) {
+        }
+
+        $this->recordAdminAudit($admin, 'ADMIN_PROVIDER_ROUTING_UPDATED', ['routing' => $b], $request);
         Response::success(['routing' => $b], 'Provider routing configuration updated successfully');
     }
 
@@ -2709,8 +2908,10 @@ class AdminController
         \HambakTech\Core\SchemaSync::syncEnrolmentCatalog($this->db);
 
         $rows = $this->db->fetchAll(
-            'SELECT s.service_key as `key`, s.name, s.selling_price as price, s.wholesale_cost, 
+            'SELECT s.id, s.category_id, s.service_key as `key`, s.name, s.description,
+                    s.selling_price as price, s.wholesale_cost,
                     s.provider_id as provider, s.endpoint as endpoint, s.is_active,
+                    s.required_fields, s.slip_type_supported,
                     s.processing_type, s.manual_label, s.estimated_turnaround,
                     COALESCE(c.code, c.name, "nin_verification") as category, c.name as category_name
              FROM service_catalogue s
@@ -2723,8 +2924,11 @@ class AdminController
             $r['wholesale_cost'] = (float)$r['wholesale_cost'];
             $r['is_active'] = (bool)$r['is_active'];
             $r['enabled'] = (bool)$r['is_active'];
+            $r['slip_type_supported'] = (bool)($r['slip_type_supported'] ?? false);
+            $rf = is_string($r['required_fields'] ?? null) ? json_decode($r['required_fields'], true) : ($r['required_fields'] ?? []);
+            $r['required_fields'] = is_array($rf) ? array_values($rf) : [];
             $profit = $r['price'] - $r['wholesale_cost'];
-            $r['profit_per_transaction'] = $profit;
+            $r['profit_per_transaction'] = round($profit, 2);
             $r['margin_percent'] = $r['price'] > 0 ? round(($profit / $r['price']) * 100) : 0;
         }
 
@@ -2733,13 +2937,64 @@ class AdminController
 
     public function updateVerificationService(Request $request, array $params): void
     {
-        Auth::requirePermission($request, 'services');
-        $key = $params['key'] ?? '';
+        $admin = Auth::requirePermission($request, 'services');
+        $key = trim((string)($params['key'] ?? ''));
         $body = $request->getBody();
+
+        $existingRow = $this->db->fetchOne(
+            'SELECT * FROM service_catalogue WHERE service_key = :k LIMIT 1',
+            ['k' => $key]
+        );
+        if (!$existingRow) {
+            Response::notFound('Verification service not found.');
+        }
 
         $updates = [];
         $paramsDb = ['k' => $key];
 
+        if (isset($body['name']) && trim((string)$body['name']) !== '') {
+            $updates[] = 'name = :nm';
+            $paramsDb['nm'] = trim((string)$body['name']);
+        }
+        if (array_key_exists('description', $body)) {
+            $updates[] = 'description = :desc';
+            $paramsDb['desc'] = trim((string)$body['description']);
+        }
+        if (isset($body['category_id']) && trim((string)$body['category_id']) !== '') {
+            $updates[] = 'category_id = :cid';
+            $paramsDb['cid'] = trim((string)$body['category_id']);
+        }
+        if (isset($body['endpoint']) && trim((string)$body['endpoint']) !== '') {
+            $updates[] = 'endpoint = :ep';
+            $paramsDb['ep'] = trim((string)$body['endpoint']);
+        }
+        if (isset($body['processing_type']) && in_array($body['processing_type'], ['instant', 'manual'], true)) {
+            $updates[] = 'processing_type = :pt';
+            $paramsDb['pt'] = $body['processing_type'];
+        }
+        if (array_key_exists('manual_label', $body)) {
+            $updates[] = 'manual_label = :ml';
+            $paramsDb['ml'] = trim((string)$body['manual_label']) ?: 'Manual Processing';
+        }
+        if (array_key_exists('estimated_turnaround', $body)) {
+            $updates[] = 'estimated_turnaround = :eta';
+            $paramsDb['eta'] = trim((string)$body['estimated_turnaround']);
+        }
+        if (isset($body['slip_type_supported'])) {
+            $updates[] = 'slip_type_supported = :sts';
+            $paramsDb['sts'] = !empty($body['slip_type_supported']) ? 1 : 0;
+        }
+        if (isset($body['required_fields']) && is_array($body['required_fields'])) {
+            $cleanRf = [];
+            foreach ($body['required_fields'] as $rf) {
+                $s = trim((string)$rf);
+                if ($s !== '') {
+                    $cleanRf[] = $s;
+                }
+            }
+            $updates[] = 'required_fields = :rf';
+            $paramsDb['rf'] = json_encode(array_values(array_unique($cleanRf)));
+        }
         if (isset($body['price'])) {
             $updates[] = 'selling_price = :pr';
             $paramsDb['pr'] = (float)$body['price'];
@@ -2752,22 +3007,14 @@ class AdminController
             $updates[] = 'wholesale_cost = :wc';
             $paramsDb['wc'] = (float)$body['wholesale_cost'];
         }
-        if (isset($body['provider'])) {
+        if (isset($body['provider']) || isset($body['provider_id'])) {
             $updates[] = 'provider_id = :prov';
-            $paramsDb['prov'] = (string)$body['provider'];
+            $paramsDb['prov'] = trim((string)($body['provider_id'] ?? $body['provider']));
         }
         if (isset($body['is_active']) || isset($body['enabled'])) {
             $activeVal = isset($body['is_active']) ? (bool)$body['is_active'] : (bool)$body['enabled'];
             $updates[] = 'is_active = :act';
             $paramsDb['act'] = $activeVal ? 1 : 0;
-        }
-
-        $existingRow = $this->db->fetchOne(
-            'SELECT selling_price, wholesale_cost FROM service_catalogue WHERE service_key = :k LIMIT 1',
-            ['k' => $key]
-        );
-        if (!$existingRow) {
-            Response::notFound('Verification service not found.');
         }
 
         $targetSelling = $paramsDb['spr'] ?? ($paramsDb['pr'] ?? (float)$existingRow['selling_price']);
@@ -2785,23 +3032,48 @@ class AdminController
         }
 
         $srv = $this->db->fetchOne(
-            'SELECT s.service_key as `key`, s.name, s.selling_price as price, s.wholesale_cost,
-                    s.provider_id as provider, s.endpoint as endpoint, s.is_active
-             FROM service_catalogue s WHERE s.service_key = :k',
+            'SELECT s.id, s.category_id, s.service_key as `key`, s.name, s.description,
+                    s.selling_price as price, s.wholesale_cost, s.provider_id as provider,
+                    s.endpoint as endpoint, s.is_active, s.required_fields, s.slip_type_supported,
+                    s.processing_type, s.manual_label, s.estimated_turnaround,
+                    COALESCE(c.code, c.name, "nin_verification") as category
+             FROM service_catalogue s
+             LEFT JOIN service_categories c ON c.id = s.category_id
+             WHERE s.service_key = :k',
             ['k' => $key]
         );
         if ($srv) {
+            SchemaSync::syncProviderServiceMapping(
+                $this->db,
+                (string)$srv['provider'],
+                $key,
+                (string)$srv['endpoint'],
+                (float)$srv['wholesale_cost'],
+                !empty($srv['is_active']) ? 1 : 0
+            );
             $srv['price'] = (float)$srv['price'];
             $srv['wholesale_cost'] = (float)$srv['wholesale_cost'];
             $srv['is_active'] = (bool)$srv['is_active'];
             $srv['enabled'] = (bool)$srv['is_active'];
+            $srv['slip_type_supported'] = (bool)($srv['slip_type_supported'] ?? false);
+            $rf = is_string($srv['required_fields'] ?? null) ? json_decode($srv['required_fields'], true) : [];
+            $srv['required_fields'] = is_array($rf) ? array_values($rf) : [];
         }
+
+        $this->recordAdminAudit($admin, 'ADMIN_VERIFICATION_SERVICE_UPDATED', [
+            'service_key' => $key,
+            'selling_price' => (float)$targetSelling,
+            'wholesale_cost' => (float)$targetWholesale,
+            'provider' => $srv['provider'] ?? null,
+            'is_active' => $srv['is_active'] ?? null,
+        ], $request);
+
         Response::success(['service' => $srv], 'Verification service configuration updated');
     }
 
     public function syncWholesalePrices(Request $request): void
     {
-        Auth::requirePermission($request, 'services');
+        $admin = Auth::requirePermission($request, 'services');
         \HambakTech\Core\SchemaSync::syncModificationCatalog($this->db);
         \HambakTech\Core\SchemaSync::syncEnrolmentCatalog($this->db);
 
@@ -2840,12 +3112,386 @@ class AdminController
             }
         }
 
+        try {
+            $this->db->execute(
+                'UPDATE provider_service_mappings psm
+                 INNER JOIN service_catalogue s ON s.service_key = psm.service_key
+                 SET psm.wholesale_cost = s.wholesale_cost, psm.provider_id = s.provider_id, psm.provider_endpoint = s.endpoint, psm.is_active = s.is_active'
+            );
+        } catch (Throwable) {
+        }
+
+        $this->recordAdminAudit($admin, 'ADMIN_WHOLESALE_PRICES_SYNCED', ['updated_count' => $updatedCount], $request);
+
         Response::success(
             ['updatedCount' => $updatedCount],
             $updatedCount > 0
                 ? "Synchronized {$updatedCount} wholesale tariffs from live 2SureVerify catalog."
                 : 'Checked live 2SureVerify catalog; wholesale tariffs are already up to date.'
         );
+    }
+
+    // =========================================================================
+    // 13B. SERVICE CATEGORIES & UNIFIED CATALOG CRUD (PHASE 3)
+    // =========================================================================
+
+    public function listServiceCategories(Request $request): void
+    {
+        Auth::requirePermission($request, 'services');
+        $rows = $this->db->fetchAll('SELECT * FROM service_categories ORDER BY display_order ASC, name ASC');
+        foreach ($rows as &$r) {
+            $r['display_order'] = (int)($r['display_order'] ?? 1);
+            $r['is_active'] = (bool)($r['is_active'] ?? true);
+        }
+        Response::success(['categories' => $rows]);
+    }
+
+    public function saveServiceCategory(Request $request): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        $b = $request->getBody();
+        $code = strtolower(preg_replace('/[^a-z0-9_]+/i', '_', trim((string)($b['code'] ?? ''))) ?? '');
+        $name = trim((string)($b['name'] ?? ''));
+        $description = trim((string)($b['description'] ?? ''));
+        $icon = trim((string)($b['icon'] ?? 'Cpu')) ?: 'Cpu';
+        $displayOrder = max(1, (int)($b['display_order'] ?? 1));
+        $isActive = array_key_exists('is_active', $b) ? (!empty($b['is_active']) ? 1 : 0) : 1;
+
+        if ($code === '' || $name === '') {
+            Response::error('Category code and name are required.', 422);
+        }
+
+        $existing = $this->db->fetchOne('SELECT id FROM service_categories WHERE code = :c LIMIT 1', ['c' => $code]);
+        if ($existing) {
+            $this->db->execute(
+                'UPDATE service_categories SET name = :nm, description = :desc, icon = :ic, display_order = :ord, is_active = :act WHERE id = :id',
+                ['nm' => $name, 'desc' => $description, 'ic' => $icon, 'ord' => $displayOrder, 'act' => $isActive, 'id' => $existing['id']]
+            );
+            $catId = (string)$existing['id'];
+        } else {
+            $catId = 'cat_' . substr(md5($code), 0, 8);
+            $this->db->execute(
+                'INSERT INTO service_categories (id, code, name, description, icon, display_order, is_active)
+                 VALUES (:id, :c, :nm, :desc, :ic, :ord, :act)',
+                ['id' => $catId, 'c' => $code, 'nm' => $name, 'desc' => $description, 'ic' => $icon, 'ord' => $displayOrder, 'act' => $isActive]
+            );
+        }
+
+        $this->recordAdminAudit($admin, 'ADMIN_SERVICE_CATEGORY_SAVED', ['id' => $catId, 'code' => $code, 'name' => $name], $request);
+        $fresh = $this->db->fetchOne('SELECT * FROM service_categories WHERE id = :id LIMIT 1', ['id' => $catId]);
+        if ($fresh) {
+            $fresh['display_order'] = (int)$fresh['display_order'];
+            $fresh['is_active'] = (bool)$fresh['is_active'];
+        }
+        Response::success(['category' => $fresh], 'Service category saved.');
+    }
+
+    public function createCatalogService(Request $request): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        SchemaSync::syncModificationCatalog($this->db);
+        SchemaSync::syncEnrolmentCatalog($this->db);
+
+        $b = $request->getBody();
+        $serviceKey = strtolower(trim((string)($b['service_key'] ?? $b['key'] ?? '')));
+        $serviceKey = preg_replace('/[^a-z0-9_]+/', '_', $serviceKey) ?? '';
+        $serviceKey = trim($serviceKey, '_');
+        $name = trim((string)($b['name'] ?? ''));
+        $description = trim((string)($b['description'] ?? ''));
+        $providerId = trim((string)($b['provider_id'] ?? $b['provider'] ?? '2sureverify')) ?: '2sureverify';
+        $endpoint = trim((string)($b['endpoint'] ?? ''));
+        $wholesale = max(0.0, (float)($b['wholesale_cost'] ?? 0));
+        $selling = max(0.0, (float)($b['selling_price'] ?? $b['price'] ?? 0));
+        $processingType = ($b['processing_type'] ?? 'instant') === 'manual' ? 'manual' : 'instant';
+        $manualLabel = trim((string)($b['manual_label'] ?? 'Manual Processing')) ?: 'Manual Processing';
+        $estimatedTurnaround = trim((string)($b['estimated_turnaround'] ?? ''));
+        $slipTypeSupported = !empty($b['slip_type_supported']) ? 1 : 0;
+        $isActive = array_key_exists('is_active', $b) ? (!empty($b['is_active']) ? 1 : 0) : 1;
+
+        if ($serviceKey === '' || strlen($serviceKey) < 2) {
+            Response::error('Valid service_key (letters, numbers, underscores) is required.', 422);
+        }
+        if ($name === '' || $endpoint === '') {
+            Response::error('Service name and provider endpoint are required.', 422);
+        }
+        if ($selling <= 0) {
+            Response::error('Customer selling price must be greater than zero.', 422);
+        }
+        if ($selling < $wholesale) {
+            Response::error(
+                'Customer selling price (₦' . number_format($selling, 2) . ') cannot be lower than wholesale cost (₦' . number_format($wholesale, 2) . ').',
+                422
+            );
+        }
+
+        $dup = $this->db->fetchOne('SELECT id FROM service_catalogue WHERE service_key = :sk LIMIT 1', ['sk' => $serviceKey]);
+        if ($dup) {
+            Response::error("A service with key '{$serviceKey}' already exists.", 409);
+        }
+
+        // Resolve category_id either directly or via category_code / category
+        $categoryId = trim((string)($b['category_id'] ?? ''));
+        $categoryCode = trim((string)($b['category_code'] ?? $b['category'] ?? 'nin_verification'));
+        if ($categoryId === '') {
+            $catRow = $this->db->fetchOne('SELECT id FROM service_categories WHERE code = :c OR id = :id LIMIT 1', ['c' => $categoryCode, 'id' => $categoryCode]);
+            if (!$catRow) {
+                $catRow = $this->db->fetchOne('SELECT id FROM service_categories ORDER BY display_order ASC LIMIT 1');
+            }
+            $categoryId = $catRow ? (string)$catRow['id'] : 'cat_nin';
+        }
+
+        $reqFields = [];
+        if (isset($b['required_fields']) && is_array($b['required_fields'])) {
+            foreach ($b['required_fields'] as $rf) {
+                $s = trim((string)$rf);
+                if ($s !== '') {
+                    $reqFields[] = $s;
+                }
+            }
+        }
+        $reqFieldsJson = json_encode(array_values(array_unique($reqFields)));
+        $id = 'srv_' . substr(Security::generateUuid(), 0, 12);
+
+        $this->db->execute(
+            'INSERT INTO service_catalogue
+                (id, category_id, service_key, name, description, provider_id, endpoint, wholesale_cost, selling_price,
+                 required_fields, processing_type, manual_label, estimated_turnaround, slip_type_supported, is_active, created_at, updated_at)
+             VALUES
+                (:id, :cid, :sk, :nm, :desc, :pid, :ep, :wc, :sp, :rf, :pt, :ml, :eta, :sts, :act, NOW(), NOW())',
+            [
+                'id' => $id,
+                'cid' => $categoryId,
+                'sk' => $serviceKey,
+                'nm' => $name,
+                'desc' => $description,
+                'pid' => $providerId,
+                'ep' => $endpoint,
+                'wc' => $wholesale,
+                'sp' => $selling,
+                'rf' => $reqFieldsJson !== false ? $reqFieldsJson : '[]',
+                'pt' => $processingType,
+                'ml' => $manualLabel,
+                'eta' => $estimatedTurnaround !== '' ? $estimatedTurnaround : null,
+                'sts' => $slipTypeSupported,
+                'act' => $isActive,
+            ]
+        );
+
+        SchemaSync::syncProviderServiceMapping($this->db, $providerId, $serviceKey, $endpoint, $wholesale, $isActive);
+
+        $this->recordAdminAudit($admin, 'ADMIN_CATALOG_SERVICE_CREATED', [
+            'id' => $id,
+            'service_key' => $serviceKey,
+            'name' => $name,
+            'provider_id' => $providerId,
+            'selling_price' => $selling,
+            'wholesale_cost' => $wholesale,
+        ], $request);
+
+        $srv = $this->db->fetchOne(
+            'SELECT s.id, s.category_id, s.service_key as `key`, s.service_key, s.name, s.description,
+                    s.selling_price as price, s.selling_price, s.wholesale_cost, s.provider_id as provider,
+                    s.provider_id, s.endpoint, s.is_active, s.required_fields, s.slip_type_supported,
+                    s.processing_type, s.manual_label, s.estimated_turnaround,
+                    COALESCE(c.code, c.name, "nin_verification") as category, c.name as category_name
+             FROM service_catalogue s
+             LEFT JOIN service_categories c ON c.id = s.category_id
+             WHERE s.id = :id LIMIT 1',
+            ['id' => $id]
+        );
+        if ($srv) {
+            $srv['price'] = (float)$srv['price'];
+            $srv['selling_price'] = (float)$srv['selling_price'];
+            $srv['wholesale_cost'] = (float)$srv['wholesale_cost'];
+            $srv['is_active'] = (bool)$srv['is_active'];
+            $srv['enabled'] = (bool)$srv['is_active'];
+            $srv['slip_type_supported'] = (bool)$srv['slip_type_supported'];
+            $rfDecoded = is_string($srv['required_fields'] ?? null) ? json_decode($srv['required_fields'], true) : [];
+            $srv['required_fields'] = is_array($rfDecoded) ? array_values($rfDecoded) : [];
+        }
+
+        Response::success(['service' => $srv], 'Service created in catalog successfully.', 201);
+    }
+
+    public function updateCatalogService(Request $request, array $params): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        $keyOrId = trim((string)($params['key'] ?? ''));
+        $b = $request->getBody();
+
+        $existing = $this->db->fetchOne(
+            'SELECT * FROM service_catalogue WHERE service_key = :sk OR id = :id LIMIT 1',
+            ['sk' => $keyOrId, 'id' => $keyOrId]
+        );
+        if (!$existing) {
+            Response::notFound('Service not found in catalog.');
+        }
+
+        $updates = [];
+        $dbParams = ['id' => $existing['id']];
+
+        if (isset($b['name']) && trim((string)$b['name']) !== '') {
+            $updates[] = 'name = :nm';
+            $dbParams['nm'] = trim((string)$b['name']);
+        }
+        if (array_key_exists('description', $b)) {
+            $updates[] = 'description = :desc';
+            $dbParams['desc'] = trim((string)$b['description']);
+        }
+        if (isset($b['category_id']) && trim((string)$b['category_id']) !== '') {
+            $updates[] = 'category_id = :cid';
+            $dbParams['cid'] = trim((string)$b['category_id']);
+        } elseif (isset($b['category_code']) || isset($b['category'])) {
+            $cCode = trim((string)($b['category_code'] ?? $b['category']));
+            $catRow = $this->db->fetchOne('SELECT id FROM service_categories WHERE code = :c LIMIT 1', ['c' => $cCode]);
+            if ($catRow) {
+                $updates[] = 'category_id = :cid';
+                $dbParams['cid'] = (string)$catRow['id'];
+            }
+        }
+        if (isset($b['provider_id']) || isset($b['provider'])) {
+            $updates[] = 'provider_id = :pid';
+            $dbParams['pid'] = trim((string)($b['provider_id'] ?? $b['provider']));
+        }
+        if (isset($b['endpoint']) && trim((string)$b['endpoint']) !== '') {
+            $updates[] = 'endpoint = :ep';
+            $dbParams['ep'] = trim((string)$b['endpoint']);
+        }
+        if (isset($b['wholesale_cost'])) {
+            $updates[] = 'wholesale_cost = :wc';
+            $dbParams['wc'] = max(0.0, (float)$b['wholesale_cost']);
+        }
+        if (isset($b['selling_price']) || isset($b['price'])) {
+            $updates[] = 'selling_price = :sp';
+            $dbParams['sp'] = max(0.0, (float)($b['selling_price'] ?? $b['price']));
+        }
+        if (isset($b['processing_type']) && in_array($b['processing_type'], ['instant', 'manual'], true)) {
+            $updates[] = 'processing_type = :pt';
+            $dbParams['pt'] = $b['processing_type'];
+        }
+        if (array_key_exists('manual_label', $b)) {
+            $updates[] = 'manual_label = :ml';
+            $dbParams['ml'] = trim((string)$b['manual_label']) ?: 'Manual Processing';
+        }
+        if (array_key_exists('estimated_turnaround', $b)) {
+            $updates[] = 'estimated_turnaround = :eta';
+            $dbParams['eta'] = trim((string)$b['estimated_turnaround']) ?: null;
+        }
+        if (isset($b['slip_type_supported'])) {
+            $updates[] = 'slip_type_supported = :sts';
+            $dbParams['sts'] = !empty($b['slip_type_supported']) ? 1 : 0;
+        }
+        if (isset($b['is_active']) || isset($b['enabled'])) {
+            $act = isset($b['is_active']) ? (bool)$b['is_active'] : (bool)$b['enabled'];
+            $updates[] = 'is_active = :act';
+            $dbParams['act'] = $act ? 1 : 0;
+        }
+        if (isset($b['required_fields']) && is_array($b['required_fields'])) {
+            $cleanRf = [];
+            foreach ($b['required_fields'] as $rf) {
+                $s = trim((string)$rf);
+                if ($s !== '') {
+                    $cleanRf[] = $s;
+                }
+            }
+            $updates[] = 'required_fields = :rf';
+            $dbParams['rf'] = json_encode(array_values(array_unique($cleanRf)));
+        }
+
+        $targetSelling = $dbParams['sp'] ?? (float)$existing['selling_price'];
+        $targetWholesale = $dbParams['wc'] ?? (float)$existing['wholesale_cost'];
+        if ((float)$targetSelling < (float)$targetWholesale) {
+            Response::error(
+                'Customer selling price (₦' . number_format((float)$targetSelling, 2) . ') cannot be lower than wholesale cost (₦' . number_format((float)$targetWholesale, 2) . ').',
+                422
+            );
+        }
+
+        if (!empty($updates)) {
+            $updates[] = 'updated_at = NOW()';
+            $this->db->execute('UPDATE service_catalogue SET ' . implode(', ', $updates) . ' WHERE id = :id', $dbParams);
+        }
+
+        $fresh = $this->db->fetchOne(
+            'SELECT s.id, s.category_id, s.service_key as `key`, s.service_key, s.name, s.description,
+                    s.selling_price as price, s.selling_price, s.wholesale_cost, s.provider_id as provider,
+                    s.provider_id, s.endpoint, s.is_active, s.required_fields, s.slip_type_supported,
+                    s.processing_type, s.manual_label, s.estimated_turnaround,
+                    COALESCE(c.code, c.name, "nin_verification") as category, c.name as category_name
+             FROM service_catalogue s
+             LEFT JOIN service_categories c ON c.id = s.category_id
+             WHERE s.id = :id LIMIT 1',
+            ['id' => $existing['id']]
+        );
+        if ($fresh) {
+            SchemaSync::syncProviderServiceMapping(
+                $this->db,
+                (string)$fresh['provider_id'],
+                (string)$fresh['service_key'],
+                (string)$fresh['endpoint'],
+                (float)$fresh['wholesale_cost'],
+                !empty($fresh['is_active']) ? 1 : 0
+            );
+            $fresh['price'] = (float)$fresh['price'];
+            $fresh['selling_price'] = (float)$fresh['selling_price'];
+            $fresh['wholesale_cost'] = (float)$fresh['wholesale_cost'];
+            $fresh['is_active'] = (bool)$fresh['is_active'];
+            $fresh['enabled'] = (bool)$fresh['is_active'];
+            $fresh['slip_type_supported'] = (bool)$fresh['slip_type_supported'];
+            $rfDecoded = is_string($fresh['required_fields'] ?? null) ? json_decode($fresh['required_fields'], true) : [];
+            $fresh['required_fields'] = is_array($rfDecoded) ? array_values($rfDecoded) : [];
+        }
+
+        $this->recordAdminAudit($admin, 'ADMIN_CATALOG_SERVICE_UPDATED', [
+            'service_key' => $existing['service_key'],
+            'selling_price' => (float)$targetSelling,
+            'wholesale_cost' => (float)$targetWholesale,
+            'is_active' => $fresh['is_active'] ?? null,
+        ], $request);
+
+        Response::success(['service' => $fresh], 'Catalog service updated successfully.');
+    }
+
+    public function deleteCatalogService(Request $request, array $params): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        $keyOrId = trim((string)($params['key'] ?? ''));
+
+        $existing = $this->db->fetchOne(
+            'SELECT id, service_key, name FROM service_catalogue WHERE service_key = :sk OR id = :id LIMIT 1',
+            ['sk' => $keyOrId, 'id' => $keyOrId]
+        );
+        if (!$existing) {
+            Response::notFound('Service not found in catalog.');
+        }
+
+        $sk = (string)$existing['service_key'];
+        $refChecks = 0;
+        foreach (['verification_records', 'modification_requests', 'enrolment_orders'] as $tbl) {
+            try {
+                $cRow = $this->db->fetchOne("SELECT COUNT(*) as cnt FROM {$tbl} WHERE service_key = :sk", ['sk' => $sk]);
+                $refChecks += (int)($cRow['cnt'] ?? 0);
+            } catch (Throwable) {
+            }
+        }
+
+        if ($refChecks > 0) {
+            Response::error(
+                "This service has {$refChecks} historical order/verification record(s) and cannot be permanently deleted. Deactivate it instead.",
+                409
+            );
+        }
+
+        $this->db->execute('DELETE FROM provider_service_mappings WHERE service_key = :sk', ['sk' => $sk]);
+        $this->db->execute('DELETE FROM service_catalogue WHERE id = :id', ['id' => $existing['id']]);
+
+        $this->recordAdminAudit($admin, 'ADMIN_CATALOG_SERVICE_DELETED', [
+            'id' => $existing['id'],
+            'service_key' => $sk,
+            'name' => $existing['name'],
+        ], $request);
+
+        Response::success(['deleted_key' => $sk], 'Service deleted from catalog.');
     }
 
     private function maskSecret(string $val): string
@@ -2927,16 +3573,34 @@ class AdminController
         } catch (Throwable) {
         }
 
+        $mappings = [];
+        try {
+            $mapRows = $this->db->fetchAll(
+                'SELECT psm.*, s.name as service_name, s.selling_price
+                 FROM provider_service_mappings psm
+                 LEFT JOIN service_catalogue s ON s.service_key = psm.service_key
+                 ORDER BY psm.provider_id ASC, psm.service_key ASC'
+            );
+            foreach ($mapRows as $mr) {
+                $mr['wholesale_cost'] = (float)($mr['wholesale_cost'] ?? 0);
+                $mr['selling_price'] = isset($mr['selling_price']) ? (float)$mr['selling_price'] : null;
+                $mr['is_active'] = (bool)($mr['is_active'] ?? true);
+                $mappings[] = $mr;
+            }
+        } catch (Throwable) {
+        }
+
         Response::success([
             'primaryProviderId' => $primaryId,
             'providers' => $providers,
             'routing' => $routing,
+            'provider_service_mappings' => $mappings,
         ]);
     }
 
     public function saveProvider(Request $request, array $params = []): void
     {
-        Auth::requireRole($request, ['superadmin']);
+        $admin = Auth::requireRole($request, ['superadmin']);
         $id = $params['id'] ?? (string)$request->input('id', '');
         $body = $request->getBody();
 
@@ -3036,13 +3700,21 @@ class AdminController
             ]
         );
 
+        $this->recordAdminAudit($admin, 'ADMIN_PROVIDER_SAVED', [
+            'provider_id' => $id,
+            'name' => $name,
+            'provider_type' => $type,
+            'is_active' => (bool)$isActive,
+            'is_default' => (bool)$isDefault,
+        ], $request);
+
         $row = $this->db->fetchOne('SELECT * FROM providers WHERE id = :id', ['id' => $id]);
         Response::success(['provider' => $row ? $this->sanitizeProviderRow($row) : null], "Provider {$name} configuration saved");
     }
 
     public function testProvider(Request $request, array $params): void
     {
-        Auth::requireSuperAdmin($request);
+        $admin = Auth::requireSuperAdmin($request);
         $id = strtolower(trim((string)($params['id'] ?? '')));
         $prov = $this->db->fetchOne('SELECT * FROM providers WHERE id = :id', ['id' => $id]);
 
@@ -3148,6 +3820,13 @@ class AdminController
             ]
         );
 
+        $this->recordAdminAudit($admin, 'ADMIN_PROVIDER_TESTED', [
+            'provider_id' => $id,
+            'operational' => $operational,
+            'status' => $pingStatus,
+            'latency_ms' => $latency,
+        ], $request);
+
         if (!$operational) {
             $httpStatus = ($pingStatus === 'unconfigured') ? 400 : 502;
             Response::error($message ?: "Provider {$prov['name']} test failed.", $httpStatus, [
@@ -3172,8 +3851,59 @@ class AdminController
     public function providerLogs(Request $request): void
     {
         Auth::requirePermission($request, 'services');
+
+        $provider = strtolower(trim((string)$request->query('provider', 'all')));
+        $statusGroup = strtolower(trim((string)$request->query('status_group', 'all')));
+        $search = trim((string)$request->query('search', ''));
+        $rawFrom = trim((string)$request->query('date_from', ''));
+        $rawTo = trim((string)$request->query('date_to', ''));
+        $dateFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawFrom) ? $rawFrom : '';
+        $dateTo = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawTo) ? $rawTo : '';
+        $page = max(1, (int)$request->query('page', 1));
+        $limit = min(100, max(10, (int)$request->query('limit', 50)));
+        $offset = ($page - 1) * $limit;
+
+        $where = 'WHERE 1=1 ';
+        $params = [];
+
+        if ($provider !== '' && $provider !== 'all') {
+            $where .= 'AND LOWER(provider_id) = :prov ';
+            $params['prov'] = $provider;
+        }
+        if ($statusGroup === '2xx') {
+            $where .= 'AND status_code BETWEEN 200 AND 299 ';
+        } elseif ($statusGroup === '4xx') {
+            $where .= 'AND status_code BETWEEN 400 AND 499 ';
+        } elseif ($statusGroup === '5xx') {
+            $where .= 'AND (status_code >= 500 OR status_code = 0) ';
+        } elseif ($statusGroup === 'error') {
+            $where .= 'AND (status_code >= 400 OR status_code = 0) ';
+        }
+        if ($dateFrom !== '') {
+            $where .= 'AND created_at >= :df ';
+            $params['df'] = $dateFrom . ' 00:00:00';
+        }
+        if ($dateTo !== '') {
+            $where .= 'AND created_at <= :dt ';
+            $params['dt'] = $dateTo . ' 23:59:59';
+        }
+        if ($search !== '') {
+            $where .= 'AND (endpoint LIKE :q1 OR reference LIKE :q2 OR provider_id LIKE :q3 OR method LIKE :q4) ';
+            $like = '%' . $search . '%';
+            $params['q1'] = $like;
+            $params['q2'] = $like;
+            $params['q3'] = $like;
+            $params['q4'] = $like;
+        }
+
+        $countRow = $this->db->fetchOne("SELECT COUNT(*) as total FROM provider_logs {$where}", $params);
+        $total = (int)($countRow['total'] ?? 0);
+
         // Two-step deferred ID fetch prevents MySQL SQLSTATE[HY001]: 1038 Out of sort memory on LONGTEXT blobs
-        $idRows = $this->db->fetchAll('SELECT id FROM provider_logs ORDER BY created_at DESC LIMIT 100');
+        $idRows = $this->db->fetchAll(
+            "SELECT id FROM provider_logs {$where} ORDER BY created_at DESC LIMIT " . (int)$limit . " OFFSET " . (int)$offset,
+            $params
+        );
         $logs = [];
         if (!empty($idRows)) {
             $ids = array_values(array_filter(array_column($idRows, 'id')));
@@ -3209,7 +3939,15 @@ class AdminController
                 usort($logs, static fn($a, $b) => ($orderMap[$a['id']] ?? PHP_INT_MAX) <=> ($orderMap[$b['id']] ?? PHP_INT_MAX));
             }
         }
-        Response::success(['logs' => $logs]);
+        Response::success([
+            'logs' => $logs,
+            'pagination' => [
+                'total' => $total,
+                'page' => $page,
+                'limit' => $limit,
+                'total_pages' => max(1, (int)ceil($total / $limit)),
+            ],
+        ]);
     }
 
     // =========================================================================
@@ -5353,13 +6091,21 @@ class AdminController
         } catch (Throwable) {
         }
 
+        $this->recordAdminAudit($admin, 'ADMIN_KYC_SUBMISSION_REVIEWED', [
+            'submission_id' => $id,
+            'customer_id' => $sub['user_id'] ?? null,
+            'action' => $action,
+            'new_status' => $newStatus,
+            'target_level' => $targetLevel,
+        ], $request);
+
         $updated = $this->db->fetchOne('SELECT * FROM kyc_submissions WHERE id = :id', ['id' => $id]);
         Response::success(['submission' => $updated], "KYC submission marked as {$newStatus}");
     }
 
     public function autoVerifyKycSubmission(Request $request, array $params): void
     {
-        Auth::requirePermission($request, 'kyc');
+        $admin = Auth::requirePermission($request, 'kyc');
         $id = $params['id'] ?? '';
 
         $sub = $this->db->fetchOne('SELECT * FROM kyc_submissions WHERE id = :id', ['id' => $id]);
@@ -5507,6 +6253,14 @@ class AdminController
             } catch (Throwable) {
             }
         }
+
+        $this->recordAdminAudit($admin, 'ADMIN_KYC_AUTO_VERIFIED', [
+            'submission_id' => $id,
+            'customer_id' => $sub['user_id'] ?? null,
+            'provider' => $providerName,
+            'verified' => $nameMatched,
+            'new_status' => $newStatus,
+        ], $request);
 
         Response::success([
             'verified' => $nameMatched,

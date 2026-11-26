@@ -29,6 +29,7 @@ type ReportKey =
   | 'nin'
   | 'telecom'
   | 'provider'
+  | 'printing'
   | 'profit'
   | 'kyc'
   | 'staff'
@@ -78,11 +79,11 @@ export const ReportsManagement: React.FC = () => {
     const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`;
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', jsonString);
-    downloadAnchor.setAttribute('download', `hambaktech_11_reports_${new Date().toISOString().slice(0, 10)}.json`);
+    downloadAnchor.setAttribute('download', `hambaktech_12_reports_${new Date().toISOString().slice(0, 10)}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
-    setFeedback({ type: 'success', message: 'All 11 reports exported to JSON successfully.' });
+    setFeedback({ type: 'success', message: 'All 12 reports exported to JSON successfully.' });
   };
 
   const handleExportCSV = () => {
@@ -121,8 +122,28 @@ export const ReportsManagement: React.FC = () => {
       ['Wholesale Provider Costs', `₦${reportsData.profit_report?.total_expenditure ?? 0}`],
       ['Gross Operating Profit', `₦${reportsData.profit_report?.gross_profit ?? 0}`],
       ['Gross Operating Margin', `${reportsData.profit_report?.margin_percent ?? 0}%`],
+      ['Telecom Profit', `₦${reportsData.profit_report?.telecom_profit ?? 0}`],
+      ['Identity & NIN Profit', `₦${reportsData.profit_report?.nin_profit ?? 0}`],
+      ['Printing Hub Profit', `₦${reportsData.profit_report?.printing_profit ?? 0}`],
       [],
-      ['11. REFERRAL & GROWTH ROI REPORT'],
+      ['5. PAYMENT SUMMARY RECONCILIATION'],
+      ['Paystack Checkout Credits', `₦${reportsData.payment_summary?.paystack_checkout?.wallet_credits ?? 0}`],
+      ['Paystack Checkout Fees', `₦${reportsData.payment_summary?.paystack_checkout?.fees ?? 0}`],
+      ['Paystack DVA Credits', `₦${reportsData.payment_summary?.paystack_dva?.wallet_credits ?? 0}`],
+      ['Paystack DVA Fees', `₦${reportsData.payment_summary?.paystack_dva?.fees ?? 0}`],
+      ['Other / Historical Gateways', `₦${reportsData.payment_summary?.other_gateways?.wallet_credits ?? 0}`],
+      ['Total Unique Wallet Credits', `₦${reportsData.payment_summary?.total_wallet_credits ?? 0}`],
+      [],
+      ['8. PRINTING HUB REPORT'],
+      ['Total Printing Orders', String(reportsData.printing_report?.summary?.total_orders ?? 0)],
+      ['Completed Printing Orders', String(reportsData.printing_report?.summary?.completed_orders ?? 0)],
+      ['Active Printing Orders', String(reportsData.printing_report?.summary?.active_orders ?? 0)],
+      ['Printing Total Revenue', `₦${reportsData.printing_report?.summary?.total_revenue ?? 0}`],
+      ['Printing Internal Cost', `₦${reportsData.printing_report?.summary?.total_cost ?? 0}`],
+      ['Printing Gross Profit', `₦${reportsData.printing_report?.summary?.gross_profit ?? 0}`],
+      ['Printing Outstanding Balance', `₦${reportsData.printing_report?.summary?.outstanding_balance ?? 0}`],
+      [],
+      ['12. REFERRAL & GROWTH ROI REPORT'],
       ['Total Referrals', String(referralReport?.summary?.total_referrals ?? 0)],
       ['Qualified Referrals', String(referralReport?.summary?.qualified_referrals ?? 0)],
       ['Referred Revenue', `₦${referralReport?.summary?.referred_revenue ?? 0}`],
@@ -150,10 +171,11 @@ export const ReportsManagement: React.FC = () => {
     { key: 'nin' as ReportKey, label: '5. NIN Service Report', icon: Shield },
     { key: 'telecom' as ReportKey, label: '6. Telecom Report', icon: Tv },
     { key: 'provider' as ReportKey, label: '7. Provider Expenditure', icon: Cpu },
-    { key: 'profit' as ReportKey, label: '8. Profit Report', icon: TrendingUp },
-    { key: 'kyc' as ReportKey, label: '9. KYC Report', icon: UserCheck },
-    { key: 'staff' as ReportKey, label: '10. Staff Activity Report', icon: FileText },
-    { key: 'referral_growth' as ReportKey, label: '11. Referral & Growth ROI', icon: ArrowUpRight },
+    { key: 'printing' as ReportKey, label: '8. Printing Hub Report', icon: FileText },
+    { key: 'profit' as ReportKey, label: '9. Profit Report', icon: TrendingUp },
+    { key: 'kyc' as ReportKey, label: '10. KYC Report', icon: UserCheck },
+    { key: 'staff' as ReportKey, label: '11. Staff Activity Report', icon: FileText },
+    { key: 'referral_growth' as ReportKey, label: '12. Referral & Growth ROI', icon: ArrowUpRight },
   ];
 
   return (
@@ -163,11 +185,11 @@ export const ReportsManagement: React.FC = () => {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-semibold uppercase tracking-wider mb-2">
             <BarChart3 className="w-3.5 h-3.5" />
-            Executive Telemetry &bull; 11 Standard Reports
+            Executive Telemetry &bull; 12 Standard Reports
           </div>
           <h2 className="text-2xl font-bold text-white tracking-tight">Enterprise Financial &amp; Service Reports</h2>
           <p className="text-slate-400 text-xs sm:text-sm mt-1">
-            Reconcile all 11 core operational &amp; referral domains using live database records. Export full sets to JSON or CSV.
+            Reconcile all 12 core operational &amp; referral domains using live database records. Export full sets to JSON or CSV.
           </p>
         </div>
 
@@ -700,7 +722,131 @@ export const ReportsManagement: React.FC = () => {
             </div>
           )}
 
-          {/* Report 8: Profit Report */}
+          {/* Report 8: Printing Hub Report */}
+          {activeReport === 'printing' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-slate-400 font-medium">Total Printing Orders</p>
+                  <p className="text-2xl font-bold text-white font-mono mt-1">
+                    {reportsData.printing_report?.summary?.total_orders ?? 0}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Active: {reportsData.printing_report?.summary?.active_orders ?? 0} &bull; Completed:{' '}
+                    {reportsData.printing_report?.summary?.completed_orders ?? 0}
+                  </p>
+                </div>
+                <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-slate-400 font-medium">Printing Revenue</p>
+                  <p className="text-2xl font-bold text-white font-mono mt-1">
+                    ₦{Number(reportsData.printing_report?.summary?.total_revenue ?? 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-amber-400 mt-1">
+                    Outstanding: ₦{Number(reportsData.printing_report?.summary?.outstanding_balance ?? 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-slate-400 font-medium">Production Cost</p>
+                  <p className="text-2xl font-bold text-slate-300 font-mono mt-1">
+                    ₦{Number(reportsData.printing_report?.summary?.total_cost ?? 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Cancelled/Rejected: {reportsData.printing_report?.summary?.cancelled_or_rejected_orders ?? 0}
+                  </p>
+                </div>
+                <div className="p-5 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-emerald-400 font-medium">Printing Gross Profit</p>
+                  <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">
+                    +₦{Number(reportsData.printing_report?.summary?.gross_profit ?? 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                  <div className="p-4 border-b border-slate-800">
+                    <h3 className="text-sm font-bold text-white">Printing Revenue by Service Category</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-800">
+                        <tr>
+                          <th className="py-3 px-4">Category</th>
+                          <th className="py-3 px-4 text-right">Orders</th>
+                          <th className="py-3 px-4 text-right">Revenue</th>
+                          <th className="py-3 px-4 text-right">Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 text-slate-300">
+                        {(reportsData.printing_report?.categories || []).length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="py-8 text-center text-slate-500">
+                              No printing category records for this date range.
+                            </td>
+                          </tr>
+                        ) : (
+                          (reportsData.printing_report?.categories || []).map((cat: any, idx: number) => (
+                            <tr key={idx} className="hover:bg-slate-800/40">
+                              <td className="py-3 px-4 font-semibold text-white capitalize">
+                                {String(cat.category || 'general').replace(/_/g, ' ')}
+                              </td>
+                              <td className="py-3 px-4 text-right font-mono">{cat.orders_count ?? 0}</td>
+                              <td className="py-3 px-4 text-right font-mono text-emerald-400">
+                                ₦{Number(cat.revenue ?? 0).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-4 text-right font-mono text-slate-400">
+                                ₦{Number(cat.cost ?? 0).toLocaleString()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                  <div className="p-4 border-b border-slate-800">
+                    <h3 className="text-sm font-bold text-white">Printing Payment Channel Reconciliation</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-800">
+                        <tr>
+                          <th className="py-3 px-4">Channel</th>
+                          <th className="py-3 px-4 text-right">Confirmed Payments</th>
+                          <th className="py-3 px-4 text-right">Collected Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 text-slate-300">
+                        {(reportsData.printing_report?.payment_channels || []).length === 0 ? (
+                          <tr>
+                            <td colSpan={3} className="py-8 text-center text-slate-500">
+                              No confirmed printing payments for this date range.
+                            </td>
+                          </tr>
+                        ) : (
+                          (reportsData.printing_report?.payment_channels || []).map((ch: any, idx: number) => (
+                            <tr key={idx} className="hover:bg-slate-800/40">
+                              <td className="py-3 px-4 font-semibold text-white uppercase">
+                                {String(ch.channel || 'cash').replace(/_/g, ' ')}
+                              </td>
+                              <td className="py-3 px-4 text-right font-mono">{ch.payment_count ?? 0}</td>
+                              <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400">
+                                ₦{Number(ch.collected_amount ?? 0).toLocaleString()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Report 9: Profit Report */}
           {activeReport === 'profit' && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -726,6 +872,45 @@ export const ReportsManagement: React.FC = () => {
                   <p className="text-xs text-cyan-400 font-medium">Gross Profit Margin</p>
                   <p className="text-2xl font-bold text-cyan-400 font-mono mt-1">
                     {reportsData.profit_report?.margin_percent || 0}%
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-slate-400 font-medium">Telecom Vertical Profit</p>
+                  <p className="text-lg font-bold text-emerald-400 font-mono mt-1">
+                    +₦{Number(reportsData.profit_report?.telecom_profit || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                    Sales ₦{Number(reportsData.telecom_report?.summary?.total_sales || 0).toLocaleString()} &bull; Cost ₦{Number(reportsData.telecom_report?.summary?.total_cost || 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-slate-400 font-medium">Identity, Mod &amp; Enrolment Profit</p>
+                  <p className="text-lg font-bold text-emerald-400 font-mono mt-1">
+                    +₦{Number(reportsData.profit_report?.nin_profit || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                    Mod ₦{Number(reportsData.profit_report?.modification_revenue || 0).toLocaleString()} &bull; Enrol ₦{Number(reportsData.profit_report?.enrolment_revenue || 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-slate-400 font-medium">Printing Hub Profit</p>
+                  <p className="text-lg font-bold text-emerald-400 font-mono mt-1">
+                    +₦{Number(reportsData.profit_report?.printing_profit || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                    Rev ₦{Number(reportsData.profit_report?.printing_revenue || 0).toLocaleString()} &bull; Cost ₦{Number(reportsData.profit_report?.printing_cost || 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <p className="text-xs text-slate-400 font-medium">Funding vs Refund Volume</p>
+                  <p className="text-lg font-bold text-white font-mono mt-1">
+                    ₦{Number(reportsData.profit_report?.funding_credits_volume || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-amber-400 mt-0.5 font-mono">
+                    Refunds: ₦{Number(reportsData.profit_report?.refund_credits_volume || 0).toLocaleString()}
                   </p>
                 </div>
               </div>

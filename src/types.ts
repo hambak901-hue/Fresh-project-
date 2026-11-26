@@ -422,6 +422,43 @@ export interface Transaction {
   created_at: string;
 }
 
+export type ResultAvailabilityState =
+  | 'none'
+  | 'processing'
+  | 'result_available'
+  | 'document_available'
+  | 'document_unavailable'
+  | 'failed_or_rejected';
+
+export interface PaginationMeta {
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+}
+
+export interface ServiceCategoryItem {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  display_order: number;
+  is_active: boolean;
+}
+
+export interface ProviderServiceMapping {
+  id: string;
+  provider_id: string;
+  service_key: string;
+  service_name?: string;
+  provider_endpoint: string;
+  wholesale_cost: number;
+  selling_price?: number | null;
+  is_active: boolean;
+  updated_at?: string;
+}
+
 export interface VerificationRecord {
   id: string;
   user_id: string;
@@ -435,21 +472,32 @@ export interface VerificationRecord {
   reference?: string;
   slip_type?: string;
   has_slip?: boolean;
+  result_availability_state?: ResultAvailabilityState;
   result?: any;
   created_at: string;
 }
 
 export interface IdentityService {
+  id?: string;
   key: string;
+  service_key?: string;
   name: string;
   category: string;
+  category_id?: string;
+  category_name?: string;
   price: number;
+  selling_price?: number;
   wholesale_cost?: number;
   profit_per_transaction?: number;
   margin_percent?: number;
   provider?: string;
+  provider_id?: string;
   endpoint?: string;
   enabled?: boolean;
+  is_active?: boolean;
+  processing_type?: 'instant' | 'manual' | string;
+  manual_label?: string;
+  estimated_turnaround?: string;
   required_fields: string[];
   description: string;
   slip_type_supported?: boolean;
@@ -1623,8 +1671,10 @@ export interface ModificationRequestItem {
   result_retrieval_status?: string | null;
   result_retrieval_error?: string | null;
   result_retrieved_at?: string | null;
+  result_availability_state?: ResultAvailabilityState;
   query_review_status?: string | null;
   additional_info_history?: AdditionalInfoHistoryEntry[];
+  status_history?: ModificationStatusHistoryItem[];
   // Admin-only fields
   customer_name?: string | null;
   customer_email?: string | null;
@@ -1636,6 +1686,17 @@ export interface ModificationRequestItem {
   admin_notes?: string | null;
   reviewed_by?: string | null;
   provider_response?: any;
+}
+
+export interface ModificationStatusHistoryItem {
+  id: string;
+  previous_status?: string | null;
+  new_status: string;
+  actor_type: 'customer' | 'provider' | 'admin' | 'system' | string;
+  actor_id?: string | null;
+  remarks?: string | null;
+  is_customer_visible?: boolean;
+  created_at: string;
 }
 
 export interface ResultDocumentMeta {
@@ -1653,10 +1714,13 @@ export interface ResultDocumentMeta {
 }
 
 export interface AdditionalInfoHistoryEntry {
+  id?: string;
   submitted_at: string;
   note?: string;
   document_ids?: Record<string, string>;
+  documents?: Array<{ id: string; original_name?: string }>;
   review_status?: string;
+  review_state?: string;
 }
 
 export interface ModificationAdminStats {
@@ -1764,6 +1828,9 @@ export interface EnrolmentOrderItem {
   result_retrieval_status?: string | null;
   result_retrieval_error?: string | null;
   result_retrieved_at?: string | null;
+  result_availability_state?: ResultAvailabilityState;
+  query_review_status?: string | null;
+  additional_info_history?: AdditionalInfoHistoryEntry[];
   // Admin-only fields
   provider_reference?: string | null;
   provider_status?: string | null;

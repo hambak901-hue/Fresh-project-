@@ -17,6 +17,7 @@ import {
   ModificationServiceItem,
 } from '../../types';
 import { getModificationStatusStyle } from '../customer/ModificationSection';
+import { ResultAvailabilityBadge } from '../common/ResultAvailabilityBadge';
 import {
   AlertCircle,
   AlertTriangle,
@@ -52,6 +53,10 @@ export const ModificationManagement: React.FC = () => {
   const [stats, setStats] = useState<ModificationAdminStats | null>(null);
   const [loadingRequests, setLoadingRequests] = useState<boolean>(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [serviceKeyFilter, setServiceKeyFilter] = useState<string>('all');
+  const [providerIdFilter, setProviderIdFilter] = useState<string>('all');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
@@ -72,6 +77,21 @@ export const ModificationManagement: React.FC = () => {
     Record<string, { label: string; selling_price: number; wholesale_cost: number; is_active: boolean }>
   >({});
   const [savingBvnTypeId, setSavingBvnTypeId] = useState<string | null>(null);
+  const [creatingBvnType, setCreatingBvnType] = useState<boolean>(false);
+  const [newBvnForm, setNewBvnForm] = useState<{
+    enrollment_type: string;
+    label: string;
+    wholesale_cost: number;
+    selling_price: number;
+    is_active: boolean;
+  }>({
+    enrollment_type: '',
+    label: '',
+    wholesale_cost: 0,
+    selling_price: 0,
+    is_active: true,
+  });
+  const [savingNewBvnType, setSavingNewBvnType] = useState<boolean>(false);
 
   // Catalog Sync & Global Notifications
   const [syncingCatalog, setSyncingCatalog] = useState<boolean>(false);
@@ -110,8 +130,11 @@ export const ModificationManagement: React.FC = () => {
       loadBvnTypes(false);
     } else {
       loadRequests();
+      if (ninServices.length === 0 && bvnServices.length === 0) {
+        loadServices();
+      }
     }
-  }, [activeTab, statusFilter, page]);
+  }, [activeTab, statusFilter, serviceKeyFilter, providerIdFilter, page]);
 
   const resolveIdentityFilter = (): 'NIN' | 'BVN' | 'ALL' => {
     if (activeTab === 'nin_requests') return 'NIN';
@@ -126,6 +149,10 @@ export const ModificationManagement: React.FC = () => {
       const res = await api.getAdminModifications({
         identity_type: resolveIdentityFilter(),
         status: statusFilter,
+        service_key: serviceKeyFilter !== 'all' ? serviceKeyFilter : undefined,
+        provider_id: providerIdFilter !== 'all' ? providerIdFilter : undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
         search: searchQuery.trim() || undefined,
         page,
         limit: 25,
@@ -505,6 +532,53 @@ export const ModificationManagement: React.FC = () => {
     }
   };
 
+  const handleCreateBvnType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = newBvnForm.enrollment_type.trim().toUpperCase();
+    const label = newBvnForm.label.trim();
+    const wholesale = Number(newBvnForm.wholesale_cost || 0);
+    const selling = Number(newBvnForm.selling_price || 0);
+    if (!code || !label) {
+      setErrorMsg('Enrollment type code and customer label are required.');
+      return;
+    }
+    if (selling <= 0) {
+      setErrorMsg('Customer selling price must be greater than ₦0.');
+      return;
+    }
+    if (selling < wholesale) {
+      setErrorMsg('Customer selling price cannot be lower than wholesale cost.');
+      return;
+    }
+    try {
+      setSavingNewBvnType(true);
+      setErrorMsg(null);
+      const res = await api.createAdminModificationBvnType({
+        enrollment_type: code,
+        label,
+        wholesale_cost: wholesale,
+        selling_price: selling,
+        is_active: newBvnForm.is_active,
+      });
+      if (res?.success) {
+        setFeedbackMsg(res.message || `BVN type "${code}" created.`);
+        setCreatingBvnType(false);
+        setNewBvnForm({
+          enrollment_type: '',
+          label: '',
+          wholesale_cost: 0,
+          selling_price: 0,
+          is_active: true,
+        });
+        await loadBvnTypes(false);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to create BVN enrollment type.');
+    } finally {
+      setSavingNewBvnType(false);
+    }
+  };
+
   const displayedServices =
     serviceCatFilter === 'NIN'
       ? ninServices
@@ -677,69 +751,112 @@ export const ModificationManagement: React.FC = () => {
       {(activeTab === 'nin_requests' || activeTab === 'bvn_requests' || activeTab === 'all_requests') && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
           {/* Filter Bar */}
-          <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <div className="flex items-center gap-2 flex-1">
-              <div className="relative flex-1 max-w-md">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      setPage(1);
-                      loadRequests();
-                    }
-                  }}
-                  placeholder="Search request #, customer name, email, or reference..."
-                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setPage(1);
-                  loadRequests();
-                }}
-                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white font-semibold"
-              >
-                Search
-              </button>
-            </div>
-
-            <div className="flex items-center gap-1.5 overflow-x-auto">
-              {[
-                { id: 'all', label: 'All' },
-                { id: 'pending', label: 'Pending' },
-                { id: 'processing', label: 'Processing' },
-                { id: 'query_required', label: 'Query Required' },
-                { id: 'completed', label: 'Completed' },
-                { id: 'refunded', label: 'Refunded' },
-              ].map(st => (
-                <button
-                  key={st.id}
-                  type="button"
-                  onClick={() => {
-                    setStatusFilter(st.id);
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-1 flex-wrap">
+                <div className="relative flex-1 min-w-[200px] max-w-md">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        setPage(1);
+                        loadRequests();
+                      }
+                    }}
+                    placeholder="Search request #, customer name, email, or reference..."
+                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+                <select
+                  value={serviceKeyFilter}
+                  onChange={e => {
+                    setServiceKeyFilter(e.target.value);
                     setPage(1);
                   }}
-                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold whitespace-nowrap transition ${
-                    statusFilter === st.id
-                      ? 'bg-blue-700 text-white'
-                      : 'bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
+                  className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
                 >
-                  {st.label}
+                  <option value="all">All Modification Services</option>
+                  {[...ninServices, ...bvnServices].map(srv => (
+                    <option key={srv.service_key || srv.key} value={srv.service_key || srv.key}>
+                      {srv.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={providerIdFilter}
+                  onChange={e => {
+                    setProviderIdFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                >
+                  <option value="all">All Providers</option>
+                  <option value="2sureverify">2SureVerify</option>
+                  <option value="veripine">Veripine</option>
+                </select>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={e => setDateFrom(e.target.value)}
+                  title="From date"
+                  className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={e => setDateTo(e.target.value)}
+                  title="To date"
+                  className="px-2.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPage(1);
+                    loadRequests();
+                  }}
+                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-white font-semibold"
+                >
+                  Apply
                 </button>
-              ))}
-              <button
-                type="button"
-                onClick={loadRequests}
-                className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
-                title="Refresh queue"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingRequests ? 'animate-spin' : ''}`} />
-              </button>
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: 'pending', label: 'Pending' },
+                  { id: 'processing', label: 'Processing' },
+                  { id: 'query_required', label: 'Query Required' },
+                  { id: 'completed', label: 'Completed' },
+                  { id: 'refunded', label: 'Refunded' },
+                ].map(st => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter(st.id);
+                      setPage(1);
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold whitespace-nowrap transition ${
+                      statusFilter === st.id
+                        ? 'bg-blue-700 text-white'
+                        : 'bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {st.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={loadRequests}
+                  className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                  title="Refresh queue"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingRequests ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -829,9 +946,12 @@ export const ModificationManagement: React.FC = () => {
                           </div>
                         </td>
                         <td className="py-3.5 px-3">
-                          <span className={`inline-block px-2 py-0.5 rounded border text-[10px] font-bold ${st.classes}`}>
-                            {st.label}
-                          </span>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className={`inline-block px-2 py-0.5 rounded border text-[10px] font-bold ${st.classes}`}>
+                              {st.label}
+                            </span>
+                            <ResultAvailabilityBadge state={req.result_availability_state} />
+                          </div>
                           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
                             {req.estimated_completion_text}
                           </div>
@@ -1042,15 +1162,25 @@ export const ModificationManagement: React.FC = () => {
                 Set individual customer selling prices and review private wholesale costs synced from 2SureVerify /bvn_modification_banks.php.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => loadBvnTypes(true)}
-              disabled={loadingBvnTypes}
-              className="px-3.5 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingBvnTypes ? 'animate-spin' : ''}`} />
-              <span>Fetch Live Bank Types</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setCreatingBvnType(true)}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add BVN Type</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => loadBvnTypes(true)}
+                disabled={loadingBvnTypes}
+                className="px-3.5 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingBvnTypes ? 'animate-spin' : ''}`} />
+                <span>Fetch Live Bank Types</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -1174,7 +1304,7 @@ export const ModificationManagement: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl my-8">
             <div className="px-6 py-4 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-mono font-extrabold text-sm text-slate-900 dark:text-white">
                     {selectedRequest.request_number}
                   </span>
@@ -1185,6 +1315,7 @@ export const ModificationManagement: React.FC = () => {
                   >
                     {getModificationStatusStyle(selectedRequest.status).label}
                   </span>
+                  <ResultAvailabilityBadge state={selectedRequest.result_availability_state} />
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   {selectedRequest.service_name} &middot; {selectedRequest.customer_name} ({selectedRequest.customer_email})
@@ -1339,6 +1470,53 @@ export const ModificationManagement: React.FC = () => {
                     </div>
                   </div>
                 )}
+
+              {/* Chronological Status History Timeline */}
+              {Array.isArray(selectedRequest.status_history) && selectedRequest.status_history.length > 0 && (
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                  <h4 className="font-bold text-slate-900 dark:text-white">
+                    Audit &amp; Status History Timeline
+                  </h4>
+                  <div className="space-y-1.5">
+                    {selectedRequest.status_history.map(item => (
+                      <div
+                        key={item.id}
+                        className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {item.previous_status && (
+                              <>
+                                <span className="font-mono text-[10px] text-slate-500 uppercase">
+                                  {item.previous_status}
+                                </span>
+                                <span className="text-slate-400">&rarr;</span>
+                              </>
+                            )}
+                            <span className="font-mono text-[10px] font-bold text-slate-900 dark:text-white uppercase">
+                              {item.new_status}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono text-slate-600 dark:text-slate-300">
+                              {item.actor_type}
+                            </span>
+                            {item.is_customer_visible === false && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] font-semibold">
+                                Internal
+                              </span>
+                            )}
+                          </div>
+                          {item.remarks && (
+                            <p className="text-slate-700 dark:text-slate-300 text-[11px]">{item.remarks}</p>
+                          )}
+                        </div>
+                        <span className="font-mono text-[10px] text-slate-500 shrink-0">
+                          {new Date(item.created_at).toLocaleString('en-NG')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Phase 2: Official Result Retrieval, Tracking ID & Manual Admin PDF Upload */}
               <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/30 space-y-3 text-xs">
@@ -2334,6 +2512,119 @@ export const ModificationManagement: React.FC = () => {
                 />
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* CREATE NEW BVN MODIFICATION TYPE MODAL */}
+      {creatingBvnType && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="px-5 py-4 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                Add BVN Enrollment / Bank Type
+              </h4>
+              <button
+                type="button"
+                onClick={() => setCreatingBvnType(false)}
+                className="p-1 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateBvnType} className="p-5 space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  Enrollment Type Code *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. ZENITH_BANK"
+                  value={newBvnForm.enrollment_type}
+                  onChange={e =>
+                    setNewBvnForm(prev => ({ ...prev, enrollment_type: e.target.value.toUpperCase() }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  Customer Display Label *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Zenith Bank BVN Modification"
+                  value={newBvnForm.label}
+                  onChange={e => setNewBvnForm(prev => ({ ...prev, label: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                    Wholesale Cost (₦)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={50}
+                    value={newBvnForm.wholesale_cost}
+                    onChange={e =>
+                      setNewBvnForm(prev => ({ ...prev, wholesale_cost: Number(e.target.value) }))
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                    Customer Price (₦) *
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    step={50}
+                    required
+                    value={newBvnForm.selling_price}
+                    onChange={e =>
+                      setNewBvnForm(prev => ({ ...prev, selling_price: Number(e.target.value) }))
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono font-bold text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 pt-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newBvnForm.is_active}
+                  onChange={e => setNewBvnForm(prev => ({ ...prev, is_active: e.target.checked }))}
+                  className="rounded border-slate-300"
+                />
+                <span className="text-slate-700 dark:text-slate-300">
+                  Active immediately for customer selection
+                </span>
+              </label>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl p-2.5">
+                Note: Keep ACCESS BANK disabled (is_active = 0) unless explicitly verified by live provider policy.
+              </p>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCreatingBvnType(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingNewBvnType}
+                  className="px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white font-bold inline-flex items-center gap-1.5"
+                >
+                  {savingNewBvnType && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Create BVN Type</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

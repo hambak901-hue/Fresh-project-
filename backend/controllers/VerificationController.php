@@ -1460,6 +1460,11 @@ class VerificationController
                     $r['result'] = null;
                 }
             }
+            $r['result_availability_state'] = $this->resolveResultAvailabilityState(
+                (string)($r['status'] ?? ''),
+                (bool)$r['has_original_pdf'],
+                !empty($r['result'])
+            );
         }
 
         Response::success([
@@ -1467,6 +1472,24 @@ class VerificationController
             'history' => $rows,
             'verifications' => $rows,
         ]);
+    }
+
+    private function resolveResultAvailabilityState(string $status, bool $hasOriginalPdf, bool $hasResultPayload): string
+    {
+        $st = strtolower(trim($status));
+        if ($hasOriginalPdf) {
+            return 'document_available';
+        }
+        if (in_array($st, ['failed', 'rejected', 'refunded'], true)) {
+            return 'failed_or_rejected';
+        }
+        if (in_array($st, ['pending', 'processing', 'query_required'], true)) {
+            return 'processing';
+        }
+        if ($st === 'completed') {
+            return $hasResultPayload ? 'result_available' : 'document_unavailable';
+        }
+        return 'none';
     }
 
     /**
@@ -1612,10 +1635,17 @@ class VerificationController
             $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
         }
 
+        $record['result_availability_state'] = $this->resolveResultAvailabilityState(
+            (string)($record['status'] ?? ''),
+            (bool)$record['has_original_pdf'],
+            !empty($record['result'])
+        );
+
         Response::success([
             'status' => $record['status'],
             'record_status' => $record['status'],
             'has_original_pdf' => $record['has_original_pdf'],
+            'result_availability_state' => $record['result_availability_state'],
             'record' => $record,
         ]);
     }
@@ -1721,6 +1751,13 @@ class VerificationController
         } catch (Throwable) {
         }
 
+        $availabilityState = $this->resolveResultAvailabilityState(
+            (string)($record['status'] ?? ''),
+            $hasOriginalPdf,
+            !empty($decodedRes)
+        );
+        $record['result_availability_state'] = $availabilityState;
+
         Response::success([
             'found' => true,
             'status' => $record['status'],
@@ -1730,6 +1767,7 @@ class VerificationController
             'slip_type' => $record['slip_type'],
             'slip_name' => $slipName,
             'has_original_pdf' => $hasOriginalPdf,
+            'result_availability_state' => $availabilityState,
             'balance_after' => $bal,
             'newBalance' => $bal,
             'record' => $record,
@@ -1779,8 +1817,15 @@ class VerificationController
             $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
         }
 
+        $record['result_availability_state'] = $this->resolveResultAvailabilityState(
+            (string)($record['status'] ?? ''),
+            (bool)$record['has_original_pdf'],
+            !empty($record['result'])
+        );
+
         Response::success([
             'has_original_pdf' => $record['has_original_pdf'],
+            'result_availability_state' => $record['result_availability_state'],
             'record' => $record,
         ]);
     }

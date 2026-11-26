@@ -2133,6 +2133,7 @@ export const api = {
     success: boolean;
     primaryProviderId: string;
     providers: import('../types').ProviderConfigItem[];
+    provider_service_mappings?: import('../types').ProviderServiceMapping[];
     routing?: {
       active_verification_provider: string;
       bvn_primary_provider: string;
@@ -2164,18 +2165,129 @@ export const api = {
     });
   },
 
-  async getAdminProviderLogs(): Promise<{ success: boolean; count: number; logs: import('../types').ProviderLogItem[] }> {
-    return request('/api/admin/providers/logs');
+  async getAdminProviderLogs(params?: {
+    provider?: string;
+    status_group?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    count: number;
+    logs: import('../types').ProviderLogItem[];
+    pagination?: import('../types').PaginationMeta;
+  }> {
+    const q = new URLSearchParams();
+    if (params?.provider && params.provider !== 'all') q.set('provider', params.provider);
+    if (params?.status_group && params.status_group !== 'all') q.set('status_group', params.status_group);
+    if (params?.search) q.set('search', params.search);
+    if (params?.date_from) q.set('date_from', params.date_from);
+    if (params?.date_to) q.set('date_to', params.date_to);
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return request(`/api/admin/providers/logs${qs ? `?${qs}` : ''}`);
   },
 
   async getAdminVerificationPricing(): Promise<{ success: boolean; count: number; services: import('../types').IdentityService[] }> {
     return request('/api/admin/services/verification');
   },
 
-  async updateAdminVerificationPricing(key: string, data: { selling_price?: number; enabled?: boolean; provider?: string }): Promise<{ success: boolean; message: string; service: import('../types').IdentityService }> {
+  async updateAdminVerificationPricing(
+    key: string,
+    data: {
+      selling_price?: number;
+      wholesale_cost?: number;
+      enabled?: boolean;
+      provider?: string;
+      name?: string;
+      description?: string;
+      endpoint?: string;
+      required_fields?: string[];
+      slip_type_supported?: boolean;
+      processing_type?: string;
+      manual_label?: string;
+      estimated_turnaround?: string;
+      category_id?: string;
+    }
+  ): Promise<{ success: boolean; message: string; service: import('../types').IdentityService }> {
     return request(`/api/admin/services/verification/${key}`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    });
+  },
+
+  async getAdminServiceCategories(): Promise<{ success: boolean; categories: import('../types').ServiceCategoryItem[] }> {
+    return request('/api/admin/service-categories');
+  },
+
+  async saveAdminServiceCategory(data: {
+    code: string;
+    name: string;
+    description?: string;
+    icon?: string;
+    display_order?: number;
+    is_active?: boolean;
+  }): Promise<{ success: boolean; message: string; category: import('../types').ServiceCategoryItem }> {
+    return request('/api/admin/service-categories', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createAdminCatalogService(data: {
+    service_key: string;
+    name: string;
+    description?: string;
+    category_id?: string;
+    category_code?: string;
+    provider_id?: string;
+    endpoint: string;
+    wholesale_cost: number;
+    selling_price: number;
+    processing_type?: 'instant' | 'manual';
+    manual_label?: string;
+    estimated_turnaround?: string;
+    slip_type_supported?: boolean;
+    is_active?: boolean;
+    required_fields?: string[];
+  }): Promise<{ success: boolean; message: string; service: import('../types').IdentityService }> {
+    return request('/api/admin/services/catalog', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateAdminCatalogService(
+    key: string,
+    data: Partial<{
+      name: string;
+      description: string;
+      category_id: string;
+      category_code: string;
+      provider_id: string;
+      endpoint: string;
+      wholesale_cost: number;
+      selling_price: number;
+      processing_type: 'instant' | 'manual';
+      manual_label: string;
+      estimated_turnaround: string;
+      slip_type_supported: boolean;
+      is_active: boolean;
+      required_fields: string[];
+    }>
+  ): Promise<{ success: boolean; message: string; service: import('../types').IdentityService }> {
+    return request(`/api/admin/services/catalog/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminCatalogService(key: string): Promise<{ success: boolean; message: string; deleted_key: string }> {
+    return request(`/api/admin/services/catalog/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
     });
   },
 
@@ -3193,8 +3305,23 @@ export const api = {
       transaction_report: any;
       wallet_report: any;
       payment_report: any[];
+      payment_summary?: any;
       nin_service_report: any;
       telecom_report: any;
+      printing_report?: {
+        summary: {
+          total_orders: number;
+          completed_orders: number;
+          active_orders: number;
+          cancelled_or_rejected_orders: number;
+          total_revenue: number;
+          total_cost: number;
+          gross_profit: number;
+          outstanding_balance: number;
+        };
+        categories: Array<{ category: string; orders_count: number; revenue: number; cost: number }>;
+        payment_channels: Array<{ channel: string; payment_count: number; collected_amount: number }>;
+      };
       provider_expenditure_report: any;
       profit_report: any;
       manual_funding_report: any;
@@ -3453,6 +3580,10 @@ export const api = {
   async getAdminModifications(params: {
     identity_type?: 'NIN' | 'BVN' | 'ALL';
     status?: string;
+    service_key?: string;
+    provider_id?: string;
+    date_from?: string;
+    date_to?: string;
     search?: string;
     page?: number;
     limit?: number;
@@ -3465,6 +3596,10 @@ export const api = {
     const q = new URLSearchParams();
     if (params.identity_type) q.set('identity_type', params.identity_type);
     if (params.status && params.status !== 'all') q.set('status', params.status);
+    if (params.service_key && params.service_key !== 'all') q.set('service_key', params.service_key);
+    if (params.provider_id && params.provider_id !== 'all') q.set('provider_id', params.provider_id);
+    if (params.date_from) q.set('date_from', params.date_from);
+    if (params.date_to) q.set('date_to', params.date_to);
     if (params.search) q.set('search', params.search);
     if (params.page) q.set('page', String(params.page));
     if (params.limit) q.set('limit', String(params.limit));
@@ -3560,6 +3695,23 @@ export const api = {
     sync_note?: string;
   }> {
     return request(`/api/admin/modifications/bvn-types${refresh ? '?refresh=1' : ''}`);
+  },
+
+  async createAdminModificationBvnType(payload: {
+    enrollment_type: string;
+    label: string;
+    wholesale_cost: number;
+    selling_price: number;
+    is_active?: boolean;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    bvn_type: import('../types').ModificationBvnTypeItem;
+  }> {
+    return request('/api/admin/modifications/bvn-types', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 
   async updateAdminModificationBvnType(id: string, payload: {
@@ -3685,10 +3837,31 @@ export const api = {
     });
   },
 
+  async submitEnrolmentAdditionalInfo(
+    id: string,
+    payload: {
+      note?: string;
+      document_ids?: Record<string, string>;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    review_state?: string;
+    order: import('../types').EnrolmentOrderItem;
+  }> {
+    return request(`/api/enrolments/${encodeURIComponent(id)}/submit-additional-info`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   // Stage 4 — HAMBAK Enrolment Centre (Admin Endpoints)
   async getAdminEnrolments(params: {
     service_key?: string;
     status?: string;
+    provider_id?: string;
+    date_from?: string;
+    date_to?: string;
     search?: string;
     page?: number;
     limit?: number;
@@ -3701,6 +3874,9 @@ export const api = {
     const q = new URLSearchParams();
     if (params.service_key && params.service_key !== 'ALL') q.set('service_key', params.service_key);
     if (params.status && params.status !== 'all') q.set('status', params.status);
+    if (params.provider_id && params.provider_id !== 'all') q.set('provider_id', params.provider_id);
+    if (params.date_from) q.set('date_from', params.date_from);
+    if (params.date_to) q.set('date_to', params.date_to);
     if (params.search) q.set('search', params.search);
     if (params.page) q.set('page', String(params.page));
     if (params.limit) q.set('limit', String(params.limit));

@@ -736,6 +736,23 @@ class ResultDocumentService
             'download_url' => $endpointBase . '?download=1',
         ] : null;
 
+        $retrievalStatus = $hasDoc ? 'ready' : strtolower(trim((string)($row['result_retrieval_status'] ?? 'unavailable')));
+        $rowStatus = strtolower(trim((string)($row['status'] ?? '')));
+
+        if ($hasDoc) {
+            $availabilityState = 'document_available';
+        } elseif (in_array($rowStatus, ['failed', 'rejected', 'refunded'], true)) {
+            $availabilityState = 'failed_or_rejected';
+        } elseif (in_array($rowStatus, ['pending', 'processing', 'query_required'], true)) {
+            $availabilityState = 'processing';
+        } elseif ($rowStatus === 'completed') {
+            $availabilityState = in_array($retrievalStatus, ['unavailable', 'failed'], true)
+                ? 'document_unavailable'
+                : 'result_available';
+        } else {
+            $availabilityState = 'none';
+        }
+
         $out = [
             'has_result_document' => $hasDoc,
             'result_document_id' => $hasDoc ? $doc['id'] : null,
@@ -744,6 +761,7 @@ class ResultDocumentService
             'provider_tracking_id' => $trackingId !== '' ? $trackingId : null,
             'result_details' => $details,
             'result_retrieval_status' => $hasDoc ? 'ready' : ($row['result_retrieval_status'] ?? 'unavailable'),
+            'result_availability_state' => $availabilityState,
             'result_retrieved_at' => $row['result_retrieved_at'] ?? ($doc['retrieved_at'] ?? null),
         ];
 

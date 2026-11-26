@@ -22,6 +22,7 @@ import {
   ModificationFormField,
 } from '../../types';
 import { TransactionPinModal } from './TransactionPinModal';
+import { ResultAvailabilityBadge } from '../common/ResultAvailabilityBadge';
 import {
   AlertCircle,
   ArrowRight,
@@ -33,6 +34,7 @@ import {
   FileText,
   Info,
   Loader2,
+  MessageSquare,
   Paperclip,
   RefreshCw,
   ShieldCheck,
@@ -137,6 +139,14 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [pollingId, setPollingId] = useState<string | null>(null);
   const [detailOrder, setDetailOrder] = useState<EnrolmentOrderItem | null>(null);
+
+  // Additional info / clarification response state (Query Required)
+  const [queryNote, setQueryNote] = useState<string>('');
+  const [queryDocs, setQueryDocs] = useState<Record<string, ModificationDocumentAttachment>>({});
+  const [uploadingQueryDoc, setUploadingQueryDoc] = useState<boolean>(false);
+  const [submittingQuery, setSubmittingQuery] = useState<boolean>(false);
+  const [queryFeedback, setQueryFeedback] = useState<string | null>(null);
+  const [queryError, setQueryError] = useState<string | null>(null);
 
   // Protected document / sample preview & download
   const [previewDoc, setPreviewDoc] = useState<{
@@ -583,6 +593,60 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
       }
     }
     setPreviewDoc(null);
+  };
+
+  const handleUploadEnrolmentQueryDoc = async (file: File) => {
+    if (!detailOrder) return;
+    try {
+      setUploadingQueryDoc(true);
+      setQueryError(null);
+      const res = await api.uploadEnrolmentDocument(file, 'additional_document', detailOrder.service_key);
+      if (res?.success && res.document) {
+        setQueryDocs(prev => ({
+          ...prev,
+          [res.document.id]: res.document,
+        }));
+      }
+    } catch (err: any) {
+      setQueryError(err?.message || 'Unable to upload additional document.');
+    } finally {
+      setUploadingQueryDoc(false);
+    }
+  };
+
+  const handleSubmitEnrolmentClarification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!detailOrder) return;
+    const docIdsMap: Record<string, string> = {};
+    Object.values(queryDocs).forEach((doc, idx) => {
+      if (doc?.id) {
+        docIdsMap[`additional_document_${idx + 1}`] = doc.id;
+      }
+    });
+    if (!queryNote.trim() && Object.keys(docIdsMap).length === 0) {
+      setQueryError('Please enter an explanation or attach a supporting document before submitting.');
+      return;
+    }
+    try {
+      setSubmittingQuery(true);
+      setQueryError(null);
+      setQueryFeedback(null);
+      const res = await api.submitEnrolmentAdditionalInfo(detailOrder.id, {
+        note: queryNote.trim(),
+        document_ids: docIdsMap,
+      });
+      if (res?.success && res.order) {
+        setDetailOrder(res.order);
+        setOrders(prev => prev.map(o => (o.id === res.order.id ? res.order : o)));
+        setQueryNote('');
+        setQueryDocs({});
+        setQueryFeedback(res.message || 'Additional information submitted for HAMBAK admin review.');
+      }
+    } catch (err: any) {
+      setQueryError(err?.message || 'Unable to submit clarification right now.');
+    } finally {
+      setSubmittingQuery(false);
+    }
   };
 
   const applicantFullName = useMemo(() => {
@@ -1248,6 +1312,7 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                 { id: 'all', label: 'All' },
                 { id: 'pending', label: 'Pending' },
                 { id: 'processing', label: 'Processing' },
+                { id: 'query_required', label: 'Query Required' },
                 { id: 'completed', label: 'Completed' },
                 { id: 'refunded', label: 'Refunded' },
               ].map(tab => (
@@ -1345,9 +1410,12 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                         ₦{Number(order.customer_price).toLocaleString('en-NG')}
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className={`px-2 py-0.5 rounded border text-[10px] font-bold whitespace-nowrap ${st.classes}`}>
-                          {st.label}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className={`px-2 py-0.5 rounded border text-[10px] font-bold whitespace-nowrap ${st.classes}`}>
+                            {st.label}
+                          </span>
+                          <ResultAvailabilityBadge state={order.result_availability_state} />
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">
                         {new Date(order.created_at).toLocaleString('en-NG')}
@@ -1389,7 +1457,13 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                         )}
                         <button
                           type="button"
-                          onClick={() => setDetailOrder(order)}
+                          onClick={() => {
+                            setDetailOrder(order);
+                            setQueryNote('');
+                            setQueryDocs({});
+                            setQueryFeedback(null);
+                            setQueryError(null);
+                          }}
                           className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-[11px] font-semibold transition"
                         >
                           Details
@@ -1535,9 +1609,12 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
                 <div>
                   <span className="text-slate-500 block text-[11px]">Status</span>
-                  <span className={`inline-block mt-1 px-2 py-0.5 rounded border text-[10px] font-bold ${getEnrolmentStatusStyle(detailOrder.status).classes}`}>
-                    {getEnrolmentStatusStyle(detailOrder.status).label}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                    <span className={`inline-block px-2 py-0.5 rounded border text-[10px] font-bold ${getEnrolmentStatusStyle(detailOrder.status).classes}`}>
+                      {getEnrolmentStatusStyle(detailOrder.status).label}
+                    </span>
+                    <ResultAvailabilityBadge state={detailOrder.result_availability_state} />
+                  </div>
                 </div>
                 <div>
                   <span className="text-slate-500 block text-[11px]">Amount Charged</span>
@@ -1698,6 +1775,154 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                   </p>
                 </div>
               )}
+
+              {/* Additional Info / Clarification History & Response Form */}
+              {Array.isArray(detailOrder.additional_info_history) &&
+                detailOrder.additional_info_history.length > 0 && (
+                  <div className="p-3.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-500/30 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        Submitted Clarification History
+                      </span>
+                      {detailOrder.query_review_status && (
+                        <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-bold">
+                          {detailOrder.query_review_status === 'submitted_for_admin_review'
+                            ? 'Awaiting Admin Review'
+                            : detailOrder.query_review_status}
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      {detailOrder.additional_info_history.map((entry, idx) => (
+                        <div
+                          key={`${entry.submitted_at}_${idx}`}
+                          className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-slate-800 text-slate-700 dark:text-slate-300 space-y-1"
+                        >
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span>
+                              {entry.submitted_at
+                                ? new Date(entry.submitted_at).toLocaleString('en-NG')
+                                : 'Submitted'}
+                            </span>
+                            <span className="font-semibold text-blue-700 dark:text-blue-300">
+                              {entry.review_state || entry.review_status || 'submitted_for_admin_review'}
+                            </span>
+                          </div>
+                          {entry.note && <p>{entry.note}</p>}
+                          {Array.isArray(entry.documents) && entry.documents.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              {entry.documents.map(d => (
+                                <span
+                                  key={d.id}
+                                  className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono text-slate-700 dark:text-slate-300"
+                                >
+                                  {d.original_name || d.id}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {String(detailOrder.status).toLowerCase() === 'query_required' &&
+                detailOrder.query_review_status !== 'submitted_for_admin_review' && (
+                  <form
+                    onSubmit={handleSubmitEnrolmentClarification}
+                    className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-500/40 space-y-3"
+                  >
+                    <div>
+                      <h5 className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Submit Clarification / Additional Document</span>
+                      </h5>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Provide requested clarification details or upload updated documents for HAMBAK admin review.
+                      </p>
+                    </div>
+                    {queryError && (
+                      <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 text-[11px]">
+                        {queryError}
+                      </div>
+                    )}
+                    {queryFeedback && (
+                      <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px]">
+                        {queryFeedback}
+                      </div>
+                    )}
+                    <textarea
+                      rows={3}
+                      value={queryNote}
+                      onChange={e => setQueryNote(e.target.value)}
+                      placeholder="Enter your explanation or updated applicant details..."
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition">
+                        {uploadingQueryDoc ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Paperclip className="w-3.5 h-3.5" />
+                        )}
+                        <span>{uploadingQueryDoc ? 'Uploading...' : 'Attach Document'}</span>
+                        <input
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.webp,.pdf"
+                          className="hidden"
+                          disabled={uploadingQueryDoc}
+                          onChange={e => {
+                            const f = e.target.files?.[0];
+                            if (f) void handleUploadEnrolmentQueryDoc(f);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="submit"
+                        disabled={submittingQuery || uploadingQueryDoc}
+                        className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white text-xs font-bold inline-flex items-center gap-1.5 transition"
+                      >
+                        {submittingQuery && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                        <span>{submittingQuery ? 'Submitting...' : 'Submit Clarification'}</span>
+                      </button>
+                    </div>
+                    {Object.keys(queryDocs).length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.values(queryDocs).map(doc => (
+                          <span
+                            key={doc.id}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px] font-medium text-slate-700 dark:text-slate-200"
+                          >
+                            <FileText className="w-3 h-3 text-blue-600" />
+                            <span>{doc.original_name || doc.doc_key}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setQueryDocs(prev => {
+                                  const next = { ...prev };
+                                  delete next[doc.id];
+                                  return next;
+                                })
+                              }
+                              className="text-slate-400 hover:text-rose-500"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </form>
+                )}
+
+              {String(detailOrder.status).toLowerCase() === 'query_required' &&
+                detailOrder.query_review_status === 'submitted_for_admin_review' && (
+                  <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-500/30 text-blue-700 dark:text-blue-300 text-[11px] font-medium">
+                    Clarification Submitted — Awaiting Admin Review. Duplicate submissions are paused until reviewed.
+                  </div>
+                )}
 
               {detailOrder.refund_reference && (
                 <div className="p-3.5 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-500/30 text-purple-800 dark:text-purple-200">

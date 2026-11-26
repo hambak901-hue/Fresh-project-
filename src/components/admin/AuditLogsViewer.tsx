@@ -97,6 +97,23 @@ export function AuditLogsViewer() {
           >
             <option value="all">All Action Types</option>
             <option value="PRICE_CHANGE">Price Changes</option>
+            <option value="ADMIN_CATALOG_SERVICE_CREATED">Catalog Service Created</option>
+            <option value="ADMIN_CATALOG_SERVICE_UPDATED">Catalog Service Updated</option>
+            <option value="ADMIN_CATALOG_SERVICE_DELETED">Catalog Service Deleted</option>
+            <option value="ADMIN_SERVICE_CATEGORY_SAVED">Service Category Saved</option>
+            <option value="ADMIN_SERVICE_PRICE_UPDATED">Service Price Updated</option>
+            <option value="ADMIN_VERIFICATION_SERVICE_UPDATED">Verification Service Updated</option>
+            <option value="ADMIN_BVN_TYPE_CREATED">BVN Type Created</option>
+            <option value="ADMIN_BVN_TYPE_UPDATED">BVN Type Updated</option>
+            <option value="ADMIN_MODIFICATION_UPDATED">Modification Request Updated</option>
+            <option value="ADMIN_MODIFICATION_RESULT_UPLOADED">Modification Result Uploaded</option>
+            <option value="ADMIN_ENROLMENT_ORDER_UPDATED">Enrolment Order Updated</option>
+            <option value="ADMIN_ENROLMENT_RESULT_UPLOADED">Enrolment Result Uploaded</option>
+            <option value="ADMIN_PROVIDER_SAVED">Provider Saved</option>
+            <option value="ADMIN_PROVIDER_TESTED">Provider Tested</option>
+            <option value="ADMIN_WHOLESALE_PRICES_SYNCED">Wholesale Tariffs Synced</option>
+            <option value="ADMIN_TRANSACTION_REVERSED">Transaction Reversed</option>
+            <option value="ADMIN_CUSTOMER_KYC_REVIEWED">Customer KYC Reviewed</option>
             <option value="WALLET_ADJUSTMENT">Wallet Adjustments</option>
             <option value="ACCOUNT_STATUS_CHANGED">Account Status (Suspensions)</option>
             <option value="KYC_REVIEW">KYC Compliance Reviews</option>

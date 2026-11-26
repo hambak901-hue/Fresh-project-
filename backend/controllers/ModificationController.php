@@ -201,6 +201,34 @@ class ModificationController
         $infoHistory = $this->decodeJsonColumn($row['additional_info_history'] ?? null, []);
         $queryReviewStatus = (string)($fields['query_review_status'] ?? '');
 
+        $statusHistory = [];
+        try {
+            $histSql = $isAdmin
+                ? 'SELECT id, request_id, previous_status, new_status, actor_type, actor_id, remarks, is_customer_visible, created_at FROM modification_status_history WHERE request_id = :rid ORDER BY created_at ASC'
+                : 'SELECT id, request_id, previous_status, new_status, actor_type, remarks, created_at FROM modification_status_history WHERE request_id = :rid AND is_customer_visible = 1 ORDER BY created_at ASC';
+            $histRows = $this->db->fetchAll($histSql, ['rid' => (string)($row['id'] ?? '')]);
+            foreach ($histRows as $hr) {
+                $remarkText = (string)($hr['remarks'] ?? '');
+                if (!$isAdmin && $remarkText !== '') {
+                    $remarkText = $this->sanitizeCustomerError($remarkText);
+                }
+                $entry = [
+                    'id' => (string)($hr['id'] ?? ''),
+                    'previous_status' => $hr['previous_status'] ?? null,
+                    'new_status' => (string)($hr['new_status'] ?? ''),
+                    'actor_type' => (string)($hr['actor_type'] ?? 'system'),
+                    'remarks' => $remarkText !== '' ? $remarkText : null,
+                    'created_at' => $hr['created_at'] ?? null,
+                ];
+                if ($isAdmin) {
+                    $entry['actor_id'] = $hr['actor_id'] ?? null;
+                    $entry['is_customer_visible'] = (bool)(int)($hr['is_customer_visible'] ?? 1);
+                }
+                $statusHistory[] = $entry;
+            }
+        } catch (Throwable) {
+        }
+
         $item = array_merge([
             'id' => (string)($row['id'] ?? ''),
             'request_number' => (string)($row['request_number'] ?? ''),
@@ -220,6 +248,7 @@ class ModificationController
             'status' => (string)($row['status'] ?? 'pending'),
             'query_review_status' => $queryReviewStatus !== '' ? $queryReviewStatus : null,
             'additional_info_history' => $infoHistory,
+            'status_history' => $statusHistory,
             'reviewed_at' => $row['reviewed_at'] ?? null,
             'completed_at' => $row['completed_at'] ?? null,
             'created_at' => $row['created_at'] ?? null,
@@ -247,6 +276,54 @@ class ModificationController
         }
 
         return $item;
+    }
+
+    private function appendStatusHistory(
+        string $requestId,
+        ?string $previousStatus,
+        string $newStatus,
+        string $actorType = 'system',
+        ?string $actorId = null,
+        ?string $remarks = null,
+        bool $isCustomerVisible = true
+    ): void {
+        try {
+            $this->db->execute(
+                'INSERT INTO modification_status_history
+                    (id, request_id, previous_status, new_status, actor_type, actor_id, remarks, is_customer_visible, created_at)
+                 VALUES (:id, :rid, :prev, :newst, :atype, :aid, :rem, :vis, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'rid' => $requestId,
+                    'prev' => $previousStatus,
+                    'newst' => $newStatus,
+                    'atype' => in_array($actorType, ['customer', 'provider', 'admin', 'system'], true) ? $actorType : 'system',
+                    'aid' => $actorId,
+                    'rem' => $remarks !== null && trim($remarks) !== '' ? trim($remarks) : null,
+                    'vis' => $isCustomerVisible ? 1 : 0,
+                ]
+            );
+        } catch (Throwable) {
+        }
+    }
+
+    private function recordAudit(array $admin, string $action, array $details, ?Request $request = null): void
+    {
+        try {
+            $this->db->execute(
+                'INSERT INTO audit_logs (id, user_id, user_email, action, details, ip_address, created_at)
+                 VALUES (:id, :uid, :email, :act, :det, :ip, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => (string)($admin['id'] ?? ''),
+                    'email' => (string)($admin['email'] ?? ''),
+                    'act' => $action,
+                    'det' => json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                    'ip' => $request ? $request->getIp() : ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0'),
+                ]
+            );
+        } catch (Throwable) {
+        }
     }
 
     /**
@@ -318,20 +395,23 @@ class ModificationController
                         $rowId = 'bvnt_' . substr(md5(strtolower($typeCode)), 0, 12);
 
                         $exists = $this->db->fetchOne(
-                            'SELECT id, selling_price FROM modification_bvn_types WHERE enrollment_type = :et LIMIT 1',
+                            'SELECT id, selling_price, is_active FROM modification_bvn_types WHERE enrollment_type = :et LIMIT 1',
                             ['et' => $typeCode]
                         );
                         $effectiveSelling = $defaultSelling;
+                        $isAccessLegacy = strtoupper($typeCode) === 'ACCESS BANK';
+                        $targetActive = $isAccessLegacy ? 0 : ($exists ? (int)($exists['is_active'] ?? 1) : 1);
                         if (!$exists) {
                             $this->db->execute(
                                 'INSERT INTO modification_bvn_types (id, enrollment_type, label, wholesale_cost, selling_price, is_active, provider_synced_at)
-                                 VALUES (:id, :et, :lbl, :wc, :sp, 1, NOW())',
+                                 VALUES (:id, :et, :lbl, :wc, :sp, :act, NOW())',
                                 [
                                     'id' => $rowId,
                                     'et' => $typeCode,
                                     'lbl' => $label,
                                     'wc' => $wholesale,
                                     'sp' => $defaultSelling,
+                                    'act' => $targetActive,
                                 ]
                             );
                         } else {
@@ -352,22 +432,23 @@ class ModificationController
                             );
                         }
 
-                        // Keep legacy bvn_modification_banks synchronized with authoritative modification_bvn_types
+                        // Keep legacy bvn_modification_banks synchronized with authoritative modification_bvn_types (preserving ACCESS BANK inactive)
                         try {
                             $this->db->execute(
                                 'INSERT INTO bvn_modification_banks (enrollment_type, bank_name, provider_cost, customer_price, is_active, display_order)
-                                 VALUES (:et, :bn, :pc, :cp, 1, 50)
+                                 VALUES (:et, :bn, :pc, :cp, :act, 50)
                                  ON DUPLICATE KEY UPDATE
                                     bank_name = VALUES(bank_name),
                                     provider_cost = VALUES(provider_cost),
                                     customer_price = VALUES(customer_price),
-                                    is_active = 1,
+                                    is_active = CASE WHEN UPPER(enrollment_type) = "ACCESS BANK" THEN 0 ELSE VALUES(is_active) END,
                                     updated_at = NOW()',
                                 [
                                     'et' => $typeCode,
                                     'bn' => $label,
                                     'pc' => $wholesale > 0 ? $wholesale : 0.0,
                                     'cp' => $effectiveSelling,
+                                    'act' => $targetActive,
                                 ]
                             );
                         } catch (Throwable) {
@@ -1274,6 +1355,16 @@ class ModificationController
                 ]
             );
 
+            $this->appendStatusHistory(
+                $requestId,
+                null,
+                $newStatus,
+                'customer',
+                (string)$user['id'],
+                $newStatus === 'completed' ? 'Submitted and completed immediately' : 'Request submitted for manual processing',
+                true
+            );
+
             FootprintService::record([
                 'user_id' => $user['id'],
                 'user_email' => $user['email'] ?? null,
@@ -1341,6 +1432,16 @@ class ModificationController
             'refunded'
         );
         $refundConfirmed = !empty($refundRes['refunded']);
+
+        $this->appendStatusHistory(
+            $requestId,
+            'pending',
+            $refundConfirmed ? 'refunded' : 'failed',
+            'provider',
+            null,
+            $refundConfirmed ? 'Rejected by provider and refunded automatically' : 'Rejected by provider; refund pending',
+            true
+        );
 
         Security::logPrivateError('ModificationSubmitFailed', $provMsg ?: 'Provider rejected modification request', [
             'user_id' => $user['id'],
@@ -1572,6 +1673,15 @@ class ModificationController
 
         if ($newStatus !== $prevStatus) {
             $safeRemarks = $remarks !== '' ? Security::sanitizeCustomerError($remarks, '') : '';
+            $this->appendStatusHistory(
+                (string)$row['id'],
+                $prevStatus,
+                $newStatus,
+                'provider',
+                $actorId,
+                $safeRemarks !== '' ? $safeRemarks : 'Status synchronized to ' . strtoupper(str_replace('_', ' ', $newStatus)),
+                true
+            );
             $titleMap = [
                 'processing' => "{$row['identity_type']} Modification In Processing",
                 'query_required' => "{$row['identity_type']} Modification: Additional Info Requested",
@@ -1755,6 +1865,16 @@ class ModificationController
             ]
         );
 
+        $this->appendStatusHistory(
+            (string)$row['id'],
+            (string)$row['status'],
+            (string)$row['status'],
+            'customer',
+            (string)$user['id'],
+            $note !== '' ? 'Customer clarification submitted: ' . mb_substr($note, 0, 220) : 'Customer submitted requested clarification document(s)',
+            true
+        );
+
         FootprintService::record([
             'user_id' => $user['id'],
             'user_email' => $user['email'] ?? null,
@@ -1913,6 +2033,15 @@ class ModificationController
 
         if ($newStatus !== $prevStatus) {
             $safeRemarks = $remarks !== '' ? Security::sanitizeCustomerError($remarks, '') : '';
+            $this->appendStatusHistory(
+                (string)$row['id'],
+                $prevStatus,
+                $newStatus,
+                'provider',
+                null,
+                $safeRemarks !== '' ? $safeRemarks : 'Webhook status update: ' . strtoupper(str_replace('_', ' ', $newStatus)),
+                true
+            );
             $completedNote = !empty($updatedRow['result_document_id'])
                 ? ' Your official PDF result is now ready to view and download in your portal.'
                 : ($safeRemarks ?: 'Status changed to completed.');
@@ -1963,6 +2092,12 @@ class ModificationController
 
         $identityType = strtoupper(trim((string)$request->query('identity_type', 'ALL')));
         $status = strtolower(trim((string)$request->query('status', 'all')));
+        $serviceKey = trim((string)$request->query('service_key', 'all'));
+        $providerId = trim((string)$request->query('provider_id', 'all'));
+        $rawFrom = trim((string)$request->query('date_from', ''));
+        $rawTo = trim((string)$request->query('date_to', ''));
+        $dateFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawFrom) ? $rawFrom : '';
+        $dateTo = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawTo) ? $rawTo : '';
         $search = trim((string)$request->query('search', ''));
         $page = max(1, (int)$request->query('page', 1));
         $limit = min(100, max(10, (int)$request->query('limit', 25)));
@@ -1978,6 +2113,22 @@ class ModificationController
         if ($status !== '' && $status !== 'all') {
             $where .= 'AND mr.status = :st ';
             $params['st'] = $status;
+        }
+        if ($serviceKey !== '' && $serviceKey !== 'all') {
+            $where .= 'AND mr.service_key = :sk ';
+            $params['sk'] = $serviceKey;
+        }
+        if ($providerId !== '' && $providerId !== 'all') {
+            $where .= 'AND mr.provider_id = :pid ';
+            $params['pid'] = $providerId;
+        }
+        if ($dateFrom !== '') {
+            $where .= 'AND mr.created_at >= :df ';
+            $params['df'] = $dateFrom . ' 00:00:00';
+        }
+        if ($dateTo !== '') {
+            $where .= 'AND mr.created_at <= :dt ';
+            $params['dt'] = $dateTo . ' 23:59:59';
         }
         if ($search !== '') {
             $where .= 'AND (mr.request_number LIKE :q1 OR mr.service_name LIKE :q2 OR mr.masked_identifier LIKE :q3 OR mr.payment_reference LIKE :q4 OR mr.provider_reference LIKE :q5 OR u.full_name LIKE :q6 OR u.email LIKE :q7) ';
@@ -2202,6 +2353,18 @@ class ModificationController
 
         $finalStatus = (string)($fresh['status'] ?? $targetStatus);
 
+        if ($finalStatus !== $prevStatus || $remarks !== (string)($row['provider_remarks'] ?? '')) {
+            $this->appendStatusHistory(
+                (string)$id,
+                $prevStatus,
+                $finalStatus,
+                'admin',
+                (string)$admin['id'],
+                $remarks !== '' ? $remarks : 'Administrator updated request status to ' . strtoupper(str_replace('_', ' ', $finalStatus)),
+                true
+            );
+        }
+
         FootprintService::record([
             'user_id' => $admin['id'],
             'user_email' => $admin['email'] ?? null,
@@ -2214,6 +2377,13 @@ class ModificationController
             'amount' => (float)$row['customer_price'],
             'metadata' => ['previous_status' => $prevStatus, 'new_status' => $finalStatus, 'refund' => $refundRes],
         ]);
+        $this->recordAudit($admin, 'ADMIN_MODIFICATION_UPDATED', [
+            'request_id' => $id,
+            'request_number' => $row['request_number'],
+            'previous_status' => $prevStatus,
+            'new_status' => $finalStatus,
+            'refunded' => !empty($refundRes['refunded']),
+        ], $request);
 
         if ($finalStatus !== $prevStatus || $remarks !== (string)($row['provider_remarks'] ?? '')) {
             $title = "{$row['identity_type']} Modification Update: " . strtoupper(str_replace('_', ' ', $finalStatus));
@@ -2375,6 +2545,16 @@ class ModificationController
             ['id' => $row['id']]
         ) ?: $row;
 
+        $this->appendStatusHistory(
+            (string)$row['id'],
+            $prevStatus,
+            (string)($fresh['status'] ?? $prevStatus),
+            'admin',
+            (string)$admin['id'],
+            $remarks !== '' ? $remarks : 'Official result PDF document uploaded by administrator',
+            true
+        );
+
         FootprintService::record([
             'user_id' => $admin['id'],
             'user_email' => $admin['email'] ?? null,
@@ -2391,6 +2571,12 @@ class ModificationController
                 'tracking_id' => $trackingId !== '' ? $trackingId : null,
             ],
         ]);
+        $this->recordAudit($admin, 'ADMIN_MODIFICATION_RESULT_UPLOADED', [
+            'request_id' => $row['id'],
+            'request_number' => $row['request_number'],
+            'document_id' => $doc['id'],
+            'mark_completed' => $markCompleted,
+        ], $request);
 
         if ($notifyCustomerFlag) {
             $this->notifyCustomer(
@@ -2551,6 +2737,17 @@ class ModificationController
             ['id' => $existing['id']]
         );
 
+        if ($fresh) {
+            SchemaSync::syncProviderServiceMapping(
+                $this->db,
+                (string)($fresh['provider_id'] ?? '2sureverify'),
+                $key,
+                (string)($fresh['endpoint'] ?? ''),
+                (float)($fresh['wholesale_cost'] ?? 0),
+                !empty($fresh['is_active']) ? 1 : 0
+            );
+        }
+
         FootprintService::record([
             'user_id' => $admin['id'],
             'user_email' => $admin['email'] ?? null,
@@ -2561,6 +2758,12 @@ class ModificationController
             'reference' => $key,
             'status' => 'successful',
         ]);
+        $this->recordAudit($admin, 'ADMIN_MODIFICATION_SERVICE_UPDATED', [
+            'service_key' => $key,
+            'selling_price' => $targetSelling,
+            'wholesale_cost' => $targetWholesale,
+            'is_active' => $fresh ? (bool)$fresh['is_active'] : null,
+        ], $request);
 
         Response::success([
             'service' => $fresh ? $this->formatServiceRow($fresh, true) : null,
@@ -2598,11 +2801,106 @@ class ModificationController
     }
 
     /**
+     * POST /api/admin/modifications/bvn-types
+     */
+    public function adminCreateBvnType(Request $request): void
+    {
+        $admin = Auth::requirePermission($request, 'services');
+        SchemaSync::syncModificationCatalog($this->db);
+
+        $body = $request->getBody();
+        $enrollmentType = strtoupper(trim((string)($body['enrollment_type'] ?? $body['bank_code'] ?? $body['name'] ?? '')));
+        $label = trim((string)($body['label'] ?? $body['bank_name'] ?? $enrollmentType));
+        $wholesale = isset($body['wholesale_cost']) ? max(0.0, (float)$body['wholesale_cost']) : 0.0;
+        $selling = isset($body['selling_price']) ? max(0.0, (float)$body['selling_price']) : 0.0;
+        $isActive = array_key_exists('is_active', $body) ? ((bool)$body['is_active'] ? 1 : 0) : 1;
+
+        if ($enrollmentType === '' || strlen($enrollmentType) < 2) {
+            Response::error('Valid BVN enrollment_type is required.', 422);
+        }
+        if ($selling <= 0) {
+            Response::error('Customer selling price must be greater than zero.', 422);
+        }
+        if ($selling < $wholesale) {
+            Response::error(
+                'Customer selling price (₦' . number_format($selling, 2) . ') cannot be lower than wholesale cost (₦' . number_format($wholesale, 2) . ').',
+                422
+            );
+        }
+
+        $duplicate = $this->db->fetchOne(
+            'SELECT id FROM modification_bvn_types WHERE UPPER(enrollment_type) = :et LIMIT 1',
+            ['et' => $enrollmentType]
+        );
+        if ($duplicate) {
+            Response::error('This BVN enrollment type already exists.', 409);
+        }
+
+        $id = 'bvnt_' . substr(md5(strtolower($enrollmentType)), 0, 12);
+        $this->db->execute(
+            'INSERT INTO modification_bvn_types (id, enrollment_type, label, wholesale_cost, selling_price, is_active, created_at, updated_at)
+             VALUES (:id, :et, :lbl, :wc, :sp, :act, NOW(), NOW())',
+            [
+                'id' => $id,
+                'et' => $enrollmentType,
+                'lbl' => $label,
+                'wc' => $wholesale,
+                'sp' => $selling,
+                'act' => $isActive,
+            ]
+        );
+
+        try {
+            $this->db->execute(
+                'INSERT INTO bvn_modification_banks (enrollment_type, bank_name, provider_cost, customer_price, is_active, display_order)
+                 VALUES (:et, :bn, :pc, :cp, :act, 50)
+                 ON DUPLICATE KEY UPDATE
+                    bank_name = VALUES(bank_name),
+                    provider_cost = VALUES(provider_cost),
+                    customer_price = VALUES(customer_price),
+                    is_active = VALUES(is_active),
+                    updated_at = NOW()',
+                [
+                    'et' => $enrollmentType,
+                    'bn' => $label,
+                    'pc' => $wholesale,
+                    'cp' => $selling,
+                    'act' => $isActive,
+                ]
+            );
+        } catch (Throwable) {
+        }
+
+        $this->recordAudit($admin, 'ADMIN_BVN_TYPE_CREATED', [
+            'id' => $id,
+            'enrollment_type' => $enrollmentType,
+            'label' => $label,
+            'wholesale_cost' => $wholesale,
+            'selling_price' => $selling,
+            'is_active' => (bool)$isActive,
+        ], $request);
+
+        $fresh = $this->db->fetchOne('SELECT * FROM modification_bvn_types WHERE id = :id LIMIT 1', ['id' => $id]);
+        Response::success([
+            'bvn_type' => $fresh ? [
+                'id' => $fresh['id'],
+                'enrollment_type' => $fresh['enrollment_type'],
+                'label' => $fresh['label'],
+                'wholesale_cost' => (float)$fresh['wholesale_cost'],
+                'selling_price' => (float)$fresh['selling_price'],
+                'profit' => round((float)$fresh['selling_price'] - (float)$fresh['wholesale_cost'], 2),
+                'is_active' => (bool)$fresh['is_active'],
+                'provider_synced_at' => $fresh['provider_synced_at'],
+            ] : null,
+        ], 'BVN enrollment type created successfully.', 201);
+    }
+
+    /**
      * PUT /api/admin/modifications/bvn-types/:id
      */
     public function adminUpdateBvnType(Request $request, array $params): void
     {
-        Auth::requirePermission($request, 'services');
+        $admin = Auth::requirePermission($request, 'services');
         $id = trim((string)($params['id'] ?? ''));
         $body = $request->getBody();
 
@@ -2656,6 +2954,15 @@ class ModificationController
             );
         } catch (Throwable) {
         }
+
+        $this->recordAudit($admin, 'ADMIN_BVN_TYPE_UPDATED', [
+            'id' => $id,
+            'enrollment_type' => $existing['enrollment_type'],
+            'label' => $label,
+            'wholesale_cost' => $wholesale,
+            'selling_price' => $selling,
+            'is_active' => (bool)$isActive,
+        ], $request);
 
         $fresh = $this->db->fetchOne('SELECT * FROM modification_bvn_types WHERE id = :id LIMIT 1', ['id' => $id]);
         Response::success([
@@ -2742,6 +3049,19 @@ class ModificationController
 
         $bvnRes = $this->syncOrFetchBvnTypes(true);
 
+        // Keep provider_service_mappings synchronized after live tariff pull
+        try {
+            $this->db->execute(
+                'UPDATE provider_service_mappings psm
+                 INNER JOIN service_catalogue s ON s.service_key = psm.service_key
+                 SET psm.provider_id = s.provider_id,
+                     psm.provider_endpoint = s.endpoint,
+                     psm.wholesale_cost = s.wholesale_cost,
+                     psm.is_active = s.is_active'
+            );
+        } catch (Throwable) {
+        }
+
         FootprintService::record([
             'user_id' => $admin['id'],
             'user_email' => $admin['email'] ?? null,
@@ -2757,6 +3077,11 @@ class ModificationController
                 'bvn_live_synced' => $bvnRes['live_synced'] ?? false,
             ],
         ]);
+        $this->recordAudit($admin, 'ADMIN_MODIFICATION_CATALOG_SYNCED', [
+            'updated_services' => $updatedServices,
+            'bvn_types_count' => count($bvnRes['rows'] ?? []),
+            'bvn_live_synced' => $bvnRes['live_synced'] ?? false,
+        ], $request);
 
         Response::success([
             'updated_services' => $updatedServices,
