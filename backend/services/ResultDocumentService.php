@@ -84,6 +84,7 @@ class ResultDocumentService
         // 2. Collect base64 documents in deterministic priority order
         $priorityKeys = [
             'report_pdf_base64',
+            'premium_slip_base64',
             'certificate_base64',
             'publication_base64',
             'slip_pdf_base64',
@@ -167,7 +168,7 @@ class ResultDocumentService
         $resultDetails = [];
         $candidateDetails = array_merge($data, array_intersect_key($merged, array_flip([
             'status', 'admin_note', 'remark', 'remarks', 'message', 'tracking_id', 'trackingId',
-            'nimc_tracking_id', 'enrollment_type', 'completed_at', 'updated_at', 'created_at',
+            'old_tracking_id', 'new_tracking_id', 'nimc_tracking_id', 'enrollment_type', 'completed_at', 'updated_at', 'created_at',
             'nin', 'bvn', 'surname', 'firstname', 'middlename', 'first_name', 'middle_name',
             'last_name', 'phone', 'dob', 'gender',
         ])));
@@ -367,11 +368,11 @@ class ResultDocumentService
         }
 
         if ($needsPdf) {
-            // Priority A: Base64 PDF files directly inside provider payload
+            // Priority A: Base64 PDF files directly inside provider payload (keep primary + optional secondary e.g. premium_slip_base64)
             foreach ($extracted['extracted_files'] as $ef) {
                 $decoded = self::decodeAndValidatePdfBase64((string)$ef['base64'], (string)($ef['mime'] ?? 'application/pdf'));
                 if ($decoded['ok'] && is_string($decoded['bytes'])) {
-                    $storedDoc = self::persistPdfBytes(
+                    $persisted = self::persistPdfBytes(
                         $db,
                         $domain,
                         $recordId,
@@ -385,11 +386,20 @@ class ResultDocumentService
                         $trackingId ? (string)$trackingId : null,
                         null
                     );
-                    $retrievalStatus = 'ready';
-                    $lastRetrievalError = null;
-                    break;
+                    if ($storedDoc === null) {
+                        $storedDoc = $persisted;
+                        $retrievalStatus = 'ready';
+                        $lastRetrievalError = null;
+                    } elseif (($persisted['id'] ?? '') !== ($storedDoc['id'] ?? '') && empty($mergedDetails['secondary_document_id'])) {
+                        $mergedDetails['secondary_document_id'] = $persisted['id'];
+                        $mergedDetails['secondary_document_label'] = ($ef['key'] ?? '') === 'premium_slip_base64'
+                            ? 'Official Premium NIN Slip'
+                            : 'Secondary Provider Document';
+                    }
                 } else {
-                    $lastRetrievalError = $decoded['error'] ?? 'Invalid provider base64 PDF';
+                    if ($storedDoc === null) {
+                        $lastRetrievalError = $decoded['error'] ?? 'Invalid provider base64 PDF';
+                    }
                 }
             }
 
@@ -627,7 +637,8 @@ class ResultDocumentService
         array $user,
         string $domain,
         string $recordIdOrNum,
-        bool $forceDownload = false
+        bool $forceDownload = false,
+        ?string $requestedDocId = null
     ): void {
         $isMod = ($domain === 'modification');
         $table = $isMod ? 'modification_requests' : 'enrolment_orders';
@@ -647,9 +658,16 @@ class ResultDocumentService
             Response::forbidden('Access denied to this result document.');
         }
 
-        $docId = trim((string)($record['result_document_id'] ?? ''));
         $doc = null;
-        if ($docId !== '') {
+        $reqDocClean = trim((string)($requestedDocId ?? ''));
+        if ($reqDocClean !== '') {
+            $doc = $db->fetchOne(
+                'SELECT * FROM identity_result_documents WHERE id = :id AND domain = :dom AND record_id = :rid LIMIT 1',
+                ['id' => $reqDocClean, 'dom' => $domain, 'rid' => $record['id']]
+            );
+        }
+        $docId = trim((string)($record['result_document_id'] ?? ''));
+        if (!$doc && $docId !== '') {
             $doc = $db->fetchOne('SELECT * FROM identity_result_documents WHERE id = :id LIMIT 1', ['id' => $docId]);
         }
         if (!$doc) {
@@ -753,11 +771,34 @@ class ResultDocumentService
             $availabilityState = 'none';
         }
 
+        $secondaryDocPayload = null;
+        $secondaryDocId = trim((string)($details['secondary_document_id'] ?? ''));
+        if ($secondaryDocId !== '') {
+            $secDoc = $db->fetchOne(
+                'SELECT id, domain, record_id, document_source, is_provider_issued, original_name, mime_type, file_size, sha256_hash, tracking_id, retrieval_status, retrieved_at, created_at FROM identity_result_documents WHERE id = :id AND domain = :dom AND record_id = :rid LIMIT 1',
+                ['id' => $secondaryDocId, 'dom' => $domain, 'rid' => $row['id']]
+            );
+            if ($secDoc) {
+                $secondaryDocPayload = [
+                    'id' => $secDoc['id'],
+                    'document_source' => $secDoc['document_source'],
+                    'is_provider_issued' => (bool)(int)($secDoc['is_provider_issued'] ?? 0),
+                    'source_label' => (string)($details['secondary_document_label'] ?? 'Secondary Provider Document'),
+                    'original_name' => $secDoc['original_name'],
+                    'mime_type' => $secDoc['mime_type'] ?? 'application/pdf',
+                    'file_size' => (int)($secDoc['file_size'] ?? 0),
+                    'preview_url' => $endpointBase . '?doc_id=' . urlencode((string)$secDoc['id']),
+                    'download_url' => $endpointBase . '?download=1&doc_id=' . urlencode((string)$secDoc['id']),
+                ];
+            }
+        }
+
         $out = [
             'has_result_document' => $hasDoc,
             'result_document_id' => $hasDoc ? $doc['id'] : null,
             'result_source' => $hasDoc ? $doc['document_source'] : ($row['result_source'] ?? null),
             'result_document' => $docPayload,
+            'secondary_result_document' => $secondaryDocPayload,
             'provider_tracking_id' => $trackingId !== '' ? $trackingId : null,
             'result_details' => $details,
             'result_retrieval_status' => $hasDoc ? 'ready' : ($row['result_retrieval_status'] ?? 'unavailable'),

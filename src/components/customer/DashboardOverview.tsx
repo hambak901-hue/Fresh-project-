@@ -517,6 +517,53 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
           </button>
         </div>
+
+        {/* Dedicated 11 NIN/BVN Clearance, Enrolment & Clarification Services Directory */}
+        <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-bold text-white uppercase tracking-wider">
+                NIN / BVN Clearance, Enrolment &amp; Clarification Services
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateToPage('nin')}
+              className="text-[11px] font-semibold text-emerald-400 hover:underline flex items-center gap-0.5"
+            >
+              <span>Open Full NIN Hub</span>
+              <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+            {[
+              { key: 'ipe_clearance', label: 'IPE Clearance', tag: 'Clearance' },
+              { key: 'nin_validation', label: 'NIN Validation', tag: 'Validation' },
+              { key: 'nin_personalization', label: 'NIN Personalisation', tag: 'V1 / V2' },
+              { key: 'npc_attestation', label: 'NPC Attestation', tag: 'Birth Record' },
+              { key: 'modification_clearance', label: 'Self-MOD IPE', tag: 'Mod Clear' },
+              { key: 'nin_tracking', label: 'NIN Tracking', tag: 'Status Info' },
+              { key: 'bvn_enroll_adult', label: 'NIN Adult Enrol', tag: 'Enrolment' },
+              { key: 'bvn_enroll_child', label: 'NIN Child Enrol', tag: 'Enrolment' },
+              { key: 'bvn_enrolment', label: 'BVN Enrolment', tag: 'Status Info' },
+              { key: 'nin_bvn_arrangement', label: 'NIN/BVN Arrange', tag: 'Status Info' },
+              { key: 'additional_info', label: 'Additional Info', tag: 'Query Reply' },
+            ].map(svc => (
+              <button
+                key={svc.key}
+                type="button"
+                onClick={() => onNavigateToPage(`nin:${svc.key}`)}
+                className="px-3 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 text-left transition group"
+              >
+                <div className="text-[11px] font-bold text-white group-hover:text-emerald-400 truncate">
+                  {svc.label}
+                </div>
+                <div className="text-[10px] text-slate-400 truncate mt-0.5">{svc.tag}</div>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       )}
 

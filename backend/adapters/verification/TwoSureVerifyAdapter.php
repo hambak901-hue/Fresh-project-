@@ -1338,28 +1338,34 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 'method' => 'POST',
                 'enrolment_label' => 'NIN Enrolment (Adult)',
                 'identity_domain' => 'NIN',
-                'provider_schema_verified' => false,
+                'provider_schema_verified' => true,
                 'fields' => [
+                    'title' => 'title',
                     'first_name' => 'first_name',
                     'middle_name' => 'middle_name',
-                    'last_name' => 'last_name',
+                    'last_name' => 'surname',
+                    'surname' => 'surname',
                     'dob' => 'dob',
                     'gender' => 'gender',
                     'phone' => 'phone',
                     'email' => 'email',
-                    'marital_status' => 'marital_status',
                     'state_of_origin' => 'state_of_origin',
                     'lga_of_origin' => 'lga_of_origin',
-                    'residence_address' => 'residence_address',
-                    'residence_state' => 'residence_state',
-                    'residence_lga' => 'residence_lga',
+                    'residence_address' => 'address',
+                    'address' => 'address',
+                    'residence_state' => 'state',
+                    'state' => 'state',
+                    'residence_lga' => 'lga',
+                    'lga' => 'lga',
                     'town' => 'town',
-                    'notes' => 'notes',
+                    'marital_status' => '',
+                    'notes' => '',
                 ],
                 'files' => [
-                    'passport_photo' => 'passport_photo',
-                    'valid_id' => 'valid_id',
-                    'address_proof' => 'address_proof',
+                    'passport_photo' => 'passport',
+                    'passport' => 'passport',
+                    'valid_id' => '',
+                    'address_proof' => '',
                 ],
             ],
             'bvn_enroll_child' => [
@@ -1367,29 +1373,36 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 'method' => 'POST',
                 'enrolment_label' => 'NIN Enrolment (Child)',
                 'identity_domain' => 'NIN',
-                'provider_schema_verified' => false,
+                'provider_schema_verified' => true,
                 'fields' => [
+                    'title' => 'title',
                     'first_name' => 'first_name',
                     'middle_name' => 'middle_name',
-                    'last_name' => 'last_name',
+                    'last_name' => 'surname',
+                    'surname' => 'surname',
                     'dob' => 'dob',
                     'gender' => 'gender',
-                    'parent_nin' => 'parent_nin',
-                    'parent_name' => 'parent_name',
-                    'parent_relationship' => 'parent_relationship',
                     'phone' => 'phone',
                     'email' => 'email',
                     'state_of_origin' => 'state_of_origin',
                     'lga_of_origin' => 'lga_of_origin',
-                    'residence_address' => 'residence_address',
-                    'residence_state' => 'residence_state',
-                    'residence_lga' => 'residence_lga',
-                    'notes' => 'notes',
+                    'residence_address' => 'address',
+                    'address' => 'address',
+                    'residence_state' => 'state',
+                    'state' => 'state',
+                    'residence_lga' => 'lga',
+                    'lga' => 'lga',
+                    'town' => 'town',
+                    'parent_nin' => '',
+                    'parent_name' => '',
+                    'parent_relationship' => '',
+                    'notes' => '',
                 ],
                 'files' => [
-                    'passport_photo' => 'passport_photo',
-                    'birth_certificate' => 'birth_certificate',
-                    'parent_nin_slip' => 'parent_nin_slip',
+                    'passport_photo' => 'passport',
+                    'passport' => 'passport',
+                    'birth_certificate' => '',
+                    'parent_nin_slip' => '',
                 ],
             ],
         ];
@@ -1415,12 +1428,14 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 continue;
             }
             $ck = (string)$fDef['key'];
-            $pp = trim((string)($fDef['provider_param'] ?? ($fieldMap[$ck] ?? $ck)));
+            $pp = array_key_exists('provider_param', $fDef)
+                ? trim((string)$fDef['provider_param'])
+                : ($fieldMap[$ck] ?? $ck);
             $fieldMap[$ck] = $pp;
             $fieldTrace[] = [
                 'customer_field' => $ck,
                 'internal_field' => $ck,
-                'provider_param' => $pp,
+                'provider_param' => $pp !== '' ? $pp : '(HAMBAK internal only)',
                 'required' => !empty($fDef['required']),
             ];
         }
@@ -1432,11 +1447,13 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 continue;
             }
             $dk = (string)$dDef['key'];
-            $pfp = trim((string)($dDef['provider_file_param'] ?? ($fileMap[$dk] ?? $dk)));
+            $pfp = array_key_exists('provider_file_param', $dDef)
+                ? trim((string)$dDef['provider_file_param'])
+                : ($fileMap[$dk] ?? $dk);
             $fileMap[$dk] = $pfp;
             $fileTrace[] = [
                 'doc_key' => $dk,
-                'provider_file_param' => $pfp,
+                'provider_file_param' => $pfp !== '' ? $pfp : '(HAMBAK internal review only)',
                 'required' => !empty($dDef['required']),
             ];
         }
@@ -1448,7 +1465,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             'enrolment_label' => $base['enrolment_label'],
             'identity_domain' => $base['identity_domain'],
             'provider_schema_verified' => (bool)$base['provider_schema_verified'],
-            'verification_note' => '2SureVerify api_docs.php & /api/v1/services.php verify the endpoint URL, POST method, Manual status, and provider cost, while deferring per-endpoint parameter names to OpenAPI/headers on request. Admins can adjust provider_param and provider_file_param per field/document anytime.',
+            'verification_note' => 'Verified against 2SureVerify /api_docs.php multipart specification (title, surname, first_name, middle_name, gender, dob, town, state, lga, address, state_of_origin, lga_of_origin, phone, email + passport file). Internal HAMBAK review fields/documents stay in MySQL without altering upstream multipart fields.',
             'fields' => $fieldMap,
             'files' => $fileMap,
             'field_trace' => $fieldTrace,
@@ -1481,7 +1498,12 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             if (!empty($fieldMap) && !array_key_exists($key, $fieldMap)) {
                 continue;
             }
-            $providerKey = preg_replace('/[^a-zA-Z0-9_]/', '_', (string)($fieldMap[$key] ?? $key)) ?: $key;
+            $targetParam = trim((string)($fieldMap[$key] ?? $key));
+            if ($targetParam === '') {
+                // Intentionally marked HAMBAK-internal only
+                continue;
+            }
+            $providerKey = preg_replace('/[^a-zA-Z0-9_]/', '_', $targetParam) ?: $key;
             $mappedFields[$providerKey] = $strVal;
         }
 
@@ -1491,9 +1513,17 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 continue;
             }
             $docKey = (string)($fileItem['doc_key'] ?? ('document_' . $idx));
-            $targetParam = preg_replace('/[^a-zA-Z0-9_]/', '_', (string)($fileMap[$docKey] ?? $docKey)) ?: ('document_' . $idx);
+            if (array_key_exists($docKey, $fileMap) && trim((string)$fileMap[$docKey]) === '') {
+                // Stored in HAMBAK for internal manual compliance review only
+                continue;
+            }
+            $targetParam = trim((string)($fileMap[$docKey] ?? $docKey));
+            if ($targetParam === '') {
+                continue;
+            }
+            $cleanTarget = preg_replace('/[^a-zA-Z0-9_]/', '_', $targetParam) ?: ('document_' . $idx);
             $mappedFiles[] = array_merge($fileItem, [
-                'provider_file_param' => $targetParam,
+                'provider_file_param' => $cleanTarget,
             ]);
         }
 
@@ -1699,39 +1729,43 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 'endpoint' => '/api/v1/ipe_clearance.php',
                 'status_endpoint' => '/api/v1/ipe_status.php',
                 'method' => 'POST',
+                'json_only' => true,
                 'is_refundable' => true,
                 'fields' => [
                     'ticket_id' => 'ticket_id',
                     'sub_type' => 'sub_type',
                 ],
-                'files' => ['supporting_doc' => 'supporting_doc'],
+                'files' => [],
             ],
             'nin_validation' => [
                 'endpoint' => '/api/v1/validation.php',
                 'status_endpoint' => '/api/v1/validation_status.php',
                 'method' => 'POST',
+                'json_only' => true,
                 'is_refundable' => true,
                 'fields' => [
                     'nin' => 'nin',
                     'sub_type' => 'sub_type',
                 ],
-                'files' => ['supporting_doc' => 'supporting_doc'],
+                'files' => [],
             ],
             'modification_clearance' => [
                 'endpoint' => '/api/v1/modification_clearance.php',
                 'status_endpoint' => '/api/v1/modification_clearance_status.php',
                 'method' => 'POST',
+                'json_only' => true,
                 'is_refundable' => true,
                 'fields' => [
                     'tracking_id' => 'tracking_id',
                     'modification_type' => 'modification_type',
                 ],
-                'files' => ['supporting_doc' => 'supporting_doc'],
+                'files' => [],
             ],
             'nin_personalization' => [
                 'endpoint' => '/api/v1/personalization.php',
                 'status_endpoint' => '/api/v1/personalization_status.php',
                 'method' => 'POST',
+                'json_only' => true,
                 'is_refundable' => false,
                 'fields' => [
                     'tracking_id' => 'tracking_id',
@@ -1742,6 +1776,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 'endpoint' => '/api/v1/personalization_2.php',
                 'status_endpoint' => '/api/v1/personalization_status.php',
                 'method' => 'POST',
+                'json_only' => true,
                 'is_refundable' => false,
                 'fields' => [
                     'tracking_id' => 'tracking_id',
@@ -1753,6 +1788,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 'endpoint' => '/api/v1/npc_attestation.php',
                 'status_endpoint' => '/api/v1/npc_attestation_status.php',
                 'method' => 'POST',
+                'json_only' => true,
                 'is_refundable' => true,
                 'fields' => [
                     'nin' => 'nin',
@@ -1768,32 +1804,41 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                     'origin_state' => 'origin_state',
                     'origin_lga' => 'origin_lga',
                     'address' => 'address',
-                    'father_nin' => 'father_nin',
                     'father_firstname' => 'father_firstname',
                     'father_surname' => 'father_surname',
                     'father_middlename' => 'father_middlename',
+                    'father_dob' => 'father_dob',
                     'father_state' => 'father_state',
                     'father_lga' => 'father_lga',
-                    'mother_nin' => 'mother_nin',
+                    'father_town' => 'father_town',
+                    'father_origin_state' => 'father_origin_state',
+                    'father_origin_lga' => 'father_origin_lga',
+                    'father_address' => 'father_address',
                     'mother_firstname' => 'mother_firstname',
                     'mother_surname' => 'mother_surname',
                     'mother_middlename' => 'mother_middlename',
+                    'mother_dob' => 'mother_dob',
                     'mother_state' => 'mother_state',
                     'mother_lga' => 'mother_lga',
+                    'mother_town' => 'mother_town',
+                    'mother_origin_state' => 'mother_origin_state',
+                    'mother_origin_lga' => 'mother_origin_lga',
+                    'mother_address' => 'mother_address',
                 ],
-                'files' => ['supporting_doc' => 'supporting_doc'],
+                'files' => [],
             ],
             'nin_delinking' => [
                 'endpoint' => '/api/v1/delinking.php',
                 'status_endpoint' => '/api/v1/delinking_status.php',
                 'method' => 'POST',
+                'json_only' => true,
                 'is_refundable' => true,
                 'fields' => [
                     'nin' => 'nin',
                     'sub_type' => 'sub_type',
                     'email' => 'email',
                 ],
-                'files' => ['supporting_doc' => 'supporting_doc'],
+                'files' => [],
             ],
         ];
     }
@@ -1842,8 +1887,16 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
             if ($v === null || $v === '') {
                 continue;
             }
+            if ($k === 'reference') {
+                continue;
+            }
+            if (!empty($fieldMap) && !array_key_exists($k, $fieldMap)) {
+                continue;
+            }
             $targetKey = $fieldMap[$k] ?? $k;
-            $mappedFields[$targetKey] = $v;
+            if ($targetKey !== '') {
+                $mappedFields[$targetKey] = $v;
+            }
         }
 
         $ref = trim((string)($fields['reference'] ?? ('HBK-ADD-' . strtoupper(bin2hex(random_bytes(5))))));
@@ -1852,13 +1905,19 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
 
         $curlFiles = [];
         $fileMap = $spec['files'] ?? [];
-        foreach ($files as $fKey => $fMeta) {
-            $path = is_array($fMeta) ? (string)($fMeta['file_path'] ?? '') : '';
-            if ($path !== '' && is_file($path)) {
-                $targetFileKey = $fileMap[$fKey] ?? $fKey;
-                $mime = (string)($fMeta['mime_type'] ?? 'application/octet-stream');
-                $origName = (string)($fMeta['original_name'] ?? basename($path));
-                $curlFiles[$targetFileKey] = new \CURLFile($path, $mime, $origName);
+        $jsonOnly = !empty($spec['json_only']) || empty($fileMap);
+        if (!$jsonOnly) {
+            foreach ($files as $fKey => $fMeta) {
+                if (!array_key_exists($fKey, $fileMap) || empty($fileMap[$fKey])) {
+                    continue;
+                }
+                $path = is_array($fMeta) ? (string)($fMeta['file_path'] ?? '') : '';
+                if ($path !== '' && is_file($path)) {
+                    $targetFileKey = $fileMap[$fKey];
+                    $mime = (string)($fMeta['mime_type'] ?? 'application/octet-stream');
+                    $origName = (string)($fMeta['original_name'] ?? basename($path));
+                    $curlFiles[$targetFileKey] = new \CURLFile($path, $mime, $origName);
+                }
             }
         }
 

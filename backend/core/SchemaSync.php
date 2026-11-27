@@ -2687,7 +2687,7 @@ class SchemaSync
         // 4. Confirmed 2SureVerify NIN Enrolment services (explicitly NIN Enrolment despite "bvn" in endpoint filenames)
         $docPassportAdult = [
             'key' => 'passport_photo',
-            'provider_file_param' => 'passport_photo',
+            'provider_file_param' => 'passport',
             'label' => 'Applicant White-Background Passport Photograph',
             'required' => true,
             'accepted_formats' => ['JPG', 'PNG', 'WEBP'],
@@ -2696,7 +2696,7 @@ class SchemaSync
         ];
         $docValidIdAdult = [
             'key' => 'valid_id',
-            'provider_file_param' => 'valid_id',
+            'provider_file_param' => '',
             'label' => 'Supporting Identification / Birth Record',
             'required' => true,
             'accepted_formats' => ['JPG', 'PNG', 'WEBP', 'PDF'],
@@ -2705,7 +2705,7 @@ class SchemaSync
         ];
         $docAddressProof = [
             'key' => 'address_proof',
-            'provider_file_param' => 'address_proof',
+            'provider_file_param' => '',
             'label' => 'Proof of Address / Utility Bill (Optional)',
             'required' => false,
             'accepted_formats' => ['JPG', 'PNG', 'WEBP', 'PDF'],
@@ -2715,7 +2715,7 @@ class SchemaSync
 
         $docPassportChild = [
             'key' => 'passport_photo',
-            'provider_file_param' => 'passport_photo',
+            'provider_file_param' => 'passport',
             'label' => 'Child White-Background Passport Photograph',
             'required' => true,
             'accepted_formats' => ['JPG', 'PNG', 'WEBP'],
@@ -2724,7 +2724,7 @@ class SchemaSync
         ];
         $docBirthCertChild = [
             'key' => 'birth_certificate',
-            'provider_file_param' => 'birth_certificate',
+            'provider_file_param' => '',
             'label' => 'Child NPC Birth Certificate / Hospital Birth Record',
             'required' => true,
             'accepted_formats' => ['JPG', 'PNG', 'WEBP', 'PDF'],
@@ -2733,7 +2733,7 @@ class SchemaSync
         ];
         $docParentNinSlip = [
             'key' => 'parent_nin_slip',
-            'provider_file_param' => 'parent_nin_slip',
+            'provider_file_param' => '',
             'label' => 'Parent / Legal Guardian NIN Slip',
             'required' => true,
             'accepted_formats' => ['JPG', 'PNG', 'WEBP', 'PDF'],
@@ -2752,25 +2752,26 @@ class SchemaSync
                 'wholesale_cost' => 10000.00,
                 'selling_price' => 15000.00,
                 'estimated_turnaround' => '3 – 7 Business Days (Manual Processing)',
-                'supported_notes' => "Ensure applicant full names, date of birth, and state/LGA match supporting birth/identity documents exactly.\nThis is a Manual Processing NIN Enrolment request — status remains Pending until completed.",
-                'required_fields' => ['first_name', 'last_name', 'dob', 'gender', 'phone', 'marital_status', 'state_of_origin', 'lga_of_origin', 'residence_address', 'residence_state', 'residence_lga'],
+                'supported_notes' => "Ensure applicant title, full names, date of birth, town, email, and state/LGA match supporting birth/identity documents exactly.\nThis is a Manual Processing NIN Enrolment request — status remains Pending until completed.",
+                'required_fields' => ['title', 'first_name', 'last_name', 'dob', 'gender', 'phone', 'email', 'marital_status', 'state_of_origin', 'lga_of_origin', 'residence_address', 'residence_state', 'residence_lga', 'town'],
                 'required_documents' => [$docPassportAdult, $docValidIdAdult, $docAddressProof],
                 'form_schema' => [
+                    ['key' => 'title', 'provider_param' => 'title', 'label' => 'Title', 'type' => 'select', 'required' => true, 'help_text' => 'Applicant formal title.', 'options' => [['value' => 'Mr', 'label' => 'Mr'], ['value' => 'Mrs', 'label' => 'Mrs'], ['value' => 'Miss', 'label' => 'Miss'], ['value' => 'Ms', 'label' => 'Ms'], ['value' => 'Dr', 'label' => 'Dr'], ['value' => 'Alhaji', 'label' => 'Alhaji'], ['value' => 'Chief', 'label' => 'Chief']]],
                     ['key' => 'first_name', 'provider_param' => 'first_name', 'label' => 'First Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Ibrahim', 'help_text' => 'Applicant legal first name matching supporting identification.'],
                     ['key' => 'middle_name', 'provider_param' => 'middle_name', 'label' => 'Middle Name (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'e.g., Musa', 'help_text' => 'Leave blank if the applicant has no middle name.'],
-                    ['key' => 'last_name', 'provider_param' => 'last_name', 'label' => 'Surname / Last Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Adeyemi', 'help_text' => 'Applicant legal surname / family name.'],
+                    ['key' => 'last_name', 'provider_param' => 'surname', 'label' => 'Surname / Last Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Adeyemi', 'help_text' => 'Applicant legal surname / family name.'],
                     ['key' => 'dob', 'provider_param' => 'dob', 'label' => 'Date of Birth', 'type' => 'date', 'required' => true, 'help_text' => 'Adult applicant date of birth (16 years and above).'],
                     ['key' => 'gender', 'provider_param' => 'gender', 'label' => 'Gender', 'type' => 'select', 'required' => true, 'help_text' => 'Applicant biological gender.', 'options' => [['value' => 'Male', 'label' => 'Male'], ['value' => 'Female', 'label' => 'Female']]],
                     ['key' => 'phone', 'provider_param' => 'phone', 'label' => 'Active Phone Number', 'type' => 'tel', 'required' => true, 'maxLength' => 11, 'placeholder' => 'e.g., 08031234567', 'help_text' => '11-digit Nigerian mobile number reachable for enrolment updates.'],
-                    ['key' => 'email', 'provider_param' => 'email', 'label' => 'Contact Email Address (Optional)', 'type' => 'email', 'required' => false, 'placeholder' => 'applicant@example.com', 'help_text' => 'Optional email address for NIN tracking and digital slip notification.'],
-                    ['key' => 'marital_status', 'provider_param' => 'marital_status', 'label' => 'Marital Status', 'type' => 'select', 'required' => true, 'help_text' => 'Current marital status of the adult applicant.', 'options' => [['value' => 'Single', 'label' => 'Single'], ['value' => 'Married', 'label' => 'Married'], ['value' => 'Divorced', 'label' => 'Divorced'], ['value' => 'Widowed', 'label' => 'Widowed']]],
+                    ['key' => 'email', 'provider_param' => 'email', 'label' => 'Contact Email Address', 'type' => 'email', 'required' => true, 'placeholder' => 'applicant@example.com', 'help_text' => 'Active email address for NIN tracking and digital slip notification.'],
+                    ['key' => 'marital_status', 'provider_param' => '', 'label' => 'Marital Status', 'type' => 'select', 'required' => true, 'help_text' => 'Current marital status of the adult applicant.', 'options' => [['value' => 'Single', 'label' => 'Single'], ['value' => 'Married', 'label' => 'Married'], ['value' => 'Divorced', 'label' => 'Divorced'], ['value' => 'Widowed', 'label' => 'Widowed']]],
                     ['key' => 'state_of_origin', 'provider_param' => 'state_of_origin', 'label' => 'State of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Kano', 'help_text' => 'Applicant indigene state of origin.'],
                     ['key' => 'lga_of_origin', 'provider_param' => 'lga_of_origin', 'label' => 'LGA of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Nassarawa', 'help_text' => 'Local Government Area of origin.'],
-                    ['key' => 'residence_address', 'provider_param' => 'residence_address', 'label' => 'Residential Street Address', 'type' => 'text', 'required' => true, 'placeholder' => 'House no., street name, area', 'help_text' => 'Full current residential address in Nigeria.'],
-                    ['key' => 'residence_state', 'provider_param' => 'residence_state', 'label' => 'State of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Lagos', 'help_text' => 'State where the applicant currently resides.'],
-                    ['key' => 'residence_lga', 'provider_param' => 'residence_lga', 'label' => 'LGA of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Ikeja', 'help_text' => 'Local Government Area of current residence.'],
-                    ['key' => 'town', 'provider_param' => 'town', 'label' => 'Town / City (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'e.g., Ikeja', 'help_text' => 'Town or city of residence.'],
-                    ['key' => 'notes', 'provider_param' => 'notes', 'label' => 'Additional Processing Notes (Optional)', 'type' => 'textarea', 'required' => false, 'placeholder' => 'Any helpful context for our NIN enrolment team', 'help_text' => 'Optional notes or scheduling details.'],
+                    ['key' => 'residence_address', 'provider_param' => 'address', 'label' => 'Residential Street Address', 'type' => 'text', 'required' => true, 'placeholder' => 'House no., street name, area', 'help_text' => 'Full current residential address in Nigeria.'],
+                    ['key' => 'town', 'provider_param' => 'town', 'label' => 'Town / City of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Ikeja', 'help_text' => 'Town or city of current residence.'],
+                    ['key' => 'residence_state', 'provider_param' => 'state', 'label' => 'State of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Lagos', 'help_text' => 'State where the applicant currently resides.'],
+                    ['key' => 'residence_lga', 'provider_param' => 'lga', 'label' => 'LGA of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Ikeja', 'help_text' => 'Local Government Area of current residence.'],
+                    ['key' => 'notes', 'provider_param' => '', 'label' => 'Additional Processing Notes (Optional)', 'type' => 'textarea', 'required' => false, 'placeholder' => 'Any helpful context for our NIN enrolment team', 'help_text' => 'Optional notes or scheduling details.'],
                 ],
             ],
             [
@@ -2783,26 +2784,28 @@ class SchemaSync
                 'wholesale_cost' => 8000.00,
                 'selling_price' => 12000.00,
                 'estimated_turnaround' => '3 – 7 Business Days (Manual Processing)',
-                'supported_notes' => "Child NIN Enrolment requires a valid 11-digit Parent / Legal Guardian NIN and NPC Birth Certificate.\nThis is a Manual Processing NIN Enrolment request — status remains Pending until completed.",
-                'required_fields' => ['first_name', 'last_name', 'dob', 'gender', 'parent_nin', 'parent_name', 'parent_relationship', 'phone', 'state_of_origin', 'lga_of_origin', 'residence_address', 'residence_state', 'residence_lga'],
+                'supported_notes' => "Child NIN Enrolment requires full names (including middle name), parent/guardian NIN, and NPC Birth Certificate.\nThis is a Manual Processing NIN Enrolment request — status remains Pending until completed.",
+                'required_fields' => ['title', 'first_name', 'middle_name', 'last_name', 'dob', 'gender', 'parent_nin', 'parent_name', 'parent_relationship', 'phone', 'email', 'state_of_origin', 'lga_of_origin', 'residence_address', 'town', 'residence_state', 'residence_lga'],
                 'required_documents' => [$docPassportChild, $docBirthCertChild, $docParentNinSlip],
                 'form_schema' => [
+                    ['key' => 'title', 'provider_param' => 'title', 'label' => 'Title', 'type' => 'select', 'required' => true, 'help_text' => 'Child formal title.', 'options' => [['value' => 'Master', 'label' => 'Master'], ['value' => 'Miss', 'label' => 'Miss']]],
                     ['key' => 'first_name', 'provider_param' => 'first_name', 'label' => 'Child First Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Amina', 'help_text' => 'Child legal first name matching NPC birth certificate.'],
-                    ['key' => 'middle_name', 'provider_param' => 'middle_name', 'label' => 'Child Middle Name (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'e.g., Bello', 'help_text' => 'Leave blank if the child has no middle name.'],
-                    ['key' => 'last_name', 'provider_param' => 'last_name', 'label' => 'Child Surname / Last Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Yusuf', 'help_text' => 'Child family surname matching parent record.'],
+                    ['key' => 'middle_name', 'provider_param' => 'middle_name', 'label' => 'Child Middle Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Bello', 'help_text' => 'Child middle name (required for Child NIN Enrolment).'],
+                    ['key' => 'last_name', 'provider_param' => 'surname', 'label' => 'Child Surname / Last Name', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Yusuf', 'help_text' => 'Child family surname matching parent record.'],
                     ['key' => 'dob', 'provider_param' => 'dob', 'label' => 'Child Date of Birth', 'type' => 'date', 'required' => true, 'help_text' => 'Exact Date of Birth printed on the child\'s birth certificate (under 18 years).'],
                     ['key' => 'gender', 'provider_param' => 'gender', 'label' => 'Child Gender', 'type' => 'select', 'required' => true, 'help_text' => 'Child biological gender.', 'options' => [['value' => 'Male', 'label' => 'Male'], ['value' => 'Female', 'label' => 'Female']]],
-                    ['key' => 'parent_nin', 'provider_param' => 'parent_nin', 'label' => 'Parent / Guardian 11-Digit NIN', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => 'Enter 11-digit parent NIN', 'help_text' => 'Active 11-digit NIN of the authorizing parent or legal guardian.'],
-                    ['key' => 'parent_name', 'provider_param' => 'parent_name', 'label' => 'Parent / Guardian Full Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Full name as on Parent NIN slip', 'help_text' => 'Exact full name of the parent or legal guardian.'],
-                    ['key' => 'parent_relationship', 'provider_param' => 'parent_relationship', 'label' => 'Relationship to Child', 'type' => 'select', 'required' => true, 'help_text' => 'Authorizing guardian relationship.', 'options' => [['value' => 'Father', 'label' => 'Father'], ['value' => 'Mother', 'label' => 'Mother'], ['value' => 'Legal Guardian', 'label' => 'Legal Guardian']]],
+                    ['key' => 'parent_nin', 'provider_param' => '', 'label' => 'Parent / Guardian 11-Digit NIN', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => 'Enter 11-digit parent NIN', 'help_text' => 'Active 11-digit NIN of the authorizing parent or legal guardian.'],
+                    ['key' => 'parent_name', 'provider_param' => '', 'label' => 'Parent / Guardian Full Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Full name as on Parent NIN slip', 'help_text' => 'Exact full name of the parent or legal guardian.'],
+                    ['key' => 'parent_relationship', 'provider_param' => '', 'label' => 'Relationship to Child', 'type' => 'select', 'required' => true, 'help_text' => 'Authorizing guardian relationship.', 'options' => [['value' => 'Father', 'label' => 'Father'], ['value' => 'Mother', 'label' => 'Mother'], ['value' => 'Legal Guardian', 'label' => 'Legal Guardian']]],
                     ['key' => 'phone', 'provider_param' => 'phone', 'label' => 'Parent / Guardian Phone Number', 'type' => 'tel', 'required' => true, 'maxLength' => 11, 'placeholder' => 'e.g., 08031234567', 'help_text' => '11-digit Nigerian mobile number of the parent/guardian.'],
-                    ['key' => 'email', 'provider_param' => 'email', 'label' => 'Parent / Guardian Email (Optional)', 'type' => 'email', 'required' => false, 'placeholder' => 'parent@example.com', 'help_text' => 'Optional email address for status notifications.'],
+                    ['key' => 'email', 'provider_param' => 'email', 'label' => 'Parent / Guardian Email Address', 'type' => 'email', 'required' => true, 'placeholder' => 'parent@example.com', 'help_text' => 'Active email address for status notifications.'],
                     ['key' => 'state_of_origin', 'provider_param' => 'state_of_origin', 'label' => 'State of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Kaduna', 'help_text' => 'Child state of origin.'],
                     ['key' => 'lga_of_origin', 'provider_param' => 'lga_of_origin', 'label' => 'LGA of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Zaria', 'help_text' => 'Child Local Government Area of origin.'],
-                    ['key' => 'residence_address', 'provider_param' => 'residence_address', 'label' => 'Residential Street Address', 'type' => 'text', 'required' => true, 'placeholder' => 'House no., street name, area', 'help_text' => 'Full current residential address where the child lives.'],
-                    ['key' => 'residence_state', 'provider_param' => 'residence_state', 'label' => 'State of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Abuja FCT', 'help_text' => 'State of current residence.'],
-                    ['key' => 'residence_lga', 'provider_param' => 'residence_lga', 'label' => 'LGA of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., AMAC', 'help_text' => 'LGA of current residence.'],
-                    ['key' => 'notes', 'provider_param' => 'notes', 'label' => 'Additional Processing Notes (Optional)', 'type' => 'textarea', 'required' => false, 'placeholder' => 'Any helpful context for our child NIN enrolment team', 'help_text' => 'Optional notes for manual verification officers.'],
+                    ['key' => 'residence_address', 'provider_param' => 'address', 'label' => 'Residential Street Address', 'type' => 'text', 'required' => true, 'placeholder' => 'House no., street name, area', 'help_text' => 'Full current residential address where the child lives.'],
+                    ['key' => 'town', 'provider_param' => 'town', 'label' => 'Town / City of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Wuse', 'help_text' => 'Town or city where the child currently resides.'],
+                    ['key' => 'residence_state', 'provider_param' => 'state', 'label' => 'State of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Abuja FCT', 'help_text' => 'State of current residence.'],
+                    ['key' => 'residence_lga', 'provider_param' => 'lga', 'label' => 'LGA of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., AMAC', 'help_text' => 'LGA of current residence.'],
+                    ['key' => 'notes', 'provider_param' => '', 'label' => 'Additional Processing Notes (Optional)', 'type' => 'textarea', 'required' => false, 'placeholder' => 'Any helpful context for our child NIN enrolment team', 'help_text' => 'Optional notes for manual verification officers.'],
                 ],
             ],
         ];
@@ -2810,7 +2813,7 @@ class SchemaSync
         foreach ($enrolmentServices as $srv) {
             try {
                 $existing = $db->fetchOne(
-                    'SELECT id, category_id, name, provider_id, endpoint, processing_type, manual_label, estimated_turnaround, required_documents, form_schema, supported_notes FROM service_catalogue WHERE service_key = :sk LIMIT 1',
+                    'SELECT id, category_id, name, provider_id, endpoint, processing_type, manual_label, estimated_turnaround, required_fields, required_documents, form_schema, supported_notes FROM service_catalogue WHERE service_key = :sk LIMIT 1',
                     ['sk' => $srv['service_key']]
                 );
                 if (!$existing) {
@@ -2837,8 +2840,8 @@ class SchemaSync
                     );
                     $applied[] = 'enr_insert:' . $srv['service_key'];
                 } else {
-                    // Preserve admin-edited selling_price, is_active, wholesale_cost, form_schema, required_documents, and instructions;
-                    // strictly enforce category_id = cat_enr, provider_id = 2sureverify, endpoint, processing_type = manual, and non-BVN NIN naming if miscategorized
+                    // Preserve admin-edited selling_price, is_active, wholesale_cost, and instructions;
+                    // repair drifted provider_param/required fields/file params without altering commercial settings
                     $updCols = ['processing_type = "manual"', 'provider_id = "2sureverify"', 'endpoint = :ep'];
                     $updParams = ['id' => $existing['id'], 'ep' => $srv['endpoint']];
 
@@ -2863,16 +2866,50 @@ class SchemaSync
                     $curDocs = is_string($existing['required_documents'] ?? null)
                         ? json_decode((string)$existing['required_documents'], true)
                         : ($existing['required_documents'] ?? null);
-                    if (empty($curDocs) || !is_array($curDocs)) {
+                    $docsDrifted = empty($curDocs) || !is_array($curDocs);
+                    if (!$docsDrifted) {
+                        foreach ($curDocs as $cd) {
+                            if (($cd['key'] ?? '') === 'passport_photo' && ($cd['provider_file_param'] ?? '') !== 'passport') {
+                                $docsDrifted = true;
+                                break;
+                            }
+                        }
+                    }
+                    if ($docsDrifted) {
                         $updCols[] = 'required_documents = :rdocs';
                         $updParams['rdocs'] = json_encode($srv['required_documents']);
                     }
+
                     $curSchema = is_string($existing['form_schema'] ?? null)
                         ? json_decode((string)$existing['form_schema'], true)
                         : ($existing['form_schema'] ?? null);
-                    if (empty($curSchema) || !is_array($curSchema)) {
+                    $schemaDrifted = empty($curSchema) || !is_array($curSchema);
+                    if (!$schemaDrifted) {
+                        $schemaMap = [];
+                        foreach ($curSchema as $cs) {
+                            if (is_array($cs) && !empty($cs['key'])) {
+                                $schemaMap[$cs['key']] = $cs;
+                            }
+                        }
+                        if (
+                            !isset($schemaMap['title'])
+                            || !isset($schemaMap['town'])
+                            || (($schemaMap['last_name']['provider_param'] ?? '') !== 'surname')
+                            || (($schemaMap['residence_address']['provider_param'] ?? '') !== 'address')
+                            || (($schemaMap['residence_state']['provider_param'] ?? '') !== 'state')
+                            || (($schemaMap['residence_lga']['provider_param'] ?? '') !== 'lga')
+                            || empty($schemaMap['email']['required'])
+                            || empty($schemaMap['town']['required'])
+                            || ($srv['service_key'] === 'bvn_enroll_child' && empty($schemaMap['middle_name']['required']))
+                        ) {
+                            $schemaDrifted = true;
+                        }
+                    }
+                    if ($schemaDrifted) {
                         $updCols[] = 'form_schema = :fschema';
+                        $updCols[] = 'required_fields = :rf';
                         $updParams['fschema'] = json_encode($srv['form_schema']);
+                        $updParams['rf'] = json_encode($srv['required_fields']);
                     }
                     if (count($updCols) > 3 || ($existing['processing_type'] ?? '') !== 'manual' || ($existing['category_id'] ?? '') !== 'cat_enr') {
                         $db->execute(
@@ -3061,35 +3098,52 @@ class SchemaSync
                 'selling_price' => 26000.00,
                 'is_refundable' => 1,
                 'estimated_turnaround' => '3 – 10 Business Days (Subject to NPC processing)',
-                'supported_notes' => 'Provide accurate applicant and parent details exactly matching birth and NIN records.',
-                'required_fields' => ['nin', 'firstname', 'surname', 'dob', 'phone', 'email'],
-                'required_documents' => [$docSupportOptional],
+                'supported_notes' => 'Provide complete Applicant, Father, and Mother biodata, dates of birth, residence, and origin details matching birth and NIN records.',
+                'required_fields' => [
+                    'nin', 'firstname', 'surname', 'dob', 'phone', 'email', 'state', 'lga', 'town', 'origin_state', 'origin_lga', 'address',
+                    'father_firstname', 'father_surname', 'father_dob', 'father_state', 'father_lga', 'father_town', 'father_origin_state', 'father_origin_lga', 'father_address',
+                    'mother_firstname', 'mother_surname', 'mother_dob', 'mother_state', 'mother_lga', 'mother_town', 'mother_origin_state', 'mother_origin_lga', 'mother_address',
+                ],
+                'required_documents' => [],
                 'form_schema' => [
-                    ['key' => 'nin', 'provider_param' => 'nin', 'label' => 'Applicant 11-Digit NIN', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => '11-digit NIN', 'help_text' => 'Applicant\'s existing National Identification Number.'],
-                    ['key' => 'firstname', 'provider_param' => 'firstname', 'label' => 'First Name', 'type' => 'text', 'required' => true, 'placeholder' => 'First name'],
-                    ['key' => 'surname', 'provider_param' => 'surname', 'label' => 'Surname / Last Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Surname'],
-                    ['key' => 'middlename', 'provider_param' => 'middlename', 'label' => 'Middle Name (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'Middle name'],
-                    ['key' => 'dob', 'provider_param' => 'dob', 'label' => 'Date of Birth', 'type' => 'date', 'required' => true],
-                    ['key' => 'phone', 'provider_param' => 'phone', 'label' => 'Contact Phone', 'type' => 'tel', 'required' => true, 'maxLength' => 11, 'placeholder' => '080...'],
-                    ['key' => 'email', 'provider_param' => 'email', 'label' => 'Contact Email', 'type' => 'email', 'required' => true, 'placeholder' => 'applicant@example.com'],
-                    ['key' => 'state', 'provider_param' => 'state', 'label' => 'State of Residence (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'lga', 'provider_param' => 'lga', 'label' => 'LGA of Residence (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'town', 'provider_param' => 'town', 'label' => 'Town / City (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'origin_state', 'provider_param' => 'origin_state', 'label' => 'State of Origin (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'origin_lga', 'provider_param' => 'origin_lga', 'label' => 'LGA of Origin (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'address', 'provider_param' => 'address', 'label' => 'Residential Address (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'father_nin', 'provider_param' => 'father_nin', 'label' => 'Father\'s NIN (Optional)', 'type' => 'text', 'required' => false, 'maxLength' => 11],
-                    ['key' => 'father_firstname', 'provider_param' => 'father_firstname', 'label' => 'Father\'s First Name (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'father_surname', 'provider_param' => 'father_surname', 'label' => 'Father\'s Surname (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'father_middlename', 'provider_param' => 'father_middlename', 'label' => 'Father\'s Middle Name (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'father_state', 'provider_param' => 'father_state', 'label' => 'Father\'s State of Origin (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'father_lga', 'provider_param' => 'father_lga', 'label' => 'Father\'s LGA of Origin (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'mother_nin', 'provider_param' => 'mother_nin', 'label' => 'Mother\'s NIN (Optional)', 'type' => 'text', 'required' => false, 'maxLength' => 11],
-                    ['key' => 'mother_firstname', 'provider_param' => 'mother_firstname', 'label' => 'Mother\'s First Name (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'mother_surname', 'provider_param' => 'mother_surname', 'label' => 'Mother\'s Surname (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'mother_middlename', 'provider_param' => 'mother_middlename', 'label' => 'Mother\'s Middle Name (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'mother_state', 'provider_param' => 'mother_state', 'label' => 'Mother\'s State of Origin (Optional)', 'type' => 'text', 'required' => false],
-                    ['key' => 'mother_lga', 'provider_param' => 'mother_lga', 'label' => 'Mother\'s LGA of Origin (Optional)', 'type' => 'text', 'required' => false],
+                    // Section 1: Applicant
+                    ['key' => 'nin', 'section' => 'applicant', 'provider_param' => 'nin', 'label' => 'Applicant 11-Digit NIN', 'type' => 'text', 'required' => true, 'maxLength' => 11, 'placeholder' => '11-digit NIN', 'help_text' => 'Applicant\'s existing National Identification Number.'],
+                    ['key' => 'firstname', 'section' => 'applicant', 'provider_param' => 'firstname', 'label' => 'First Name', 'type' => 'text', 'required' => true, 'placeholder' => 'First name'],
+                    ['key' => 'middlename', 'section' => 'applicant', 'provider_param' => 'middlename', 'label' => 'Middle Name (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'Middle name'],
+                    ['key' => 'surname', 'section' => 'applicant', 'provider_param' => 'surname', 'label' => 'Surname / Last Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Surname'],
+                    ['key' => 'dob', 'section' => 'applicant', 'provider_param' => 'dob', 'label' => 'Date of Birth', 'type' => 'date', 'required' => true],
+                    ['key' => 'phone', 'section' => 'applicant', 'provider_param' => 'phone', 'label' => 'Contact Phone', 'type' => 'tel', 'required' => true, 'maxLength' => 11, 'placeholder' => '080...'],
+                    ['key' => 'email', 'section' => 'applicant', 'provider_param' => 'email', 'label' => 'Contact Email', 'type' => 'email', 'required' => true, 'placeholder' => 'applicant@example.com'],
+                    ['key' => 'address', 'section' => 'applicant', 'provider_param' => 'address', 'label' => 'Residential Street Address', 'type' => 'text', 'required' => true, 'placeholder' => 'House no., street name, area'],
+                    ['key' => 'town', 'section' => 'applicant', 'provider_param' => 'town', 'label' => 'Town / City of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Ikeja'],
+                    ['key' => 'state', 'section' => 'applicant', 'provider_param' => 'state', 'label' => 'State of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Lagos'],
+                    ['key' => 'lga', 'section' => 'applicant', 'provider_param' => 'lga', 'label' => 'LGA of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Ikeja'],
+                    ['key' => 'origin_state', 'section' => 'applicant', 'provider_param' => 'origin_state', 'label' => 'State of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Kano'],
+                    ['key' => 'origin_lga', 'section' => 'applicant', 'provider_param' => 'origin_lga', 'label' => 'LGA of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g., Nassarawa'],
+
+                    // Section 2: Father
+                    ['key' => 'father_firstname', 'section' => 'father', 'provider_param' => 'father_firstname', 'label' => 'Father\'s First Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Father first name'],
+                    ['key' => 'father_middlename', 'section' => 'father', 'provider_param' => 'father_middlename', 'label' => 'Father\'s Middle Name (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'Father middle name'],
+                    ['key' => 'father_surname', 'section' => 'father', 'provider_param' => 'father_surname', 'label' => 'Father\'s Surname', 'type' => 'text', 'required' => true, 'placeholder' => 'Father surname'],
+                    ['key' => 'father_dob', 'section' => 'father', 'provider_param' => 'father_dob', 'label' => 'Father\'s Date of Birth', 'type' => 'date', 'required' => true],
+                    ['key' => 'father_address', 'section' => 'father', 'provider_param' => 'father_address', 'label' => 'Father\'s Residential Address', 'type' => 'text', 'required' => true, 'placeholder' => 'Father street address'],
+                    ['key' => 'father_town', 'section' => 'father', 'provider_param' => 'father_town', 'label' => 'Father\'s Town / City', 'type' => 'text', 'required' => true, 'placeholder' => 'Father town'],
+                    ['key' => 'father_state', 'section' => 'father', 'provider_param' => 'father_state', 'label' => 'Father\'s State of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'Father state of residence'],
+                    ['key' => 'father_lga', 'section' => 'father', 'provider_param' => 'father_lga', 'label' => 'Father\'s LGA of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'Father LGA of residence'],
+                    ['key' => 'father_origin_state', 'section' => 'father', 'provider_param' => 'father_origin_state', 'label' => 'Father\'s State of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'Father state of origin'],
+                    ['key' => 'father_origin_lga', 'section' => 'father', 'provider_param' => 'father_origin_lga', 'label' => 'Father\'s LGA of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'Father LGA of origin'],
+
+                    // Section 3: Mother
+                    ['key' => 'mother_firstname', 'section' => 'mother', 'provider_param' => 'mother_firstname', 'label' => 'Mother\'s First Name', 'type' => 'text', 'required' => true, 'placeholder' => 'Mother first name'],
+                    ['key' => 'mother_middlename', 'section' => 'mother', 'provider_param' => 'mother_middlename', 'label' => 'Mother\'s Middle Name (Optional)', 'type' => 'text', 'required' => false, 'placeholder' => 'Mother middle name'],
+                    ['key' => 'mother_surname', 'section' => 'mother', 'provider_param' => 'mother_surname', 'label' => 'Mother\'s Surname', 'type' => 'text', 'required' => true, 'placeholder' => 'Mother surname'],
+                    ['key' => 'mother_dob', 'section' => 'mother', 'provider_param' => 'mother_dob', 'label' => 'Mother\'s Date of Birth', 'type' => 'date', 'required' => true],
+                    ['key' => 'mother_address', 'section' => 'mother', 'provider_param' => 'mother_address', 'label' => 'Mother\'s Residential Address', 'type' => 'text', 'required' => true, 'placeholder' => 'Mother street address'],
+                    ['key' => 'mother_town', 'section' => 'mother', 'provider_param' => 'mother_town', 'label' => 'Mother\'s Town / City', 'type' => 'text', 'required' => true, 'placeholder' => 'Mother town'],
+                    ['key' => 'mother_state', 'section' => 'mother', 'provider_param' => 'mother_state', 'label' => 'Mother\'s State of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'Mother state of residence'],
+                    ['key' => 'mother_lga', 'section' => 'mother', 'provider_param' => 'mother_lga', 'label' => 'Mother\'s LGA of Residence', 'type' => 'text', 'required' => true, 'placeholder' => 'Mother LGA of residence'],
+                    ['key' => 'mother_origin_state', 'section' => 'mother', 'provider_param' => 'mother_origin_state', 'label' => 'Mother\'s State of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'Mother state of origin'],
+                    ['key' => 'mother_origin_lga', 'section' => 'mother', 'provider_param' => 'mother_origin_lga', 'label' => 'Mother\'s LGA of Origin', 'type' => 'text', 'required' => true, 'placeholder' => 'Mother LGA of origin'],
                 ],
             ],
             [
@@ -3120,7 +3174,7 @@ class SchemaSync
         foreach ($additionalCatalog as $srv) {
             try {
                 $existing = $db->fetchOne(
-                    'SELECT id, category_id, processing_type, manual_label, estimated_turnaround, required_documents, form_schema, supported_notes, is_refundable FROM service_catalogue WHERE service_key = :sk LIMIT 1',
+                    'SELECT id, category_id, processing_type, manual_label, estimated_turnaround, required_fields, required_documents, form_schema, supported_notes, is_refundable FROM service_catalogue WHERE service_key = :sk LIMIT 1',
                     ['sk' => $srv['service_key']]
                 );
                 if (!$existing) {
@@ -3175,9 +3229,36 @@ class SchemaSync
                     $curSchema = is_string($existing['form_schema'] ?? null)
                         ? json_decode((string)$existing['form_schema'], true)
                         : ($existing['form_schema'] ?? null);
-                    if (empty($curSchema) || !is_array($curSchema)) {
+                    $schemaDrifted = empty($curSchema) || !is_array($curSchema);
+                    if (!$schemaDrifted && $srv['service_key'] === 'npc_attestation') {
+                        $sMap = [];
+                        foreach ($curSchema as $cs) {
+                            if (is_array($cs) && !empty($cs['key'])) {
+                                $sMap[$cs['key']] = $cs;
+                            }
+                        }
+                        if (
+                            !isset($sMap['father_dob'])
+                            || !isset($sMap['mother_dob'])
+                            || !isset($sMap['father_address'])
+                            || !isset($sMap['mother_address'])
+                            || !isset($sMap['father_origin_state'])
+                            || !isset($sMap['mother_origin_state'])
+                            || isset($sMap['father_nin'])
+                            || empty($sMap['nin']['section'])
+                        ) {
+                            $schemaDrifted = true;
+                        }
+                    }
+                    if ($schemaDrifted) {
                         $updCols[] = 'form_schema = :fschema';
+                        $updCols[] = 'required_fields = :rf';
                         $updParams['fschema'] = json_encode($srv['form_schema']);
+                        $updParams['rf'] = json_encode($srv['required_fields']);
+                        if ($srv['service_key'] === 'npc_attestation') {
+                            $updCols[] = 'required_documents = :rdocs_npc';
+                            $updParams['rdocs_npc'] = json_encode($srv['required_documents']);
+                        }
                     }
                     if (count($updCols) > 2 || ($existing['processing_type'] ?? '') !== 'manual' || ($existing['category_id'] ?? '') !== 'cat_add') {
                         $db->execute(

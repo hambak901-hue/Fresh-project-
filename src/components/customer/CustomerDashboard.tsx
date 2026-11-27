@@ -239,12 +239,30 @@ export function CustomerDashboard({
   const firstAllowedPage: CustomerPageKey = navSections[0]?.items[0]?.id || 'overview';
   const allowedIdsSignature = Array.from(allowedPageIds).join(',');
 
+  const [initialNinServiceView, setInitialNinServiceView] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const h = window.location.hash || '';
+      const qIdx = h.indexOf('?');
+      if (h.toLowerCase().includes('#nin') && qIdx !== -1) {
+        const hashParams = new URLSearchParams(h.slice(qIdx + 1));
+        const svc = hashParams.get('service');
+        if (svc) return svc;
+      }
+      const searchParams = new URLSearchParams(window.location.search || '');
+      return searchParams.get('service') || null;
+    }
+    return null;
+  });
+
   const [currentPage, setCurrentPage] = useState<CustomerPageKey>(() => {
     if (typeof window !== 'undefined') {
       const h = window.location.hash.toLowerCase();
       const s = window.location.search.toLowerCase();
       if ((h.includes('printing') || s.includes('printing_order')) && allowedPageIds.has('printing')) {
         return 'printing';
+      }
+      if ((h.includes('#nin') || s.includes('service=')) && allowedPageIds.has('nin')) {
+        return 'nin';
       }
     }
     const configured = resolveConfiguredCustomerPage(activeConfig?.default_tab);
@@ -289,6 +307,8 @@ export function CustomerDashboard({
       const s = typeof window !== 'undefined' ? window.location.search.toLowerCase() : '';
       if ((h.includes('printing') || s.includes('printing_order')) && allowedPageIds.has('printing')) {
         setCurrentPage('printing');
+      } else if ((h.includes('#nin') || s.includes('service=')) && allowedPageIds.has('nin')) {
+        setCurrentPage('nin');
       } else {
         const configured = resolveConfiguredCustomerPage(activeConfig?.default_tab);
         setCurrentPage(allowedPageIds.has(configured) ? configured : firstAllowedPage);
@@ -305,6 +325,17 @@ export function CustomerDashboard({
     const syncPrintHash = () => {
       const h = window.location.hash || '';
       const s = window.location.search || '';
+      if (h.toLowerCase().includes('#nin')) {
+        if (allowedPageIds.has('nin')) {
+          setCurrentPage('nin');
+        }
+        const qIdx = h.indexOf('?');
+        if (qIdx !== -1) {
+          const hashParams = new URLSearchParams(h.slice(qIdx + 1));
+          const svc = hashParams.get('service');
+          if (svc) setInitialNinServiceView(svc);
+        }
+      }
       if (h.toLowerCase().includes('printing') || s.toLowerCase().includes('printing_order')) {
         if (allowedPageIds.has('printing')) {
           setCurrentPage('printing');
@@ -379,8 +410,16 @@ export function CustomerDashboard({
     refreshUser();
   };
 
-  const handleSelectPage = (id: CustomerPageKey) => {
-    setCurrentPage(allowedPageIds.has(id) ? id : firstAllowedPage);
+  const handleSelectPage = (id: CustomerPageKey | string) => {
+    if (typeof id === 'string' && id.startsWith('nin:')) {
+      const targetService = id.slice(4);
+      setInitialNinServiceView(targetService || null);
+      setCurrentPage(allowedPageIds.has('nin') ? 'nin' : firstAllowedPage);
+      setMobileMenuOpen(false);
+      return;
+    }
+    const pageKey = id as CustomerPageKey;
+    setCurrentPage(allowedPageIds.has(pageKey) ? pageKey : firstAllowedPage);
     setMobileMenuOpen(false);
   };
 
@@ -885,7 +924,7 @@ export function CustomerDashboard({
             <>
               {safeCurrentPage === 'overview' && (
                 <DashboardOverview
-                  onNavigateToPage={page => handleSelectPage(page as CustomerPageKey)}
+                  onNavigateToPage={page => handleSelectPage(page)}
                   onOpenFundModal={handleOpenFundSafe}
                   effectiveDashboardKey={effectiveDashboardKey}
                   activeConfig={activeConfig}
@@ -894,7 +933,12 @@ export function CustomerDashboard({
                 />
               )}
 
-          {safeCurrentPage === 'nin' && <NinServicesPage />}
+          {safeCurrentPage === 'nin' && (
+            <NinServicesPage
+              initialServiceView={initialNinServiceView}
+              onServiceViewConsumed={() => setInitialNinServiceView(null)}
+            />
+          )}
 
           {safeCurrentPage === 'telecom' && <TelecomPage />}
 

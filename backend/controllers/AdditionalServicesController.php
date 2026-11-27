@@ -231,6 +231,14 @@ class AdditionalServicesController
             $resultMeta['result_document']['preview_url'] = $ep;
             $resultMeta['result_document']['download_url'] = $ep . '?download=1';
         }
+        if (!empty($resultMeta['secondary_result_document']) && is_array($resultMeta['secondary_result_document'])) {
+            $secDocId = (string)($resultMeta['secondary_result_document']['id'] ?? '');
+            $ep = '/api/additional-services/' . $row['id'] . '/result-document';
+            if ($secDocId !== '') {
+                $resultMeta['secondary_result_document']['preview_url'] = $ep . '?doc_id=' . urlencode($secDocId);
+                $resultMeta['secondary_result_document']['download_url'] = $ep . '?download=1&doc_id=' . urlencode($secDocId);
+            }
+        }
 
         $infoHistory = $this->decodeJsonColumn($row['additional_info_history'] ?? null, []);
         $queryReviewStatus = (string)($fields['query_review_status'] ?? '');
@@ -758,7 +766,8 @@ class AdditionalServicesController
         $user = Auth::requireAuth($request);
         $id = trim((string)($params['id'] ?? ''));
         $forceDownload = in_array((string)$request->query('download', ''), ['1', 'true', 'yes'], true);
-        ResultDocumentService::streamResultDocument($this->db, $user, 'modification', $id, $forceDownload);
+        $docId = trim((string)$request->query('doc_id', ''));
+        ResultDocumentService::streamResultDocument($this->db, $user, 'modification', $id, $forceDownload, $docId !== '' ? $docId : null);
     }
 
     /**
@@ -1673,6 +1682,38 @@ class AdditionalServicesController
             $note !== '' ? 'Customer clarification submitted: ' . mb_substr($note, 0, 220) : 'Customer submitted clarification document(s)',
             true
         );
+
+        FootprintService::record([
+            'user_id' => $user['id'],
+            'user_email' => $user['email'] ?? null,
+            'user_name' => $user['full_name'] ?? null,
+            'category' => 'services',
+            'action' => 'CUSTOMER_ADDITIONAL_SERVICE_QUERY_RESPONDED',
+            'service_type' => $row['service_key'] ?? 'additional_services',
+            'reference' => $row['request_number'] ?? $row['id'],
+            'status' => 'processing',
+            'metadata' => [
+                'review_state' => 'submitted_for_admin_review',
+                'documents_attached' => count($attachedDocMeta),
+            ],
+        ]);
+
+        try {
+            $adminRow = $this->db->fetchOne('SELECT id FROM users WHERE role IN ("superadmin", "admin") ORDER BY created_at ASC LIMIT 1');
+            if ($adminRow) {
+                $this->db->execute(
+                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, action_link, created_at)
+                     VALUES (:id, :uid, :title, :msg, "info", 0, "#modifications", NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'uid' => $adminRow['id'],
+                        'title' => 'Additional Info Submitted: ' . ($row['request_number'] ?? $row['id']),
+                        'msg' => 'Customer submitted additional clarification/documents for ' . ($row['service_name'] ?? 'service request') . ' (' . ($row['request_number'] ?? $row['id']) . '). Administrator review required.',
+                    ]
+                );
+            }
+        } catch (Throwable) {
+        }
 
         $updated = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $row['id']]);
         Response::success([

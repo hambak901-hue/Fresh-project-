@@ -1550,6 +1550,7 @@ export interface ModificationFormField {
   conditional_on?: ModificationFieldCondition;
   provider_param?: string;
   validation_hint?: string;
+  section?: string;
   options?: ModificationFormFieldOption[];
 }
 
@@ -1693,6 +1694,7 @@ export interface ModificationRequestItem {
   result_document_id?: string | null;
   result_source?: 'provider_issued' | 'admin_uploaded' | string | null;
   result_document?: ResultDocumentMeta | null;
+  secondary_result_document?: ResultDocumentMeta | null;
   provider_tracking_id?: string | null;
   result_details?: Record<string, any> | null;
   result_retrieval_status?: string | null;
@@ -1920,6 +1922,7 @@ export interface EnrolmentOrderItem {
   result_document_id?: string | null;
   result_source?: 'provider_issued' | 'admin_uploaded' | string | null;
   result_document?: ResultDocumentMeta | null;
+  secondary_result_document?: ResultDocumentMeta | null;
   provider_tracking_id?: string | null;
   result_details?: Record<string, any> | null;
   result_retrieval_status?: string | null;

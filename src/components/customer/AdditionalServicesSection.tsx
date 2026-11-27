@@ -17,6 +17,7 @@ import {
   UserCheck,
   AlertTriangle,
   Info,
+  ArrowLeft,
   ArrowRight,
   Ban,
 } from 'lucide-react';
@@ -33,6 +34,10 @@ import {
 
 interface AdditionalServicesSectionProps {
   initialServiceKey?: string;
+  lockedServiceKey?: string;
+  allowedServiceKeys?: string[];
+  serviceTitleOverride?: string;
+  onBackToHub?: () => void;
   onRequestUpdated?: () => void;
   onOpenHistoryTab?: () => void;
 }
@@ -133,18 +138,47 @@ function generateIdempotencyKey(): string {
   return `add_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+const SECTION_TITLES: Record<string, { title: string; subtitle: string }> = {
+  applicant: {
+    title: '1. Applicant Biodata & Residential Address',
+    subtitle: 'Enter the applicant details exactly as required on the NPC Birth Attestation record.',
+  },
+  father: {
+    title: "2. Father's Details",
+    subtitle: 'Provide father biodata, origin state/LGA, and residential address.',
+  },
+  mother: {
+    title: "3. Mother's Details",
+    subtitle: 'Provide mother biodata, origin state/LGA, and residential address.',
+  },
+};
+
 export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps> = ({
   initialServiceKey,
+  lockedServiceKey,
+  allowedServiceKeys,
+  serviceTitleOverride,
+  onBackToHub,
   onRequestUpdated,
   onOpenHistoryTab,
 }) => {
   const { user, refreshUser } = useAuth();
   const walletBalance = Number(user?.wallet_balance ?? 0);
 
+  const scopedKeys = useMemo(() => {
+    if (lockedServiceKey) return [lockedServiceKey];
+    if (allowedServiceKeys && allowedServiceKeys.length > 0) return allowedServiceKeys;
+    return null;
+  }, [lockedServiceKey, allowedServiceKeys]);
+
+  const isDedicatedMode = Boolean(scopedKeys && scopedKeys.length > 0);
+  const preferredInitialKey = lockedServiceKey || allowedServiceKeys?.[0] || initialServiceKey || '';
+
   const [services, setServices] = useState<AdditionalServiceCatalogItem[]>([]);
   const [unverifiedServices, setUnverifiedServices] = useState<UnverifiedServiceNotice[]>([]);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
-  const [selectedKey, setSelectedKey] = useState<string>(initialServiceKey || '');
+  const [selectedKey, setSelectedKey] = useState<string>(preferredInitialKey);
+  const [filterByActiveService, setFilterByActiveService] = useState<boolean>(isDedicatedMode);
 
   const [formValues, setFormValues] = useState<Record<string, any>>({});
   const [uploadedDocs, setUploadedDocs] = useState<Record<string, ModificationDocumentAttachment>>({});
@@ -188,6 +222,16 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
       setUnverifiedServices(Array.isArray(res.unverified_services) ? res.unverified_services : []);
       if (list.length > 0) {
         setSelectedKey(prev => {
+          if (lockedServiceKey && list.some(s => s.service_key === lockedServiceKey)) {
+            return lockedServiceKey;
+          }
+          if (allowedServiceKeys && allowedServiceKeys.length > 0) {
+            if (prev && allowedServiceKeys.includes(prev) && list.some(s => s.service_key === prev)) {
+              return prev;
+            }
+            const firstMatch = list.find(s => allowedServiceKeys.includes(s.service_key));
+            if (firstMatch) return firstMatch.service_key;
+          }
           if (initialServiceKey && list.some(s => s.service_key === initialServiceKey)) {
             return initialServiceKey;
           }
@@ -202,7 +246,7 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
     } finally {
       setLoadingCatalog(false);
     }
-  }, [initialServiceKey]);
+  }, [initialServiceKey, lockedServiceKey, allowedServiceKeys]);
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
@@ -222,6 +266,17 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
   }, [loadCatalog, loadHistory]);
 
   useEffect(() => {
+    setFilterByActiveService(isDedicatedMode);
+    if (lockedServiceKey) {
+      setSelectedKey(lockedServiceKey);
+    } else if (allowedServiceKeys && allowedServiceKeys.length > 0) {
+      setSelectedKey(prev => (prev && allowedServiceKeys.includes(prev) ? prev : allowedServiceKeys[0]));
+    } else if (initialServiceKey) {
+      setSelectedKey(initialServiceKey);
+    }
+  }, [isDedicatedMode, lockedServiceKey, allowedServiceKeys, initialServiceKey]);
+
+  useEffect(() => {
     return () => {
       if (previewBlobUrl) {
         try {
@@ -232,10 +287,15 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
     };
   }, [previewBlobUrl]);
 
-  const selectedService = useMemo(
-    () => services.find(s => s.service_key === selectedKey) || services[0] || null,
-    [services, selectedKey]
-  );
+  const visibleCatalogServices = useMemo(() => {
+    if (!scopedKeys) return services;
+    return services.filter(s => scopedKeys.includes(s.service_key));
+  }, [services, scopedKeys]);
+
+  const selectedService = useMemo(() => {
+    const pool = visibleCatalogServices.length > 0 ? visibleCatalogServices : services;
+    return pool.find(s => s.service_key === selectedKey) || pool[0] || null;
+  }, [visibleCatalogServices, services, selectedKey]);
 
   // Initialize default select values when service changes
   useEffect(() => {
@@ -263,6 +323,26 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
     if (!selectedService) return [];
     return (selectedService.form_schema || []).filter(f => isFieldConditionMet(f, formValues));
   }, [selectedService, formValues]);
+
+  const groupedFieldSections = useMemo(() => {
+    const hasSections = visibleFields.some(f => Boolean(f.section));
+    if (!hasSections) return null;
+    const order: string[] = [];
+    const map: Record<string, ModificationFormField[]> = {};
+    for (const f of visibleFields) {
+      const sec = f.section || 'other';
+      if (!map[sec]) {
+        map[sec] = [];
+        order.push(sec);
+      }
+      map[sec].push(f);
+    }
+    return order.map(sec => ({
+      key: sec,
+      meta: SECTION_TITLES[sec] || { title: sec.replace(/_/g, ' '), subtitle: '' },
+      fields: map[sec],
+    }));
+  }, [visibleFields]);
 
   const handleFieldChange = (key: string, val: any) => {
     setFormValues(prev => ({ ...prev, [key]: val }));
@@ -419,8 +499,15 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
     }
   };
 
-  const handlePreviewPdf = async (req: AdditionalServiceRequest) => {
-    const url = req.result_document?.preview_url || req.result_document?.file_url || `/api/additional-services/${encodeURIComponent(req.id)}/result-document`;
+  const handlePreviewPdf = async (
+    req: AdditionalServiceRequest,
+    docMeta?: AdditionalServiceRequest['result_document']
+  ) => {
+    const targetDoc = docMeta || req.result_document;
+    const url =
+      targetDoc?.preview_url ||
+      targetDoc?.file_url ||
+      `/api/additional-services/${encodeURIComponent(req.id)}/result-document`;
     setLoadingPreview(true);
     setError(null);
     try {
@@ -432,7 +519,8 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
         }
       }
       setPreviewBlobUrl(blobUrl);
-      setPreviewTitle(`${req.service_name} — ${req.request_number}`);
+      const labelSuffix = docMeta && docMeta.id !== req.result_document?.id ? ` (${docMeta.source_label || 'Slip'})` : '';
+      setPreviewTitle(`${req.service_name} — ${req.request_number}${labelSuffix}`);
     } catch (e: any) {
       setError(e?.message || 'Unable to load result PDF preview.');
     } finally {
@@ -440,12 +528,21 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
     }
   };
 
-  const handleDownloadPdf = async (req: AdditionalServiceRequest) => {
-    const url = req.result_document?.download_url || `/api/additional-services/${encodeURIComponent(req.id)}/result-document?download=1`;
-    setDownloadingId(req.id);
+  const handleDownloadPdf = async (
+    req: AdditionalServiceRequest,
+    docMeta?: AdditionalServiceRequest['result_document'],
+    dlKeySuffix: string = 'primary'
+  ) => {
+    const targetDoc = docMeta || req.result_document;
+    const url =
+      targetDoc?.download_url ||
+      (targetDoc?.file_url
+        ? `${targetDoc.file_url}${targetDoc.file_url.includes('?') ? '&' : '?'}download=1`
+        : `/api/additional-services/${encodeURIComponent(req.id)}/result-document?download=1`);
+    setDownloadingId(`${req.id}_${dlKeySuffix}`);
     setError(null);
     try {
-      const fname = req.result_document?.original_name || `${req.request_number}_result.pdf`;
+      const fname = targetDoc?.original_name || `${req.request_number}_${dlKeySuffix}.pdf`;
       await api.downloadProtectedFile(url, fname);
     } catch (e: any) {
       setError(e?.message || 'Unable to download PDF.');
@@ -505,6 +602,9 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
   const filteredRequests = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return requests.filter(r => {
+      if (filterByActiveService && scopedKeys && !scopedKeys.includes(r.service_key)) {
+        return false;
+      }
       if (statusFilter !== 'all' && String(r.status).toLowerCase() !== statusFilter) {
         return false;
       }
@@ -516,27 +616,112 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
         String(r.payment_reference || '').toLowerCase().includes(q)
       );
     });
-  }, [requests, statusFilter, searchTerm]);
+  }, [requests, filterByActiveService, scopedKeys, statusFilter, searchTerm]);
 
   const pollableStatuses = ['pending', 'under_review', 'assigned', 'processing', 'query_required'];
+  const useWideFormColumn = visibleFields.length > 6;
+
+  const renderFieldInput = (field: ModificationFormField) => {
+    const val = formValues[field.key] ?? '';
+    const isWide =
+      field.type === 'textarea' ||
+      field.key === 'address' ||
+      field.key === 'father_address' ||
+      field.key === 'mother_address' ||
+      field.key === 'email';
+    return (
+      <div key={field.key} className={`${isWide ? 'sm:col-span-2 ' : ''}space-y-1.5`}>
+        <div className="flex items-center justify-between gap-2">
+          <label
+            htmlFor={`add-field-${field.key}`}
+            className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
+          >
+            {field.label}
+            {field.required && <span className="text-rose-500 ml-1">*</span>}
+          </label>
+          {field.maxLength && (
+            <span className="text-[10px] font-mono tabular-nums text-slate-400">
+              {String(val).length}/{field.maxLength}
+            </span>
+          )}
+        </div>
+
+        {field.type === 'select' ? (
+          <select
+            id={`add-field-${field.key}`}
+            value={val}
+            onChange={e => handleFieldChange(field.key, e.target.value)}
+            required={field.required}
+            className="w-full min-h-[42px] px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {(field.options || []).map(opt => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        ) : field.type === 'textarea' ? (
+          <textarea
+            id={`add-field-${field.key}`}
+            rows={3}
+            value={val}
+            maxLength={field.maxLength}
+            onChange={e => handleFieldChange(field.key, e.target.value)}
+            placeholder={field.placeholder || ''}
+            required={field.required}
+            className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        ) : (
+          <input
+            id={`add-field-${field.key}`}
+            type={field.type === 'email' ? 'email' : field.type === 'tel' ? 'tel' : field.type === 'date' ? 'date' : 'text'}
+            value={val}
+            maxLength={field.maxLength}
+            onChange={e => handleFieldChange(field.key, e.target.value)}
+            placeholder={field.placeholder || ''}
+            required={field.required}
+            className="w-full min-h-[42px] px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        )}
+
+        {(field.help_text || field.helper) && (
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            {field.help_text || field.helper}
+          </p>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
       {/* Main Grid: Service Catalog + Form | Tracker */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left: Service Selection & Dynamic Submission Form */}
-        <div className="lg:col-span-6 space-y-5">
+        <div className={`${useWideFormColumn ? 'lg:col-span-7' : 'lg:col-span-6'} space-y-5`}>
           <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <span className="text-[11px] font-mono uppercase tracking-wider text-blue-600 dark:text-emerald-400 font-bold">
-                  Verified Async NIMC / Clearance Services
+              <div className="space-y-1">
+                {onBackToHub && (
+                  <button
+                    type="button"
+                    onClick={onBackToHub}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-emerald-400 hover:underline mb-0.5"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to Identity Services Hub</span>
+                  </button>
+                )}
+                <span className="block text-[11px] font-mono uppercase tracking-wider text-blue-600 dark:text-emerald-400 font-bold">
+                  {isDedicatedMode ? 'Dedicated Service Workspace' : 'Verified Async NIMC / Clearance Services'}
                 </span>
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">
-                  Clearance, Validation &amp; Personalisation
+                  {serviceTitleOverride || (isDedicatedMode && selectedService ? selectedService.name : 'Clearance, Validation & Personalisation')}
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Submit genuine async clearance, validation, personalisation, NPC attestation, or NIN delinking requests directly to NIMC/provider pipelines.
+                  {isDedicatedMode && selectedService
+                    ? selectedService.description
+                    : 'Submit genuine async clearance, validation, personalisation, NPC attestation, or NIN delinking requests directly to NIMC/provider pipelines.'}
                 </p>
               </div>
               {onOpenHistoryTab && (
@@ -557,53 +742,57 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
               </div>
             ) : (
               <>
-                {/* Verified 7-Service Picker */}
-                <div className="space-y-2">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Select Verified Service ({services.length})
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {services.map(srv => {
-                      const active = selectedService?.service_key === srv.service_key;
-                      const price = Number(srv.selling_price ?? srv.price ?? 0);
-                      return (
-                        <button
-                          key={srv.service_key}
-                          type="button"
-                          onClick={() => setSelectedKey(srv.service_key)}
-                          className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between gap-2 ${
-                            active
-                              ? 'bg-blue-50/80 dark:bg-emerald-500/10 border-blue-500 dark:border-emerald-500 ring-1 ring-blue-500/20 dark:ring-emerald-500/20'
-                              : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <span className="text-xs font-bold text-slate-900 dark:text-white leading-snug">
-                              {srv.name}
-                            </span>
-                            <span className="font-mono tabular-nums text-xs font-extrabold text-blue-700 dark:text-emerald-400 shrink-0">
-                              ₦{price.toLocaleString('en-NG')}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2 text-[10px]">
-                            <span className="text-slate-500 dark:text-slate-400 truncate">
-                              {srv.estimated_turnaround}
-                            </span>
-                            {srv.is_refundable ? (
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold whitespace-nowrap">
-                                Auto-Refund
+                {/* Service Picker (Full 7-Service Grid in Hub Mode, Clean Option Switcher when multiple variants like Personalisation V1/V2) */}
+                {(!isDedicatedMode || visibleCatalogServices.length > 1) && (
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      {isDedicatedMode
+                        ? `Select Personalisation Option (${visibleCatalogServices.length})`
+                        : `Select Verified Service (${visibleCatalogServices.length})`}
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {visibleCatalogServices.map(srv => {
+                        const active = selectedService?.service_key === srv.service_key;
+                        const price = Number(srv.selling_price ?? srv.price ?? 0);
+                        return (
+                          <button
+                            key={srv.service_key}
+                            type="button"
+                            onClick={() => setSelectedKey(srv.service_key)}
+                            className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between gap-2 ${
+                              active
+                                ? 'bg-blue-50/80 dark:bg-emerald-500/10 border-blue-500 dark:border-emerald-500 ring-1 ring-blue-500/20 dark:ring-emerald-500/20'
+                                : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="text-xs font-bold text-slate-900 dark:text-white leading-snug">
+                                {srv.name}
                               </span>
-                            ) : (
-                              <span className="px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-300 font-bold whitespace-nowrap">
-                                Non-Refundable
+                              <span className="font-mono tabular-nums text-xs font-extrabold text-blue-700 dark:text-emerald-400 shrink-0">
+                                ₦{price.toLocaleString('en-NG')}
                               </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
+                            </div>
+                            <div className="flex items-center justify-between gap-2 text-[10px]">
+                              <span className="text-slate-500 dark:text-slate-400 truncate">
+                                {srv.estimated_turnaround}
+                              </span>
+                              {srv.is_refundable ? (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold whitespace-nowrap">
+                                  Auto-Refund
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-300 font-bold whitespace-nowrap">
+                                  Non-Refundable
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {error && (
                   <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 text-rose-700 dark:text-rose-300 text-xs">
@@ -651,72 +840,39 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
                       </div>
                     )}
 
-                    {/* Dynamic Form Schema Fields (Conditional-Aware) */}
-                    {visibleFields.map(field => {
-                      const val = formValues[field.key] ?? '';
-                      return (
-                        <div key={field.key} className="space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <label
-                              htmlFor={`add-field-${field.key}`}
-                              className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
-                            >
-                              {field.label}
-                              {field.required && <span className="text-rose-500 ml-1">*</span>}
-                            </label>
-                            {field.maxLength && (
-                              <span className="text-[10px] font-mono tabular-nums text-slate-400">
-                                {String(val).length}/{field.maxLength}
-                              </span>
-                            )}
+                    {/* Dynamic Form Schema Fields (Section-Grouped for NPC Attestation, Conditional-Aware) */}
+                    {groupedFieldSections ? (
+                      <div className="space-y-4">
+                        {groupedFieldSections.map(group => (
+                          <div
+                            key={group.key}
+                            className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-3"
+                          >
+                            <div>
+                              <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                                {group.meta.title}
+                              </h4>
+                              {group.meta.subtitle && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                  {group.meta.subtitle}
+                                </p>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                              {group.fields.map(renderFieldInput)}
+                            </div>
                           </div>
-
-                          {field.type === 'select' ? (
-                            <select
-                              id={`add-field-${field.key}`}
-                              value={val}
-                              onChange={e => handleFieldChange(field.key, e.target.value)}
-                              required={field.required}
-                              className="w-full min-h-[42px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
-                              {(field.options || []).map(opt => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : field.type === 'textarea' ? (
-                            <textarea
-                              id={`add-field-${field.key}`}
-                              rows={3}
-                              value={val}
-                              maxLength={field.maxLength}
-                              onChange={e => handleFieldChange(field.key, e.target.value)}
-                              placeholder={field.placeholder || ''}
-                              required={field.required}
-                              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                          ) : (
-                            <input
-                              id={`add-field-${field.key}`}
-                              type={field.type === 'email' ? 'email' : field.type === 'tel' ? 'tel' : field.type === 'date' ? 'date' : 'text'}
-                              value={val}
-                              maxLength={field.maxLength}
-                              onChange={e => handleFieldChange(field.key, e.target.value)}
-                              placeholder={field.placeholder || ''}
-                              required={field.required}
-                              className="w-full min-h-[42px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                          )}
-
-                          {(field.help_text || field.helper) && (
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                              {field.help_text || field.helper}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
+                        ))}
+                      </div>
+                    ) : visibleFields.length >= 4 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {visibleFields.map(renderFieldInput)}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {visibleFields.map(renderFieldInput)}
+                      </div>
+                    )}
 
                     {/* Supporting Documents (Optional / Required per Catalog) */}
                     {(selectedService.required_documents || []).length > 0 && (
@@ -865,7 +1021,7 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
           </div>
 
           {/* Unverified / Not Yet Supported Services Disclosure Panel */}
-          {unverifiedServices.length > 0 && (
+          {!isDedicatedMode && unverifiedServices.length > 0 && (
             <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 space-y-3 shadow-sm">
               <div className="flex items-center gap-2">
                 <Ban className="w-4 h-4 text-slate-500 dark:text-slate-400" />
@@ -911,25 +1067,38 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
         </div>
 
         {/* Right: Customer Request Tracker & Status Polling */}
-        <div className="lg:col-span-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 shadow-sm">
+        <div className={`${useWideFormColumn ? 'lg:col-span-5' : 'lg:col-span-6'} rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 shadow-sm`}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                Clearance &amp; Additional Request Tracker
+                {isDedicatedMode && selectedService
+                  ? `${selectedService.name} Tracker`
+                  : 'Clearance & Additional Request Tracker'}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Track live provider status, check document reviews, respond to queries, and download official PDFs.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => void loadHistory()}
-              disabled={loadingHistory}
-              className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 whitespace-nowrap"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingHistory ? 'animate-spin' : ''}`} />
-              <span>Refresh</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              {isDedicatedMode && (
+                <button
+                  type="button"
+                  onClick={() => setFilterByActiveService(prev => !prev)}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition whitespace-nowrap"
+                >
+                  {filterByActiveService ? 'Show All Clearance Orders' : 'Filter to This Service'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void loadHistory()}
+                disabled={loadingHistory}
+                className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingHistory ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
           </div>
 
           {/* Search & Status Filter Bar */}
@@ -1048,6 +1217,27 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
                       </div>
                     )}
 
+                    {req.result_details &&
+                      Object.entries(req.result_details).some(([, v]) => v !== null && v !== undefined && String(v).trim() !== '') && (
+                        <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                          {Object.entries(req.result_details)
+                            .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+                            .map(([k, v]) => (
+                              <div
+                                key={k}
+                                className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/70 dark:border-emerald-500/25"
+                              >
+                                <span className="text-[9px] uppercase font-bold text-slate-500 block">
+                                  {k.replace(/_/g, ' ')}
+                                </span>
+                                <span className="font-mono text-[11px] font-bold text-slate-900 dark:text-emerald-300 break-all">
+                                  {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+
                     <div className="flex items-center gap-2 flex-wrap pt-1">
                       <button
                         type="button"
@@ -1091,10 +1281,10 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
                           <button
                             type="button"
                             onClick={() => void handleDownloadPdf(req)}
-                            disabled={downloadingId === req.id}
+                            disabled={downloadingId === `${req.id}_primary`}
                             className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1.5"
                           >
-                            {downloadingId === req.id ? (
+                            {downloadingId === `${req.id}_primary` ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : (
                               <Download className="w-3.5 h-3.5" />
@@ -1102,6 +1292,22 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
                             <span>Download PDF</span>
                           </button>
                         </>
+                      )}
+
+                      {req.secondary_result_document && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDownloadPdf(req, req.secondary_result_document, 'secondary')}
+                          disabled={downloadingId === `${req.id}_secondary`}
+                          className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center gap-1.5"
+                        >
+                          {downloadingId === `${req.id}_secondary` ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
+                          <span>{req.secondary_result_document.source_label || 'Premium Slip PDF'}</span>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -1245,38 +1451,98 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
               </div>
             )}
 
-            {/* Official Result Document */}
-            {detailReq.has_result_document && (
-              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                    Official Result PDF Available
+            {/* Official Result Document(s) & Returned Tracking / NIN Details */}
+            {(detailReq.has_result_document ||
+              detailReq.secondary_result_document ||
+              (detailReq.result_details && Object.keys(detailReq.result_details).length > 0)) && (
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 space-y-3">
+                {detailReq.has_result_document && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                        Official Result PDF Available
+                      </div>
+                      <p className="text-[11px] text-emerald-700/90 dark:text-emerald-200/80">
+                        {detailReq.result_document?.source_label || 'Verified Result Document'}
+                        {detailReq.provider_tracking_id ? ` • Tracking ID: ${detailReq.provider_tracking_id}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => void handlePreviewPdf(detailReq)}
+                        disabled={loadingPreview}
+                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-600 text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5"
+                      >
+                        {loadingPreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+                        <span>Preview</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDownloadPdf(detailReq)}
+                        disabled={downloadingId === `${detailReq.id}_primary`}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-emerald-700/90 dark:text-emerald-200/80">
-                    {detailReq.result_document?.source_label || 'Verified Result Document'}
-                    {detailReq.provider_tracking_id ? ` • Tracking ID: ${detailReq.provider_tracking_id}` : ''}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => void handlePreviewPdf(detailReq)}
-                    disabled={loadingPreview}
-                    className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-600 text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5"
-                  >
-                    {loadingPreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
-                    <span>Preview</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDownloadPdf(detailReq)}
-                    disabled={downloadingId === detailReq.id}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download</span>
-                  </button>
-                </div>
+                )}
+
+                {detailReq.secondary_result_document && (
+                  <div className="pt-2.5 border-t border-emerald-200/70 dark:border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-bold text-indigo-800 dark:text-indigo-300">
+                        {detailReq.secondary_result_document.source_label || 'Secondary Official Slip PDF'}
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                        {detailReq.secondary_result_document.original_name}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => void handlePreviewPdf(detailReq, detailReq.secondary_result_document)}
+                        disabled={loadingPreview}
+                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-500/50 text-xs font-semibold text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview Slip</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDownloadPdf(detailReq, detailReq.secondary_result_document, 'secondary')}
+                        disabled={downloadingId === `${detailReq.id}_secondary`}
+                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download Slip</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {detailReq.result_details &&
+                  Object.entries(detailReq.result_details).some(([, v]) => v !== null && v !== undefined && String(v).trim() !== '') && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      {Object.entries(detailReq.result_details)
+                        .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+                        .map(([k, v]) => (
+                          <div
+                            key={k}
+                            className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/70 dark:border-slate-800"
+                          >
+                            <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">
+                              {k.replace(/_/g, ' ')}
+                            </div>
+                            <div className="text-xs font-mono font-bold text-slate-900 dark:text-emerald-300 mt-0.5 break-all">
+                              {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
               </div>
             )}
 

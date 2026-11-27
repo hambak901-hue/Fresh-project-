@@ -24,6 +24,8 @@ import { TransactionPinModal } from './TransactionPinModal';
 import { ModificationSection, getModificationStatusStyle } from './ModificationSection';
 import { EnrolmentSection, getEnrolmentStatusStyle } from './EnrolmentSection';
 import { AdditionalServicesSection, getAdditionalServiceStatusStyle } from './AdditionalServicesSection';
+import { AdditionalInfoSubmissionSection } from './AdditionalInfoSubmissionSection';
+import { DedicatedUnverifiedNoticeCard, UnverifiedServiceKey } from './DedicatedUnverifiedNoticeCard';
 import { downloadVerificationReportPdf, extractVerificationReport } from '../../lib/pdfReport';
 import {
   ShieldCheck,
@@ -52,6 +54,56 @@ type HubCategory = 'nin_verify' | 'bvn_verify' | 'nin_mod' | 'bvn_mod' | 'enrolm
 type NinSearchType = 'nin_v1' | 'phone_v1' | 'demo_v1' | 'vnin_verification';
 type BvnSearchMode = 'bvn_number' | 'bvn_retrieval';
 
+export interface DedicatedServiceDirectoryItem {
+  key: string;
+  label: string;
+  subtitle: string;
+  badge?: string;
+  supported: boolean;
+}
+
+export const DEDICATED_11_SERVICES: DedicatedServiceDirectoryItem[] = [
+  { key: 'ipe_clearance', label: 'IPE Clearance', subtitle: 'Clear NIN Ticket ID', supported: true },
+  { key: 'nin_validation', label: 'NIN Validation', subtitle: 'Validate / Fix NIN Error', supported: true },
+  { key: 'nin_personalization', label: 'NIN Personalisation', subtitle: 'V1 & Slip-Tier V2', supported: true },
+  { key: 'npc_attestation', label: 'NPC Birth Attestation', subtitle: '3-Section Attestation', supported: true },
+  { key: 'modification_clearance', label: 'Self-MOD IPE', subtitle: 'Mod Clearance + Slip', supported: true },
+  { key: 'nin_tracking', label: 'NIN Tracking', subtitle: 'Not Yet Supported', badge: 'Unavailable', supported: false },
+  { key: 'bvn_enroll_adult', label: 'NIN Adult Enrolment', subtitle: 'Adult Biodata + Passport', supported: true },
+  { key: 'bvn_enroll_child', label: 'NIN Child Enrolment', subtitle: 'Child Biodata + Passport', supported: true },
+  { key: 'bvn_enrolment', label: 'BVN Enrolment', subtitle: 'Not Yet Supported', badge: 'Unavailable', supported: false },
+  { key: 'nin_bvn_arrangement', label: 'NIN / BVN Arrangement', subtitle: 'Not Yet Supported', badge: 'Unavailable', supported: false },
+  { key: 'additional_info', label: 'Additional Info Submit', subtitle: 'Query & Doc Replies', supported: true },
+];
+
+const SUPPORTED_DEDICATED_KEYS = new Set<string>([
+  ...DEDICATED_11_SERVICES.map(s => s.key),
+  'nin_delinking',
+]);
+
+function readServiceFromLocation(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const h = window.location.hash || '';
+    const qIdx = h.indexOf('?');
+    if (qIdx !== -1) {
+      const params = new URLSearchParams(h.slice(qIdx + 1));
+      const svc = params.get('service');
+      if (svc && SUPPORTED_DEDICATED_KEYS.has(svc)) return svc;
+    }
+    const searchParams = new URLSearchParams(window.location.search || '');
+    const fromSearch = searchParams.get('service');
+    if (fromSearch && SUPPORTED_DEDICATED_KEYS.has(fromSearch)) return fromSearch;
+  } catch {
+  }
+  return null;
+}
+
+interface NinServicesPageProps {
+  initialServiceView?: string | null;
+  onServiceViewConsumed?: () => void;
+}
+
 const PENDING_RECOVERY_KEY = 'hambak_pending_nin_recovery';
 
 interface PendingRecoveryAttempt {
@@ -70,12 +122,21 @@ function createIdempotencyKey(): string {
   return `idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export const NinServicesPage: React.FC = () => {
+export const NinServicesPage: React.FC<NinServicesPageProps> = ({
+  initialServiceView,
+  onServiceViewConsumed,
+}) => {
   const { user, refreshUser, updateBalance, openPinSetupModal } = useAuth();
   const { branding } = useCms();
   const companyName = branding?.company_name || 'HAMBAK TECH & SERVICES';
 
   const [activeCategory, setActiveCategory] = useState<HubCategory>('nin_verify');
+  const [dedicatedService, setDedicatedService] = useState<string | null>(() => {
+    if (initialServiceView && SUPPORTED_DEDICATED_KEYS.has(initialServiceView)) {
+      return initialServiceView;
+    }
+    return readServiceFromLocation();
+  });
   const [services, setServices] = useState<IdentityService[]>([]);
   const [categories, setCategories] = useState<Record<string, IdentityService[]>>({});
   const [slipTemplates, setSlipTemplates] = useState<SlipTemplateItem[]>([]);
@@ -176,6 +237,25 @@ export const NinServicesPage: React.FC = () => {
   useEffect(() => {
     setPhotoLoadError(false);
   }, [verifiedRecord]);
+
+  useEffect(() => {
+    if (initialServiceView && SUPPORTED_DEDICATED_KEYS.has(initialServiceView)) {
+      setDedicatedService(initialServiceView);
+      onServiceViewConsumed?.();
+    }
+  }, [initialServiceView, onServiceViewConsumed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onHashChange = () => {
+      const svc = readServiceFromLocation();
+      if (svc) {
+        setDedicatedService(svc);
+      }
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   useEffect(() => {
     loadCatalog();
@@ -470,12 +550,45 @@ export const NinServicesPage: React.FC = () => {
     resetIdempotency();
   };
 
+  const pendingQueryCount = useMemo(() => {
+    const all = [...modHistory, ...enrolmentHistory, ...additionalHistory];
+    return all.filter(
+      item =>
+        String(item.status || '').toLowerCase() === 'query_required' &&
+        String(item.query_review_status || '').toLowerCase() !== 'submitted_for_admin_review'
+    ).length;
+  }, [modHistory, enrolmentHistory, additionalHistory]);
+
+  const openDedicatedService = (serviceKey: string | null) => {
+    setDedicatedService(serviceKey);
+    setVerifiedRecord(null);
+    setError(null);
+    setSuccessMessage(null);
+    if (typeof window !== 'undefined') {
+      try {
+        if (serviceKey) {
+          window.history.replaceState(null, '', `#nin?service=${encodeURIComponent(serviceKey)}`);
+        } else if (window.location.hash.includes('service=')) {
+          window.history.replaceState(null, '', '#nin');
+        }
+      } catch {
+      }
+    }
+  };
+
   const handleSwitchCategory = (cat: HubCategory) => {
+    setDedicatedService(null);
     setActiveCategory(cat);
     setVerifiedRecord(null);
     setError(null);
     setSuccessMessage(null);
     resetIdempotency();
+    if (typeof window !== 'undefined' && window.location.hash.includes('service=')) {
+      try {
+        window.history.replaceState(null, '', '#nin');
+      } catch {
+      }
+    }
 
     if (cat === 'nin_verify') setSelectedServiceKey(ninTargetServiceKey);
     if (cat === 'bvn_verify') setSelectedServiceKey(bvnTargetServiceKey);
@@ -988,7 +1101,7 @@ export const NinServicesPage: React.FC = () => {
           { id: 'history', label: 'Verification History', icon: FileText, count: history.length + modHistory.length + enrolmentHistory.length + additionalHistory.length },
         ].map(tab => {
           const Icon = tab.icon;
-          const isActive = activeCategory === tab.id;
+          const isActive = !dedicatedService && activeCategory === tab.id;
           return (
             <button
               key={tab.id}
@@ -1018,8 +1131,150 @@ export const NinServicesPage: React.FC = () => {
         })}
       </div>
 
+      {/* Dedicated 11-Service Direct Form Launcher Strip */}
+      <div className="no-print rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 sm:p-4 space-y-2.5 shadow-sm">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+            Dedicated NIN / BVN Clearance, Enrolment &amp; Clarification Forms (11 Services)
+          </div>
+          {dedicatedService && (
+            <button
+              type="button"
+              onClick={() => openDedicatedService(null)}
+              className="text-[11px] font-semibold text-blue-600 dark:text-emerald-400 hover:underline"
+            >
+              Exit Dedicated View
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
+          {DEDICATED_11_SERVICES.map(item => {
+            const isSelected = dedicatedService === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => openDedicatedService(item.key)}
+                className={`px-3 py-2 rounded-xl border text-left transition flex flex-col justify-between gap-1 ${
+                  isSelected
+                    ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                    : item.supported
+                    ? 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-blue-400 dark:hover:border-emerald-500/60 text-slate-800 dark:text-slate-200'
+                    : 'bg-slate-50/70 dark:bg-slate-950/70 border-slate-200/80 dark:border-slate-800/80 hover:border-amber-400/60 text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1.5">
+                  <span className="text-[11px] font-bold truncate">{item.label}</span>
+                  {item.key === 'additional_info' && pendingQueryCount > 0 && (
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0 ${
+                        isSelected
+                          ? 'bg-white/25 text-white'
+                          : 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
+                      }`}
+                    >
+                      {pendingQueryCount}
+                    </span>
+                  )}
+                  {!item.supported && (
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 ${
+                        isSelected
+                          ? 'bg-white/20 text-white'
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      Hold
+                    </span>
+                  )}
+                </div>
+                <span
+                  className={`text-[10px] truncate ${
+                    isSelected ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  {item.subtitle}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Main Workspace */}
-      {activeCategory === 'nin_mod' ? (
+      {dedicatedService === 'additional_info' ? (
+        <AdditionalInfoSubmissionSection
+          key="dedicated-additional-info"
+          onBackToHub={() => openDedicatedService(null)}
+          onSubmitted={() => {
+            void loadHistory();
+          }}
+          onOpenHistoryTab={() => {
+            openDedicatedService(null);
+            setHistoryTabFilter('nin_mod');
+            setActiveCategory('history');
+          }}
+        />
+      ) : dedicatedService === 'bvn_enroll_adult' || dedicatedService === 'bvn_enroll_child' ? (
+        <EnrolmentSection
+          key={`dedicated-${dedicatedService}`}
+          lockedServiceKey={dedicatedService}
+          onBackToHub={() => openDedicatedService(null)}
+          onOrderUpdated={() => {
+            void loadHistory();
+          }}
+          onOpenHistoryTab={() => {
+            openDedicatedService(null);
+            setHistoryTabFilter('enrolment');
+            setActiveCategory('history');
+          }}
+        />
+      ) : dedicatedService === 'nin_tracking' ||
+        dedicatedService === 'bvn_enrolment' ||
+        dedicatedService === 'nin_bvn_arrangement' ? (
+        <DedicatedUnverifiedNoticeCard
+          key={`dedicated-unverified-${dedicatedService}`}
+          serviceKey={dedicatedService as UnverifiedServiceKey}
+          onBackToHub={() => openDedicatedService(null)}
+          onNavigateService={targetKey => openDedicatedService(targetKey)}
+        />
+      ) : dedicatedService === 'nin_personalization' ? (
+        <AdditionalServicesSection
+          key="dedicated-nin-personalization"
+          allowedServiceKeys={['nin_personalization', 'nin_personalization_2']}
+          serviceTitleOverride="NIN Personalisation"
+          onBackToHub={() => openDedicatedService(null)}
+          onRequestUpdated={() => {
+            void loadHistory();
+          }}
+          onOpenHistoryTab={() => {
+            openDedicatedService(null);
+            setHistoryTabFilter('additional');
+            setActiveCategory('history');
+          }}
+        />
+      ) : dedicatedService ? (
+        <AdditionalServicesSection
+          key={`dedicated-${dedicatedService}`}
+          lockedServiceKey={dedicatedService}
+          serviceTitleOverride={
+            dedicatedService === 'modification_clearance'
+              ? 'Self-MOD IPE / Modification Clearance'
+              : dedicatedService === 'npc_attestation'
+              ? 'Attestation (NPC Birth Attestation)'
+              : undefined
+          }
+          onBackToHub={() => openDedicatedService(null)}
+          onRequestUpdated={() => {
+            void loadHistory();
+          }}
+          onOpenHistoryTab={() => {
+            openDedicatedService(null);
+            setHistoryTabFilter('additional');
+            setActiveCategory('history');
+          }}
+        />
+      ) : activeCategory === 'nin_mod' ? (
         <ModificationSection
           key="nin-mod-workspace"
           mode="NIN"

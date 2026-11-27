@@ -26,6 +26,7 @@ import { ResultAvailabilityBadge } from '../common/ResultAvailabilityBadge';
 import { getChecklistStatusBadge } from './AdditionalServicesSection';
 import {
   AlertCircle,
+  ArrowLeft,
   ArrowRight,
   CheckCircle2,
   Clock,
@@ -46,6 +47,8 @@ import {
 } from 'lucide-react';
 
 interface EnrolmentSectionProps {
+  lockedServiceKey?: 'bvn_enroll_adult' | 'bvn_enroll_child';
+  onBackToHub?: () => void;
   onOrderUpdated?: () => void;
   onOpenHistoryTab?: () => void;
 }
@@ -118,6 +121,8 @@ export function getEnrolmentStatusStyle(status: string): {
 }
 
 export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
+  lockedServiceKey,
+  onBackToHub,
   onOrderUpdated,
   onOpenHistoryTab,
 }) => {
@@ -127,7 +132,8 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
   const [loadingServices, setLoadingServices] = useState<boolean>(true);
   const [servicesError, setServicesError] = useState<string | null>(null);
 
-  const [selectedServiceKey, setSelectedServiceKey] = useState<string>('');
+  const [selectedServiceKey, setSelectedServiceKey] = useState<string>(lockedServiceKey || '');
+  const [filterToLockedService, setFilterToLockedService] = useState<boolean>(Boolean(lockedServiceKey));
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [docErrors, setDocErrors] = useState<Record<string, string>>({});
@@ -175,6 +181,13 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
   }, []);
 
   useEffect(() => {
+    setFilterToLockedService(Boolean(lockedServiceKey));
+    if (lockedServiceKey && selectedServiceKey !== lockedServiceKey) {
+      handleSelectService(lockedServiceKey);
+    }
+  }, [lockedServiceKey]);
+
+  useEffect(() => {
     if (user?.id) {
       loadOrders();
     }
@@ -193,7 +206,9 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
             (s.service_key === 'bvn_enroll_adult' || s.service_key === 'bvn_enroll_child')
         );
         setServices(verifiedEnabled);
-        if (
+        if (lockedServiceKey && verifiedEnabled.some(s => (s.key || s.service_key) === lockedServiceKey)) {
+          setSelectedServiceKey(lockedServiceKey);
+        } else if (
           selectedServiceKey &&
           !verifiedEnabled.some(s => (s.key || s.service_key) === selectedServiceKey)
         ) {
@@ -225,9 +240,15 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
   };
 
   const selectedService = useMemo(() => {
-    if (!selectedServiceKey) return null;
-    return services.find(s => (s.key || s.service_key) === selectedServiceKey) || null;
-  }, [services, selectedServiceKey]);
+    const targetKey = lockedServiceKey || selectedServiceKey;
+    if (!targetKey) return null;
+    return services.find(s => (s.key || s.service_key) === targetKey) || null;
+  }, [services, selectedServiceKey, lockedServiceKey]);
+
+  const visibleOrders = useMemo(() => {
+    if (!lockedServiceKey || !filterToLockedService) return orders;
+    return orders.filter(o => o.service_key === lockedServiceKey);
+  }, [orders, lockedServiceKey, filterToLockedService]);
 
   const finalCharge = useMemo(() => {
     if (!selectedService) return 0;
@@ -673,15 +694,31 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Compact Service Selection Bar */}
+      {/* Compact Header & Service Selection Bar */}
       <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
+          <div className="space-y-1">
+            {onBackToHub && (
+              <button
+                type="button"
+                onClick={onBackToHub}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-emerald-400 hover:underline mb-0.5"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to Identity Services Hub</span>
+              </button>
+            )}
             <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-              HAMBAK Enrolment Centre — NIN Enrolment
+              {lockedServiceKey === 'bvn_enroll_adult'
+                ? 'NIN Adult Enrolment'
+                : lockedServiceKey === 'bvn_enroll_child'
+                ? 'NIN Child Enrolment'
+                : 'HAMBAK Enrolment Centre — NIN Enrolment'}
             </h2>
             <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-              Select a verified NIN Enrolment service below. Processing is manual and status updates are tracked directly in your order history.
+              {lockedServiceKey
+                ? 'Complete all required applicant biodata fields and upload a clear passport photograph below. Processing and tracking run directly through HAMBAK & 2SureVerify.'
+                : 'Select a verified NIN Enrolment service below. Processing is manual and status updates are tracked directly in your order history.'}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -713,48 +750,61 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
           </div>
         )}
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <label
-              htmlFor="enrolment-service-select"
-              className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
-            >
-              Select NIN Enrolment Service
-            </label>
-            {selectedService && (
-              <button
-                type="button"
-                onClick={() => handleSelectService('')}
-                className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white transition"
+        {lockedServiceKey ? (
+          loadingServices ? (
+            <div className="py-4 flex items-center gap-2 text-xs text-slate-500">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+              <span>Loading enrolment form requirements...</span>
+            </div>
+          ) : !selectedService ? (
+            <p className="text-xs text-amber-700 dark:text-amber-300 pt-1">
+              This NIN Enrolment service is currently disabled in the catalog. Please contact support.
+            </p>
+          ) : null
+        ) : (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor="enrolment-service-select"
+                className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
               >
-                Clear Selection
-              </button>
+                Select NIN Enrolment Service
+              </label>
+              {selectedService && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectService('')}
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white transition"
+                >
+                  Clear Selection
+                </button>
+              )}
+            </div>
+
+            <select
+              id="enrolment-service-select"
+              value={selectedServiceKey}
+              onChange={e => handleSelectService(e.target.value)}
+              disabled={loadingServices}
+              className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">
+                {loadingServices ? 'Loading NIN Enrolment services...' : '-- Select NIN Enrolment Service --'}
+              </option>
+              {services.map(srv => (
+                <option key={srv.service_key} value={srv.service_key}>
+                  {srv.name} — ₦{Number(srv.selling_price ?? srv.price ?? 0).toLocaleString('en-NG')} ({srv.manual_label || 'Manual Processing'})
+                </option>
+              ))}
+            </select>
+
+            {!loadingServices && services.length === 0 && (
+              <p className="text-xs text-amber-700 dark:text-amber-300 pt-1">
+                No verified NIN Enrolment services are currently enabled. Please contact support.
+              </p>
             )}
           </div>
-
-          <select
-            id="enrolment-service-select"
-            value={selectedServiceKey}
-            onChange={e => handleSelectService(e.target.value)}
-            disabled={loadingServices}
-            className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">
-              {loadingServices ? 'Loading NIN Enrolment services...' : '-- Select NIN Enrolment Service --'}
-            </option>
-            {services.map(srv => (
-              <option key={srv.service_key} value={srv.service_key}>
-                {srv.name} — ₦{Number(srv.selling_price ?? srv.price ?? 0).toLocaleString('en-NG')} ({srv.manual_label || 'Manual Processing'})
-              </option>
-            ))}
-          </select>
-
-          {!loadingServices && services.length === 0 && (
-            <p className="text-xs text-amber-700 dark:text-amber-300 pt-1">
-              No verified NIN Enrolment services are currently enabled. Please contact support.
-            </p>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Feedback & Submitted Order Banner */}
@@ -1345,6 +1395,15 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                 </button>
               ))}
             </div>
+            {lockedServiceKey && (
+              <button
+                type="button"
+                onClick={() => setFilterToLockedService(prev => !prev)}
+                className="min-h-[36px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold transition whitespace-nowrap"
+              >
+                {filterToLockedService ? 'Show All Enrolments' : 'Only This Service'}
+              </button>
+            )}
             <button
               type="button"
               onClick={loadOrders}
@@ -1371,21 +1430,21 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {loadingOrders && orders.length === 0 ? (
+              {loadingOrders && visibleOrders.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-10 text-center text-slate-500">
                     <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-blue-600" />
                     <span>Loading NIN Enrolment orders...</span>
                   </td>
                 </tr>
-              ) : orders.length === 0 ? (
+              ) : visibleOrders.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-10 text-center text-slate-500">
                     No NIN Enrolment orders found for this filter yet.
                   </td>
                 </tr>
               ) : (
-                orders.map(order => {
+                visibleOrders.map(order => {
                   const st = getEnrolmentStatusStyle(order.status);
                   const canPoll =
                     order.status !== 'completed' &&
