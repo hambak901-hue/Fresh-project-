@@ -4318,6 +4318,18 @@
   ],
   "provider_logs": [
     {
+      "id": "plog_1795824506526_spyv",
+      "provider": "2sureverify",
+      "endpoint": "/api/v1/nin_v1.php",
+      "method": "POST",
+      "status_code": 401,
+      "request_body": "{\"nin\":\"98765432109\"}",
+      "response_body": "{\"success\":false,\"message\":\"Invalid api_key.\"}",
+      "latency_ms": 186,
+      "reference": null,
+      "created_at": "2026-11-28T00:08:26.526Z"
+    },
+    {
       "id": "plog_1795553010756_3i19",
       "provider": "2sureverify",
       "endpoint": "/api/v1/nin_v1.php",
@@ -6665,7 +6677,14 @@
           "notes": "Customer submitted INEC Voter Card for Level 2 verification.",
           "timestamp": "2026-11-12T06:56:50.111Z"
         }
-      ]
+      ],
+      "automated_verification_result": {
+        "verified": false,
+        "provider": "2sureverify",
+        "reference": "2SV_AUTO_1795824506530",
+        "name_matched": true,
+        "timestamp": "2026-11-28T00:08:26.530Z"
+      }
     }
   ],
   "virtual_accounts": [

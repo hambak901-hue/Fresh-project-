@@ -21,12 +21,10 @@
 -- ==============================================================================
 
 -- ------------------------------------------------------------------------------
--- 0. Single-statement helper routine for fail-loud SIGNAL SQLSTATE '45000'
---    (Single statement with no internal semicolons; works without DELIMITER)
+-- 0. Cleanup any stale helper routine from prior runs & create procedure-free
+--    temporary CHECK constraint guard (auto-dropped on abort/session end)
 -- ------------------------------------------------------------------------------
 DROP PROCEDURE IF EXISTS _hambak_phase2_abort;
-CREATE PROCEDURE _hambak_phase2_abort(IN msg VARCHAR(128))
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = msg;
 
 -- ------------------------------------------------------------------------------
 -- 1. Dynamically extend providers.provider_type ENUM (preserving all existing
@@ -54,9 +52,14 @@ SET @pt_is_string := IF(
 );
 
 SET @pt_invalid := IF(@pt_col_type IS NULL OR (@pt_is_enum = 0 AND @pt_is_string = 0), 1, 0);
-SET @abort_msg := 'Phase 2 abort: providers.provider_type missing or unsupported type.';
-SET @sql := IF(@pt_invalid = 1, 'CALL _hambak_phase2_abort(@abort_msg)', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+DROP TEMPORARY TABLE IF EXISTS _hambak_p2_up_guard;
+CREATE TEMPORARY TABLE _hambak_p2_up_guard (
+    ok TINYINT NOT NULL,
+    CONSTRAINT Phase2_ABORTED_invalid_providers_provider_type CHECK (ok = 1)
+) ENGINE=InnoDB;
+INSERT INTO _hambak_p2_up_guard (ok) SELECT 0 FROM DUAL WHERE @pt_invalid = 1;
+DROP TEMPORARY TABLE IF EXISTS _hambak_p2_up_guard;
 
 SET @pt_null_sql := IF(@pt_nullable = 'NO', ' NOT NULL', ' NULL');
 SET @pt_def_sql := IF(@pt_default IS NOT NULL, CONCAT(' DEFAULT ', QUOTE(@pt_default)), '');
@@ -80,9 +83,13 @@ SET @hm_conflict := (
     WHERE id = 'hambak_manual'
       AND LOWER(COALESCE(provider_type, '')) <> 'internal'
 );
-SET @abort_msg := 'Phase 2 abort: providers.id=hambak_manual exists with non-internal type.';
-SET @sql := IF(@hm_conflict > 0, 'CALL _hambak_phase2_abort(@abort_msg)', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+DROP TEMPORARY TABLE IF EXISTS _hambak_p2_up_guard;
+CREATE TEMPORARY TABLE _hambak_p2_up_guard (
+    ok TINYINT NOT NULL,
+    CONSTRAINT Phase2_ABORTED_hambak_manual_non_internal_conflict CHECK (ok = 1)
+) ENGINE=InnoDB;
+INSERT INTO _hambak_p2_up_guard (ok) SELECT 0 FROM DUAL WHERE @hm_conflict > 0;
+DROP TEMPORARY TABLE IF EXISTS _hambak_p2_up_guard;
 
 -- Insert strictly without INSERT IGNORE, defaulting is_active = 0 and is_default = 0
 SET @hm_exists := (
@@ -216,7 +223,7 @@ SET @sql := IF(
                  ''nin_personalization'', ''nin_personalization_2''
              ) THEN ''2SureVerify additional service endpoint schema verified against official docs.''
              WHEN provider_id = ''2sureverify'' AND service_key = ''bvn_retrieval''
-                 THEN ''UNVERIFIED / PROTOCOL MISMATCH: 2SureVerify /api/v1/bvn_retrieval.php is async (pending=true), while VerificationController dispatches synchronously.''
+                 THEN ''ASYNC PROTOCOL / CONTROLLER GAP: 2SureVerify /api/v1/bvn_retrieval.php is async (returns pending=true; requires polling/webhook), while VerificationController dispatches synchronously (schema_verified=0).''
              WHEN provider_id = ''2sureverify'' AND service_key IN (
                  ''nin_mod_name'', ''nin_mod_phone'', ''nin_mod_address'', ''nin_mod_dob'',
                  ''nin_mod_dob_name'', ''nin_mod_name_phone'', ''gender_modification'',
@@ -266,14 +273,31 @@ WHERE routing_initialized_at IS NULL
       'bvn_v1', 'bvn_v2', 'bvn_v3'
   );
 
--- 3B-2. BVN Retrieval by Phone (Flagged: 2SureVerify endpoint is async; controller runs sync)
+-- 3B-2. BVN Retrieval by Phone
+--       2SureVerify /api/v1/bvn_retrieval.php is asynchronous (pending=true),
+--       so when provider_id='2sureverify' and configured endpoint is the async
+--       bvn_retrieval endpoint, classify accurately as 'provider_async' while
+--       preserving provider_id, endpoint, prices, and provider_schema_verified=0
+--       (never auto-switch to Veripine).
 UPDATE service_catalogue
 SET
-    fulfilment_mode = 'provider_instant',
+    fulfilment_mode = CASE
+        WHEN provider_id = '2sureverify'
+             AND LOWER(COALESCE(endpoint, '')) LIKE '%bvn_retrieval%'
+            THEN 'provider_async'
+        WHEN processing_type = 'manual'
+            THEN 'provider_async'
+        ELSE 'provider_instant'
+    END,
     sla_hours = 24,
     internal_manual_eligible = 0,
     provider_schema_verified = 0,
-    eligibility_notes = 'PROTOCOL MISMATCH: 2SureVerify /api/v1/bvn_retrieval.php is async (pending=true), while VerificationController dispatches synchronously. Needs async support or Veripine /bvn-phone verification in Phase 3.',
+    eligibility_notes = CASE
+        WHEN provider_id = '2sureverify'
+             AND LOWER(COALESCE(endpoint, '')) LIKE '%bvn_retrieval%'
+            THEN 'ASYNC PROTOCOL: 2SureVerify /api/v1/bvn_retrieval.php is asynchronous (pending=true; status via bvn_retrieval_status.php or status.php / webhook). Classified provider_async without modifying provider, endpoint, or prices; VerificationController lacks async handler (provider_schema_verified=0, internal_manual_eligible=0, no auto-fallback).'
+        ELSE CONCAT('UNVERIFIED BVN RETRIEVAL CONFIG: provider_id=', provider_id, ', endpoint=', endpoint, '; provider_schema_verified=0 and internal_manual_eligible=0.')
+    END,
     routing_initialized_at = NOW()
 WHERE routing_initialized_at IS NULL
   AND routing_updated_at IS NULL
@@ -579,6 +603,7 @@ SET @sql := IF(
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ------------------------------------------------------------------------------
--- 6. Cleanup Temporary Helper Procedure
+-- 6. Final Guard Assurance (No temporary tables or stored procedures remain)
 -- ------------------------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS _hambak_p2_up_guard;
 DROP PROCEDURE IF EXISTS _hambak_phase2_abort;
