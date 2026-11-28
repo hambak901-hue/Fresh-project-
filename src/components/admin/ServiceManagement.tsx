@@ -94,7 +94,9 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
     provider_id: '2sureverify',
     endpoint: '',
     wholesale_cost: 0,
+    internal_fulfilment_cost: 0,
     selling_price: 0,
+    fulfilment_mode: 'provider_instant',
     processing_type: 'instant' as 'instant' | 'manual',
     manual_label: '',
     estimated_turnaround: '',
@@ -651,8 +653,9 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
       setIdentityServices(prev =>
         prev.map(s => {
           if (s.key === serviceKey) {
-            const wholesale = s.wholesale_cost || 0;
-            const profit = Number(newPrice) - wholesale;
+            const isManual = s.fulfilment_mode === 'internal_manual' || s.provider === 'hambak_manual';
+            const effectiveCost = isManual ? (s.internal_fulfilment_cost || 0) : (s.wholesale_cost || 0);
+            const profit = Number(newPrice) - effectiveCost;
             const margin = Number(newPrice) > 0 ? Math.round((profit / Number(newPrice)) * 100) : 0;
             return { ...s, price: Number(newPrice), profit_per_transaction: profit, margin_percent: margin };
           }
@@ -724,7 +727,9 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
       provider_id: '2sureverify',
       endpoint: '',
       wholesale_cost: 0,
+      internal_fulfilment_cost: 0,
       selling_price: 0,
+      fulfilment_mode: 'provider_instant',
       processing_type: 'instant',
       manual_label: '',
       estimated_turnaround: '',
@@ -735,6 +740,7 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
   };
 
   const handleOpenEditService = (srv: IdentityService) => {
+    const isManual = srv.fulfilment_mode === 'internal_manual' || srv.provider === 'hambak_manual' || srv.provider_id === 'hambak_manual';
     setCatalogModalMode('edit');
     setEditingCatalogKey(srv.key);
     setCatalogForm({
@@ -742,10 +748,12 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
       name: srv.name || '',
       description: srv.description || '',
       category_code: srv.category || 'nin_verification',
-      provider_id: srv.provider || srv.provider_id || '2sureverify',
+      provider_id: isManual ? 'hambak_manual' : (srv.provider || srv.provider_id || '2sureverify'),
       endpoint: srv.endpoint || '',
       wholesale_cost: Number(srv.wholesale_cost ?? 0),
+      internal_fulfilment_cost: Number(srv.internal_fulfilment_cost ?? 0),
       selling_price: Number(srv.price ?? srv.selling_price ?? 0),
+      fulfilment_mode: srv.fulfilment_mode || (isManual ? 'internal_manual' : 'provider_instant'),
       processing_type: srv.processing_type === 'manual' ? 'manual' : 'instant',
       manual_label: srv.manual_label || '',
       estimated_turnaround: srv.estimated_turnaround || '',
@@ -757,18 +765,31 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
 
   const handleSaveCatalogService = async (e: React.FormEvent) => {
     e.preventDefault();
+    const isEditingInternalManual =
+      catalogModalMode === 'edit' &&
+      (catalogForm.fulfilment_mode === 'internal_manual' || catalogForm.provider_id === 'hambak_manual');
     const wholesale = Number(catalogForm.wholesale_cost || 0);
+    const internalCost = Number(catalogForm.internal_fulfilment_cost || 0);
     const selling = Number(catalogForm.selling_price || 0);
-    if (!catalogForm.name.trim() || !catalogForm.endpoint.trim()) {
-      setErrorMsg('Service name and provider endpoint are required.');
+    if (!catalogForm.name.trim() || (!isEditingInternalManual && !catalogForm.endpoint.trim())) {
+      setErrorMsg(
+        isEditingInternalManual
+          ? 'Service name is required.'
+          : 'Service name and provider endpoint are required.'
+      );
       return;
     }
-    if (selling < 0 || wholesale < 0) {
+    if (selling < 0 || wholesale < 0 || internalCost < 0) {
       setErrorMsg('Prices cannot be negative.');
       return;
     }
-    if (selling < wholesale) {
-      setErrorMsg('Selling price cannot be lower than wholesale cost.');
+    const costFloor = isEditingInternalManual ? internalCost : wholesale;
+    if (selling < costFloor) {
+      setErrorMsg(
+        isEditingInternalManual
+          ? 'Selling price cannot be lower than internal fulfilment cost.'
+          : 'Selling price cannot be lower than wholesale cost.'
+      );
       return;
     }
     const reqFields = catalogForm.required_fields_text
@@ -803,13 +824,10 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
         });
         setSuccessMsg(res.message || `Service "${catalogForm.name}" created.`);
       } else if (catalogModalMode === 'edit' && editingCatalogKey) {
-        const res = await api.updateAdminCatalogService(editingCatalogKey, {
+        const updatePayload: Parameters<typeof api.updateAdminCatalogService>[1] = {
           name: catalogForm.name.trim(),
           description: catalogForm.description.trim(),
           category_code: catalogForm.category_code,
-          provider_id: catalogForm.provider_id,
-          endpoint: catalogForm.endpoint.trim(),
-          wholesale_cost: wholesale,
           selling_price: selling,
           processing_type: catalogForm.processing_type,
           manual_label: catalogForm.manual_label.trim(),
@@ -817,7 +835,15 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
           slip_type_supported: catalogForm.slip_type_supported,
           is_active: catalogForm.is_active,
           required_fields: reqFields,
-        });
+        };
+        if (isEditingInternalManual) {
+          updatePayload.internal_fulfilment_cost = internalCost;
+        } else {
+          updatePayload.provider_id = catalogForm.provider_id;
+          updatePayload.endpoint = catalogForm.endpoint.trim();
+          updatePayload.wholesale_cost = wholesale;
+        }
+        const res = await api.updateAdminCatalogService(editingCatalogKey, updatePayload);
         setSuccessMsg(res.message || `Service "${catalogForm.name}" updated.`);
       }
       setCatalogModalMode(null);
@@ -1287,9 +1313,10 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                       );
                     })
                     .map(srv => {
-                      const wholesale = srv.wholesale_cost || 0;
+                      const isManualRow = srv.fulfilment_mode === 'internal_manual' || srv.provider === 'hambak_manual';
+                      const effectiveCost = isManualRow ? (srv.internal_fulfilment_cost ?? 0) : (srv.wholesale_cost || 0);
                       const currentSelling = editingPriceMap[srv.key] ?? srv.price;
-                      const profit = currentSelling - wholesale;
+                      const profit = currentSelling - effectiveCost;
                       const margin = currentSelling > 0 ? Math.round((profit / currentSelling) * 100) : 0;
                       const isSaving = savingPriceKey === srv.key;
 
@@ -1299,7 +1326,7 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                             <div className="font-semibold text-white">{srv.name}</div>
                             <div className="text-[11px] font-mono text-slate-500 mt-0.5 flex items-center gap-1.5">
                               <span>key: {srv.key}</span>
-                              {srv.endpoint && (
+                              {!isManualRow && srv.endpoint && (
                                 <>
                                   <span>&bull;</span>
                                   <span className="text-indigo-400">
@@ -1317,7 +1344,7 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                             </span>
                           </td>
                           <td className="py-3.5 px-3">
-                            {srv.fulfilment_mode === 'internal_manual' ? (
+                            {isManualRow ? (
                               <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-semibold inline-block whitespace-nowrap">
                                 HAMBAK MANUAL
                               </span>
@@ -1348,7 +1375,10 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                             )}
                           </td>
                           <td className="py-3.5 px-3 text-right font-mono text-slate-400">
-                            ₦{wholesale.toLocaleString()}
+                            <div>₦{effectiveCost.toLocaleString()}</div>
+                            {isManualRow && (
+                              <div className="text-[10px] text-amber-400/80">Internal Cost</div>
+                            )}
                           </td>
                           <td className="py-3.5 px-3 text-right">
                             <div className="flex items-center justify-end gap-1.5">
@@ -3735,45 +3765,73 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                       ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Assigned Provider
-                  </label>
-                  <select
-                    value={catalogForm.provider_id}
-                    onChange={e => setCatalogForm(prev => ({ ...prev, provider_id: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
-                  >
-                    <option value="2sureverify">2SureVerify</option>
-                    <option value="veripine">Veripine</option>
-                  </select>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Provider API Endpoint *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={catalogForm.endpoint}
-                    onChange={e => setCatalogForm(prev => ({ ...prev, endpoint: e.target.value }))}
-                    placeholder="e.g. api/v1/nin_verify.php"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-indigo-300 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Wholesale Cost (₦)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={10}
-                    value={catalogForm.wholesale_cost}
-                    onChange={e => setCatalogForm(prev => ({ ...prev, wholesale_cost: Number(e.target.value) }))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
-                  />
-                </div>
+                {catalogModalMode === 'edit' && (catalogForm.fulfilment_mode === 'internal_manual' || catalogForm.provider_id === 'hambak_manual') ? (
+                  <>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        Assigned Fulfilment Mode
+                      </label>
+                      <div className="w-full px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 font-semibold">
+                        HAMBAK MANUAL (Internal · Managed via Unified Routing)
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        Internal Fulfilment Cost (₦)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={10}
+                        value={catalogForm.internal_fulfilment_cost}
+                        onChange={e => setCatalogForm(prev => ({ ...prev, internal_fulfilment_cost: Number(e.target.value) }))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        Assigned Provider
+                      </label>
+                      <select
+                        value={catalogForm.provider_id}
+                        onChange={e => setCatalogForm(prev => ({ ...prev, provider_id: e.target.value }))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                      >
+                        <option value="2sureverify">2SureVerify</option>
+                        <option value="veripine">Veripine</option>
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        Provider API Endpoint *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={catalogForm.endpoint}
+                        onChange={e => setCatalogForm(prev => ({ ...prev, endpoint: e.target.value }))}
+                        placeholder="e.g. api/v1/nin_verify.php"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-indigo-300 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                        Wholesale Cost (₦)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={10}
+                        value={catalogForm.wholesale_cost}
+                        onChange={e => setCatalogForm(prev => ({ ...prev, wholesale_cost: Number(e.target.value) }))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
+                      />
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">
                     Selling Price (₦) *

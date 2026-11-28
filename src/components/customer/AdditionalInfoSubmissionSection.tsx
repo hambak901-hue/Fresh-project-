@@ -329,7 +329,7 @@ export const AdditionalInfoSubmissionSection: React.FC<AdditionalInfoSubmissionS
     setSubmitting(true);
     const id = rawRecordId(selectedItem);
     try {
-      let message = 'Additional information submitted for HAMBAK admin review.';
+      let message = 'Additional information submitted for administrator review.';
       if (selectedItem.domain === 'modification') {
         const res = await api.submitModificationAdditionalInfo(id, {
           note: note.trim(),
@@ -745,7 +745,7 @@ export const AdditionalInfoSubmissionSection: React.FC<AdditionalInfoSubmissionS
                       <span>Submit Corrected Details or Updated Document</span>
                     </h4>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      No additional fee is charged. Your response goes straight to the assigned HAMBAK processing officer.
+                      No additional fee is charged. Your response goes straight to our review team.
                     </p>
                   </div>
 
@@ -847,7 +847,7 @@ export const AdditionalInfoSubmissionSection: React.FC<AdditionalInfoSubmissionS
                   <div>
                     <strong className="block">Clarification Received — Awaiting Admin Review</strong>
                     <p className="mt-0.5 leading-relaxed opacity-90">
-                      Your updated response is currently in the HAMBAK review queue. Duplicate submissions are paused until an administrator reviews this update.
+                      Your updated response is currently in the review queue. Duplicate submissions are paused until an administrator reviews this update.
                     </p>
                   </div>
                 </div>

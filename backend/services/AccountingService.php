@@ -334,6 +334,9 @@ class AccountingService
         }
         if ($modReq) {
             $it = strtolower((string)($modReq['identity_type'] ?? ''));
+            if ($it === 'additional') {
+                return 'additional_services';
+            }
             return $it === 'bvn' ? 'bvn_modification' : 'nin_modification';
         }
         if ($enrOrder) {
@@ -342,6 +345,7 @@ class AccountingService
         if ($footprint && !empty($footprint['service_type'])) {
             $fpSvc = strtolower(trim((string)$footprint['service_type']));
             if (str_contains($fpSvc, 'printing')) return 'printing';
+            if (str_contains($fpSvc, 'additional') || in_array($fpSvc, ['ipe_clearance', 'nin_validation', 'nin_personalization', 'nin_delinking', 'modification_clearance', 'npc_attestation'], true)) return 'additional_services';
             if (str_contains($fpSvc, 'bvn_mod')) return 'bvn_modification';
             if (str_contains($fpSvc, 'bvn')) return 'bvn_verification';
             if (str_contains($fpSvc, 'nin_mod')) return 'nin_modification';
@@ -351,6 +355,7 @@ class AccountingService
         $cat = strtolower(trim($category));
         $ref = strtoupper(trim($reference));
         if (str_contains($cat, 'printing') || str_starts_with($ref, 'PRTPAY_') || str_starts_with($ref, 'PRT')) return 'printing';
+        if (str_contains($cat, 'additional') || str_starts_with($ref, 'ADD_')) return 'additional_services';
         if (str_contains($cat, 'bvn_mod') || str_starts_with($ref, 'MOD_BVN')) return 'bvn_modification';
         if (str_contains($cat, 'nin_mod') || str_contains($cat, 'modification') || str_starts_with($ref, 'MOD_')) return 'nin_modification';
         if (str_contains($cat, 'enrol') || str_starts_with($ref, 'ENR_')) return 'enrolment';
@@ -793,7 +798,7 @@ class AccountingService
 
                     $hasMatchingRefund = isset($refundedOrigRefs[$ref]);
                     $orderFailed = ($tOrder && strtolower((string)($tOrder['status'] ?? '')) !== 'successful')
-                        || ($vRec && strtolower((string)($vRec['status'] ?? '')) !== 'completed')
+                        || ($vRec && in_array(strtolower((string)($vRec['status'] ?? '')), ['failed', 'rejected', 'refunded'], true))
                         || ($mReq && in_array(strtolower((string)($mReq['status'] ?? '')), ['failed', 'rejected', 'refunded'], true))
                         || ($eOrd && in_array(strtolower((string)($eOrd['status'] ?? '')), ['failed', 'rejected', 'refunded'], true))
                         || ($pOrd && in_array(strtolower((string)($pOrd['status'] ?? '')), ['rejected', 'cancelled', 'refunded'], true));
@@ -818,14 +823,15 @@ class AccountingService
                             $costVerified = false;
                             $costSource = 'unverified_telecom_zero_cost';
                         }
-                    } elseif ($vRec && strtolower((string)($vRec['status'] ?? '')) === 'completed') {
+                    } elseif ($vRec && !in_array(strtolower((string)($vRec['status'] ?? '')), ['failed', 'rejected', 'refunded'], true)) {
+                        $vStatus = strtolower((string)($vRec['status'] ?? ''));
                         $vIsManual = strtolower((string)($vRec['fulfilment_mode'] ?? '')) === 'internal_manual'
                             || strtolower((string)($vRec['provider'] ?? '')) === 'hambak_manual';
                         if ($vIsManual) {
                             $cost = round((float)($vRec['internal_fulfilment_cost'] ?? 0), 2);
                             $costVerified = true;
                             $costSource = 'verification_records_internal_manual';
-                        } else {
+                        } elseif ($vStatus === 'completed') {
                             $cost = round((float)($vRec['provider_cost'] ?? 0), 2);
                             if ($cost > 0) {
                                 $costVerified = true;
@@ -841,6 +847,10 @@ class AccountingService
                                     $costSource = 'unverified_verification_zero_cost';
                                 }
                             }
+                        } else {
+                            $cost = round((float)($vRec['provider_cost'] ?? 0), 2);
+                            $costVerified = $cost > 0;
+                            $costSource = $costVerified ? 'verification_records' : 'pending_async_verification';
                         }
                     } elseif ($mReq && !in_array(strtolower((string)($mReq['status'] ?? '')), ['failed', 'rejected', 'refunded'], true)) {
                         $mIsManual = strtolower((string)($mReq['fulfilment_mode'] ?? '')) === 'internal_manual'

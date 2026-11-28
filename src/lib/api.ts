@@ -2310,6 +2310,7 @@ export const api = {
       provider_id: string;
       endpoint: string;
       wholesale_cost: number;
+      internal_fulfilment_cost: number;
       selling_price: number;
       processing_type: 'instant' | 'manual';
       manual_label: string;

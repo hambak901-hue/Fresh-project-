@@ -272,9 +272,28 @@ class EnrolmentController
 
         $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $row, 'enrolment', $isAdmin);
         $infoHistory = $this->decodeJsonColumn($row['additional_info_history'] ?? null, []);
+        if (!$isAdmin && is_array($infoHistory)) {
+            $infoHistory = array_map(static function ($entry) {
+                if (!is_array($entry)) {
+                    return $entry;
+                }
+                unset($entry['reviewed_by'], $entry['staff_name'], $entry['assigned_staff_name'], $entry['actor_id']);
+                return $entry;
+            }, $infoHistory);
+        }
         $queryReviewStatus = (string)($fields['query_review_status'] ?? '');
 
         $checklist = $this->decodeJsonColumn($row['document_review_checklist'] ?? null, []);
+        if (!$isAdmin && is_array($checklist)) {
+            $cleanChecklist = [];
+            foreach ($checklist as $ck => $cv) {
+                if (is_array($cv)) {
+                    unset($cv['reviewed_by'], $cv['staff_name'], $cv['assigned_staff_name'], $cv['actor_id']);
+                }
+                $cleanChecklist[$ck] = $cv;
+            }
+            $checklist = $cleanChecklist;
+        }
         $isRefundable = array_key_exists('is_refundable', $row) ? (bool)(int)$row['is_refundable'] : true;
 
         $statusHistory = [];
@@ -287,6 +306,11 @@ class EnrolmentController
                 $remarkText = (string)($hr['remarks'] ?? '');
                 if (!$isAdmin && $remarkText !== '') {
                     $remarkText = $this->sanitizeCustomerError($remarkText);
+                    $remarkText = str_ireplace(
+                        ['HAMBAK Manual Desk', 'HAMBAK MANUAL', 'HAMBAK Desk', 'hambak_manual', '2SureVerify', 'Veripine'],
+                        ['Manual Processing', 'manual processing', 'processing team', 'manual', 'verification provider', 'verification provider'],
+                        $remarkText
+                    );
                 }
                 $entry = [
                     'id' => (string)($hr['id'] ?? ''),
@@ -616,7 +640,7 @@ class EnrolmentController
     {
         SchemaSync::syncEnrolmentCatalog($this->db);
         $user = Auth::user($request);
-        $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = $user && Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
 
         $rows = $this->db->fetchAll(
             'SELECT s.*, c.code as category_code
@@ -860,7 +884,7 @@ class EnrolmentController
         SchemaSync::syncEnrolmentCatalog($this->db);
 
         $user = Auth::requireVerifiedEmail($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         $body = $request->getBody();
 
         // 1. Consent & idempotency checks first
@@ -1243,7 +1267,7 @@ class EnrolmentController
 
         // 7B. Internal Manual Path: Queue directly for HAMBAK MANUAL desk without calling external APIs
         if ($isManualRoute) {
-            $this->appendStatusHistory($orderId, null, 'pending', 'customer', (string)$user['id'], 'Order submitted to HAMBAK MANUAL fulfilment queue', true);
+            $this->appendStatusHistory($orderId, null, 'pending', 'customer', (string)$user['id'], 'Order submitted for manual processing', true);
 
             FootprintService::record([
                 'user_id' => $user['id'],
@@ -1457,7 +1481,7 @@ class EnrolmentController
         SchemaSync::syncEnrolmentCatalog($this->db);
 
         $user = Auth::requireAuth($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         $status = strtolower(trim((string)$request->query('status', 'all')));
         $search = trim((string)$request->query('search', ''));
         $limit = min(100, max(1, (int)$request->query('limit', 40)));
@@ -1517,7 +1541,7 @@ class EnrolmentController
     public function orderStatus(Request $request, array $params): void
     {
         $user = Auth::requireAuth($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -1539,7 +1563,7 @@ class EnrolmentController
     private function syncProviderStatusForRow(array $row, ?string $actorId = null): array
     {
         if (FulfilmentRouterService::isInternalManualOrder($row)) {
-            return ['updated' => false, 'message' => 'This order is fulfilled internally by HAMBAK MANUAL and cannot be polled against external providers.', 'row' => $row];
+            return ['updated' => false, 'message' => 'This order is handled via manual processing and cannot be polled against external providers.', 'row' => $row];
         }
 
         $lookupRef = trim((string)($row['provider_reference'] ?: $row['payment_reference']));
@@ -1741,7 +1765,7 @@ class EnrolmentController
         }
 
         if (FulfilmentRouterService::isInternalManualOrder($row)) {
-            Response::error('Internal manual orders are processed by the HAMBAK MANUAL fulfilment desk and cannot be polled against external providers.', 422);
+            Response::error('Manual processing orders cannot be polled against external providers.', 422);
         }
 
         $sync = $this->syncProviderStatusForRow($row, $isStaff ? (string)$user['id'] : null);
@@ -1779,7 +1803,7 @@ class EnrolmentController
 
         $existingFields = $this->decodeJsonColumn($row['submitted_fields'] ?? null, []);
         if (($existingFields['query_review_status'] ?? '') === 'submitted_for_admin_review') {
-            Response::error('Additional clarification has already been submitted and is currently queued for HAMBAK administrator review.', 409);
+            Response::error('Additional clarification has already been submitted and is currently queued for administrator review.', 409);
         }
 
         $note = trim((string)($body['note'] ?? $body['response_note'] ?? ''));
@@ -1896,7 +1920,7 @@ class EnrolmentController
         Response::success([
             'review_state' => 'submitted_for_admin_review',
             'order' => $updated ? $this->formatOrderRow($updated, false) : null,
-        ], 'Additional clarification submitted and queued for HAMBAK administrator review.');
+        ], 'Additional clarification submitted and queued for administrator review.');
     }
 
     /**
@@ -2342,7 +2366,7 @@ class EnrolmentController
         }
 
         if (FulfilmentRouterService::isInternalManualOrder($row)) {
-            Response::error('Internal manual orders are processed by HAMBAK MANUAL and cannot be polled against external providers.', 422);
+            Response::error('Manual processing orders cannot be polled against external providers.', 422);
         }
 
         $sync = $this->syncProviderStatusForRow($row, (string)$admin['id']);
@@ -2540,7 +2564,7 @@ class EnrolmentController
             Response::notFound('Enrolment order not found.');
         }
         if (FulfilmentRouterService::isInternalManualOrder($row)) {
-            Response::error('Internal manual orders receive PDF results directly from HAMBAK MANUAL staff rather than upstream provider fetch.', 422);
+            Response::error('Manual processing orders receive PDF results from processing staff rather than upstream provider fetch.', 422);
         }
 
         $sync = $this->syncProviderStatusForRow($row, (string)$admin['id']);

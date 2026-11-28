@@ -3055,7 +3055,7 @@ class AdminController
         $isManual = strtolower((string)($existingRow['fulfilment_mode'] ?? '')) === 'internal_manual'
             || strtolower((string)($existingRow['provider_id'] ?? '')) === 'hambak_manual';
 
-        if (isset($body['wholesale_cost'])) {
+        if (isset($body['wholesale_cost']) && !$isManual) {
             $updates[] = 'wholesale_cost = :wc';
             $paramsDb['wc'] = max(0.0, (float)$body['wholesale_cost']);
         }
@@ -3455,11 +3455,11 @@ class AdminController
                 $dbParams['pid'] = $reqProvRaw;
             }
         }
-        if (isset($b['endpoint']) && trim((string)$b['endpoint']) !== '') {
+        if (isset($b['endpoint']) && trim((string)$b['endpoint']) !== '' && !$isManual) {
             $updates[] = 'endpoint = :ep';
             $dbParams['ep'] = trim((string)$b['endpoint']);
         }
-        if (isset($b['wholesale_cost'])) {
+        if (isset($b['wholesale_cost']) && !$isManual) {
             $updates[] = 'wholesale_cost = :wc';
             $dbParams['wc'] = max(0.0, (float)$b['wholesale_cost']);
         }
@@ -3698,6 +3698,7 @@ class AdminController
                 'SELECT psm.*, s.name as service_name, s.selling_price
                  FROM provider_service_mappings psm
                  LEFT JOIN service_catalogue s ON s.service_key = psm.service_key
+                 WHERE LOWER(COALESCE(psm.provider_id, "")) NOT IN ("hambak_manual", "internal_manual")
                  ORDER BY psm.provider_id ASC, psm.service_key ASC'
             );
             foreach ($mapRows as $mr) {
@@ -3756,6 +3757,16 @@ class AdminController
         $isActive = isset($body['is_active']) ? ($body['is_active'] ? 1 : 0) : (int)($existing['is_active'] ?? 1);
         $isDefault = isset($body['is_default']) ? ($body['is_default'] ? 1 : 0) : (int)($existing['is_default'] ?? 0);
         $timeout = isset($body['timeout_seconds']) ? max(5, (int)$body['timeout_seconds']) : (int)($existing['timeout_seconds'] ?? 30);
+
+        if (strtolower(trim((string)$id)) === 'hambak_manual') {
+            $type = 'internal';
+            $url = 'internal://hambak-manual';
+            $apiKey = '';
+            $secretKey = '';
+            $publicKey = '';
+            $isDefault = 0;
+            $timeout = 0;
+        }
 
         if ($isDefault === 1) {
             $this->db->execute(

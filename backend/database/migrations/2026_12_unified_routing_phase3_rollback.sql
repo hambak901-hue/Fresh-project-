@@ -217,6 +217,30 @@ SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA 
 SET @sql := IF(@tbl_vr > 0 AND @col > 0, 'ALTER TABLE verification_records DROP COLUMN provider_reference', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_retrieved_at');
+SET @sql := IF(@tbl_vr > 0 AND @col > 0, 'ALTER TABLE verification_records DROP COLUMN result_retrieved_at', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_retrieval_error');
+SET @sql := IF(@tbl_vr > 0 AND @col > 0, 'ALTER TABLE verification_records DROP COLUMN result_retrieval_error', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_retrieval_status');
+SET @sql := IF(@tbl_vr > 0 AND @col > 0, 'ALTER TABLE verification_records DROP COLUMN result_retrieval_status', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_payload');
+SET @sql := IF(@tbl_vr > 0 AND @col > 0, 'ALTER TABLE verification_records DROP COLUMN result_payload', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'provider_tracking_id');
+SET @sql := IF(@tbl_vr > 0 AND @col > 0, 'ALTER TABLE verification_records DROP COLUMN provider_tracking_id', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_source');
+SET @sql := IF(@tbl_vr > 0 AND @col > 0, 'ALTER TABLE verification_records DROP COLUMN result_source', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_document_id');
 SET @sql := IF(@tbl_vr > 0 AND @col > 0, 'ALTER TABLE verification_records DROP COLUMN result_document_id', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

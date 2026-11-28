@@ -2450,7 +2450,7 @@ export const NinServicesPage: React.FC<NinServicesPageProps> = ({
                     <div>
                       <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300 block">
                         {pendingVerification.fulfilmentMode === 'internal_manual'
-                          ? 'HAMBAK MANUAL Fulfilment Desk'
+                          ? 'Manual Processing'
                           : 'Asynchronous Provider Processing'}
                       </span>
                       <h3 className="text-base font-extrabold text-slate-900 dark:text-white mt-0.5">

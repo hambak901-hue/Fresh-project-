@@ -23,9 +23,9 @@ const FALLBACK_SPECS: Record<UnverifiedServiceKey, FallbackUnverifiedSpec> = {
     title: 'NIN Tracking',
     subtitle: 'Standalone NIN Tracking Lookup — Not Yet Supported',
     explanation:
-      'There is no verified standalone customer tracking-ID lookup endpoint exposed in the active 2SureVerify B2B API specification, so HAMBAK does not accept orders or debit customer wallets for standalone NIN Tracking.',
+      'Standalone customer tracking-ID lookup is not currently supported on our verification network, so we do not accept orders or debit customer wallets for standalone NIN Tracking.',
     providerStatusNote:
-      'Existing IPE Clearance, NIN Personalisation, and Self-MOD IPE orders submitted through HAMBAK already poll status automatically using official provider status endpoints.',
+      'Existing IPE Clearance, NIN Personalisation, and Self-MOD IPE orders already poll status automatically using official verification channels.',
     alternatives: [
       {
         serviceKey: 'ipe_clearance',
@@ -49,9 +49,9 @@ const FALLBACK_SPECS: Record<UnverifiedServiceKey, FallbackUnverifiedSpec> = {
     title: 'BVN Enrolment',
     subtitle: 'Customer BVN Enrolment Submission — Not Yet Supported',
     explanation:
-      'The official 2SureVerify API documentation only exposes Adult and Child NIN Enrolment endpoints (bvn_enroll_adult.php and bvn_enroll_child.php) and does not provide a standalone Bank Verification Number (BVN) enrolment endpoint.',
+      'Only Adult and Child NIN Enrolment workflows are currently active; standalone Bank Verification Number (BVN) enrolment is not yet supported on the platform.',
     providerStatusNote:
-      'No placeholder form or wallet charge is permitted until an official verified BVN enrolment upstream API is integrated and tested.',
+      'No placeholder form or wallet charge is permitted until a verified BVN enrolment channel is integrated and tested.',
     alternatives: [
       {
         serviceKey: 'bvn_enroll_adult',
@@ -70,9 +70,9 @@ const FALLBACK_SPECS: Record<UnverifiedServiceKey, FallbackUnverifiedSpec> = {
     title: 'NIN / BVN Arrangement',
     subtitle: 'NIN / BVN Arrangement Service — Not Yet Supported',
     explanation:
-      'No verified NIN/BVN Arrangement or record synchronization endpoint exists in the official upstream provider documentation. HAMBAK will not collect payment or fabricate orders for an unsupported service.',
+      'This arrangement or record synchronization service is not currently supported. We will not collect payment or process orders for an unsupported service.',
     providerStatusNote:
-      'If you need to update mismatched records or retrieve a linked email, use our verified NIN Validation, NIN Delinking, or NIN/BVN Modification desks.',
+      'If you need to update mismatched records or retrieve a linked email, use our verified NIN Validation, NIN Delinking, or NIN/BVN Modification services.',
     alternatives: [
       {
         serviceKey: 'nin_validation',

@@ -674,7 +674,7 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
         setOrders(prev => prev.map(o => (o.id === res.order.id ? res.order : o)));
         setQueryNote('');
         setQueryDocs({});
-        setQueryFeedback(res.message || 'Additional information submitted for HAMBAK admin review.');
+        setQueryFeedback(res.message || 'Additional information submitted for administrator review.');
       }
     } catch (err: any) {
       setQueryError(err?.message || 'Unable to submit clarification right now.');
@@ -713,12 +713,12 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                 ? 'NIN Adult Enrolment'
                 : lockedServiceKey === 'bvn_enroll_child'
                 ? 'NIN Child Enrolment'
-                : 'HAMBAK Enrolment Centre — NIN Enrolment'}
+                : 'NIN Enrolment Centre'}
             </h2>
             <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
               {lockedServiceKey
-                ? 'Complete all required applicant biodata fields and upload a clear passport photograph below. Processing and tracking run directly through HAMBAK & 2SureVerify.'
-                : 'Select a verified NIN Enrolment service below. Processing is manual and status updates are tracked directly in your order history.'}
+                ? 'Complete all required applicant biodata fields and upload a clear passport photograph below. Processing and tracking updates are shown directly in your order history.'
+                : 'Select a verified NIN Enrolment service below. Status updates are tracked directly in your order history.'}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -1498,11 +1498,6 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                             {st.label}
                           </span>
                           <ResultAvailabilityBadge state={order.result_availability_state} />
-                          {order.assigned_staff_name && (
-                            <span className="px-2 py-0.5 rounded border border-cyan-500/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 text-[10px] font-semibold whitespace-nowrap">
-                              {order.assigned_staff_name}
-                            </span>
-                          )}
                         </div>
                       </td>
                       <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap">
@@ -1730,14 +1725,6 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                     </span>
                   </div>
                 )}
-                {detailOrder.assigned_staff_name && (
-                  <div>
-                    <span className="text-slate-500 block text-[11px]">Assigned Staff</span>
-                    <span className="text-slate-900 dark:text-white font-semibold mt-0.5 block">
-                      {detailOrder.assigned_staff_name}
-                    </span>
-                  </div>
-                )}
                 {detailOrder.completed_at && (
                   <div>
                     <span className="text-slate-500 block text-[11px]">Completed At</span>
@@ -1945,7 +1932,7 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                         <span>Submit Clarification / Additional Document</span>
                       </h5>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        Provide requested clarification details or upload updated documents for HAMBAK admin review.
+                        Provide requested clarification details or upload updated documents for administrator review.
                       </p>
                     </div>
                     {queryError && (

@@ -537,10 +537,21 @@ class ResultDocumentService
         );
 
         if ($domain === 'verification') {
-            $db->execute(
-                'UPDATE `verification_records` SET result_document_id = :docid, has_slip = 1, updated_at = NOW() WHERE id = :id',
-                ['docid' => $doc['id'], 'id' => $recordId]
-            );
+            $updateSql = "UPDATE `verification_records` SET result_document_id = :docid, has_slip = 1, result_source = 'admin_uploaded', result_retrieval_status = 'ready', result_retrieval_error = NULL, result_retrieved_at = NOW()";
+            $params = ['docid' => $doc['id'], 'id' => $recordId];
+            if ($trackingId !== null && trim($trackingId) !== '') {
+                $updateSql .= ', provider_tracking_id = :trk';
+                $params['trk'] = trim($trackingId);
+            }
+            $updateSql .= ', updated_at = NOW() WHERE id = :id';
+            try {
+                $db->execute($updateSql, $params);
+            } catch (Throwable) {
+                $db->execute(
+                    'UPDATE `verification_records` SET result_document_id = :docid, has_slip = 1, updated_at = NOW() WHERE id = :id',
+                    ['docid' => $doc['id'], 'id' => $recordId]
+                );
+            }
         } else {
             $updateSql = "UPDATE `{$table}` SET result_document_id = :docid, result_source = 'admin_uploaded', result_retrieval_status = 'ready', result_retrieval_error = NULL, result_retrieved_at = NOW()";
             $params = ['docid' => $doc['id'], 'id' => $recordId];

@@ -998,7 +998,7 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
                           className="mt-0.5 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
                         />
                         <span className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                          I understand this service is <strong>non-refundable</strong> once accepted upstream by NIMC/2SureVerify.
+                          I understand this service is <strong>non-refundable</strong> once accepted for registry processing.
                         </span>
                       </label>
                     )}
@@ -1203,13 +1203,6 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
                         </div>
                       </div>
                     </div>
-
-                    {req.assigned_staff_name && (
-                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 text-[11px] font-medium">
-                        <UserCheck className="w-3.5 h-3.5" />
-                        <span>Assigned Officer: {req.assigned_staff_name}</span>
-                      </div>
-                    )}
 
                     {req.requested_corrections && (
                       <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-[11px] text-amber-800 dark:text-amber-300">
@@ -1432,13 +1425,6 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
                 <X className="w-4 h-4" />
               </button>
             </div>
-
-            {detailReq.assigned_staff_name && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/25 text-xs text-cyan-800 dark:text-cyan-300">
-                <UserCheck className="w-4 h-4 shrink-0" />
-                <span>Assigned Case Officer: <strong>{detailReq.assigned_staff_name}</strong></span>
-              </div>
-            )}
 
             {detailReq.requested_corrections && (
               <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-xs text-amber-800 dark:text-amber-300 space-y-1">

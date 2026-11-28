@@ -1852,11 +1852,6 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                           {st.label}
                         </span>
                         <ResultAvailabilityBadge state={req.result_availability_state} />
-                        {req.assigned_staff_name && (
-                          <span className="px-2 py-0.5 rounded border border-cyan-500/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 text-[10px] font-semibold">
-                            Assigned: {req.assigned_staff_name}
-                          </span>
-                        )}
                         {awaitingAdminReview && req.status === 'query_required' && (
                           <span className="px-2 py-0.5 rounded border border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
                             Response Submitted — Awaiting Admin Review
@@ -2047,7 +2042,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                   {queryHistory.length > 0 && (
                     <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5 text-[11px]">
                       <div className="font-bold text-slate-800 dark:text-slate-200">
-                        Submitted Clarification History (For HAMBAK Admin Review)
+                        Submitted Clarification History (Admin Review)
                       </div>
                       {queryHistory.map((entry, idx) => (
                         <div
@@ -2161,7 +2156,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
 
                     {req.status === 'query_required' && awaitingAdminReview && (
                       <span className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
-                        Clarification queued for HAMBAK admin review. Duplicate submissions are paused until reviewed.
+                        Clarification queued for administrator review. Duplicate submissions are paused until reviewed.
                       </span>
                     )}
                   </div>
@@ -2174,7 +2169,7 @@ export const ModificationSection: React.FC<ModificationSectionProps> = ({
                           Submit Clarification / Additional Document for Admin Review
                         </h4>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          Your note and uploaded documents are delivered to HAMBAK administrators for review and follow-up processing.
+                          Your note and uploaded documents are delivered to our review team for follow-up processing.
                         </p>
                       </div>
                       <textarea

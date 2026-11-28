@@ -142,6 +142,14 @@ SET @sql := IF(
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Remove any legacy/accidental internal manual rows from external provider_service_mappings
+SET @sql := IF(
+    @tbl_psm > 0,
+    'DELETE FROM provider_service_mappings WHERE LOWER(COALESCE(provider_id, '''')) IN (''hambak_manual'', ''internal_manual'')',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- ------------------------------------------------------------------------------
 -- 3. Add Operational Claim, Completion Review, Cost & Dispatch Lock Columns to
 --    modification_requests
@@ -310,6 +318,30 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_document_id');
 SET @sql := IF(@tbl_vr > 0 AND @col = 0, 'ALTER TABLE verification_records ADD COLUMN result_document_id VARCHAR(36) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_source');
+SET @sql := IF(@tbl_vr > 0 AND @col = 0, 'ALTER TABLE verification_records ADD COLUMN result_source VARCHAR(32) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'provider_tracking_id');
+SET @sql := IF(@tbl_vr > 0 AND @col = 0, 'ALTER TABLE verification_records ADD COLUMN provider_tracking_id VARCHAR(150) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_payload');
+SET @sql := IF(@tbl_vr > 0 AND @col = 0, 'ALTER TABLE verification_records ADD COLUMN result_payload JSON NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_retrieval_status');
+SET @sql := IF(@tbl_vr > 0 AND @col = 0, 'ALTER TABLE verification_records ADD COLUMN result_retrieval_status VARCHAR(32) NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_retrieval_error');
+SET @sql := IF(@tbl_vr > 0 AND @col = 0, 'ALTER TABLE verification_records ADD COLUMN result_retrieval_error TEXT NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'result_retrieved_at');
+SET @sql := IF(@tbl_vr > 0 AND @col = 0, 'ALTER TABLE verification_records ADD COLUMN result_retrieved_at DATETIME NULL', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'verification_records' AND COLUMN_NAME = 'provider_reference');

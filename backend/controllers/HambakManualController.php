@@ -346,7 +346,10 @@ class HambakManualController
             }
         }
 
-        $this->appendDomainHistory($domain, $recordId, $status, $nextStatus, 'admin', $actorId, "Claimed by HAMBAK Desk operator {$actorName}", $nextStatus !== $status);
+        $historyNote = $nextStatus !== $status
+            ? 'Order moved to ' . strtoupper(str_replace('_', ' ', $nextStatus))
+            : 'Order claimed internally';
+        $this->appendDomainHistory($domain, $recordId, $status, $nextStatus, 'admin', $actorId, $historyNote, $nextStatus !== $status);
         $this->recordAudit($actor, 'MANUAL_ORDER_CLAIMED', ['domain' => $domain, 'record_id' => $recordId, 'reference' => $loaded['dto']['reference_number']], $request);
 
         $fresh = $this->loadManualOrder($domain, $recordId, true);
@@ -577,7 +580,7 @@ class HambakManualController
         $this->notifyCustomer(
             (string)$row['user_id'],
             "{$serviceName}: Action Required",
-            "HAMBAK Desk requires clarification or updated document(s) for {$refNum}: {$message}",
+            "Clarification or updated document(s) are required for {$refNum}: {$message}",
             'warning',
             $refNum,
             ['reference_number' => $refNum, 'domain' => $domain, 'status' => 'query_required']
@@ -656,7 +659,7 @@ class HambakManualController
                     ['st' => $nextStatus, 'sf' => json_encode($sf), 'aih' => json_encode($infoHistory), 'pr' => $remarks, 'rby' => $reviewerLabel, 'id' => $recordId]
                 );
             }
-            $this->appendDomainHistory($domain, $recordId, $prevStatus, $nextStatus, 'admin', (string)$actor['id'], $remarks ?: 'Clarification approved by HAMBAK Desk', true);
+            $this->appendDomainHistory($domain, $recordId, $prevStatus, $nextStatus, 'admin', (string)$actor['id'], $remarks ?: 'Clarification approved', true);
             $this->notifyCustomer((string)$row['user_id'], "{$serviceName} Clarification Approved", "Your clarification for {$refNum} was approved and processing has resumed.", 'success', $refNum);
         } elseif ($decision === 'request_more') {
             if (strlen($remarks) < 5) {
@@ -684,14 +687,17 @@ class HambakManualController
             $this->appendDomainHistory($domain, $recordId, $prevStatus, 'query_required', 'admin', (string)$actor['id'], 'Further correction requested: ' . $remarks, true);
             $this->notifyCustomer((string)$row['user_id'], "{$serviceName}: Further Correction Needed", "Update required on {$refNum}: {$remarks}", 'warning', $refNum);
         } else {
-            $rejectReason = $remarks !== '' ? $remarks : 'Clarification rejected by HAMBAK Manual Desk';
-            $refundRes = $this->rejectAndRefundManualOrder($domain, $row, $table, $actor, $rejectReason, true);
-            $finalSt = !empty($refundRes['refunded']) ? 'refunded' : 'rejected';
-            $this->db->execute(
-                "UPDATE `{$table}` SET additional_info_history = :aih WHERE id = :id",
-                ['aih' => json_encode($infoHistory), 'id' => $recordId]
-            );
-            $this->appendDomainHistory($domain, $recordId, $prevStatus, $finalSt, 'admin', (string)$actor['id'], $rejectReason, true);
+            $rejectReason = $remarks !== '' ? $remarks : 'Order could not be completed after clarification review';
+            $refundRes = $this->rejectAndRefundManualOrder($domain, $row, $table, $actor, $rejectReason, true, [
+                'additional_info_history' => json_encode($infoHistory),
+            ]);
+            if (!empty($refundRes['error'])) {
+                Response::error((string)$refundRes['error'], (int)($refundRes['code'] ?? 422));
+            }
+            if (empty($refundRes['already_terminal'])) {
+                $finalSt = !empty($refundRes['refunded']) ? 'refunded' : 'rejected';
+                $this->appendDomainHistory($domain, $recordId, $prevStatus, $finalSt, 'admin', (string)$actor['id'], $rejectReason, true);
+            }
         }
 
         $this->recordAudit($actor, 'MANUAL_ORDER_CLARIFICATION_REVIEWED', ['domain' => $domain, 'record_id' => $recordId, 'decision' => $decision], $request);
@@ -772,13 +778,16 @@ class HambakManualController
             }
             $reasonText = $remarks !== '' ? $remarks : $adminNotes;
             $triggerRefund = !array_key_exists('trigger_refund', $body) || !empty($body['trigger_refund']);
-            $refundRes = $this->rejectAndRefundManualOrder($domain, $row, $table, $actor, $reasonText, $triggerRefund);
-            if ($adminNotes !== '') {
-                $this->db->execute("UPDATE `{$table}` SET admin_notes = :an WHERE id = :id", ['an' => $adminNotes, 'id' => $recordId]);
+            $extraRejectCols = $adminNotes !== '' ? ['admin_notes' => $adminNotes] : [];
+            $refundRes = $this->rejectAndRefundManualOrder($domain, $row, $table, $actor, $reasonText, $triggerRefund, $extraRejectCols);
+            if (!empty($refundRes['error'])) {
+                Response::error((string)$refundRes['error'], (int)($refundRes['code'] ?? 422));
             }
-            $finalSt = !empty($refundRes['refunded']) ? 'refunded' : 'rejected';
-            $this->appendDomainHistory($domain, $recordId, $prevStatus, $finalSt, 'admin', (string)$actor['id'], $reasonText, true);
-            $this->recordAudit($actor, 'MANUAL_ORDER_REJECTED', ['domain' => $domain, 'record_id' => $recordId, 'refunded' => !empty($refundRes['refunded'])], $request);
+            if (empty($refundRes['already_terminal'])) {
+                $finalSt = !empty($refundRes['refunded']) ? 'refunded' : 'rejected';
+                $this->appendDomainHistory($domain, $recordId, $prevStatus, $finalSt, 'admin', (string)$actor['id'], $reasonText, true);
+                $this->recordAudit($actor, 'MANUAL_ORDER_REJECTED', ['domain' => $domain, 'record_id' => $recordId, 'refunded' => !empty($refundRes['refunded'])], $request);
+            }
             $fresh = $this->loadManualOrder($domain, $recordId, true);
             Response::success(['order' => $fresh['dto'], 'refund' => $refundRes], !empty($refundRes['refunded']) ? 'Order rejected and refunded to customer wallet.' : 'Order marked rejected.');
         }
@@ -966,77 +975,123 @@ class HambakManualController
 
         $verificationNote = trim((string)($body['verification_note'] ?? $body['provider_remarks'] ?? $body['remarks'] ?? ''));
         $trackingId = trim((string)($body['tracking_id'] ?? $body['provider_tracking_id'] ?? ''));
-        $hasDoc = !empty($row['result_document_id']);
-        $hasVerificationPayload = $domain === 'verification' && !empty($row['result_data']) && strlen((string)$row['result_data']) > 10;
-
-        if (!$hasDoc && !$hasVerificationPayload && strlen($verificationNote) < 5) {
-            Response::error(
-                'Completion proof required: upload an official PDF result document first or enter a detailed verification note (minimum 5 characters).',
-                422
-            );
-        }
-
         $reviewerLabel = (string)($actor['full_name'] ?: $actor['email'] ?: $actor['id']);
         $actorId = (string)$actor['id'];
 
-        if ($table === 'verification_records') {
-            $this->db->execute(
-                'UPDATE verification_records
-                 SET status = "completed",
-                     awaiting_admin_review = 0,
-                     completion_approved_by = :cab,
-                     completion_approved_at = NOW(),
-                     has_slip = CASE WHEN result_document_id IS NOT NULL THEN 1 ELSE has_slip END,
-                     provider_remarks = COALESCE(NULLIF(:pr, ""), provider_remarks),
-                     completed_at = COALESCE(completed_at, NOW()),
-                     updated_at = NOW()
-                 WHERE id = :id',
-                ['cab' => $actorId, 'pr' => $verificationNote, 'id' => $recordId]
+        $txResult = $this->db->withTransaction(function () use (
+            $domain,
+            $table,
+            $recordId,
+            $verificationNote,
+            $trackingId,
+            $reviewerLabel,
+            $actorId
+        ): array {
+            $lockedRow = $this->db->fetchOne(
+                "SELECT * FROM `{$table}` WHERE id = :id LIMIT 1 FOR UPDATE",
+                ['id' => $recordId]
             );
-        } else {
-            $extraSql = '';
-            $paramsSql = [
-                'cab' => $actorId,
-                'pr' => $verificationNote,
-                'rby' => $reviewerLabel,
-                'id' => $recordId,
-            ];
-            if ($trackingId !== '') {
-                $extraSql .= ', provider_tracking_id = :trk';
-                $paramsSql['trk'] = $trackingId;
+            if (!$lockedRow) {
+                return ['error' => 'Manual fulfilment order not found.', 'code' => 404];
             }
-            $this->db->execute(
-                "UPDATE `{$table}`
-                 SET status = 'completed',
-                     awaiting_admin_review = 0,
-                     completion_approved_by = :cab,
-                     completion_approved_at = NOW(),
-                     provider_remarks = COALESCE(NULLIF(:pr, ''), provider_remarks),
-                     reviewed_by = :rby,
-                     reviewed_at = NOW(),
-                     completed_at = COALESCE(completed_at, NOW()),
-                     updated_at = NOW()
-                     {$extraSql}
-                 WHERE id = :id",
-                $paramsSql
+
+            $curStatus = strtolower((string)($lockedRow['status'] ?? 'pending'));
+            if (in_array($curStatus, ['refunded', 'rejected', 'failed'], true)) {
+                return ['error' => 'Rejected or refunded orders cannot be approved for completion.', 'code' => 422];
+            }
+            if ($curStatus === 'completed' && empty($lockedRow['awaiting_admin_review'])) {
+                return ['already_completed' => true, 'row' => $lockedRow, 'prev_status' => $curStatus];
+            }
+
+            $hasDoc = !empty($lockedRow['result_document_id']);
+            $hasVerificationPayload = $domain === 'verification'
+                && !empty($lockedRow['result_data'])
+                && strlen((string)$lockedRow['result_data']) > 10;
+
+            if (!$hasDoc && !$hasVerificationPayload && strlen($verificationNote) < 5) {
+                return [
+                    'error' => 'Completion proof required: upload an official PDF result document first or enter a detailed verification note (minimum 5 characters).',
+                    'code' => 422,
+                ];
+            }
+
+            if ($table === 'verification_records') {
+                $this->db->execute(
+                    'UPDATE verification_records
+                     SET status = "completed",
+                         awaiting_admin_review = 0,
+                         completion_approved_by = :cab,
+                         completion_approved_at = NOW(),
+                         has_slip = CASE WHEN result_document_id IS NOT NULL THEN 1 ELSE has_slip END,
+                         provider_remarks = COALESCE(NULLIF(:pr, ""), provider_remarks),
+                         completed_at = COALESCE(completed_at, NOW()),
+                         updated_at = NOW()
+                     WHERE id = :id',
+                    ['cab' => $actorId, 'pr' => $verificationNote, 'id' => $recordId]
+                );
+            } else {
+                $extraSql = '';
+                $paramsSql = [
+                    'cab' => $actorId,
+                    'pr' => $verificationNote,
+                    'rby' => $reviewerLabel,
+                    'id' => $recordId,
+                ];
+                if ($trackingId !== '') {
+                    $extraSql .= ', provider_tracking_id = :trk';
+                    $paramsSql['trk'] = $trackingId;
+                }
+                $this->db->execute(
+                    "UPDATE `{$table}`
+                     SET status = 'completed',
+                         awaiting_admin_review = 0,
+                         completion_approved_by = :cab,
+                         completion_approved_at = NOW(),
+                         provider_remarks = COALESCE(NULLIF(:pr, ''), provider_remarks),
+                         reviewed_by = :rby,
+                         reviewed_at = NOW(),
+                         completed_at = COALESCE(completed_at, NOW()),
+                         updated_at = NOW()
+                         {$extraSql}
+                     WHERE id = :id",
+                    $paramsSql
+                );
+            }
+
+            $this->appendDomainHistory(
+                $domain,
+                $recordId,
+                $curStatus,
+                'completed',
+                'admin',
+                $actorId,
+                'Approved and completed' . ($verificationNote !== '' ? ": {$verificationNote}" : ''),
+                true
             );
+
+            return [
+                'already_completed' => false,
+                'row' => $lockedRow,
+                'has_doc' => $hasDoc,
+                'prev_status' => $curStatus,
+            ];
+        });
+
+        if (!empty($txResult['error'])) {
+            Response::error((string)$txResult['error'], (int)($txResult['code'] ?? 422));
         }
 
+        if (!empty($txResult['already_completed'])) {
+            $freshAlready = $this->loadManualOrder($domain, $recordId, true);
+            Response::success(['order' => $freshAlready['dto']], 'Order is already approved and completed.');
+        }
+
+        $row = $txResult['row'];
+        $hasDoc = !empty($txResult['has_doc']);
         $refNum = $loaded['dto']['reference_number'];
         $serviceName = $loaded['dto']['service_name'];
         $customerPrice = (float)$loaded['dto']['customer_price'];
         $internalCost = (float)$loaded['dto']['internal_fulfilment_cost'];
-
-        $this->appendDomainHistory(
-            $domain,
-            $recordId,
-            $prevStatus,
-            'completed',
-            'admin',
-            $actorId,
-            'Approved & completed by ' . $reviewerLabel . ($verificationNote !== '' ? ": {$verificationNote}" : ''),
-            true
-        );
 
         $this->notifyCustomer(
             (string)$row['user_id'],
@@ -1373,77 +1428,186 @@ class HambakManualController
         };
     }
 
-    private function rejectAndRefundManualOrder(string $domain, array $row, string $table, array $actor, string $reason, bool $triggerRefund): array
-    {
+    private function rejectAndRefundManualOrder(
+        string $domain,
+        array $row,
+        string $table,
+        array $actor,
+        string $reason,
+        bool $triggerRefund,
+        array $extraColumns = []
+    ): array {
         $recordId = (string)$row['id'];
-        $refNum = (string)($row['request_number'] ?? $row['order_number'] ?? $row['reference'] ?? $recordId);
-        $paymentRef = (string)($row['payment_reference'] ?? $row['reference'] ?? $refNum);
-        $amount = (float)($row['customer_price'] ?? $row['cost'] ?? 0);
-        $isRefundable = !array_key_exists('is_refundable', $row) || !empty($row['is_refundable']);
         $reviewerLabel = (string)($actor['full_name'] ?: $actor['email'] ?: $actor['id']);
         $actorId = (string)$actor['id'];
 
-        $refunded = false;
-        $refundRef = (string)($row['refund_reference'] ?? '');
-        $balanceAfter = null;
-
-        if ($triggerRefund && $isRefundable && $refundRef === '' && $amount > 0) {
-            $refundRef = 'MREF_' . $refNum;
-            $res = $this->walletService->attemptConfirmedRefund(
-                (string)$row['user_id'],
-                $amount,
-                'refund',
-                $refundRef,
-                "Refund for rejected manual order {$refNum}: {$reason}",
-                ['domain' => $domain, 'record_id' => $recordId, 'actor_id' => $actorId]
+        $txOutcome = $this->db->withTransaction(function () use (
+            $domain,
+            $table,
+            $recordId,
+            $reviewerLabel,
+            $actorId,
+            $reason,
+            $triggerRefund,
+            $extraColumns
+        ): array {
+            $lockedRow = $this->db->fetchOne(
+                "SELECT * FROM `{$table}` WHERE id = :id LIMIT 1 FOR UPDATE",
+                ['id' => $recordId]
             );
-            $refunded = !empty($res['confirmed']);
-            $balanceAfter = $res['balance_after'] ?? null;
-        } elseif ($refundRef !== '') {
-            $refunded = true;
+            if (!$lockedRow) {
+                return ['error' => 'Manual fulfilment order not found.', 'code' => 404];
+            }
+
+            $curStatus = strtolower((string)($lockedRow['status'] ?? 'pending'));
+            if ($curStatus === 'completed') {
+                return ['error' => 'Completed orders cannot be rejected or refunded through manual queue.', 'code' => 422];
+            }
+
+            $refNum = (string)($lockedRow['request_number'] ?? $lockedRow['order_number'] ?? $lockedRow['reference'] ?? $recordId);
+            $paymentRef = (string)($lockedRow['payment_reference'] ?? $lockedRow['reference'] ?? $refNum);
+            $amount = (float)($lockedRow['customer_price'] ?? $lockedRow['cost'] ?? 0);
+            $isRefundable = !array_key_exists('is_refundable', $lockedRow) || !empty($lockedRow['is_refundable']);
+
+            $refundRef = trim((string)($lockedRow['refund_reference'] ?? ''));
+            $canonicalRefundRef = 'REFUND_' . $paymentRef;
+            $legacyManualRefundRef = 'MREF_' . $refNum;
+
+            // If already refunded or already recorded under either refund reference format, stay idempotent
+            $existingRefundTx = $this->db->fetchOne(
+                'SELECT reference, balance_after FROM transactions WHERE user_id = :uid AND reference IN (:r1, :r2) AND status = "successful" LIMIT 1 FOR UPDATE',
+                ['uid' => (string)$lockedRow['user_id'], 'r1' => $canonicalRefundRef, 'r2' => $legacyManualRefundRef]
+            );
+            if ($existingRefundTx) {
+                $refundRef = (string)$existingRefundTx['reference'];
+            }
+
+            if ($curStatus === 'refunded' || ($curStatus === 'rejected' && $refundRef !== '')) {
+                return [
+                    'already_terminal' => true,
+                    'refunded' => $curStatus === 'refunded' || $refundRef !== '',
+                    'refund_reference' => $refundRef !== '' ? $refundRef : null,
+                    'balance_after' => $existingRefundTx ? (float)$existingRefundTx['balance_after'] : null,
+                    'row' => $lockedRow,
+                    'ref_num' => $refNum,
+                    'payment_ref' => $paymentRef,
+                    'amount' => $amount,
+                ];
+            }
+
+            $refunded = false;
+            $balanceAfter = $existingRefundTx ? (float)$existingRefundTx['balance_after'] : null;
+
+            if ($refundRef !== '') {
+                $refunded = true;
+            } elseif ($triggerRefund && $isRefundable && $amount > 0) {
+                $refundRef = $canonicalRefundRef;
+                $res = $this->walletService->attemptConfirmedRefund(
+                    (string)$lockedRow['user_id'],
+                    $amount,
+                    'refund',
+                    $refundRef,
+                    "Refund for rejected manual order {$refNum}: {$reason}",
+                    ['domain' => $domain, 'record_id' => $recordId, 'actor_id' => $actorId]
+                );
+                $refunded = !empty($res['confirmed']);
+                $balanceAfter = $res['balance_after'] ?? null;
+                if (!$refunded) {
+                    $refundRef = '';
+                }
+            }
+
+            $finalStatus = $refunded ? 'refunded' : 'rejected';
+            $extraSet = '';
+            $extraParams = [];
+            if (array_key_exists('admin_notes', $extraColumns)) {
+                $extraSet .= ', admin_notes = :ex_an';
+                $extraParams['ex_an'] = $extraColumns['admin_notes'];
+            }
+            if ($table !== 'verification_records' && array_key_exists('additional_info_history', $extraColumns)) {
+                $extraSet .= ', additional_info_history = :ex_aih';
+                $extraParams['ex_aih'] = $extraColumns['additional_info_history'];
+            }
+
+            if ($table === 'verification_records') {
+                if (array_key_exists('additional_info_history', $extraColumns)) {
+                    $extraSet .= ', additional_info_history = :ex_aih';
+                    $extraParams['ex_aih'] = $extraColumns['additional_info_history'];
+                }
+                $this->db->execute(
+                    "UPDATE verification_records
+                     SET status = :st,
+                         awaiting_admin_review = 0,
+                         provider_remarks = :pr,
+                         refund_reference = CASE WHEN :rr <> '' THEN :rr2 ELSE refund_reference END,
+                         updated_at = NOW()
+                         {$extraSet}
+                     WHERE id = :id AND status NOT IN ('completed', 'refunded')",
+                    array_merge([
+                        'st' => $finalStatus,
+                        'pr' => $reason,
+                        'rr' => $refunded ? $refundRef : '',
+                        'rr2' => $refunded ? $refundRef : '',
+                        'id' => $recordId,
+                    ], $extraParams)
+                );
+            } else {
+                $this->db->execute(
+                    "UPDATE `{$table}`
+                     SET status = :st,
+                         awaiting_admin_review = 0,
+                         provider_remarks = :pr,
+                         reviewed_by = :rby,
+                         reviewed_at = NOW(),
+                         refund_reference = CASE WHEN :rr <> '' THEN :rr2 ELSE refund_reference END,
+                         refunded_at = CASE WHEN :rf = 1 AND refunded_at IS NULL THEN NOW() ELSE refunded_at END,
+                         updated_at = NOW()
+                         {$extraSet}
+                     WHERE id = :id AND status NOT IN ('completed', 'refunded')",
+                    array_merge([
+                        'st' => $finalStatus,
+                        'pr' => $reason,
+                        'rby' => $reviewerLabel,
+                        'rr' => $refunded ? $refundRef : '',
+                        'rr2' => $refunded ? $refundRef : '',
+                        'rf' => $refunded ? 1 : 0,
+                        'id' => $recordId,
+                    ], $extraParams)
+                );
+            }
+
+            return [
+                'already_terminal' => false,
+                'refunded' => $refunded,
+                'refund_reference' => $refunded ? $refundRef : null,
+                'balance_after' => $balanceAfter,
+                'final_status' => $finalStatus,
+                'row' => $lockedRow,
+                'ref_num' => $refNum,
+                'payment_ref' => $paymentRef,
+                'amount' => $amount,
+            ];
+        });
+
+        if (!empty($txOutcome['error'])) {
+            return $txOutcome;
+        }
+        if (!empty($txOutcome['already_terminal'])) {
+            return [
+                'already_terminal' => true,
+                'refunded' => !empty($txOutcome['refunded']),
+                'refund_reference' => $txOutcome['refund_reference'],
+                'balance_after' => $txOutcome['balance_after'],
+            ];
         }
 
-        $finalStatus = $refunded ? 'refunded' : 'rejected';
-        if ($table === 'verification_records') {
-            $this->db->execute(
-                'UPDATE verification_records
-                 SET status = :st,
-                     awaiting_admin_review = 0,
-                     provider_remarks = :pr,
-                     refund_reference = CASE WHEN :rr <> "" THEN :rr2 ELSE refund_reference END,
-                     updated_at = NOW()
-                 WHERE id = :id AND status NOT IN ("completed", "refunded")',
-                [
-                    'st' => $finalStatus,
-                    'pr' => $reason,
-                    'rr' => $refunded ? $refundRef : '',
-                    'rr2' => $refunded ? $refundRef : '',
-                    'id' => $recordId,
-                ]
-            );
-        } else {
-            $this->db->execute(
-                "UPDATE `{$table}`
-                 SET status = :st,
-                     awaiting_admin_review = 0,
-                     provider_remarks = :pr,
-                     reviewed_by = :rby,
-                     reviewed_at = NOW(),
-                     refund_reference = CASE WHEN :rr <> '' THEN :rr2 ELSE refund_reference END,
-                     refunded_at = CASE WHEN :rf = 1 AND refunded_at IS NULL THEN NOW() ELSE refunded_at END,
-                     updated_at = NOW()
-                 WHERE id = :id AND status NOT IN ('completed', 'refunded')",
-                [
-                    'st' => $finalStatus,
-                    'pr' => $reason,
-                    'rby' => $reviewerLabel,
-                    'rr' => $refunded ? $refundRef : '',
-                    'rr2' => $refunded ? $refundRef : '',
-                    'rf' => $refunded ? 1 : 0,
-                    'id' => $recordId,
-                ]
-            );
-        }
+        $refunded = !empty($txOutcome['refunded']);
+        $refundRef = $txOutcome['refund_reference'];
+        $finalStatus = (string)$txOutcome['final_status'];
+        $lockedRow = $txOutcome['row'];
+        $refNum = (string)$txOutcome['ref_num'];
+        $paymentRef = (string)$txOutcome['payment_ref'];
+        $amount = (float)$txOutcome['amount'];
 
         if ($refunded) {
             try {
@@ -1452,9 +1616,9 @@ class HambakManualController
             }
         }
 
-        $serviceName = (string)($row['service_name'] ?? $row['service_key'] ?? 'Service');
+        $serviceName = (string)($lockedRow['service_name'] ?? $lockedRow['service_key'] ?? 'Service');
         $this->notifyCustomer(
-            (string)$row['user_id'],
+            (string)$lockedRow['user_id'],
             "{$serviceName} " . ($refunded ? 'Rejected & Refunded' : 'Rejected'),
             "Your {$serviceName} order ({$refNum}) could not be completed ({$reason})." . ($refunded ? ' ₦' . number_format($amount, 2) . ' has been refunded to your wallet.' : ''),
             'warning',
@@ -1463,9 +1627,10 @@ class HambakManualController
         );
 
         return [
+            'already_terminal' => false,
             'refunded' => $refunded,
-            'refund_reference' => $refunded ? $refundRef : null,
-            'balance_after' => $balanceAfter,
+            'refund_reference' => $refundRef,
+            'balance_after' => $txOutcome['balance_after'],
         ];
     }
 

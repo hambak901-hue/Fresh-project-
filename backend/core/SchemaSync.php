@@ -1258,6 +1258,37 @@ class SchemaSync
             ],
             'verification_records' => [
                 'idempotency_key' => 'ADD COLUMN idempotency_key VARCHAR(120) NULL',
+                'fulfilment_mode' => 'ADD COLUMN fulfilment_mode VARCHAR(32) NULL',
+                'internal_fulfilment_cost' => 'ADD COLUMN internal_fulfilment_cost DECIMAL(15, 2) NOT NULL DEFAULT 0.00',
+                'routing_snapshot' => 'ADD COLUMN routing_snapshot JSON NULL',
+                'sla_due_at' => 'ADD COLUMN sla_due_at DATETIME NULL',
+                'routing_legacy_review' => 'ADD COLUMN routing_legacy_review TINYINT(1) NOT NULL DEFAULT 0',
+                'claimed_by' => 'ADD COLUMN claimed_by VARCHAR(36) NULL',
+                'claimed_at' => 'ADD COLUMN claimed_at DATETIME NULL',
+                'awaiting_admin_review' => 'ADD COLUMN awaiting_admin_review TINYINT(1) NOT NULL DEFAULT 0',
+                'completion_approved_by' => 'ADD COLUMN completion_approved_by VARCHAR(36) NULL',
+                'completion_approved_at' => 'ADD COLUMN completion_approved_at DATETIME NULL',
+                'admin_notes' => 'ADD COLUMN admin_notes TEXT NULL',
+                'requested_corrections' => 'ADD COLUMN requested_corrections TEXT NULL',
+                'additional_info_history' => 'ADD COLUMN additional_info_history JSON NULL',
+                'document_review_checklist' => 'ADD COLUMN document_review_checklist JSON NULL',
+                'result_document_id' => 'ADD COLUMN result_document_id VARCHAR(36) NULL',
+                'result_source' => 'ADD COLUMN result_source VARCHAR(32) NULL',
+                'provider_tracking_id' => 'ADD COLUMN provider_tracking_id VARCHAR(150) NULL',
+                'result_payload' => 'ADD COLUMN result_payload JSON NULL',
+                'result_retrieval_status' => 'ADD COLUMN result_retrieval_status VARCHAR(32) NULL',
+                'result_retrieval_error' => 'ADD COLUMN result_retrieval_error TEXT NULL',
+                'result_retrieved_at' => 'ADD COLUMN result_retrieved_at DATETIME NULL',
+                'provider_reference' => 'ADD COLUMN provider_reference VARCHAR(120) NULL',
+                'provider_transaction_id' => 'ADD COLUMN provider_transaction_id VARCHAR(120) NULL',
+                'provider_status' => 'ADD COLUMN provider_status VARCHAR(64) NULL',
+                'provider_remarks' => 'ADD COLUMN provider_remarks TEXT NULL',
+                'refund_reference' => 'ADD COLUMN refund_reference VARCHAR(120) NULL',
+                'dispatch_locked_at' => 'ADD COLUMN dispatch_locked_at DATETIME NULL',
+                'dispatch_attempts' => 'ADD COLUMN dispatch_attempts INT NOT NULL DEFAULT 0',
+                'last_dispatch_error' => 'ADD COLUMN last_dispatch_error TEXT NULL',
+                'completed_at' => 'ADD COLUMN completed_at DATETIME NULL',
+                'updated_at' => 'ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
             ],
             'service_catalogue' => [
                 'processing_type' => 'ADD COLUMN processing_type ENUM("instant", "manual") NOT NULL DEFAULT "instant"',
@@ -1352,6 +1383,12 @@ class SchemaSync
             $db->execute('UPDATE users SET kyc_level = tier WHERE kyc_level = 1 AND tier > 1');
         } catch (Throwable $e) {
             $errors[] = 'backfill:kyc_level => ' . $e->getMessage();
+        }
+
+        // Internal manual fulfilment must never exist as an external API mapping row
+        try {
+            $db->execute('DELETE FROM provider_service_mappings WHERE LOWER(COALESCE(provider_id, "")) IN ("hambak_manual", "internal_manual")');
+        } catch (Throwable) {
         }
 
         // Ensure standard providers exist in providers table (without writing fake keys)
@@ -2466,10 +2503,12 @@ class SchemaSync
                 'INSERT INTO provider_service_mappings (id, provider_id, service_key, provider_endpoint, provider_plan_code, wholesale_cost, is_active)
                  SELECT UUID(), s.provider_id, s.service_key, s.endpoint, NULL, s.wholesale_cost, s.is_active
                  FROM service_catalogue s
-                 WHERE NOT EXISTS (
-                     SELECT 1 FROM provider_service_mappings psm
-                     WHERE psm.provider_id = s.provider_id AND psm.service_key = s.service_key
-                 )'
+                 WHERE LOWER(COALESCE(s.fulfilment_mode, "")) <> "internal_manual"
+                   AND LOWER(COALESCE(s.provider_id, "")) NOT IN ("hambak_manual", "internal_manual")
+                   AND NOT EXISTS (
+                       SELECT 1 FROM provider_service_mappings psm
+                       WHERE psm.provider_id = s.provider_id AND psm.service_key = s.service_key
+                   )'
             );
             // Reconcile bvn_modification_banks <-> modification_bvn_types while strictly preserving ACCESS BANK is_active = 0
             $db->execute(
@@ -3310,10 +3349,12 @@ class SchemaSync
                 'INSERT INTO provider_service_mappings (id, provider_id, service_key, provider_endpoint, provider_plan_code, wholesale_cost, is_active)
                  SELECT UUID(), s.provider_id, s.service_key, s.endpoint, NULL, s.wholesale_cost, s.is_active
                  FROM service_catalogue s
-                 WHERE NOT EXISTS (
-                     SELECT 1 FROM provider_service_mappings psm
-                     WHERE psm.provider_id = s.provider_id AND psm.service_key = s.service_key
-                 )'
+                 WHERE LOWER(COALESCE(s.fulfilment_mode, "")) <> "internal_manual"
+                   AND LOWER(COALESCE(s.provider_id, "")) NOT IN ("hambak_manual", "internal_manual")
+                   AND NOT EXISTS (
+                       SELECT 1 FROM provider_service_mappings psm
+                       WHERE psm.provider_id = s.provider_id AND psm.service_key = s.service_key
+                   )'
             );
         } catch (Throwable $e) {
             $errors[] = 'add_psm_sync => ' . $e->getMessage();
@@ -4788,6 +4829,15 @@ class SchemaSync
         $sk = trim($serviceKey);
         $pid = trim($providerId) !== '' ? trim($providerId) : '2sureverify';
         if ($sk === '' || in_array(strtolower($pid), ['hambak_manual', 'internal_manual'], true)) {
+            if ($sk !== '') {
+                try {
+                    $db->execute(
+                        'DELETE FROM provider_service_mappings WHERE LOWER(COALESCE(provider_id, "")) IN ("hambak_manual", "internal_manual") AND service_key = :sk',
+                        ['sk' => $sk]
+                    );
+                } catch (Throwable) {
+                }
+            }
             return;
         }
         try {

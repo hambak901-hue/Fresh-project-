@@ -619,6 +619,38 @@ class VerificationController
         return Security::sanitizeCustomerError($message);
     }
 
+    private function sanitizeManualTimelineForCustomer(array $timeline): array
+    {
+        $clean = [];
+        foreach ($timeline as $ev) {
+            if (!is_array($ev)) {
+                continue;
+            }
+            if (array_key_exists('is_customer_visible', $ev) && !$ev['is_customer_visible']) {
+                continue;
+            }
+            unset($ev['actor_id'], $ev['staff_name'], $ev['assigned_staff_name'], $ev['reviewed_by']);
+            foreach (['label', 'note'] as $field) {
+                if (!empty($ev[$field]) && is_string($ev[$field])) {
+                    $text = $ev[$field];
+                    if ($field === 'label' && str_starts_with($text, 'Approved & completed by ')) {
+                        $text = 'Approved and completed';
+                    } elseif ($field === 'label' && str_starts_with($text, 'Claimed by HAMBAK Desk operator')) {
+                        $text = 'Order in review';
+                    }
+                    $text = str_ireplace(
+                        ['HAMBAK Manual Desk', 'HAMBAK MANUAL', 'HAMBAK Desk'],
+                        ['Manual Processing', 'manual processing', 'processing team'],
+                        $text
+                    );
+                    $ev[$field] = $text;
+                }
+            }
+            $clean[] = $ev;
+        }
+        return $clean;
+    }
+
     private function sanitizeResultForCustomer(array $data, string $serviceKey = '', string $type = ''): array
     {
         unset(
@@ -642,8 +674,22 @@ class VerificationController
             $data['commission'],
             $data['charge'],
             $data['trace'],
-            $data['stack']
+            $data['stack'],
+            $data['claimed_by'],
+            $data['claimed_at'],
+            $data['assigned_to'],
+            $data['assigned_staff_name'],
+            $data['reviewed_by'],
+            $data['admin_notes'],
+            $data['completion_approved_by'],
+            $data['completion_approved_at'],
+            $data['provider_reference'],
+            $data['provider_transaction_id'],
+            $data['provider_status']
         );
+        if (!empty($data['manual_timeline']) && is_array($data['manual_timeline'])) {
+            $data['manual_timeline'] = $this->sanitizeManualTimelineForCustomer($data['manual_timeline']);
+        }
         if (!empty($data['error']) && is_string($data['error'])) {
             $data['error'] = Security::sanitizeCustomerError($data['error'], Security::ERR_PROVIDER_UNAVAILABLE);
         }
@@ -672,7 +718,7 @@ class VerificationController
         SchemaSync::syncAdditionalServicesCatalog($this->db);
 
         $user = Auth::user($request);
-        $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = $user && Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         $activeProvider = $this->resolveActiveProviderId();
 
         if ($isAdmin) {
@@ -790,7 +836,7 @@ class VerificationController
         self::ensureSlipSchemaAndDefaults($this->db);
 
         $user = Auth::requireVerifiedEmail($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
 
         // Enforce explicit NDPR/NIMC authorization consent
         $rawConsent = $request->input('consent', false);
@@ -1210,8 +1256,8 @@ class VerificationController
         $initialTimeline = $isManualRoute ? [[
             'step' => 'submitted',
             'status' => 'pending',
-            'label' => 'Queued at HAMBAK Manual Desk',
-            'note' => 'Order paid and routed internally to HAMBAK MANUAL fulfilment queue.',
+            'label' => 'Queued for manual processing',
+            'note' => 'Order paid and queued for processing.',
             'at' => gmdate('c'),
         ]] : [];
         $initialResultPayload = $isManualRoute
@@ -1704,8 +1750,8 @@ class VerificationController
         $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
 
         $selectCols = $isAdmin
-            ? 'id, user_id, type, service_key, search_value, provider, cost, provider_cost, internal_fulfilment_cost, fulfilment_mode, sla_due_at, result_document_id, awaiting_admin_review, provider_status, status, reference, slip_type, has_slip, result_data as result, created_at, completed_at'
-            : 'id, user_id, type, service_key, search_value, cost, fulfilment_mode, sla_due_at, result_document_id, status, reference, slip_type, has_slip, result_data as result, created_at, completed_at';
+            ? 'id, user_id, type, service_key, search_value, provider, cost, provider_cost, internal_fulfilment_cost, fulfilment_mode, sla_due_at, result_document_id, result_source, provider_tracking_id, result_payload, result_retrieval_status, result_retrieval_error, result_retrieved_at, awaiting_admin_review, provider_status, status, reference, slip_type, has_slip, result_data as result, created_at, completed_at'
+            : 'id, user_id, type, service_key, search_value, cost, fulfilment_mode, sla_due_at, result_document_id, result_source, provider_tracking_id, result_payload, result_retrieval_status, result_retrieved_at, status, reference, slip_type, has_slip, result_data as result, created_at, completed_at';
 
         $whereSql = 'WHERE user_id = :uid ';
         $params = ['uid' => $user['id']];
@@ -1764,6 +1810,8 @@ class VerificationController
             $r['has_result_document'] = !empty($r['result_document_id']);
             $r['has_original_pdf'] = !empty($r['result_document_id']);
             $r['has_photo'] = false;
+            $decodedRes = null;
+            $hasLegacyPdf = false;
             if (!empty($r['result']) && is_string($r['result'])) {
                 $decodedRes = json_decode($r['result'], true);
                 if (is_array($decodedRes)) {
@@ -1772,7 +1820,8 @@ class VerificationController
                     if (!$isAdmin) {
                         $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($r['service_key'] ?? ''), (string)($r['type'] ?? ''));
                     }
-                    $r['has_original_pdf'] = $r['has_original_pdf'] || !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+                    $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+                    $r['has_original_pdf'] = $r['has_original_pdf'] || $hasLegacyPdf;
                     $r['has_photo'] = !empty($decodedRes['photo']);
                     unset($decodedRes['pdf_base64'], $decodedRes['photo']);
                     $r['result'] = $decodedRes;
@@ -1781,7 +1830,6 @@ class VerificationController
                 }
             }
             $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $r, 'verification', $isAdmin);
-            $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
             $hasDoc = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
             $r = array_merge($r, $resultMeta);
             $r['has_result_document'] = !empty($resultMeta['has_result_document']);
@@ -2049,23 +2097,52 @@ class VerificationController
     private function executeVerificationPoll(array $record, bool $isAdmin, ?array $actor = null): void
     {
         if (FulfilmentRouterService::isInternalManualOrder($record)) {
-            Response::error('Internal manual orders are processed by the HAMBAK MANUAL fulfilment desk and cannot be polled against external providers.', 422);
+            Response::error('Manual processing orders cannot be polled against external providers.', 422);
         }
 
         $currentStatus = strtolower(trim((string)($record['status'] ?? 'pending')));
-        if (in_array($currentStatus, ['completed', 'failed', 'refunded'], true)) {
+        if (in_array($currentStatus, ['completed', 'failed', 'rejected', 'refunded'], true)) {
             $decoded = !empty($record['result_data']) && is_string($record['result_data']) ? json_decode($record['result_data'], true) : null;
+            $hasLegacyPdf = false;
             if (is_array($decoded)) {
                 [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
                 $decoded = $this->stripCrossTypeFields($decoded, $rowBvn, $rowNin);
                 if (!$isAdmin) {
                     $decoded = $this->sanitizeResultForCustomer($decoded, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
                 }
+                $hasLegacyPdf = !empty($decoded['pdf_base64']) || !empty($decoded['pdf_url']);
+                unset($decoded['pdf_base64']);
             }
             $record['result'] = $decoded;
             unset($record['result_data']);
+            $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $record, 'verification', $isAdmin);
+            $record = array_merge($record, $resultMeta);
+            $record['has_result_document'] = !empty($resultMeta['has_result_document']);
+            $record['has_original_pdf'] = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
             if (!$isAdmin) {
-                unset($record['provider'], $record['provider_cost'], $record['internal_fulfilment_cost'], $record['routing_snapshot']);
+                unset(
+                    $record['provider'],
+                    $record['provider_cost'],
+                    $record['internal_fulfilment_cost'],
+                    $record['routing_snapshot'],
+                    $record['last_dispatch_error'],
+                    $record['dispatch_locked_at'],
+                    $record['dispatch_attempts'],
+                    $record['claimed_by'],
+                    $record['claimed_at'],
+                    $record['completion_approved_by'],
+                    $record['completion_approved_at'],
+                    $record['admin_notes'],
+                    $record['provider_reference'],
+                    $record['provider_transaction_id'],
+                    $record['provider_status']
+                );
+                if (!empty($record['provider_remarks'])) {
+                    $record['provider_remarks'] = null;
+                }
+            } else {
+                $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
+                $record['internal_fulfilment_cost'] = (float)($record['internal_fulfilment_cost'] ?? 0);
             }
             Response::success([
                 'status' => $record['status'],

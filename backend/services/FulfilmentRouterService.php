@@ -325,7 +325,7 @@ class FulfilmentRouterService
                 'allowed' => false,
                 'code' => 503,
                 'reason' => 'HAMBAK Internal Fulfilment Desk provider (hambak_manual) is inactive.',
-                'customer_message' => 'HAMBAK Manual Desk is currently offline. Please try again later or contact support.',
+                'customer_message' => 'This service is currently offline. Please try again later or contact support.',
             ];
         }
 
@@ -694,7 +694,7 @@ class FulfilmentRouterService
         }
 
         $targetProcessingType = $targetMode === 'provider_instant' ? 'instant' : 'manual';
-        $targetManualLabel = trim((string)($payload['manual_label'] ?? ($targetMode === 'internal_manual' ? 'HAMBAK Manual Desk' : ($targetMode === 'provider_async' ? 'Provider Async Processing' : 'Instant Registry'))));
+        $targetManualLabel = trim((string)($payload['manual_label'] ?? ($targetMode === 'internal_manual' ? 'Manual Processing' : ($targetMode === 'provider_async' ? 'Provider Async Processing' : 'Instant Registry'))));
         $targetNotes = array_key_exists('eligibility_notes', $payload)
             ? trim((string)$payload['eligibility_notes'])
             : (string)$current['eligibility_notes'];
@@ -757,12 +757,9 @@ class FulfilmentRouterService
                 ]
             );
 
-            // Sync composite (provider_id, service_key) row safely without overwriting other providers
-            $mappingCost = $targetMode === 'internal_manual' ? $targetInternalCost : $targetWholesale;
-            $mappingEp = $targetMode === 'internal_manual' ? 'internal://hambak-manual' : (string)$current['endpoint'];
-            SchemaSync::syncProviderServiceMapping($this->db, $targetProvider, $sk, $mappingEp, $mappingCost, $targetActive);
-
-            if ($targetMode !== 'internal_manual') {
+            // Only external providers belong in provider_service_mappings; remove any internal_manual/hambak_manual entries
+            if ($targetMode !== 'internal_manual' && strtolower($targetProvider) !== 'hambak_manual') {
+                SchemaSync::syncProviderServiceMapping($this->db, $targetProvider, $sk, (string)$current['endpoint'], $targetWholesale, $targetActive);
                 try {
                     $this->db->execute(
                         'UPDATE provider_service_mappings
@@ -778,6 +775,18 @@ class FulfilmentRouterService
                             'pid' => $targetProvider,
                             'sk' => $sk,
                         ]
+                    );
+                } catch (Throwable) {
+                }
+            } else {
+                try {
+                    $this->db->execute(
+                        'DELETE FROM provider_service_mappings WHERE LOWER(COALESCE(provider_id, "")) IN ("hambak_manual", "internal_manual") AND service_key = :sk',
+                        ['sk' => $sk]
+                    );
+                    $this->db->execute(
+                        'UPDATE provider_service_mappings SET is_active = 0 WHERE service_key = :sk',
+                        ['sk' => $sk]
                     );
                 } catch (Throwable) {
                 }

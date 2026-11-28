@@ -260,6 +260,15 @@ class AdditionalServicesController
         }
 
         $infoHistory = $this->decodeJsonColumn($row['additional_info_history'] ?? null, []);
+        if (!$isAdmin && is_array($infoHistory)) {
+            $infoHistory = array_map(static function ($entry) {
+                if (!is_array($entry)) {
+                    return $entry;
+                }
+                unset($entry['reviewed_by'], $entry['staff_name'], $entry['assigned_staff_name'], $entry['actor_id']);
+                return $entry;
+            }, $infoHistory);
+        }
         $queryReviewStatus = (string)($fields['query_review_status'] ?? '');
 
         $statusHistory = [];
@@ -272,6 +281,11 @@ class AdditionalServicesController
                 $remarkText = (string)($hr['remarks'] ?? '');
                 if (!$isAdmin && $remarkText !== '') {
                     $remarkText = $this->sanitizeCustomerError($remarkText);
+                    $remarkText = str_ireplace(
+                        ['HAMBAK Manual Desk', 'HAMBAK MANUAL', 'HAMBAK Desk', 'hambak_manual', '2SureVerify', 'Veripine'],
+                        ['Manual Processing', 'manual processing', 'processing team', 'manual', 'verification provider', 'verification provider'],
+                        $remarkText
+                    );
                 }
                 $entry = [
                     'id' => (string)($hr['id'] ?? ''),
@@ -291,6 +305,16 @@ class AdditionalServicesController
         }
 
         $checklist = $this->decodeJsonColumn($row['document_review_checklist'] ?? null, []);
+        if (!$isAdmin && is_array($checklist)) {
+            $cleanChecklist = [];
+            foreach ($checklist as $ck => $cv) {
+                if (is_array($cv)) {
+                    unset($cv['reviewed_by'], $cv['staff_name'], $cv['assigned_staff_name'], $cv['actor_id']);
+                }
+                $cleanChecklist[$ck] = $cv;
+            }
+            $checklist = $cleanChecklist;
+        }
         $isRefundable = array_key_exists('is_refundable', $row) ? (bool)(int)$row['is_refundable'] : true;
 
         $item = array_merge([
@@ -597,7 +621,7 @@ class AdditionalServicesController
     {
         SchemaSync::syncAdditionalServicesCatalog($this->db);
         $user = Auth::user($request);
-        $isAdmin = $user && in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = $user && Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
 
         $rows = $this->db->fetchAll(
             'SELECT s.*, c.code as category_code
@@ -806,7 +830,7 @@ class AdditionalServicesController
         SchemaSync::syncAdditionalServicesCatalog($this->db);
 
         $user = Auth::requireVerifiedEmail($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         $body = $request->getBody();
 
         if (empty($body['consent'])) {
@@ -1187,7 +1211,7 @@ class AdditionalServicesController
                 'pending',
                 'customer',
                 (string)$user['id'],
-                'Request submitted to HAMBAK MANUAL fulfilment queue',
+                'Request submitted for manual processing',
                 true
             );
 
@@ -1478,7 +1502,7 @@ class AdditionalServicesController
         SchemaSync::syncAdditionalServicesCatalog($this->db);
 
         $user = Auth::requireAuth($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         $status = strtolower(trim((string)$request->query('status', 'all')));
         $serviceKey = trim((string)$request->query('service_key', 'all'));
         $search = trim((string)$request->query('search', ''));
@@ -1542,7 +1566,7 @@ class AdditionalServicesController
     public function requestStatus(Request $request, array $params): void
     {
         $user = Auth::requireAuth($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -1562,7 +1586,7 @@ class AdditionalServicesController
     private function syncProviderStatusForRow(array $row, ?string $actorId = null): array
     {
         if (FulfilmentRouterService::isInternalManualOrder($row)) {
-            return ['updated' => false, 'message' => 'This request is fulfilled internally by HAMBAK MANUAL and cannot be polled against external providers.', 'row' => $row];
+            return ['updated' => false, 'message' => 'This request is handled via manual processing and cannot be polled against external providers.', 'row' => $row];
         }
 
         $lookupRef = trim((string)($row['provider_reference'] ?: $row['payment_reference']));
@@ -1736,7 +1760,7 @@ class AdditionalServicesController
         }
 
         if (FulfilmentRouterService::isInternalManualOrder($row)) {
-            Response::error('Internal manual orders are processed by the HAMBAK MANUAL fulfilment desk and cannot be polled against external providers.', 422);
+            Response::error('Manual processing orders cannot be polled against external providers.', 422);
         }
 
         $sync = $this->syncProviderStatusForRow($row, $isStaff ? (string)$user['id'] : null);
@@ -2288,7 +2312,7 @@ class AdditionalServicesController
         }
 
         if (FulfilmentRouterService::isInternalManualOrder($row)) {
-            Response::error('Internal manual orders are processed by HAMBAK MANUAL and cannot be polled against external providers.', 422);
+            Response::error('Manual processing orders cannot be polled against external providers.', 422);
         }
 
         $sync = $this->syncProviderStatusForRow($row, (string)$admin['id']);
@@ -2641,7 +2665,7 @@ class AdditionalServicesController
             Response::notFound('Service request not found.');
         }
         if (FulfilmentRouterService::isInternalManualOrder($row)) {
-            Response::error('Internal manual orders receive PDF results directly from HAMBAK MANUAL staff rather than upstream provider fetch.', 422);
+            Response::error('Manual processing orders receive PDF results from processing staff rather than upstream provider fetch.', 422);
         }
 
         $sync = $this->syncProviderStatusForRow($row, (string)$admin['id']);
