@@ -470,7 +470,137 @@ class FulfilmentRouterService
     }
 
     /**
-     * Lists all catalog services with full Phase 2/3 routing, schema verification, cost & SLA details.
+     * Aggregates historical and active application counts per service_key across
+     * verification_records, modification_requests, and enrolment_orders broken down by
+     * execution mode (provider_instant / provider_async / internal_manual) and status
+     * (pending vs completed vs failed_refunded).
+     */
+    private function fetchApplicationCountsByService(): array
+    {
+        $byService = [];
+        $summary = [
+            'total' => 0,
+            'pending' => 0,
+            'completed' => 0,
+            'failed_refunded' => 0,
+            'by_mode' => [
+                'provider_instant' => ['total' => 0, 'pending' => 0, 'completed' => 0],
+                'provider_async' => ['total' => 0, 'pending' => 0, 'completed' => 0],
+                'internal_manual' => ['total' => 0, 'pending' => 0, 'completed' => 0],
+            ],
+        ];
+
+        $accumulate = static function (array $rows, string $defaultExternalMode) use (&$byService, &$summary): void {
+            foreach ($rows as $row) {
+                $sk = trim((string)($row['service_key'] ?? ''));
+                if ($sk === '') {
+                    continue;
+                }
+                $cnt = (int)($row['cnt'] ?? 0);
+                if ($cnt <= 0) {
+                    continue;
+                }
+                $rawMode = strtolower(trim((string)($row['eff_mode'] ?? '')));
+                $mode = in_array($rawMode, self::VALID_MODES, true) ? $rawMode : $defaultExternalMode;
+                $st = strtolower(trim((string)($row['status'] ?? 'pending')));
+
+                if (!isset($byService[$sk])) {
+                    $byService[$sk] = [
+                        'total' => 0,
+                        'pending' => 0,
+                        'completed' => 0,
+                        'failed_refunded' => 0,
+                        'by_mode' => [
+                            'provider_instant' => ['total' => 0, 'pending' => 0, 'completed' => 0],
+                            'provider_async' => ['total' => 0, 'pending' => 0, 'completed' => 0],
+                            'internal_manual' => ['total' => 0, 'pending' => 0, 'completed' => 0],
+                        ],
+                    ];
+                }
+
+                $bucket = 'pending';
+                if ($st === 'completed') {
+                    $bucket = 'completed';
+                } elseif (in_array($st, ['failed', 'rejected', 'refunded'], true)) {
+                    $bucket = 'failed_refunded';
+                }
+
+                $byService[$sk]['total'] += $cnt;
+                $byService[$sk][$bucket] += $cnt;
+                $byService[$sk]['by_mode'][$mode]['total'] += $cnt;
+                if ($bucket === 'pending' || $bucket === 'completed') {
+                    $byService[$sk]['by_mode'][$mode][$bucket] += $cnt;
+                }
+
+                $summary['total'] += $cnt;
+                $summary[$bucket] += $cnt;
+                $summary['by_mode'][$mode]['total'] += $cnt;
+                if ($bucket === 'pending' || $bucket === 'completed') {
+                    $summary['by_mode'][$mode][$bucket] += $cnt;
+                }
+            }
+        };
+
+        try {
+            $vRows = $this->db->fetchAll(
+                'SELECT COALESCE(NULLIF(TRIM(service_key), ""), verification_type) AS service_key,
+                        CASE
+                            WHEN LOWER(COALESCE(fulfilment_mode, "")) IN ("provider_instant", "provider_async", "internal_manual") THEN LOWER(fulfilment_mode)
+                            WHEN LOWER(COALESCE(provider, "")) = "hambak_manual" THEN "internal_manual"
+                            ELSE "provider_instant"
+                        END AS eff_mode,
+                        LOWER(COALESCE(status, "pending")) AS status,
+                        COUNT(*) AS cnt
+                 FROM verification_records
+                 GROUP BY service_key, eff_mode, status'
+            );
+            $accumulate($vRows, 'provider_instant');
+        } catch (Throwable) {
+        }
+
+        try {
+            $mRows = $this->db->fetchAll(
+                'SELECT modification_type AS service_key,
+                        CASE
+                            WHEN LOWER(COALESCE(fulfilment_mode, "")) IN ("provider_instant", "provider_async", "internal_manual") THEN LOWER(fulfilment_mode)
+                            WHEN LOWER(COALESCE(provider_id, "")) = "hambak_manual" THEN "internal_manual"
+                            ELSE "provider_async"
+                        END AS eff_mode,
+                        LOWER(COALESCE(status, "pending")) AS status,
+                        COUNT(*) AS cnt
+                 FROM modification_requests
+                 GROUP BY service_key, eff_mode, status'
+            );
+            $accumulate($mRows, 'provider_async');
+        } catch (Throwable) {
+        }
+
+        try {
+            $eRows = $this->db->fetchAll(
+                'SELECT service_key,
+                        CASE
+                            WHEN LOWER(COALESCE(fulfilment_mode, "")) IN ("provider_instant", "provider_async", "internal_manual") THEN LOWER(fulfilment_mode)
+                            WHEN LOWER(COALESCE(provider_id, "")) = "hambak_manual" THEN "internal_manual"
+                            ELSE "provider_async"
+                        END AS eff_mode,
+                        LOWER(COALESCE(status, "pending")) AS status,
+                        COUNT(*) AS cnt
+                 FROM enrolment_orders
+                 GROUP BY service_key, eff_mode, status'
+            );
+            $accumulate($eRows, 'provider_async');
+        } catch (Throwable) {
+        }
+
+        return [
+            'by_service' => $byService,
+            'summary' => $summary,
+        ];
+    }
+
+    /**
+     * Lists all catalog services with full Phase 2/3/4 routing, schema verification,
+     * provider readiness, cost, SLA, and application count metrics.
      */
     public function listServicesWithRouting(): array
     {
@@ -495,6 +625,10 @@ class FulfilmentRouterService
         } catch (Throwable) {
         }
 
+        $countsData = $this->fetchApplicationCountsByService();
+        $countsByService = $countsData['by_service'];
+        $appSummary = $countsData['summary'];
+
         $rows = $this->db->fetchAll(
             'SELECT s.id, s.category_id, s.service_key, s.service_key AS `key`, s.name, s.description,
                     s.selling_price, s.selling_price AS price, s.wholesale_cost,
@@ -505,10 +639,15 @@ class FulfilmentRouterService
                     s.routing_initialized_at, s.routing_updated_at, s.routing_updated_by,
                     COALESCE(c.code, "nin_verification") AS category_code,
                     COALESCE(c.name, "Identity Services") AS category_name,
+                    psm.provider_endpoint AS mapping_endpoint,
+                    psm.provider_plan_code AS mapping_plan_code,
                     psm.schema_verified AS mapping_schema_verified,
                     psm.schema_verification_notes AS mapping_schema_notes,
                     p.name AS provider_name,
-                    p.is_active AS provider_is_active
+                    p.provider_type AS provider_type,
+                    p.is_active AS provider_is_active,
+                    p.api_key AS provider_api_key,
+                    p.secret_key AS provider_secret_key
              FROM service_catalogue s
              LEFT JOIN service_categories c ON c.id = s.category_id
              LEFT JOIN provider_service_mappings psm ON psm.provider_id = s.provider_id AND psm.service_key = s.service_key
@@ -537,6 +676,16 @@ class FulfilmentRouterService
                 ? !empty($r['mapping_schema_verified'])
                 : !empty($r['provider_schema_verified']);
             $r['provider_is_active'] = !empty($r['provider_is_active']);
+            $r['provider_type'] = (string)($r['provider_type'] ?? 'identity');
+            $r['provider_is_configured'] = $this->hasProviderCredentials((string)$r['provider_id'], [
+                'id' => $r['provider_id'],
+                'is_active' => $r['provider_is_active'],
+                'api_key' => $r['provider_api_key'] ?? '',
+                'secret_key' => $r['provider_secret_key'] ?? '',
+            ]);
+            // Never return provider secret fields
+            unset($r['provider_api_key'], $r['provider_secret_key']);
+
             $r['is_instant_registry_sku'] = in_array((string)$r['service_key'], self::INSTANT_REGISTRY_KEYS, true);
             $r['category'] = (string)$r['category_code'];
 
@@ -545,13 +694,30 @@ class FulfilmentRouterService
             $r['active_cost'] = round($activeCost, 2);
             $r['profit_per_transaction'] = round($margin, 2);
             $r['margin_percent'] = $r['selling_price'] > 0 ? (int)round(($margin / $r['selling_price']) * 100) : 0;
+
+            $sk = (string)$r['service_key'];
+            $r['application_counts'] = $countsByService[$sk] ?? [
+                'total' => 0,
+                'pending' => 0,
+                'completed' => 0,
+                'failed_refunded' => 0,
+                'by_mode' => [
+                    'provider_instant' => ['total' => 0, 'pending' => 0, 'completed' => 0],
+                    'provider_async' => ['total' => 0, 'pending' => 0, 'completed' => 0],
+                    'internal_manual' => ['total' => 0, 'pending' => 0, 'completed' => 0],
+                ],
+            ];
         }
         unset($r);
+
+        $mappingsData = $this->listProviderMappings();
 
         return [
             'services' => $rows,
             'providers' => $providers,
             'hambak_manual_active' => $hambakDesk !== null && !empty($hambakDesk['is_active']),
+            'application_summary' => $appSummary,
+            'provider_mappings' => $mappingsData['mappings'],
         ];
     }
 
@@ -626,17 +792,27 @@ class FulfilmentRouterService
             $targetProvider = '2sureverify';
         }
 
-        // Verify target external provider exists and has usable configuration before activating
-        $providerRow = $this->db->fetchOne('SELECT id, name, is_active, api_key, secret_key FROM providers WHERE id = :pid LIMIT 1', ['pid' => $targetProvider]);
+        // Verify target external provider exists, is compatible with identity/verification services, and has usable configuration
+        $providerRow = $this->db->fetchOne('SELECT id, name, provider_type, is_active, api_key, secret_key FROM providers WHERE id = :pid LIMIT 1', ['pid' => $targetProvider]);
         if (!$providerRow) {
             return ['ok' => false, 'code' => 422, 'message' => "Provider '{$targetProvider}' does not exist."];
         }
-        if ($targetMode !== 'internal_manual' && (empty($providerRow['is_active']) || !$this->hasProviderCredentials($targetProvider, $providerRow))) {
-            return [
-                'ok' => false,
-                'code' => 422,
-                'message' => "Provider '{$targetProvider}' is inactive or missing server credentials and cannot be assigned for automated dispatch.",
-            ];
+        if ($targetMode !== 'internal_manual') {
+            $pType = strtolower(trim((string)($providerRow['provider_type'] ?? '')));
+            if (!in_array($pType, ['identity', 'verification'], true)) {
+                return [
+                    'ok' => false,
+                    'code' => 422,
+                    'message' => "Provider '{$targetProvider}' (type '{$pType}') cannot be assigned to identity/verification/modification routing.",
+                ];
+            }
+            if (empty($providerRow['is_active']) || !$this->hasProviderCredentials($targetProvider, $providerRow)) {
+                return [
+                    'ok' => false,
+                    'code' => 422,
+                    'message' => "Provider '{$targetProvider}' is inactive or missing server credentials and cannot be assigned for automated dispatch.",
+                ];
+            }
         }
 
         $targetSchemaVerified = array_key_exists('provider_schema_verified', $payload)
@@ -757,25 +933,54 @@ class FulfilmentRouterService
                 ]
             );
 
-            // Only external providers belong in provider_service_mappings; remove any internal_manual/hambak_manual entries
+            // Only external providers belong in provider_service_mappings; preserve existing mapping endpoint & service code
             if ($targetMode !== 'internal_manual' && strtolower($targetProvider) !== 'hambak_manual') {
-                SchemaSync::syncProviderServiceMapping($this->db, $targetProvider, $sk, (string)$current['endpoint'], $targetWholesale, $targetActive);
                 try {
-                    $this->db->execute(
-                        'UPDATE provider_service_mappings
-                         SET schema_verified = :sv,
-                             schema_verified_at = CASE WHEN :sv2 = 1 THEN COALESCE(schema_verified_at, NOW()) ELSE NULL END,
-                             schema_verified_by = CASE WHEN :sv3 = 1 THEN COALESCE(schema_verified_by, :uid) ELSE NULL END
-                         WHERE provider_id = :pid AND service_key = :sk',
-                        [
-                            'sv' => $targetSchemaVerified ? 1 : 0,
-                            'sv2' => $targetSchemaVerified ? 1 : 0,
-                            'sv3' => $targetSchemaVerified ? 1 : 0,
-                            'uid' => $actor['id'] ?? null,
-                            'pid' => $targetProvider,
-                            'sk' => $sk,
-                        ]
+                    $existingMapping = $this->db->fetchOne(
+                        'SELECT id, provider_endpoint, provider_plan_code FROM provider_service_mappings WHERE provider_id = :pid AND service_key = :sk LIMIT 1',
+                        ['pid' => $targetProvider, 'sk' => $sk]
                     );
+                    if ($existingMapping) {
+                        $this->db->execute(
+                            'UPDATE provider_service_mappings
+                             SET provider_endpoint = CASE WHEN COALESCE(TRIM(provider_endpoint), "") = "" THEN :ep ELSE provider_endpoint END,
+                                 wholesale_cost = :wc,
+                                 is_active = :act,
+                                 schema_verified = :sv,
+                                 schema_verified_at = CASE WHEN :sv2 = 1 THEN COALESCE(schema_verified_at, NOW()) ELSE NULL END,
+                                 schema_verified_by = CASE WHEN :sv3 = 1 THEN COALESCE(schema_verified_by, :uid) ELSE NULL END
+                             WHERE id = :id',
+                            [
+                                'ep' => (string)$current['endpoint'],
+                                'wc' => $targetWholesale,
+                                'act' => $targetActive,
+                                'sv' => $targetSchemaVerified ? 1 : 0,
+                                'sv2' => $targetSchemaVerified ? 1 : 0,
+                                'sv3' => $targetSchemaVerified ? 1 : 0,
+                                'uid' => $actor['id'] ?? null,
+                                'id' => $existingMapping['id'],
+                            ]
+                        );
+                    } else {
+                        $this->db->execute(
+                            'INSERT INTO provider_service_mappings
+                             (id, provider_id, service_key, provider_endpoint, provider_plan_code, wholesale_cost, is_active, schema_verified, schema_verified_at, schema_verified_by)
+                             VALUES
+                             (:id, :pid, :sk, :ep, NULL, :wc, :act, :sv, CASE WHEN :sv2 = 1 THEN NOW() ELSE NULL END, CASE WHEN :sv3 = 1 THEN :uid ELSE NULL END)',
+                            [
+                                'id' => Security::generateUuid(),
+                                'pid' => $targetProvider,
+                                'sk' => $sk,
+                                'ep' => (string)$current['endpoint'],
+                                'wc' => $targetWholesale,
+                                'act' => $targetActive,
+                                'sv' => $targetSchemaVerified ? 1 : 0,
+                                'sv2' => $targetSchemaVerified ? 1 : 0,
+                                'sv3' => $targetSchemaVerified ? 1 : 0,
+                                'uid' => $actor['id'] ?? null,
+                            ]
+                        );
+                    }
                 } catch (Throwable) {
                 }
             } else {
@@ -842,6 +1047,10 @@ class FulfilmentRouterService
                         'new_mode' => $targetMode,
                         'previous_provider' => $current['provider_id'],
                         'new_provider' => $targetProvider,
+                        'previous_active' => !empty($current['is_active']),
+                        'new_active' => !empty($targetActive),
+                        'previous_selling_price' => (float)$current['selling_price'],
+                        'new_selling_price' => (float)$targetSelling,
                         'reason' => $reason,
                     ]),
                 ]
@@ -887,5 +1096,312 @@ class FulfilmentRouterService
         } catch (Throwable) {
             return [];
         }
+    }
+
+    // =========================================================================
+    // PHASE 4 — EXTERNAL PROVIDER SERVICE MAPPINGS MANAGEMENT
+    // Strictly isolates mapping rows from active route switches and from provider
+    // credential/base_url edits; permanently blocks hambak_manual/internal_manual.
+    // =========================================================================
+
+    public function listProviderMappings(array $filters = []): array
+    {
+        $serviceKey = trim((string)($filters['service_key'] ?? ''));
+        $providerId = trim((string)($filters['provider_id'] ?? ''));
+
+        $sql = 'SELECT psm.id, psm.provider_id, psm.service_key, psm.provider_endpoint, psm.provider_plan_code,
+                       psm.wholesale_cost, psm.is_active, psm.schema_verified, psm.schema_verified_at,
+                       psm.schema_verified_by, psm.schema_verification_notes, psm.schema_initialized_at,
+                       p.name AS provider_name, p.provider_type, p.is_active AS provider_is_active,
+                       p.api_key AS provider_api_key, p.secret_key AS provider_secret_key,
+                       s.name AS service_name, COALESCE(c.code, "") AS category_code,
+                       s.fulfilment_mode AS active_fulfilment_mode,
+                       s.provider_id AS active_provider_id,
+                       s.is_active AS service_is_active
+                FROM provider_service_mappings psm
+                LEFT JOIN providers p ON p.id = psm.provider_id
+                LEFT JOIN service_catalogue s ON s.service_key = psm.service_key
+                LEFT JOIN service_categories c ON c.id = s.category_id
+                WHERE LOWER(COALESCE(psm.provider_id, "")) NOT IN ("hambak_manual", "internal_manual")';
+        $params = [];
+        if ($serviceKey !== '') {
+            $sql .= ' AND psm.service_key = :sk';
+            $params['sk'] = $serviceKey;
+        }
+        if ($providerId !== '') {
+            $sql .= ' AND psm.provider_id = :pid';
+            $params['pid'] = $providerId;
+        }
+        $sql .= ' ORDER BY psm.service_key ASC, psm.provider_id ASC';
+
+        $mappings = [];
+        try {
+            $rows = $this->db->fetchAll($sql, $params);
+            foreach ($rows as $row) {
+                $pid = (string)$row['provider_id'];
+                $isActiveRoute = ((string)($row['active_provider_id'] ?? '') === $pid)
+                    && strtolower((string)($row['active_fulfilment_mode'] ?? '')) !== 'internal_manual';
+                $mappings[] = [
+                    'id' => (string)$row['id'],
+                    'provider_id' => $pid,
+                    'provider_name' => (string)($row['provider_name'] ?? $pid),
+                    'provider_type' => (string)($row['provider_type'] ?? 'identity'),
+                    'provider_is_active' => !empty($row['provider_is_active']),
+                    'provider_is_configured' => $this->hasProviderCredentials($pid, [
+                        'id' => $pid,
+                        'is_active' => $row['provider_is_active'] ?? 0,
+                        'api_key' => $row['provider_api_key'] ?? '',
+                        'secret_key' => $row['provider_secret_key'] ?? '',
+                    ]),
+                    'service_key' => (string)$row['service_key'],
+                    'service_name' => (string)($row['service_name'] ?? $row['service_key']),
+                    'category_code' => (string)($row['category_code'] ?? ''),
+                    'provider_endpoint' => (string)($row['provider_endpoint'] ?? ''),
+                    'provider_plan_code' => (string)($row['provider_plan_code'] ?? ''),
+                    'wholesale_cost' => (float)($row['wholesale_cost'] ?? 0),
+                    'is_active' => !empty($row['is_active']),
+                    'schema_verified' => !empty($row['schema_verified']),
+                    'schema_verified_at' => $row['schema_verified_at'] ?? null,
+                    'schema_verified_by' => $row['schema_verified_by'] ?? null,
+                    'schema_verification_notes' => (string)($row['schema_verification_notes'] ?? ''),
+                    'is_current_route' => $isActiveRoute,
+                    'service_is_active' => !empty($row['service_is_active']),
+                ];
+            }
+        } catch (Throwable) {
+        }
+
+        return ['mappings' => $mappings];
+    }
+
+    public function saveProviderMapping(?string $mappingId, array $payload, array $actor, string $ipAddress): array
+    {
+        $id = $mappingId !== null ? trim($mappingId) : '';
+        $isUpdate = $id !== '';
+
+        $existing = null;
+        if ($isUpdate) {
+            $existing = $this->db->fetchOne('SELECT * FROM provider_service_mappings WHERE id = :id LIMIT 1', ['id' => $id]);
+            if (!$existing) {
+                return ['ok' => false, 'code' => 404, 'message' => 'Provider service mapping not found.'];
+            }
+        }
+
+        $providerId = trim((string)($payload['provider_id'] ?? ($existing['provider_id'] ?? '')));
+        $serviceKey = trim((string)($payload['service_key'] ?? ($existing['service_key'] ?? '')));
+        $providerEndpoint = trim((string)($payload['provider_endpoint'] ?? ($existing['provider_endpoint'] ?? '')));
+        $providerPlanCode = trim((string)($payload['provider_plan_code'] ?? ($existing['provider_plan_code'] ?? '')));
+        $wholesaleCost = array_key_exists('wholesale_cost', $payload)
+            ? max(0.0, (float)$payload['wholesale_cost'])
+            : (float)($existing['wholesale_cost'] ?? 0);
+        $isActive = array_key_exists('is_active', $payload)
+            ? (!empty($payload['is_active']) ? 1 : 0)
+            : (!empty($existing['is_active']) || !$isUpdate ? 1 : 0);
+        $schemaVerified = array_key_exists('schema_verified', $payload)
+            ? (!empty($payload['schema_verified']) ? 1 : 0)
+            : (!empty($existing['schema_verified']) ? 1 : 0);
+        $notes = array_key_exists('schema_verification_notes', $payload)
+            ? trim((string)$payload['schema_verification_notes'])
+            : (string)($existing['schema_verification_notes'] ?? '');
+
+        if ($providerId === '' || in_array(strtolower($providerId), ['hambak_manual', 'internal_manual'], true)) {
+            return [
+                'ok' => false,
+                'code' => 422,
+                'message' => 'HAMBAK MANUAL is internal-only and cannot be added to external provider_service_mappings.',
+            ];
+        }
+        if ($serviceKey === '') {
+            return ['ok' => false, 'code' => 422, 'message' => 'service_key is required.'];
+        }
+        if ($providerEndpoint === '' || mb_strlen($providerEndpoint) > 190) {
+            return ['ok' => false, 'code' => 422, 'message' => 'Valid provider endpoint path/URL is required (max 190 characters).'];
+        }
+        if ($providerPlanCode === '' || mb_strlen($providerPlanCode) > 100) {
+            return ['ok' => false, 'code' => 422, 'message' => 'Valid external provider service code is required (max 100 characters).'];
+        }
+
+        $providerRow = $this->db->fetchOne(
+            'SELECT id, name, provider_type, is_active, api_key, secret_key FROM providers WHERE id = :pid LIMIT 1',
+            ['pid' => $providerId]
+        );
+        if (!$providerRow) {
+            return ['ok' => false, 'code' => 422, 'message' => "External provider '{$providerId}' does not exist."];
+        }
+        $pType = strtolower(trim((string)($providerRow['provider_type'] ?? '')));
+        if (!in_array($pType, ['identity', 'verification'], true)) {
+            return [
+                'ok' => false,
+                'code' => 422,
+                'message' => "Provider '{$providerId}' (type '{$pType}') is not an identity/verification provider.",
+            ];
+        }
+        if ($isActive && (empty($providerRow['is_active']) || !$this->hasProviderCredentials($providerId, $providerRow))) {
+            return [
+                'ok' => false,
+                'code' => 422,
+                'message' => "Provider '{$providerId}' is inactive or missing server credentials and cannot have an active mapping.",
+            ];
+        }
+
+        $serviceRow = $this->db->fetchOne('SELECT id, service_key, name FROM service_catalogue WHERE service_key = :sk LIMIT 1', ['sk' => $serviceKey]);
+        if (!$serviceRow) {
+            return ['ok' => false, 'code' => 404, 'message' => "Service '{$serviceKey}' not found in service_catalogue."];
+        }
+
+        $dupParams = ['pid' => $providerId, 'sk' => $serviceKey];
+        $dupSql = 'SELECT id FROM provider_service_mappings WHERE provider_id = :pid AND service_key = :sk';
+        if ($isUpdate) {
+            $dupSql .= ' AND id != :curId';
+            $dupParams['curId'] = $id;
+        }
+        $duplicate = $this->db->fetchOne($dupSql . ' LIMIT 1', $dupParams);
+        if ($duplicate) {
+            return [
+                'ok' => false,
+                'code' => 409,
+                'message' => "A mapping already exists for provider '{$providerId}' and service '{$serviceKey}'. Edit the existing mapping instead.",
+            ];
+        }
+
+        $targetId = $isUpdate ? $id : Security::generateUuid();
+        if ($isUpdate) {
+            $this->db->execute(
+                'UPDATE provider_service_mappings
+                 SET provider_id = :pid,
+                     service_key = :sk,
+                     provider_endpoint = :ep,
+                     provider_plan_code = :code,
+                     wholesale_cost = :wc,
+                     is_active = :act,
+                     schema_verified = :sv,
+                     schema_verified_at = CASE WHEN :sv2 = 1 THEN COALESCE(schema_verified_at, NOW()) ELSE NULL END,
+                     schema_verified_by = CASE WHEN :sv3 = 1 THEN COALESCE(schema_verified_by, :uid) ELSE NULL END,
+                     schema_verification_notes = :notes
+                 WHERE id = :id',
+                [
+                    'pid' => $providerId,
+                    'sk' => $serviceKey,
+                    'ep' => $providerEndpoint,
+                    'code' => $providerPlanCode,
+                    'wc' => $wholesaleCost,
+                    'act' => $isActive,
+                    'sv' => $schemaVerified,
+                    'sv2' => $schemaVerified,
+                    'sv3' => $schemaVerified,
+                    'uid' => $actor['id'] ?? null,
+                    'notes' => $notes !== '' ? $notes : null,
+                    'id' => $targetId,
+                ]
+            );
+        } else {
+            $this->db->execute(
+                'INSERT INTO provider_service_mappings
+                 (id, provider_id, service_key, provider_endpoint, provider_plan_code, wholesale_cost, is_active, schema_verified, schema_verified_at, schema_verified_by, schema_verification_notes, schema_initialized_at)
+                 VALUES
+                 (:id, :pid, :sk, :ep, :code, :wc, :act, :sv, CASE WHEN :sv2 = 1 THEN NOW() ELSE NULL END, CASE WHEN :sv3 = 1 THEN :uid ELSE NULL END, :notes, NOW())',
+                [
+                    'id' => $targetId,
+                    'pid' => $providerId,
+                    'sk' => $serviceKey,
+                    'ep' => $providerEndpoint,
+                    'code' => $providerPlanCode,
+                    'wc' => $wholesaleCost,
+                    'act' => $isActive,
+                    'sv' => $schemaVerified,
+                    'sv2' => $schemaVerified,
+                    'sv3' => $schemaVerified,
+                    'uid' => $actor['id'] ?? null,
+                    'notes' => $notes !== '' ? $notes : null,
+                ]
+            );
+        }
+
+        try {
+            $this->db->execute(
+                'INSERT INTO audit_logs (id, user_id, action, ip_address, details) VALUES (:id, :uid, :act, :ip, :det)',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $actor['id'] ?? null,
+                    'act' => $isUpdate ? 'ADMIN_PROVIDER_MAPPING_UPDATED' : 'ADMIN_PROVIDER_MAPPING_CREATED',
+                    'ip' => substr($ipAddress, 0, 45),
+                    'det' => json_encode([
+                        'mapping_id' => $targetId,
+                        'provider_id' => $providerId,
+                        'service_key' => $serviceKey,
+                        'provider_endpoint' => $providerEndpoint,
+                        'provider_plan_code' => $providerPlanCode,
+                        'wholesale_cost' => $wholesaleCost,
+                        'is_active' => (bool)$isActive,
+                        'schema_verified' => (bool)$schemaVerified,
+                    ]),
+                ]
+            );
+        } catch (Throwable) {
+        }
+
+        $all = $this->listProviderMappings(['service_key' => $serviceKey, 'provider_id' => $providerId]);
+        $saved = $all['mappings'][0] ?? null;
+
+        return [
+            'ok' => true,
+            'code' => $isUpdate ? 200 : 201,
+            'message' => $isUpdate ? 'External provider mapping updated (active route unchanged).' : 'External provider mapping created (active route unchanged).',
+            'mapping' => $saved,
+        ];
+    }
+
+    public function deleteProviderMapping(string $mappingId, array $actor, string $ipAddress): array
+    {
+        $id = trim($mappingId);
+        $existing = $this->db->fetchOne('SELECT * FROM provider_service_mappings WHERE id = :id LIMIT 1', ['id' => $id]);
+        if (!$existing) {
+            return ['ok' => false, 'code' => 404, 'message' => 'Provider service mapping not found.'];
+        }
+
+        $activeSvc = $this->db->fetchOne(
+            'SELECT service_key, name, provider_id, fulfilment_mode, is_active FROM service_catalogue WHERE service_key = :sk LIMIT 1',
+            ['sk' => $existing['service_key']]
+        );
+        if (
+            $activeSvc
+            && !empty($activeSvc['is_active'])
+            && strtolower((string)($activeSvc['fulfilment_mode'] ?? '')) !== 'internal_manual'
+            && (string)($activeSvc['provider_id'] ?? '') === (string)$existing['provider_id']
+        ) {
+            return [
+                'ok' => false,
+                'code' => 409,
+                'message' => 'Cannot delete the active provider mapping while the service route is enabled and pointing to this provider. Switch or deactivate the route first.',
+            ];
+        }
+
+        $this->db->execute('DELETE FROM provider_service_mappings WHERE id = :id', ['id' => $id]);
+
+        try {
+            $this->db->execute(
+                'INSERT INTO audit_logs (id, user_id, action, ip_address, details) VALUES (:id, :uid, :act, :ip, :det)',
+                [
+                    'id' => Security::generateUuid(),
+                    'uid' => $actor['id'] ?? null,
+                    'act' => 'ADMIN_PROVIDER_MAPPING_DELETED',
+                    'ip' => substr($ipAddress, 0, 45),
+                    'det' => json_encode([
+                        'mapping_id' => $id,
+                        'provider_id' => $existing['provider_id'],
+                        'service_key' => $existing['service_key'],
+                        'provider_endpoint' => $existing['provider_endpoint'],
+                        'provider_plan_code' => $existing['provider_plan_code'],
+                    ]),
+                ]
+            );
+        } catch (Throwable) {
+        }
+
+        return [
+            'ok' => true,
+            'code' => 200,
+            'message' => 'External provider mapping deleted.',
+        ];
     }
 }

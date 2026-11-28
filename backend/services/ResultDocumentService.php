@@ -501,6 +501,21 @@ class ResultDocumentService
             Response::error('Official result PDF must be between 1 byte and 15 MB.', 422);
         }
 
+        $rawName = (string)($uploadedFile['name'] ?? '');
+        if ($rawName !== '') {
+            $ext = strtolower(pathinfo($rawName, PATHINFO_EXTENSION));
+            if ($ext !== '' && $ext !== 'pdf') {
+                Response::error('Only .pdf official result documents are accepted.', 422);
+            }
+            $nameParts = array_filter(explode('.', strtolower(basename($rawName))));
+            $blockedExts = ['php', 'phtml', 'phar', 'exe', 'sh', 'js', 'mjs', 'cjs', 'svg', 'html', 'htm', 'bat', 'cmd', 'asp', 'aspx', 'jsp', 'cgi', 'pl', 'py', 'rb'];
+            foreach ($nameParts as $part) {
+                if (in_array($part, $blockedExts, true)) {
+                    Response::error('Executable or script filenames are not permitted.', 422);
+                }
+            }
+        }
+
         $bytes = @file_get_contents($tmpPath);
         if (!is_string($bytes)) {
             Response::error('Failed to read uploaded PDF bytes.', 500);
@@ -684,7 +699,7 @@ class ResultDocumentService
         }
 
         $isOwner = ((string)($record['user_id'] ?? '') === (string)($user['id'] ?? ''));
-        $isStaff = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
+        $isStaff = Auth::isAdmin($user) && Auth::canAccessManualRecord($user, $record);
         if (!$isOwner && !$isStaff) {
             Response::forbidden('Access denied to this result document.');
         }
@@ -745,10 +760,10 @@ class ResultDocumentService
         $docId = trim((string)($row['result_document_id'] ?? ''));
         $doc = null;
         if ($docId !== '') {
-            $doc = $db->fetchOne('SELECT id, domain, record_id, document_source, is_provider_issued, original_name, mime_type, file_size, sha256_hash, tracking_id, retrieval_status, retrieved_at, created_at FROM identity_result_documents WHERE id = :id LIMIT 1', ['id' => $docId]);
+            $doc = $db->fetchOne('SELECT id, domain, record_id, document_source, is_provider_issued, original_name, mime_type, file_size, sha256_hash, tracking_id, uploaded_by, retrieval_status, retrieved_at, created_at FROM identity_result_documents WHERE id = :id LIMIT 1', ['id' => $docId]);
         }
         if (!$doc) {
-            $doc = $db->fetchOne('SELECT id, domain, record_id, document_source, is_provider_issued, original_name, mime_type, file_size, sha256_hash, tracking_id, retrieval_status, retrieved_at, created_at FROM identity_result_documents WHERE domain = :dom AND record_id = :rid ORDER BY created_at DESC LIMIT 1', ['dom' => $domain, 'rid' => $row['id']]);
+            $doc = $db->fetchOne('SELECT id, domain, record_id, document_source, is_provider_issued, original_name, mime_type, file_size, sha256_hash, tracking_id, uploaded_by, retrieval_status, retrieved_at, created_at FROM identity_result_documents WHERE domain = :dom AND record_id = :rid ORDER BY created_at DESC LIMIT 1', ['dom' => $domain, 'rid' => $row['id']]);
         }
 
         $hasDoc = ($doc !== null);
@@ -787,13 +802,16 @@ class ResultDocumentService
             'preview_url' => $endpointBase,
             'download_url' => $endpointBase . '?download=1',
         ] : null;
+        if ($docPayload !== null && $includeAdminFields) {
+            $docPayload['uploaded_by'] = $doc['uploaded_by'] ?? null;
+        }
 
         $retrievalStatus = $hasDoc ? 'ready' : strtolower(trim((string)($row['result_retrieval_status'] ?? 'unavailable')));
         $rowStatus = strtolower(trim((string)($row['status'] ?? '')));
 
         if ($hasDoc) {
             $availabilityState = 'document_available';
-        } elseif (in_array($rowStatus, ['failed', 'rejected', 'refunded'], true)) {
+        } elseif (in_array($rowStatus, ['failed', 'rejected', 'refunded', 'cancelled'], true)) {
             $availabilityState = 'failed_or_rejected';
         } elseif (in_array($rowStatus, ['pending', 'under_review', 'assigned', 'processing', 'query_required'], true)) {
             $availabilityState = 'processing';

@@ -58,6 +58,24 @@ SET @sql := IF(
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+SET @has_mr_refunded_at := 0;
+SET @mr_c_ref := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'modification_requests' AND COLUMN_NAME = 'refunded_at');
+SET @sql := IF(
+    @tbl_mr > 0 AND @mr_c_ref > 0,
+    'SELECT COUNT(*) INTO @has_mr_refunded_at FROM modification_requests WHERE refunded_at IS NOT NULL',
+    'SELECT 0 INTO @has_mr_refunded_at'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_eo_refunded_at := 0;
+SET @eo_c_ref := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'enrolment_orders' AND COLUMN_NAME = 'refunded_at');
+SET @sql := IF(
+    @tbl_eo > 0 AND @eo_c_ref > 0,
+    'SELECT COUNT(*) INTO @has_eo_refunded_at FROM enrolment_orders WHERE refunded_at IS NOT NULL',
+    'SELECT 0 INTO @has_eo_refunded_at'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 DROP TEMPORARY TABLE IF EXISTS _hambak_p3_rb_guard;
 CREATE TEMPORARY TABLE _hambak_p3_rb_guard (
     ok TINYINT NOT NULL,
@@ -65,7 +83,7 @@ CREATE TEMPORARY TABLE _hambak_p3_rb_guard (
 ) ENGINE=InnoDB;
 INSERT INTO _hambak_p3_rb_guard (ok)
 SELECT 0 FROM DUAL
-WHERE (@has_audit_logs > 0 OR @has_mr_ops > 0 OR @has_eo_ops > 0 OR @has_vr_ops > 0 OR @vr_nonlegacy_status > 0);
+WHERE (@has_audit_logs > 0 OR @has_mr_ops > 0 OR @has_eo_ops > 0 OR @has_vr_ops > 0 OR @vr_nonlegacy_status > 0 OR @has_mr_refunded_at > 0 OR @has_eo_refunded_at > 0);
 DROP TEMPORARY TABLE IF EXISTS _hambak_p3_rb_guard;
 
 -- ------------------------------------------------------------------------------
@@ -81,6 +99,10 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'modification_requests' AND INDEX_NAME = 'idx_mr_claimed');
 SET @sql := IF(@tbl_mr > 0 AND @idx > 0, 'DROP INDEX idx_mr_claimed ON modification_requests', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'modification_requests' AND COLUMN_NAME = 'refunded_at');
+SET @sql := IF(@tbl_mr > 0 AND @col > 0, 'ALTER TABLE modification_requests DROP COLUMN refunded_at', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'modification_requests' AND COLUMN_NAME = 'last_dispatch_error');
@@ -132,6 +154,10 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'enrolment_orders' AND INDEX_NAME = 'idx_eo_claimed');
 SET @sql := IF(@tbl_eo > 0 AND @idx > 0, 'DROP INDEX idx_eo_claimed ON enrolment_orders', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'enrolment_orders' AND COLUMN_NAME = 'refunded_at');
+SET @sql := IF(@tbl_eo > 0 AND @col > 0, 'ALTER TABLE enrolment_orders DROP COLUMN refunded_at', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'enrolment_orders' AND COLUMN_NAME = 'last_dispatch_error');

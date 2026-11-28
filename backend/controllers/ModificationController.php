@@ -203,6 +203,11 @@ class ModificationController
                 $fields[$secKey] = '[PROTECTED]';
             }
         }
+        $clarReq = is_array($fields['clarification_request'] ?? null) ? $fields['clarification_request'] : null;
+        if (!$isAdmin && is_array($clarReq)) {
+            unset($clarReq['requested_by_id'], $clarReq['requested_by_name']);
+            $fields['clarification_request'] = $clarReq;
+        }
         $docs = $this->decodeJsonColumn($row['supporting_documents'] ?? null, []);
 
         $customerPrice = (float)($row['customer_price'] ?? 0);
@@ -295,6 +300,10 @@ class ModificationController
             'refund_reference' => $row['refund_reference'] ?? null,
             'provider_remarks' => $row['provider_remarks'] ?? null,
             'requested_corrections' => $row['requested_corrections'] ?? null,
+            'clarification_request' => $clarReq,
+            'clarification_deadline' => $row['clarification_deadline'] ?? ($clarReq['submission_deadline'] ?? null),
+            'cancelled_at' => $row['cancelled_at'] ?? null,
+            'cancellation_reason' => $row['cancellation_reason'] ?? null,
             'estimated_completion_text' => (string)($row['estimated_completion_text'] ?? 'Manual Processing'),
             'status' => (string)($row['status'] ?? 'pending'),
             'query_review_status' => $queryReviewStatus !== '' ? $queryReviewStatus : null,
@@ -309,9 +318,11 @@ class ModificationController
         if ($isAdmin) {
             $item['claimed_by'] = $row['claimed_by'] ?? null;
             $item['claimed_at'] = $row['claimed_at'] ?? null;
+            $item['assigned_by'] = $row['assigned_by'] ?? null;
             $item['assigned_to'] = $row['assigned_to'] ?? null;
             $item['assigned_staff_name'] = $row['assigned_staff_name'] ?? null;
             $item['assigned_at'] = $row['assigned_at'] ?? null;
+            $item['assignment_accepted_at'] = $row['assignment_accepted_at'] ?? null;
             $item['provider_reference'] = $row['provider_reference'] ?? null;
             $item['provider_transaction_id'] = $row['provider_transaction_id'] ?? null;
             $item['provider_status'] = $row['provider_status'] ?? null;
@@ -328,8 +339,13 @@ class ModificationController
             $item['endpoint'] = (string)($row['endpoint'] ?? '');
             $item['admin_notes'] = $row['admin_notes'] ?? null;
             $item['reviewed_by'] = $row['reviewed_by'] ?? null;
+            $item['result_verification_status'] = $row['result_verification_status'] ?? 'none';
+            $item['result_verified_by'] = $row['result_verified_by'] ?? null;
+            $item['result_verified_at'] = $row['result_verified_at'] ?? null;
+            $item['result_verification_notes'] = $row['result_verification_notes'] ?? null;
             $item['completion_approved_by'] = $row['completion_approved_by'] ?? null;
             $item['completion_approved_at'] = $row['completion_approved_at'] ?? null;
+            $item['cancelled_by'] = $row['cancelled_by'] ?? null;
             $item['provider_response'] = $this->decodeJsonColumn($row['provider_response'] ?? null, []);
         } else {
             // Strip internal provider references, costs, and sanitize remarks for customer responses
@@ -878,7 +894,19 @@ class ModificationController
             Response::error("Supporting document file must not exceed {$maxSizeMb}MB.", 422);
         }
 
-        $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
+        $originalName = basename((string)$file['name']);
+        $dangerousExts = ['php', 'phtml', 'phar', 'exe', 'sh', 'bash', 'js', 'mjs', 'cjs', 'svg', 'html', 'htm', 'bat', 'cmd', 'com', 'msi', 'asp', 'aspx', 'jsp', 'cgi', 'pl', 'py', 'rb'];
+        $nameParts = explode('.', strtolower($originalName));
+        if (count($nameParts) > 1) {
+            array_shift($nameParts);
+            foreach ($nameParts as $seg) {
+                if (in_array(trim($seg), $dangerousExts, true)) {
+                    Response::error('Executable or active script file types are strictly blocked.', 422);
+                }
+            }
+        }
+
+        $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
         if (!in_array($ext, $allowedExts, true)) {
             Response::error('Invalid file format. Accepted formats: ' . implode(', ', $configuredFormats) . '.', 422);
         }
@@ -953,9 +981,29 @@ class ModificationController
             Response::notFound('Supporting document not found.');
         }
 
-        $isStaff = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
-        if (!$isStaff && $doc['user_id'] !== $user['id']) {
-            Response::forbidden('Unauthorized access to document.');
+        $isOwner = (string)$doc['user_id'] === (string)$user['id'];
+        if (!$isOwner) {
+            $authorizedStaff = false;
+            if (Auth::isAdmin($user)) {
+                if (Auth::hasPermission($user, 'services') || Auth::isManualFulfilmentSupervisor($user)) {
+                    $authorizedStaff = true;
+                } elseif (Auth::hasPermission($user, 'manual_fulfilment.view')) {
+                    $reqRows = $this->db->fetchAll(
+                        'SELECT id, user_id, fulfilment_mode, provider_id, assigned_to, claimed_by, result_verification_status
+                         FROM modification_requests WHERE user_id = :uid AND supporting_documents LIKE :doclike LIMIT 10',
+                        ['uid' => $doc['user_id'], 'doclike' => '%' . $docId . '%']
+                    );
+                    foreach ($reqRows as $rr) {
+                        if (Auth::canAccessManualRecord($user, $rr)) {
+                            $authorizedStaff = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!$authorizedStaff) {
+                Response::forbidden('Unauthorized access to document.');
+            }
         }
 
         $storageBase = realpath(dirname(__DIR__) . '/storage');
@@ -2009,8 +2057,18 @@ class ModificationController
         if (!$row) {
             Response::notFound('Modification request not found.');
         }
+        SchemaSync::syncManualFulfilmentPhase5Schema($this->db);
+
         if ($row['status'] !== 'query_required') {
             Response::error('Additional information can only be submitted when the request status is Query / Info Required.', 422);
+        }
+
+        $deadlineRaw = trim((string)($row['clarification_deadline'] ?? ''));
+        if ($deadlineRaw !== '') {
+            $deadlineTs = strtotime($deadlineRaw);
+            if ($deadlineTs !== false && $deadlineTs < time()) {
+                Response::error('The clarification submission deadline has passed.', 422);
+            }
         }
 
         $existingFields = $this->decodeJsonColumn($row['submitted_fields'] ?? null, []);
@@ -2121,16 +2179,24 @@ class ModificationController
             ],
         ]);
 
-        // Notify staff / support desk inbox if configured
+        // Notify assigned staff operator / support desk inbox
         try {
+            $notifyIds = [];
+            $assignedId = trim((string)($row['assigned_to'] ?? $row['claimed_by'] ?? ''));
+            if ($assignedId !== '') {
+                $notifyIds[] = $assignedId;
+            }
             $adminRow = $this->db->fetchOne('SELECT id FROM users WHERE role IN ("superadmin", "admin") ORDER BY created_at ASC LIMIT 1');
-            if ($adminRow) {
+            if ($adminRow && !in_array((string)$adminRow['id'], $notifyIds, true)) {
+                $notifyIds[] = (string)$adminRow['id'];
+            }
+            foreach ($notifyIds as $nUid) {
                 $this->db->execute(
                     'INSERT INTO notifications (id, user_id, title, message, type, is_read, action_link, created_at)
-                     VALUES (:id, :uid, :title, :msg, "info", 0, "#modifications", NOW())',
+                     VALUES (:id, :uid, :title, :msg, "info", 0, "#manual-fulfilment", NOW())',
                     [
                         'id' => Security::generateUuid(),
-                        'uid' => $adminRow['id'],
+                        'uid' => $nUid,
                         'title' => 'Customer Clarification Submitted: ' . ($row['request_number'] ?? $row['id']),
                         'msg' => 'Customer submitted additional clarification/documents for modification request ' . ($row['request_number'] ?? $row['id']) . '. Manual administrator review required.',
                     ]
@@ -2528,9 +2594,9 @@ class ModificationController
                 SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_count,
                 SUM(CASE WHEN status IN ("failed", "rejected") THEN 1 ELSE 0 END) as failed_count,
                 SUM(CASE WHEN status = "refunded" THEN 1 ELSE 0 END) as refunded_count,
-                COALESCE(SUM(CASE WHEN status != "refunded" THEN customer_price ELSE 0 END), 0) as total_revenue,
-                COALESCE(SUM(CASE WHEN status != "refunded" THEN CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END ELSE 0 END), 0) as total_provider_cost,
-                COALESCE(SUM(CASE WHEN status != "refunded" THEN customer_price - (CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END) ELSE 0 END), 0) as total_margin
+                COALESCE(SUM(CASE WHEN status = "completed" THEN customer_price ELSE 0 END), 0) as total_revenue,
+                COALESCE(SUM(CASE WHEN status = "completed" THEN CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END ELSE 0 END), 0) as total_provider_cost,
+                COALESCE(SUM(CASE WHEN status = "completed" THEN customer_price - (CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END) ELSE 0 END), 0) as total_margin
              FROM modification_requests
              WHERE identity_type IN ("NIN", "BVN")'
         );
@@ -2565,7 +2631,7 @@ class ModificationController
      */
     public function adminDetail(Request $request, array $params): void
     {
-        Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
+        $admin = Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -2577,6 +2643,9 @@ class ModificationController
         );
         if (!$row) {
             Response::notFound('Modification request not found.');
+        }
+        if (!Auth::canAccessManualRecord($admin, $row)) {
+            Response::forbidden('You are not authorized to access this order.');
         }
 
         Response::success([
@@ -2601,6 +2670,9 @@ class ModificationController
         );
         if (!$row) {
             Response::notFound('Modification request not found.');
+        }
+        if (!Auth::canAccessManualRecord($admin, $row)) {
+            Response::forbidden('You are not authorized to access this order.');
         }
 
         if (FulfilmentRouterService::isInternalManualOrder($row)) {
@@ -2635,6 +2707,12 @@ class ModificationController
         $row = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $id]);
         if (!$row) {
             Response::notFound('Modification request not found.');
+        }
+        if (FulfilmentRouterService::isInternalManualOrder($row)) {
+            Response::error('Internal manual orders must be transitioned through the Manual Fulfilment Desk workflow.', 422);
+        }
+        if (!Auth::hasPermission($admin, 'services')) {
+            Response::forbidden('Access denied. Missing required services permission.');
         }
 
         $allowedStatuses = ['pending', 'under_review', 'assigned', 'processing', 'query_required', 'completed', 'failed', 'rejected', 'refunded'];
@@ -2863,11 +2941,24 @@ class ModificationController
             Response::notFound('Modification request not found.');
         }
 
+        $isManualOrder = FulfilmentRouterService::isInternalManualOrder($row);
+        if ($isManualOrder) {
+            if (!Auth::hasPermission($admin, 'manual_fulfilment.upload_result')) {
+                Response::forbidden('Access denied. Missing required manual_fulfilment.upload_result permission.');
+            }
+            if (!Auth::canAccessManualRecord($admin, $row)) {
+                Response::forbidden('You are not authorized to upload a result for this manual order.');
+            }
+            SchemaSync::syncManualFulfilmentPhase5Schema($this->db);
+        } elseif (!Auth::hasPermission($admin, 'services')) {
+            Response::forbidden('Access denied. Missing required services permission.');
+        }
+
         $file = $_FILES['file'] ?? $_FILES['result_pdf'] ?? [];
         $trackingId = trim((string)($request->input('tracking_id', '')));
         $remarks = trim((string)($request->input('provider_remarks', '')));
-        $markCompleted = in_array((string)$request->input('mark_completed', '1'), ['1', 'true', 'yes'], true);
-        $notifyCustomerFlag = in_array((string)$request->input('notify_customer', '1'), ['1', 'true', 'yes'], true);
+        $markCompleted = !$isManualOrder && in_array((string)$request->input('mark_completed', '1'), ['1', 'true', 'yes'], true);
+        $notifyCustomerFlag = !$isManualOrder && in_array((string)$request->input('notify_customer', '1'), ['1', 'true', 'yes'], true);
 
         $doc = ResultDocumentService::storeAdminUploadedPdf(
             $this->db,
@@ -2879,7 +2970,20 @@ class ModificationController
         );
 
         $prevStatus = (string)$row['status'];
-        if ($markCompleted && $prevStatus !== 'refunded') {
+        if ($isManualOrder) {
+            $this->db->execute(
+                'UPDATE modification_requests
+                 SET result_verification_status = "pending_verification",
+                     result_verified_by = NULL,
+                     result_verified_at = NULL,
+                     result_verification_notes = NULL,
+                     awaiting_admin_review = 1,
+                     provider_remarks = COALESCE(NULLIF(:prem, ""), provider_remarks),
+                     updated_at = NOW()
+                 WHERE id = :id',
+                ['prem' => $remarks, 'id' => $row['id']]
+            );
+        } elseif ($markCompleted && $prevStatus !== 'refunded') {
             $this->db->execute(
                 'UPDATE modification_requests
                  SET status = "completed",
@@ -3035,9 +3139,26 @@ class ModificationController
         $isManual = strtolower((string)($existing['fulfilment_mode'] ?? '')) === 'internal_manual'
             || strtolower((string)($existing['provider_id'] ?? '')) === 'hambak_manual';
 
+        foreach (['fulfilment_mode', 'internal_manual_eligible', 'sla_hours', 'provider_schema_verified'] as $protectedField) {
+            if (array_key_exists($protectedField, $body)) {
+                $incomingVal = is_bool($body[$protectedField]) ? ($body[$protectedField] ? '1' : '0') : trim((string)$body[$protectedField]);
+                $existingVal = is_bool($existing[$protectedField] ?? null) ? (!empty($existing[$protectedField]) ? '1' : '0') : trim((string)($existing[$protectedField] ?? ''));
+                if ($incomingVal !== '' && $incomingVal !== $existingVal) {
+                    Response::error('Protected routing field (' . $protectedField . ') must be configured through the Unified Service Routing panel.', 422);
+                }
+            }
+        }
+
         if (isset($body['wholesale_cost'])) {
-            $updates[] = 'wholesale_cost = :wc';
-            $dbParams['wc'] = max(0.0, (float)$body['wholesale_cost']);
+            $reqWholesale = max(0.0, (float)$body['wholesale_cost']);
+            if ($isManual) {
+                if (abs($reqWholesale - (float)$existing['wholesale_cost']) >= 0.01) {
+                    Response::error('External wholesale_cost cannot be overwritten on an internal_manual service.', 422);
+                }
+            } else {
+                $updates[] = 'wholesale_cost = :wc';
+                $dbParams['wc'] = $reqWholesale;
+            }
         }
         if (isset($body['internal_fulfilment_cost'])) {
             $updates[] = 'internal_fulfilment_cost = :ifc';
@@ -3061,8 +3182,16 @@ class ModificationController
             $dbParams['notes'] = trim((string)$body['supported_notes']);
         }
         if (array_key_exists('endpoint', $body) && trim((string)$body['endpoint']) !== '') {
-            $updates[] = 'endpoint = :ep';
-            $dbParams['ep'] = trim((string)$body['endpoint']);
+            $reqEp = trim((string)$body['endpoint']);
+            $existingEp = trim((string)($existing['endpoint'] ?? ''));
+            if ($isManual) {
+                if ($reqEp !== $existingEp) {
+                    Response::error('External provider endpoint cannot be modified on an internal_manual service.', 422);
+                }
+            } else {
+                $updates[] = 'endpoint = :ep';
+                $dbParams['ep'] = $reqEp;
+            }
         }
         if (array_key_exists('provider_id', $body) && trim((string)$body['provider_id']) !== '') {
             $reqProvRaw = trim((string)$body['provider_id']);
@@ -3519,6 +3648,16 @@ class ModificationController
         if (!$row) {
             Response::notFound('Request record not found.');
         }
+        if (FulfilmentRouterService::isInternalManualOrder($row)) {
+            if (!Auth::hasPermission($admin, 'manual_fulfilment.assign')) {
+                Response::forbidden('Access denied. Missing required manual_fulfilment.assign permission.');
+            }
+            $prevAssignee = trim((string)($row['assigned_to'] ?? $row['claimed_by'] ?? ''));
+            $reqAssignee = trim((string)($body['staff_id'] ?? $body['assigned_to'] ?? ''));
+            if ($prevAssignee !== '' && $prevAssignee !== $reqAssignee && !Auth::isManualFulfilmentSupervisor($admin)) {
+                Response::forbidden('Only a supervisor or manager can reassign an already-assigned manual order.');
+            }
+        }
 
         $staffId = trim((string)($body['staff_id'] ?? $body['assigned_to'] ?? ''));
         $staffName = null;
@@ -3592,6 +3731,12 @@ class ModificationController
         if (!$row) {
             Response::notFound('Request record not found.');
         }
+        if (!Auth::canAccessManualRecord($admin, $row)) {
+            Response::forbidden('You are not authorized to update this order checklist.');
+        }
+        if (FulfilmentRouterService::isInternalManualOrder($row) && !Auth::hasPermission($admin, 'manual_fulfilment.process')) {
+            Response::forbidden('Access denied. Missing required manual_fulfilment.process permission.');
+        }
 
         $rawChecklist = $body['checklist'] ?? [];
         if (!is_array($rawChecklist)) {
@@ -3656,6 +3801,12 @@ class ModificationController
         $row = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id1 OR request_number = :id2 LIMIT 1', ['id1' => $id, 'id2' => $id]);
         if (!$row) {
             Response::notFound('Request record not found.');
+        }
+        if (!Auth::canAccessManualRecord($admin, $row)) {
+            Response::forbidden('You are not authorized to review clarifications for this order.');
+        }
+        if (FulfilmentRouterService::isInternalManualOrder($row) && !Auth::hasPermission($admin, 'manual_fulfilment.process')) {
+            Response::forbidden('Access denied. Missing required manual_fulfilment.process permission.');
         }
 
         $decision = strtolower(trim((string)($body['decision'] ?? $body['action'] ?? '')));

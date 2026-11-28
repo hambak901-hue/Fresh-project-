@@ -192,6 +192,25 @@ SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA 
 SET @sql := IF(@tbl_mr > 0 AND @col = 0, 'ALTER TABLE modification_requests ADD COLUMN last_dispatch_error TEXT NULL', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'modification_requests' AND COLUMN_NAME = 'refunded_at');
+SET @sql := IF(@tbl_mr > 0 AND @col = 0, 'ALTER TABLE modification_requests ADD COLUMN refunded_at DATETIME NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @mr_status_col := (
+    SELECT LOWER(COLUMN_TYPE)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'modification_requests'
+      AND COLUMN_NAME = 'status'
+    LIMIT 1
+);
+SET @sql := IF(
+    @tbl_mr > 0 AND @mr_status_col IS NOT NULL AND (@mr_status_col NOT LIKE '%under_review%' OR @mr_status_col NOT LIKE '%assigned%' OR @mr_status_col NOT LIKE '%refunded%'),
+    "ALTER TABLE modification_requests MODIFY COLUMN status ENUM('pending', 'under_review', 'assigned', 'processing', 'query_required', 'completed', 'failed', 'rejected', 'refunded') NOT NULL DEFAULT 'pending'",
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @idx := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'modification_requests' AND INDEX_NAME = 'idx_mr_manual_queue');
 SET @sql := IF(@tbl_mr > 0 AND @idx = 0, 'CREATE INDEX idx_mr_manual_queue ON modification_requests (fulfilment_mode, awaiting_admin_review, status)', 'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
@@ -244,6 +263,25 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'enrolment_orders' AND COLUMN_NAME = 'last_dispatch_error');
 SET @sql := IF(@tbl_eo > 0 AND @col = 0, 'ALTER TABLE enrolment_orders ADD COLUMN last_dispatch_error TEXT NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'enrolment_orders' AND COLUMN_NAME = 'refunded_at');
+SET @sql := IF(@tbl_eo > 0 AND @col = 0, 'ALTER TABLE enrolment_orders ADD COLUMN refunded_at DATETIME NULL', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @eo_status_col := (
+    SELECT LOWER(COLUMN_TYPE)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'enrolment_orders'
+      AND COLUMN_NAME = 'status'
+    LIMIT 1
+);
+SET @sql := IF(
+    @tbl_eo > 0 AND @eo_status_col IS NOT NULL AND (@eo_status_col NOT LIKE '%under_review%' OR @eo_status_col NOT LIKE '%assigned%' OR @eo_status_col NOT LIKE '%refunded%'),
+    "ALTER TABLE enrolment_orders MODIFY COLUMN status ENUM('pending', 'under_review', 'assigned', 'processing', 'query_required', 'completed', 'failed', 'rejected', 'refunded') NOT NULL DEFAULT 'pending'",
+    'SELECT 1'
+);
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'enrolment_orders' AND INDEX_NAME = 'idx_eo_manual_queue');

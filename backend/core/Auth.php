@@ -425,13 +425,124 @@ class Auth
         return $user;
     }
 
+    public const MANUAL_OPERATOR_PERMISSIONS = [
+        'manual_fulfilment.view',
+        'manual_fulfilment.claim',
+        'manual_fulfilment.process',
+        'manual_fulfilment.query',
+        'manual_fulfilment.upload_result',
+    ];
+
+    public const MANUAL_ALL_PERMISSIONS = [
+        'manual_fulfilment.view',
+        'manual_fulfilment.claim',
+        'manual_fulfilment.assign',
+        'manual_fulfilment.process',
+        'manual_fulfilment.query',
+        'manual_fulfilment.upload_result',
+        'manual_fulfilment.verify_result',
+        'manual_fulfilment.approve',
+        'manual_fulfilment.reject',
+        'manual_fulfilment.cancel',
+        'manual_fulfilment.manage',
+    ];
+
     public static function hasPermission(array $user, string $permission): bool
     {
-        if (($user['role'] ?? '') === 'superadmin') {
+        $role = strtolower(trim((string)($user['role'] ?? '')));
+        if ($role === 'superadmin') {
             return true;
         }
         $perms = is_array($user['permissions'] ?? null) ? $user['permissions'] : [];
-        return in_array('*', $perms, true) || in_array($permission, $perms, true);
+        if (in_array('*', $perms, true) || in_array($permission, $perms, true)) {
+            return true;
+        }
+
+        if ($permission === 'manual_fulfilment') {
+            if (in_array('manual_fulfilment.manage', $perms, true)) {
+                return true;
+            }
+            foreach (self::MANUAL_ALL_PERMISSIONS as $gp) {
+                if (in_array($gp, $perms, true)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        if (str_starts_with($permission, 'manual_fulfilment.')) {
+            if (in_array('manual_fulfilment.manage', $perms, true)) {
+                return true;
+            }
+            if (in_array('manual_fulfilment', $perms, true)) {
+                if (in_array($permission, self::MANUAL_OPERATOR_PERMISSIONS, true)) {
+                    return true;
+                }
+                if (in_array($role, ['admin', 'manager'], true)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public static function hasAnyPermission(array $user, array $permissions): bool
+    {
+        foreach ($permissions as $perm) {
+            if (self::hasPermission($user, (string)$perm)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static function isManualFulfilmentSupervisor(array $user): bool
+    {
+        $role = strtolower(trim((string)($user['role'] ?? '')));
+        if ($role === 'superadmin') {
+            return true;
+        }
+        $perms = is_array($user['permissions'] ?? null) ? $user['permissions'] : [];
+        if (in_array('*', $perms, true) || in_array('manual_fulfilment.manage', $perms, true)) {
+            return true;
+        }
+        return in_array($role, ['manager', 'admin'], true)
+            && (self::hasPermission($user, 'manual_fulfilment.assign') || self::hasPermission($user, 'manual_fulfilment.approve'));
+    }
+
+    public static function canAccessManualRecord(array $user, array $record): bool
+    {
+        if (!self::isAdmin($user)) {
+            return false;
+        }
+        if (self::isManualFulfilmentSupervisor($user)) {
+            return true;
+        }
+        $isManual = strtolower((string)($record['fulfilment_mode'] ?? '')) === 'internal_manual'
+            || strtolower((string)($record['provider_id'] ?? $record['provider'] ?? '')) === 'hambak_manual';
+        if (!$isManual) {
+            return self::hasPermission($user, 'services');
+        }
+        if (!self::hasPermission($user, 'manual_fulfilment.view')) {
+            return false;
+        }
+        $uid = (string)($user['id'] ?? '');
+        $assignedTo = trim((string)($record['assigned_to'] ?? ''));
+        $claimedBy = trim((string)($record['claimed_by'] ?? ''));
+        if ($assignedTo === '' && $claimedBy === '') {
+            return true;
+        }
+        if ($uid !== '' && ($assignedTo === $uid || $claimedBy === $uid)) {
+            return true;
+        }
+        if (
+            strtolower((string)($record['result_verification_status'] ?? 'none')) === 'pending_verification'
+            && self::hasPermission($user, 'manual_fulfilment.verify_result')
+        ) {
+            return true;
+        }
+        return false;
     }
 
     public static function isEmailVerificationPending(array $user): bool

@@ -677,18 +677,29 @@ class VerificationController
             $data['stack'],
             $data['claimed_by'],
             $data['claimed_at'],
+            $data['assigned_by'],
             $data['assigned_to'],
             $data['assigned_staff_name'],
+            $data['assigned_at'],
+            $data['assignment_accepted_at'],
             $data['reviewed_by'],
             $data['admin_notes'],
+            $data['result_verification_status'],
+            $data['result_verified_by'],
+            $data['result_verified_at'],
+            $data['result_verification_notes'],
             $data['completion_approved_by'],
             $data['completion_approved_at'],
+            $data['cancelled_by'],
             $data['provider_reference'],
             $data['provider_transaction_id'],
             $data['provider_status']
         );
         if (!empty($data['manual_timeline']) && is_array($data['manual_timeline'])) {
             $data['manual_timeline'] = $this->sanitizeManualTimelineForCustomer($data['manual_timeline']);
+        }
+        if (!empty($data['clarification_request']) && is_array($data['clarification_request'])) {
+            unset($data['clarification_request']['requested_by_id'], $data['clarification_request']['requested_by_name']);
         }
         if (!empty($data['error']) && is_string($data['error'])) {
             $data['error'] = Security::sanitizeCustomerError($data['error'], Security::ERR_PROVIDER_UNAVAILABLE);
@@ -708,6 +719,203 @@ class VerificationController
             }
         }
         return $data;
+    }
+
+    private function decodeJsonValue(mixed $val, array $default = []): array
+    {
+        if (is_array($val)) {
+            return $val;
+        }
+        if (is_string($val) && trim($val) !== '') {
+            $decoded = json_decode($val, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+        return $default;
+    }
+
+    private function enrichAndSanitizeVerificationRecord(array $record, bool $isAdmin, bool $includeHistory = false, bool $stripPhotoForList = false): array
+    {
+        $record['cost'] = (float)($record['cost'] ?? 0);
+        $record['has_slip'] = (bool)($record['has_slip'] ?? false);
+        $record['fulfilment_mode'] = (string)($record['fulfilment_mode'] ?? 'provider_instant');
+
+        $rawResult = $record['result'] ?? $record['result_data'] ?? null;
+        $decodedRes = null;
+        $hasLegacyPdf = false;
+        $hasPhoto = false;
+        if (!empty($rawResult)) {
+            $decodedRes = is_array($rawResult) ? $rawResult : (is_string($rawResult) ? json_decode($rawResult, true) : null);
+            if (is_array($decodedRes)) {
+                [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+                $decodedRes = $this->stripCrossTypeFields($decodedRes, $rowBvn, $rowNin);
+                if (!$isAdmin) {
+                    $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+                }
+                $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+                $hasPhoto = !empty($decodedRes['photo']);
+                unset($decodedRes['pdf_base64']);
+                if ($stripPhotoForList) {
+                    unset($decodedRes['photo']);
+                }
+            } else {
+                $decodedRes = null;
+            }
+        }
+
+        $record['result'] = $decodedRes;
+        unset($record['result_data']);
+        if ($stripPhotoForList) {
+            $record['has_photo'] = $hasPhoto;
+        }
+
+        $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $record, 'verification', $isAdmin);
+        $record = array_merge($record, $resultMeta);
+        $record['has_result_document'] = !empty($resultMeta['has_result_document']);
+        $record['has_original_pdf'] = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
+
+        $docs = $this->decodeJsonValue($record['supporting_documents'] ?? null, []);
+        $record['supporting_documents'] = $docs;
+
+        $infoHistory = $this->decodeJsonValue($record['additional_info_history'] ?? null, []);
+        if (!$isAdmin && is_array($infoHistory)) {
+            $infoHistory = array_map(static function ($entry) {
+                if (!is_array($entry)) {
+                    return $entry;
+                }
+                unset($entry['reviewed_by'], $entry['staff_name'], $entry['assigned_staff_name'], $entry['actor_id']);
+                return $entry;
+            }, $infoHistory);
+        }
+        $record['additional_info_history'] = $infoHistory;
+
+        $checklist = $this->decodeJsonValue($record['document_review_checklist'] ?? null, []);
+        if (!$isAdmin && is_array($checklist)) {
+            $cleanChecklist = [];
+            foreach ($checklist as $ck => $cv) {
+                if (is_array($cv)) {
+                    unset($cv['reviewed_by'], $cv['staff_name'], $cv['assigned_staff_name'], $cv['actor_id']);
+                }
+                $cleanChecklist[$ck] = $cv;
+            }
+            $checklist = $cleanChecklist;
+        }
+        $record['document_review_checklist'] = $checklist;
+
+        $clarReq = is_array($decodedRes['clarification_request'] ?? null) ? $decodedRes['clarification_request'] : null;
+        if (!$isAdmin && is_array($clarReq)) {
+            unset($clarReq['requested_by_id'], $clarReq['requested_by_name']);
+        }
+        $record['clarification_request'] = $clarReq;
+        $record['clarification_deadline'] = $record['clarification_deadline'] ?? ($clarReq['submission_deadline'] ?? null);
+        $record['requested_corrections'] = $record['requested_corrections'] ?? null;
+        $record['query_review_status'] = is_array($decodedRes) && !empty($decodedRes['query_review_status'])
+            ? (string)$decodedRes['query_review_status']
+            : null;
+        $record['cancelled_at'] = $record['cancelled_at'] ?? null;
+        $record['cancellation_reason'] = $record['cancellation_reason'] ?? null;
+
+        if ($includeHistory) {
+            $statusHistory = [];
+            try {
+                $histSql = $isAdmin
+                    ? 'SELECT id, record_id, previous_status, new_status, actor_type, actor_id, remarks, is_customer_visible, created_at
+                       FROM verification_status_history WHERE record_id = :rid ORDER BY created_at ASC'
+                    : 'SELECT id, record_id, previous_status, new_status, actor_type, remarks, created_at
+                       FROM verification_status_history WHERE record_id = :rid AND is_customer_visible = 1 ORDER BY created_at ASC';
+                $histRows = $this->db->fetchAll($histSql, ['rid' => (string)($record['id'] ?? '')]);
+                foreach ($histRows as $hr) {
+                    $remarkText = (string)($hr['remarks'] ?? '');
+                    if (!$isAdmin && $remarkText !== '') {
+                        $remarkText = Security::sanitizeCustomerError($remarkText);
+                        $remarkText = str_ireplace(
+                            ['HAMBAK Manual Desk', 'HAMBAK MANUAL', 'HAMBAK Desk', 'hambak_manual', '2SureVerify', 'Veripine'],
+                            ['Manual Processing', 'manual processing', 'processing team', 'manual', 'verification provider', 'verification provider'],
+                            $remarkText
+                        );
+                    }
+                    $entry = [
+                        'id' => (string)($hr['id'] ?? ''),
+                        'previous_status' => $hr['previous_status'] ?? null,
+                        'new_status' => (string)($hr['new_status'] ?? ''),
+                        'actor_type' => (string)($hr['actor_type'] ?? 'system'),
+                        'remarks' => $remarkText !== '' ? $remarkText : null,
+                        'created_at' => $hr['created_at'] ?? null,
+                    ];
+                    if ($isAdmin) {
+                        $entry['actor_id'] = $hr['actor_id'] ?? null;
+                        $entry['is_customer_visible'] = (bool)(int)($hr['is_customer_visible'] ?? 1);
+                    }
+                    $statusHistory[] = $entry;
+                }
+            } catch (Throwable) {
+            }
+            if (empty($statusHistory) && is_array($decodedRes) && !empty($decodedRes['manual_timeline']) && is_array($decodedRes['manual_timeline'])) {
+                $tl = $isAdmin ? $decodedRes['manual_timeline'] : $this->sanitizeManualTimelineForCustomer($decodedRes['manual_timeline']);
+                foreach ($tl as $idx => $ev) {
+                    if (!is_array($ev)) {
+                        continue;
+                    }
+                    $statusHistory[] = [
+                        'id' => 'legacy_' . $idx,
+                        'previous_status' => null,
+                        'new_status' => (string)($ev['status'] ?? ''),
+                        'actor_type' => (string)($ev['actor_type'] ?? 'system'),
+                        'remarks' => (string)($ev['note'] ?? $ev['label'] ?? ''),
+                        'created_at' => $ev['at'] ?? null,
+                    ];
+                }
+            }
+            $record['status_history'] = $statusHistory;
+        }
+
+        if (!$isAdmin) {
+            unset(
+                $record['provider'],
+                $record['provider_cost'],
+                $record['internal_fulfilment_cost'],
+                $record['routing_snapshot'],
+                $record['last_dispatch_error'],
+                $record['dispatch_locked_at'],
+                $record['dispatch_attempts'],
+                $record['claimed_by'],
+                $record['claimed_at'],
+                $record['assigned_by'],
+                $record['assigned_to'],
+                $record['assigned_staff_name'],
+                $record['assigned_at'],
+                $record['assignment_accepted_at'],
+                $record['reviewed_by'],
+                $record['result_verification_status'],
+                $record['result_verified_by'],
+                $record['result_verified_at'],
+                $record['result_verification_notes'],
+                $record['completion_approved_by'],
+                $record['completion_approved_at'],
+                $record['admin_notes'],
+                $record['awaiting_admin_review'],
+                $record['result_retrieval_error'],
+                $record['cancelled_by'],
+                $record['provider_reference'],
+                $record['provider_transaction_id'],
+                $record['provider_status']
+            );
+            if (!empty($record['provider_remarks'])) {
+                $record['provider_remarks'] = null;
+            }
+        } else {
+            $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
+            $record['internal_fulfilment_cost'] = (float)($record['internal_fulfilment_cost'] ?? 0);
+        }
+
+        $record['result_availability_state'] = $this->resolveResultAvailabilityState(
+            (string)($record['status'] ?? ''),
+            (bool)$record['has_original_pdf'],
+            !empty($record['result'])
+        );
+
+        return $record;
     }
 
     public function services(Request $request): void
@@ -1743,6 +1951,8 @@ class VerificationController
 
     public function history(Request $request): void
     {
+        SchemaSync::syncManualFulfilmentPhase5Schema($this->db);
+
         $user = Auth::requireAuth($request);
         $limit = min(100, max(1, (int)$request->query('limit', 50)));
         $category = trim((string)$request->query('category', ''));
@@ -1750,8 +1960,8 @@ class VerificationController
         $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
 
         $selectCols = $isAdmin
-            ? 'id, user_id, type, service_key, search_value, provider, cost, provider_cost, internal_fulfilment_cost, fulfilment_mode, sla_due_at, result_document_id, result_source, provider_tracking_id, result_payload, result_retrieval_status, result_retrieval_error, result_retrieved_at, awaiting_admin_review, provider_status, status, reference, slip_type, has_slip, result_data as result, created_at, completed_at'
-            : 'id, user_id, type, service_key, search_value, cost, fulfilment_mode, sla_due_at, result_document_id, result_source, provider_tracking_id, result_payload, result_retrieval_status, result_retrieved_at, status, reference, slip_type, has_slip, result_data as result, created_at, completed_at';
+            ? 'id, user_id, type, service_key, search_value, provider, cost, provider_cost, internal_fulfilment_cost, fulfilment_mode, sla_due_at, result_document_id, result_source, provider_tracking_id, result_payload, result_retrieval_status, result_retrieval_error, result_retrieved_at, awaiting_admin_review, provider_status, supporting_documents, requested_corrections, clarification_deadline, additional_info_history, document_review_checklist, assigned_to, assigned_by, assigned_staff_name, assigned_at, assignment_accepted_at, claimed_by, claimed_at, result_verification_status, result_verified_by, result_verified_at, result_verification_notes, completion_approved_by, completion_approved_at, cancelled_at, cancelled_by, cancellation_reason, admin_notes, status, reference, slip_type, has_slip, result_data as result, created_at, completed_at, updated_at'
+            : 'id, user_id, type, service_key, search_value, cost, fulfilment_mode, sla_due_at, result_document_id, result_source, provider_tracking_id, result_payload, result_retrieval_status, result_retrieved_at, supporting_documents, requested_corrections, clarification_deadline, additional_info_history, document_review_checklist, cancelled_at, cancellation_reason, status, reference, slip_type, has_slip, result_data as result, created_at, completed_at, updated_at';
 
         $whereSql = 'WHERE user_id = :uid ';
         $params = ['uid' => $user['id']];
@@ -1798,48 +2008,9 @@ class VerificationController
         }
 
         foreach ($rows as &$r) {
-            $r['cost'] = (float)$r['cost'];
-            if (isset($r['provider_cost'])) {
-                $r['provider_cost'] = (float)$r['provider_cost'];
-            }
-            if (isset($r['internal_fulfilment_cost'])) {
-                $r['internal_fulfilment_cost'] = (float)$r['internal_fulfilment_cost'];
-            }
-            $r['fulfilment_mode'] = (string)($r['fulfilment_mode'] ?? 'provider_instant');
-            $r['has_slip'] = (bool)$r['has_slip'];
-            $r['has_result_document'] = !empty($r['result_document_id']);
-            $r['has_original_pdf'] = !empty($r['result_document_id']);
-            $r['has_photo'] = false;
-            $decodedRes = null;
-            $hasLegacyPdf = false;
-            if (!empty($r['result']) && is_string($r['result'])) {
-                $decodedRes = json_decode($r['result'], true);
-                if (is_array($decodedRes)) {
-                    [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($r['service_key'] ?? ''), (string)($r['type'] ?? ''));
-                    $decodedRes = $this->stripCrossTypeFields($decodedRes, $rowBvn, $rowNin);
-                    if (!$isAdmin) {
-                        $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($r['service_key'] ?? ''), (string)($r['type'] ?? ''));
-                    }
-                    $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
-                    $r['has_original_pdf'] = $r['has_original_pdf'] || $hasLegacyPdf;
-                    $r['has_photo'] = !empty($decodedRes['photo']);
-                    unset($decodedRes['pdf_base64'], $decodedRes['photo']);
-                    $r['result'] = $decodedRes;
-                } else {
-                    $r['result'] = null;
-                }
-            }
-            $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $r, 'verification', $isAdmin);
-            $hasDoc = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
-            $r = array_merge($r, $resultMeta);
-            $r['has_result_document'] = !empty($resultMeta['has_result_document']);
-            $r['has_original_pdf'] = $hasDoc;
-            $r['result_availability_state'] = $this->resolveResultAvailabilityState(
-                (string)($r['status'] ?? ''),
-                (bool)$r['has_original_pdf'],
-                !empty($r['result'])
-            );
+            $r = $this->enrichAndSanitizeVerificationRecord($r, $isAdmin, false, true);
         }
+        unset($r);
 
         Response::success([
             'count' => count($rows),
@@ -1854,7 +2025,7 @@ class VerificationController
         if ($hasOriginalPdf) {
             return 'document_available';
         }
-        if (in_array($st, ['failed', 'rejected', 'refunded'], true)) {
+        if (in_array($st, ['failed', 'rejected', 'refunded', 'cancelled'], true)) {
             return 'failed_or_rejected';
         }
         if (in_array($st, ['pending', 'under_review', 'assigned', 'processing', 'query_required'], true)) {
@@ -1968,6 +2139,8 @@ class VerificationController
      */
     public function checkStatus(Request $request, array $params): void
     {
+        SchemaSync::syncManualFulfilmentPhase5Schema($this->db);
+
         $user = Auth::requireAuth($request);
         $ref = trim((string)($params['ref'] ?? ''));
         $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
@@ -1979,65 +2152,14 @@ class VerificationController
         if (!$record) {
             Response::notFound('Verification record not found.');
         }
-        if (!$isAdmin && $record['user_id'] !== $user['id']) {
-            Response::forbidden('Unauthorized access to verification record.');
-        }
-
-        $record['cost'] = (float)($record['cost'] ?? 0);
-        $record['has_slip'] = (bool)($record['has_slip'] ?? false);
-        $record['fulfilment_mode'] = (string)($record['fulfilment_mode'] ?? 'provider_instant');
-
-        $hasLegacyPdf = false;
-        if (!empty($record['result_data']) && is_string($record['result_data'])) {
-            $decodedRes = json_decode($record['result_data'], true);
-            if (is_array($decodedRes)) {
-                [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
-                $decodedRes = $this->stripCrossTypeFields($decodedRes, $rowBvn, $rowNin);
-                if (!$isAdmin) {
-                    $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
-                }
-                $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
-                unset($decodedRes['pdf_base64']);
+        $isOwner = (string)$record['user_id'] === (string)$user['id'];
+        if (!$isOwner) {
+            if (!$isAdmin || !Auth::canAccessManualRecord($user, $record)) {
+                Response::forbidden('Unauthorized access to verification record.');
             }
-            $record['result'] = $decodedRes;
-        }
-        unset($record['result_data']);
-        $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $record, 'verification', $isAdmin);
-        $record = array_merge($record, $resultMeta);
-        $record['has_result_document'] = !empty($resultMeta['has_result_document']);
-        $record['has_original_pdf'] = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
-
-        if (!$isAdmin) {
-            unset(
-                $record['provider'],
-                $record['provider_cost'],
-                $record['internal_fulfilment_cost'],
-                $record['routing_snapshot'],
-                $record['last_dispatch_error'],
-                $record['dispatch_locked_at'],
-                $record['dispatch_attempts'],
-                $record['claimed_by'],
-                $record['claimed_at'],
-                $record['completion_approved_by'],
-                $record['completion_approved_at'],
-                $record['admin_notes'],
-                $record['provider_reference'],
-                $record['provider_transaction_id'],
-                $record['provider_status']
-            );
-            if (!empty($record['provider_remarks'])) {
-                $record['provider_remarks'] = null;
-            }
-        } else {
-            $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
-            $record['internal_fulfilment_cost'] = (float)($record['internal_fulfilment_cost'] ?? 0);
         }
 
-        $record['result_availability_state'] = $this->resolveResultAvailabilityState(
-            (string)($record['status'] ?? ''),
-            (bool)$record['has_original_pdf'],
-            !empty($record['result'])
-        );
+        $record = $this->enrichAndSanitizeVerificationRecord($record, $isAdmin, true, false);
 
         Response::success([
             'status' => $record['status'],
@@ -2070,7 +2192,8 @@ class VerificationController
         if (!$record) {
             Response::notFound('Verification record not found.');
         }
-        if (!$isStaff && (string)$record['user_id'] !== (string)$user['id']) {
+        $isOwner = (string)$record['user_id'] === (string)$user['id'];
+        if (!$isOwner && (!$isStaff || !Auth::canAccessManualRecord($user, $record))) {
             Response::forbidden('Unauthorized access to verification record.');
         }
 
@@ -2091,6 +2214,9 @@ class VerificationController
         if (!$record) {
             Response::notFound('Verification record not found.');
         }
+        if (!Auth::canAccessManualRecord($admin, $record)) {
+            Response::forbidden('You are not authorized to access this verification record.');
+        }
         $this->executeVerificationPoll($record, true, $admin);
     }
 
@@ -2101,54 +2227,13 @@ class VerificationController
         }
 
         $currentStatus = strtolower(trim((string)($record['status'] ?? 'pending')));
-        if (in_array($currentStatus, ['completed', 'failed', 'rejected', 'refunded'], true)) {
-            $decoded = !empty($record['result_data']) && is_string($record['result_data']) ? json_decode($record['result_data'], true) : null;
-            $hasLegacyPdf = false;
-            if (is_array($decoded)) {
-                [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
-                $decoded = $this->stripCrossTypeFields($decoded, $rowBvn, $rowNin);
-                if (!$isAdmin) {
-                    $decoded = $this->sanitizeResultForCustomer($decoded, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
-                }
-                $hasLegacyPdf = !empty($decoded['pdf_base64']) || !empty($decoded['pdf_url']);
-                unset($decoded['pdf_base64']);
-            }
-            $record['result'] = $decoded;
-            unset($record['result_data']);
-            $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $record, 'verification', $isAdmin);
-            $record = array_merge($record, $resultMeta);
-            $record['has_result_document'] = !empty($resultMeta['has_result_document']);
-            $record['has_original_pdf'] = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
-            if (!$isAdmin) {
-                unset(
-                    $record['provider'],
-                    $record['provider_cost'],
-                    $record['internal_fulfilment_cost'],
-                    $record['routing_snapshot'],
-                    $record['last_dispatch_error'],
-                    $record['dispatch_locked_at'],
-                    $record['dispatch_attempts'],
-                    $record['claimed_by'],
-                    $record['claimed_at'],
-                    $record['completion_approved_by'],
-                    $record['completion_approved_at'],
-                    $record['admin_notes'],
-                    $record['provider_reference'],
-                    $record['provider_transaction_id'],
-                    $record['provider_status']
-                );
-                if (!empty($record['provider_remarks'])) {
-                    $record['provider_remarks'] = null;
-                }
-            } else {
-                $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
-                $record['internal_fulfilment_cost'] = (float)($record['internal_fulfilment_cost'] ?? 0);
-            }
+        if (in_array($currentStatus, ['completed', 'failed', 'rejected', 'refunded', 'cancelled'], true)) {
+            $record = $this->enrichAndSanitizeVerificationRecord($record, $isAdmin, false, false);
             Response::success([
                 'status' => $record['status'],
                 'pending' => false,
                 'record' => $record,
-                'result' => $decoded,
+                'result' => $record['result'] ?? null,
             ], 'Verification status is already finalized.');
             return;
         }
@@ -2303,6 +2388,8 @@ class VerificationController
      */
     public function recover(Request $request): void
     {
+        SchemaSync::syncManualFulfilmentPhase5Schema($this->db);
+
         $user = Auth::requireAuth($request);
         $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         $ikey = trim((string)$request->query('idempotency_key', ''));
@@ -2337,6 +2424,12 @@ class VerificationController
             }
         }
 
+        if ($record && (string)$record['user_id'] !== (string)$user['id']) {
+            if (!$isAdmin || !Auth::canAccessManualRecord($user, $record)) {
+                Response::forbidden('Unauthorized access to verification record.');
+            }
+        }
+
         $targetUserId = $record ? (string)$record['user_id'] : (string)$user['id'];
         $wallet = $this->db->fetchOne('SELECT balance FROM wallets WHERE user_id = :uid', ['uid' => $targetUserId]);
         $bal = $wallet ? (float)$wallet['balance'] : (float)($user['wallet_balance'] ?? 0);
@@ -2354,52 +2447,10 @@ class VerificationController
             return;
         }
 
-        $record['cost'] = (float)($record['cost'] ?? 0);
-        $record['has_slip'] = (bool)($record['has_slip'] ?? false);
-        $decodedRes = null;
-        $hasLegacyPdf = false;
-        if (!empty($record['result_data']) && is_string($record['result_data'])) {
-            $decodedRes = json_decode($record['result_data'], true);
-            if (is_array($decodedRes)) {
-                [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
-                $decodedRes = $this->stripCrossTypeFields($decodedRes, $rowBvn, $rowNin);
-                if (!$isAdmin) {
-                    $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
-                }
-                $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
-                unset($decodedRes['pdf_base64']);
-            }
-        }
-        $record['fulfilment_mode'] = (string)($record['fulfilment_mode'] ?? 'provider_instant');
-        $record['result'] = $decodedRes;
-        unset($record['result_data']);
-        $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $record, 'verification', $isAdmin);
-        $record = array_merge($record, $resultMeta);
-        $hasOriginalPdf = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
-        $record['has_original_pdf'] = $hasOriginalPdf;
-        $record['has_result_document'] = !empty($resultMeta['has_result_document']);
-        if (!$isAdmin) {
-            unset(
-                $record['provider'],
-                $record['provider_cost'],
-                $record['internal_fulfilment_cost'],
-                $record['routing_snapshot'],
-                $record['last_dispatch_error'],
-                $record['dispatch_locked_at'],
-                $record['dispatch_attempts'],
-                $record['claimed_by'],
-                $record['claimed_at'],
-                $record['completion_approved_by'],
-                $record['completion_approved_at'],
-                $record['admin_notes'],
-                $record['provider_reference'],
-                $record['provider_transaction_id'],
-                $record['provider_status']
-            );
-        } else {
-            $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
-            $record['internal_fulfilment_cost'] = (float)($record['internal_fulfilment_cost'] ?? 0);
-        }
+        $record = $this->enrichAndSanitizeVerificationRecord($record, $isAdmin, true, false);
+        $decodedRes = $record['result'] ?? null;
+        $hasOriginalPdf = (bool)($record['has_original_pdf'] ?? false);
+        $availabilityState = (string)($record['result_availability_state'] ?? 'none');
 
         $slipName = null;
         if (!empty($record['slip_type'])) {
@@ -2429,13 +2480,6 @@ class VerificationController
         } catch (Throwable) {
         }
 
-        $availabilityState = $this->resolveResultAvailabilityState(
-            (string)($record['status'] ?? ''),
-            $hasOriginalPdf,
-            !empty($decodedRes)
-        );
-        $record['result_availability_state'] = $availabilityState;
-
         Response::success([
             'found' => true,
             'status' => $record['status'],
@@ -2463,6 +2507,8 @@ class VerificationController
      */
     public function getRecord(Request $request, array $params): void
     {
+        SchemaSync::syncManualFulfilmentPhase5Schema($this->db);
+
         $user = Auth::requireAuth($request);
         $id = trim((string)($params['id'] ?? ''));
         $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
@@ -2471,60 +2517,12 @@ class VerificationController
         if (!$record) {
             Response::notFound('Verification record not found.');
         }
-        if (!$isAdmin && $record['user_id'] !== $user['id']) {
+        $isOwner = (string)$record['user_id'] === (string)$user['id'];
+        if (!$isOwner && (!$isAdmin || !Auth::canAccessManualRecord($user, $record))) {
             Response::forbidden('Unauthorized access to verification record.');
         }
 
-        $record['cost'] = (float)$record['cost'];
-        $record['has_slip'] = (bool)$record['has_slip'];
-        $record['fulfilment_mode'] = (string)($record['fulfilment_mode'] ?? 'provider_instant');
-        $hasLegacyPdf = false;
-        if (!empty($record['result_data']) && is_string($record['result_data'])) {
-            $decodedRes = json_decode($record['result_data'], true);
-            if (is_array($decodedRes)) {
-                [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
-                $decodedRes = $this->stripCrossTypeFields($decodedRes, $rowBvn, $rowNin);
-                if (!$isAdmin) {
-                    $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
-                }
-                $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
-                unset($decodedRes['pdf_base64']);
-            }
-            $record['result'] = $decodedRes;
-        }
-        unset($record['result_data']);
-        $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $record, 'verification', $isAdmin);
-        $record = array_merge($record, $resultMeta);
-        $record['has_result_document'] = !empty($resultMeta['has_result_document']);
-        $record['has_original_pdf'] = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
-        if (!$isAdmin) {
-            unset(
-                $record['provider'],
-                $record['provider_cost'],
-                $record['internal_fulfilment_cost'],
-                $record['routing_snapshot'],
-                $record['last_dispatch_error'],
-                $record['dispatch_locked_at'],
-                $record['dispatch_attempts'],
-                $record['claimed_by'],
-                $record['claimed_at'],
-                $record['completion_approved_by'],
-                $record['completion_approved_at'],
-                $record['admin_notes'],
-                $record['provider_reference'],
-                $record['provider_transaction_id'],
-                $record['provider_status']
-            );
-        } else {
-            $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
-            $record['internal_fulfilment_cost'] = (float)($record['internal_fulfilment_cost'] ?? 0);
-        }
-
-        $record['result_availability_state'] = $this->resolveResultAvailabilityState(
-            (string)($record['status'] ?? ''),
-            (bool)$record['has_original_pdf'],
-            !empty($record['result'])
-        );
+        $record = $this->enrichAndSanitizeVerificationRecord($record, $isAdmin, true, false);
 
         Response::success([
             'has_original_pdf' => $record['has_original_pdf'],
@@ -2536,19 +2534,401 @@ class VerificationController
     }
 
     /**
+     * POST /api/verification/upload-document
+     */
+    public function uploadDocument(Request $request): void
+    {
+        SchemaSync::syncManualFulfilmentPhase5Schema($this->db);
+
+        $user = Auth::requireAuth($request);
+        $docKey = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$request->input('doc_key', 'supporting_doc')) ?: 'supporting_doc';
+        $serviceKey = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$request->input('service_key', ''));
+
+        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            Response::error('Please attach a valid supporting document file.', 422);
+        }
+
+        $maxSizeMb = 5;
+        $configuredFormats = ['JPG', 'PNG', 'WEBP', 'PDF'];
+        if ($serviceKey !== '') {
+            $srv = $this->db->fetchOne(
+                'SELECT required_documents FROM service_catalogue WHERE service_key = :sk LIMIT 1',
+                ['sk' => $serviceKey]
+            );
+            if ($srv) {
+                $docsSpec = $this->decodeJsonValue($srv['required_documents'] ?? null, []);
+                foreach ($docsSpec as $ds) {
+                    if (is_array($ds) && (string)($ds['key'] ?? '') === $docKey) {
+                        if (!empty($ds['accepted_formats']) && is_array($ds['accepted_formats'])) {
+                            $configuredFormats = array_values(array_filter(array_map('strtoupper', $ds['accepted_formats'])));
+                        }
+                        if (!empty($ds['max_size_mb']) && is_numeric($ds['max_size_mb'])) {
+                            $maxSizeMb = max(1, min(25, (int)$ds['max_size_mb']));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        $safeExtMimeMap = [
+            'jpg'  => ['exts' => ['jpg', 'jpeg'], 'mime' => 'image/jpeg'],
+            'jpeg' => ['exts' => ['jpg', 'jpeg'], 'mime' => 'image/jpeg'],
+            'png'  => ['exts' => ['png'], 'mime' => 'image/png'],
+            'webp' => ['exts' => ['webp'], 'mime' => 'image/webp'],
+            'pdf'  => ['exts' => ['pdf'], 'mime' => 'application/pdf'],
+        ];
+        $allowedExts = [];
+        $allowedMimes = [];
+        foreach ($configuredFormats as $fmt) {
+            $lf = strtolower(trim((string)$fmt));
+            if (isset($safeExtMimeMap[$lf])) {
+                foreach ($safeExtMimeMap[$lf]['exts'] as $e) {
+                    $allowedExts[] = $e;
+                }
+                $allowedMimes[] = $safeExtMimeMap[$lf]['mime'];
+            }
+        }
+        $allowedExts = array_values(array_unique($allowedExts ?: ['jpg', 'jpeg', 'png', 'webp', 'pdf']));
+        $allowedMimes = array_values(array_unique($allowedMimes ?: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']));
+
+        $file = $_FILES['file'];
+        if ((int)$file['size'] > $maxSizeMb * 1024 * 1024) {
+            Response::error("Supporting document file must not exceed {$maxSizeMb}MB.", 422);
+        }
+
+        $originalName = basename((string)$file['name']);
+        $dangerousExts = ['php', 'phtml', 'phar', 'exe', 'sh', 'bash', 'js', 'mjs', 'cjs', 'svg', 'html', 'htm', 'bat', 'cmd', 'com', 'msi', 'asp', 'aspx', 'jsp', 'cgi', 'pl', 'py', 'rb'];
+        $nameParts = explode('.', strtolower($originalName));
+        if (count($nameParts) > 1) {
+            array_shift($nameParts);
+            foreach ($nameParts as $seg) {
+                if (in_array(trim($seg), $dangerousExts, true)) {
+                    Response::error('Executable or active script file types are strictly blocked.', 422);
+                }
+            }
+        }
+
+        $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowedExts, true)) {
+            Response::error('Invalid file format. Accepted formats: ' . implode(', ', $configuredFormats) . '.', 422);
+        }
+
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+
+        if (!in_array($mime, $allowedMimes, true)) {
+            Response::error('Document file signature validation failed.', 422);
+        }
+
+        $storageDir = dirname(__DIR__) . '/storage/uploads';
+        if (!is_dir($storageDir)) {
+            @mkdir($storageDir, 0755, true);
+        }
+        $htaccessPath = $storageDir . '/.htaccess';
+        if (!is_file($htaccessPath)) {
+            @file_put_contents(
+                $htaccessPath,
+                "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n"
+            );
+        }
+
+        $docId = Security::generateUuid();
+        $storedName = 'ver_' . $docKey . '_' . time() . '_' . bin2hex(random_bytes(5)) . '.' . $ext;
+        $destPath = $storageDir . '/' . $storedName;
+
+        if (!move_uploaded_file($file['tmp_name'], $destPath)) {
+            Response::error('Failed to store uploaded document securely.', 500);
+        }
+
+        $fileUrl = '/api/verification/document/' . $docId;
+        $this->db->execute(
+            'INSERT INTO uploaded_documents (id, user_id, document_type, original_name, stored_name, mime_type, file_size, file_path, file_url, created_at)
+             VALUES (:id, :uid, :dtype, :oname, :sname, :mime, :sz, :fpath, :furl, NOW())',
+            [
+                'id' => $docId,
+                'uid' => $user['id'],
+                'dtype' => 'verification_' . $docKey,
+                'oname' => $originalName,
+                'sname' => $storedName,
+                'mime' => $mime,
+                'sz' => (int)$file['size'],
+                'fpath' => $destPath,
+                'furl' => $fileUrl,
+            ]
+        );
+
+        Response::success([
+            'document' => [
+                'id' => $docId,
+                'doc_key' => $docKey,
+                'original_name' => $originalName,
+                'mime_type' => $mime,
+                'file_size' => (int)$file['size'],
+                'file_url' => $fileUrl,
+            ],
+        ], 'Supporting document uploaded securely.');
+    }
+
+    /**
+     * GET /api/verification/document/:id
+     */
+    public function getDocument(Request $request, array $params): void
+    {
+        SchemaSync::syncManualFulfilmentPhase5Schema($this->db);
+
+        $user = Auth::requireAuth($request);
+        $docId = trim((string)($params['id'] ?? ''));
+
+        $doc = $this->db->fetchOne('SELECT * FROM uploaded_documents WHERE id = :id LIMIT 1', ['id' => $docId]);
+        if (!$doc) {
+            Response::notFound('Supporting document not found.');
+        }
+
+        $isOwner = (string)$doc['user_id'] === (string)$user['id'];
+        if (!$isOwner) {
+            $authorizedStaff = false;
+            if (Auth::isAdmin($user)) {
+                if (Auth::hasPermission($user, 'services') || Auth::isManualFulfilmentSupervisor($user)) {
+                    $authorizedStaff = true;
+                } elseif (Auth::hasPermission($user, 'manual_fulfilment.view')) {
+                    $vrRows = $this->db->fetchAll(
+                        'SELECT id, user_id, fulfilment_mode, provider, assigned_to, claimed_by, result_verification_status
+                         FROM verification_records WHERE user_id = :uid AND supporting_documents LIKE :doclike LIMIT 10',
+                        ['uid' => $doc['user_id'], 'doclike' => '%' . $docId . '%']
+                    );
+                    foreach ($vrRows as $vr) {
+                        if (Auth::canAccessManualRecord($user, $vr)) {
+                            $authorizedStaff = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!$authorizedStaff) {
+                Response::forbidden('Unauthorized access to document.');
+            }
+        }
+
+        $storageBase = realpath(dirname(__DIR__) . '/storage');
+        $path = realpath((string)($doc['file_path'] ?? ''));
+        if ($storageBase === false || $path === false || !str_starts_with($path, $storageBase . DIRECTORY_SEPARATOR) || !is_file($path)) {
+            Response::notFound('Document file missing from storage.');
+        }
+
+        $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename((string)($doc['original_name'] ?? 'document'))) ?: 'document';
+
+        header('Content-Type: ' . ($doc['mime_type'] ?: 'application/octet-stream'));
+        header('Content-Length: ' . filesize($path));
+        header('Content-Disposition: inline; filename="' . $safeName . '"');
+        header('Cache-Control: private, no-store, no-cache, must-revalidate');
+        header('Pragma: no-cache');
+        header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: SAMEORIGIN');
+        readfile($path);
+        exit;
+    }
+
+    /**
+     * POST /api/verification/:id/submit-info
+     */
+    public function submitAdditionalInfo(Request $request, array $params): void
+    {
+        SchemaSync::syncManualFulfilmentPhase5Schema($this->db);
+
+        $user = Auth::requireAuth($request);
+        $id = trim((string)($params['id'] ?? ''));
+        $body = $request->getBody();
+
+        $row = $this->db->fetchOne(
+            'SELECT * FROM verification_records WHERE (id = :id1 OR reference = :id2) AND user_id = :uid LIMIT 1',
+            ['id1' => $id, 'id2' => $id, 'uid' => $user['id']]
+        );
+        if (!$row) {
+            Response::notFound('Verification record not found.');
+        }
+        if (strtolower(trim((string)($row['status'] ?? ''))) !== 'query_required') {
+            Response::error('Additional information can only be submitted when the status is Query / Info Required.', 422);
+        }
+
+        $deadlineRaw = trim((string)($row['clarification_deadline'] ?? ''));
+        if ($deadlineRaw !== '') {
+            $deadlineTs = strtotime($deadlineRaw);
+            if ($deadlineTs !== false && $deadlineTs < time()) {
+                Response::error('The clarification submission deadline has passed.', 422);
+            }
+        }
+
+        $existingResult = $this->decodeJsonValue($row['result_data'] ?? null, []);
+        if (($existingResult['query_review_status'] ?? '') === 'submitted_for_admin_review') {
+            Response::error('Additional clarification has already been submitted and is queued for review.', 409);
+        }
+
+        $note = trim((string)($body['note'] ?? $body['response_note'] ?? ''));
+        $newDocIds = [];
+        if (is_array($body['document_ids'] ?? null)) {
+            foreach ($body['document_ids'] as $k => $v) {
+                if (is_string($v) && trim($v) !== '') {
+                    $newDocIds[] = ['id' => trim($v), 'doc_key' => is_string($k) ? $k : 'query_response'];
+                } elseif (is_array($v) && !empty($v['id'])) {
+                    $newDocIds[] = ['id' => trim((string)$v['id']), 'doc_key' => (string)($v['doc_key'] ?? 'query_response')];
+                }
+            }
+        }
+
+        if ($note === '' && empty($newDocIds)) {
+            Response::error('Please provide an explanation note or attach the requested document.', 422);
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $existingResult['query_review_status'] = 'submitted_for_admin_review';
+        $existingResult['customer_query_responded_at'] = $now;
+        if ($note !== '') {
+            $existingResult['customer_query_response'] = $note;
+        }
+
+        $existingDocs = $this->decodeJsonValue($row['supporting_documents'] ?? null, []);
+        $attachedDocMeta = [];
+        if (!empty($newDocIds)) {
+            $onlyIds = array_values(array_unique(array_column($newDocIds, 'id')));
+            $phs = [];
+            $qParams = ['uid' => $user['id']];
+            foreach ($onlyIds as $idx => $did) {
+                $phs[] = ':vqid_' . $idx;
+                $qParams['vqid_' . $idx] = $did;
+            }
+            $docRows = $this->db->fetchAll(
+                'SELECT * FROM uploaded_documents WHERE user_id = :uid AND id IN (' . implode(', ', $phs) . ')',
+                $qParams
+            );
+            $existingDocIds = array_column($existingDocs, 'id');
+            foreach ($docRows as $dr) {
+                $docEntry = [
+                    'id' => $dr['id'],
+                    'doc_key' => str_replace('verification_', '', (string)$dr['document_type']),
+                    'original_name' => $dr['original_name'],
+                    'mime_type' => $dr['mime_type'],
+                    'file_size' => (int)($dr['file_size'] ?? 0),
+                    'file_url' => '/api/verification/document/' . $dr['id'],
+                ];
+                $attachedDocMeta[] = ['id' => $dr['id'], 'original_name' => $dr['original_name']];
+                if (!in_array($dr['id'], $existingDocIds, true)) {
+                    $existingDocs[] = $docEntry;
+                }
+            }
+        }
+
+        $infoHistory = $this->decodeJsonValue($row['additional_info_history'] ?? null, []);
+        $infoHistory[] = [
+            'id' => Security::generateUuid(),
+            'submitted_at' => $now,
+            'note' => $note,
+            'documents' => $attachedDocMeta,
+            'review_state' => 'submitted_for_admin_review',
+        ];
+
+        $this->db->execute(
+            'UPDATE verification_records
+             SET result_data = :rd,
+                 supporting_documents = :sd,
+                 additional_info_history = :aih,
+                 updated_at = NOW()
+             WHERE id = :id',
+            [
+                'rd' => json_encode($existingResult, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                'sd' => json_encode($existingDocs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                'aih' => json_encode($infoHistory, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                'id' => $row['id'],
+            ]
+        );
+
+        try {
+            $this->db->execute(
+                'INSERT INTO verification_status_history
+                 (id, record_id, previous_status, new_status, actor_type, actor_id, remarks, is_customer_visible, created_at)
+                 VALUES (:id, :rid, :prev, :next, "customer", :aid, :rem, 1, NOW())',
+                [
+                    'id' => Security::generateUuid(),
+                    'rid' => $row['id'],
+                    'prev' => (string)$row['status'],
+                    'next' => (string)$row['status'],
+                    'aid' => $user['id'],
+                    'rem' => $note !== '' ? 'Customer clarification submitted: ' . mb_substr($note, 0, 220) : 'Customer submitted requested clarification document(s)',
+                ]
+            );
+        } catch (Throwable) {
+        }
+
+        FootprintService::record([
+            'user_id' => $user['id'],
+            'user_email' => $user['email'] ?? null,
+            'user_name' => $user['full_name'] ?? null,
+            'category' => 'services',
+            'action' => 'CUSTOMER_VERIFICATION_QUERY_RESPONDED',
+            'service_type' => $row['service_key'] ?? 'verification',
+            'reference' => $row['reference'] ?? $row['id'],
+            'status' => 'processing',
+            'metadata' => [
+                'review_state' => 'submitted_for_admin_review',
+                'documents_attached' => count($attachedDocMeta),
+            ],
+        ]);
+
+        try {
+            $assignedId = trim((string)($row['assigned_to'] ?? $row['claimed_by'] ?? ''));
+            $notifyIds = [];
+            if ($assignedId !== '') {
+                $notifyIds[] = $assignedId;
+            }
+            $adminRow = $this->db->fetchOne('SELECT id FROM users WHERE role IN ("superadmin", "admin") ORDER BY created_at ASC LIMIT 1');
+            if ($adminRow && !in_array((string)$adminRow['id'], $notifyIds, true)) {
+                $notifyIds[] = (string)$adminRow['id'];
+            }
+            foreach ($notifyIds as $nUid) {
+                $this->db->execute(
+                    'INSERT INTO notifications (id, user_id, title, message, type, is_read, action_link, created_at)
+                     VALUES (:id, :uid, :title, :msg, "info", 0, "#manual-fulfilment", NOW())',
+                    [
+                        'id' => Security::generateUuid(),
+                        'uid' => $nUid,
+                        'title' => 'Customer Clarification Submitted: ' . ($row['reference'] ?? $row['id']),
+                        'msg' => 'Customer submitted additional clarification/documents for verification order ' . ($row['reference'] ?? $row['id']) . '. Staff review required.',
+                    ]
+                );
+            }
+        } catch (Throwable) {
+        }
+
+        $updated = $this->db->fetchOne('SELECT * FROM verification_records WHERE id = :id LIMIT 1', ['id' => $row['id']]);
+        Response::success([
+            'review_state' => 'submitted_for_admin_review',
+            'record' => $updated ? $this->enrichAndSanitizeVerificationRecord($updated, false, true, false) : null,
+        ], 'Additional clarification submitted and queued for review.');
+    }
+
+    /**
      * GET /api/verification/record/:id/pdf
      */
     public function downloadPdf(Request $request, array $params): void
     {
+        SchemaSync::syncManualFulfilmentPhase5Schema($this->db);
+
         $user = Auth::requireAuth($request);
         $id = trim((string)($params['id'] ?? ''));
         $isStaff = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
 
-        $record = $this->db->fetchOne('SELECT id, user_id, type, service_key, reference, result_document_id, result_data FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1', ['id' => $id, 'ref' => $id]);
+        $record = $this->db->fetchOne(
+            'SELECT id, user_id, type, service_key, reference, result_document_id, result_data,
+                    fulfilment_mode, provider, assigned_to, claimed_by, result_verification_status
+             FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1',
+            ['id' => $id, 'ref' => $id]
+        );
         if (!$record) {
             Response::notFound('Verification record not found.');
         }
-        if (!$isStaff && $record['user_id'] !== $user['id']) {
+        $isOwner = (string)$record['user_id'] === (string)$user['id'];
+        if (!$isOwner && (!$isStaff || !Auth::canAccessManualRecord($user, $record))) {
             Response::forbidden('Unauthorized access to verification document.');
         }
 

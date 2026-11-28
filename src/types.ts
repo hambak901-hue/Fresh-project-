@@ -3062,6 +3062,58 @@ export interface AdminDashboardPreviewResponse {
 
 export type FulfilmentMode = 'provider_instant' | 'provider_async' | 'internal_manual';
 
+export interface ModeApplicationCount {
+  total: number;
+  pending: number;
+  completed: number;
+}
+
+export interface ServiceApplicationCounts {
+  total: number;
+  pending: number;
+  completed: number;
+  failed_refunded: number;
+  by_mode: {
+    provider_instant: ModeApplicationCount;
+    provider_async: ModeApplicationCount;
+    internal_manual: ModeApplicationCount;
+  };
+}
+
+export interface RoutingApplicationSummary {
+  total: number;
+  pending: number;
+  completed: number;
+  failed_refunded: number;
+  by_mode: {
+    provider_instant: ModeApplicationCount;
+    provider_async: ModeApplicationCount;
+    internal_manual: ModeApplicationCount;
+  };
+}
+
+export interface ProviderServiceMappingItem {
+  id: string;
+  provider_id: string;
+  provider_name: string;
+  provider_type: string;
+  provider_is_active: boolean;
+  provider_is_configured: boolean;
+  service_key: string;
+  service_name: string;
+  category_code?: string;
+  provider_endpoint: string;
+  provider_plan_code: string;
+  wholesale_cost: number;
+  is_active: boolean;
+  schema_verified: boolean;
+  schema_verified_at?: string | null;
+  schema_verified_by?: string | null;
+  schema_verification_notes?: string | null;
+  is_current_route: boolean;
+  service_is_active: boolean;
+}
+
 export interface ServiceRoutingItem {
   id: string;
   category_id?: string | null;
@@ -3075,6 +3127,8 @@ export interface ServiceRoutingItem {
   provider_id: string;
   provider: string;
   endpoint?: string | null;
+  mapping_endpoint?: string | null;
+  mapping_plan_code?: string | null;
   is_active: boolean;
   enabled: boolean;
   processing_type: 'instant' | 'manual' | string;
@@ -3083,7 +3137,7 @@ export interface ServiceRoutingItem {
   is_refundable: boolean;
   fulfilment_mode: FulfilmentMode;
   internal_fulfilment_cost: number;
-  sla_hours: number;
+  sla_hours: number | null;
   internal_manual_eligible: boolean;
   provider_schema_verified: boolean;
   eligibility_notes?: string | null;
@@ -3096,11 +3150,14 @@ export interface ServiceRoutingItem {
   mapping_schema_verified?: boolean;
   mapping_schema_notes?: string | null;
   provider_name?: string;
+  provider_type?: string;
   provider_is_active?: boolean;
+  provider_is_configured?: boolean;
   is_instant_registry_sku: boolean;
   active_cost: number;
   profit_per_transaction: number;
   margin_percent: number;
+  application_counts?: ServiceApplicationCounts;
 }
 
 export interface RoutingAuditLogItem {

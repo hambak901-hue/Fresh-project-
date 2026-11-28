@@ -1132,6 +1132,49 @@ class SchemaSync
                 INDEX idx_ird_sha256 (sha256_hash),
                 INDEX idx_ird_tracking (tracking_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'verification_status_history' => 'CREATE TABLE IF NOT EXISTS verification_status_history (
+                id VARCHAR(36) PRIMARY KEY,
+                record_id VARCHAR(36) NOT NULL,
+                previous_status VARCHAR(40) NULL,
+                new_status VARCHAR(40) NOT NULL,
+                actor_type ENUM("customer", "provider", "admin", "system") NOT NULL DEFAULT "system",
+                actor_id VARCHAR(36) NULL,
+                remarks TEXT NULL,
+                is_customer_visible TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_vsh_record (record_id, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'manual_fulfilment_notes' => 'CREATE TABLE IF NOT EXISTS manual_fulfilment_notes (
+                id VARCHAR(36) PRIMARY KEY,
+                domain VARCHAR(40) NOT NULL,
+                record_id VARCHAR(36) NOT NULL,
+                reference_number VARCHAR(64) NULL,
+                author_id VARCHAR(36) NOT NULL,
+                author_name VARCHAR(191) NOT NULL,
+                category ENUM("general", "document_review", "verification", "clarification", "escalation", "supervision") NOT NULL DEFAULT "general",
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_mfn_domain_record (domain, record_id, created_at),
+                INDEX idx_mfn_author (author_id, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
+
+            'manual_fulfilment_assignment_history' => 'CREATE TABLE IF NOT EXISTS manual_fulfilment_assignment_history (
+                id VARCHAR(36) PRIMARY KEY,
+                domain VARCHAR(40) NOT NULL,
+                record_id VARCHAR(36) NOT NULL,
+                action ENUM("claimed", "assigned", "reassigned", "accepted", "declined", "released") NOT NULL,
+                previous_assignee_id VARCHAR(36) NULL,
+                new_assignee_id VARCHAR(36) NULL,
+                new_assignee_name VARCHAR(191) NULL,
+                actor_id VARCHAR(36) NOT NULL,
+                actor_name VARCHAR(191) NOT NULL,
+                reason TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_mfah_domain_record (domain, record_id, created_at),
+                INDEX idx_mfah_assignee (new_assignee_id, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci',
         ];
 
         foreach ($tableDefinitions as $name => $sql) {
@@ -1287,6 +1330,23 @@ class SchemaSync
                 'dispatch_locked_at' => 'ADD COLUMN dispatch_locked_at DATETIME NULL',
                 'dispatch_attempts' => 'ADD COLUMN dispatch_attempts INT NOT NULL DEFAULT 0',
                 'last_dispatch_error' => 'ADD COLUMN last_dispatch_error TEXT NULL',
+                'assigned_by' => 'ADD COLUMN assigned_by VARCHAR(36) NULL',
+                'assigned_to' => 'ADD COLUMN assigned_to VARCHAR(36) NULL',
+                'assigned_staff_name' => 'ADD COLUMN assigned_staff_name VARCHAR(150) NULL',
+                'assigned_at' => 'ADD COLUMN assigned_at DATETIME NULL',
+                'assignment_accepted_at' => 'ADD COLUMN assignment_accepted_at DATETIME NULL',
+                'reviewed_by' => 'ADD COLUMN reviewed_by VARCHAR(100) NULL',
+                'reviewed_at' => 'ADD COLUMN reviewed_at DATETIME NULL',
+                'refunded_at' => 'ADD COLUMN refunded_at DATETIME NULL',
+                'supporting_documents' => 'ADD COLUMN supporting_documents JSON NULL',
+                'result_verified_by' => 'ADD COLUMN result_verified_by VARCHAR(36) NULL',
+                'result_verified_at' => 'ADD COLUMN result_verified_at DATETIME NULL',
+                'result_verification_status' => 'ADD COLUMN result_verification_status ENUM("none", "pending_verification", "verified", "rejected") NOT NULL DEFAULT "none"',
+                'result_verification_notes' => 'ADD COLUMN result_verification_notes TEXT NULL',
+                'clarification_deadline' => 'ADD COLUMN clarification_deadline DATETIME NULL',
+                'cancelled_at' => 'ADD COLUMN cancelled_at DATETIME NULL',
+                'cancelled_by' => 'ADD COLUMN cancelled_by VARCHAR(36) NULL',
+                'cancellation_reason' => 'ADD COLUMN cancellation_reason TEXT NULL',
                 'completed_at' => 'ADD COLUMN completed_at DATETIME NULL',
                 'updated_at' => 'ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
             ],
@@ -1303,6 +1363,7 @@ class SchemaSync
                 'profit' => 'ADD COLUMN profit DECIMAL(15, 2) NOT NULL DEFAULT 0.00',
                 'endpoint' => 'ADD COLUMN endpoint VARCHAR(150) NOT NULL DEFAULT ""',
                 'refund_reference' => 'ADD COLUMN refund_reference VARCHAR(120) NULL',
+                'refunded_at' => 'ADD COLUMN refunded_at DATETIME NULL',
                 'provider_response' => 'ADD COLUMN provider_response JSON NULL',
                 'result_document_id' => 'ADD COLUMN result_document_id VARCHAR(36) NULL',
                 'result_source' => 'ADD COLUMN result_source VARCHAR(32) NULL',
@@ -1314,6 +1375,19 @@ class SchemaSync
                 'additional_info_history' => 'ADD COLUMN additional_info_history JSON NULL',
                 'reviewed_by' => 'ADD COLUMN reviewed_by VARCHAR(100) NULL',
                 'reviewed_at' => 'ADD COLUMN reviewed_at DATETIME NULL',
+                'assigned_by' => 'ADD COLUMN assigned_by VARCHAR(36) NULL',
+                'assigned_to' => 'ADD COLUMN assigned_to VARCHAR(36) NULL',
+                'assigned_staff_name' => 'ADD COLUMN assigned_staff_name VARCHAR(150) NULL',
+                'assigned_at' => 'ADD COLUMN assigned_at DATETIME NULL',
+                'assignment_accepted_at' => 'ADD COLUMN assignment_accepted_at DATETIME NULL',
+                'result_verified_by' => 'ADD COLUMN result_verified_by VARCHAR(36) NULL',
+                'result_verified_at' => 'ADD COLUMN result_verified_at DATETIME NULL',
+                'result_verification_status' => 'ADD COLUMN result_verification_status ENUM("none", "pending_verification", "verified", "rejected") NOT NULL DEFAULT "none"',
+                'result_verification_notes' => 'ADD COLUMN result_verification_notes TEXT NULL',
+                'clarification_deadline' => 'ADD COLUMN clarification_deadline DATETIME NULL',
+                'cancelled_at' => 'ADD COLUMN cancelled_at DATETIME NULL',
+                'cancelled_by' => 'ADD COLUMN cancelled_by VARCHAR(36) NULL',
+                'cancellation_reason' => 'ADD COLUMN cancellation_reason TEXT NULL',
                 'estimated_completion_text' => 'ADD COLUMN estimated_completion_text VARCHAR(150) NULL',
             ],
             'enrolment_orders' => [
@@ -1324,6 +1398,16 @@ class SchemaSync
                 'result_retrieval_status' => 'ADD COLUMN result_retrieval_status VARCHAR(32) NULL',
                 'result_retrieval_error' => 'ADD COLUMN result_retrieval_error TEXT NULL',
                 'result_retrieved_at' => 'ADD COLUMN result_retrieved_at DATETIME NULL',
+                'assigned_by' => 'ADD COLUMN assigned_by VARCHAR(36) NULL',
+                'assignment_accepted_at' => 'ADD COLUMN assignment_accepted_at DATETIME NULL',
+                'result_verified_by' => 'ADD COLUMN result_verified_by VARCHAR(36) NULL',
+                'result_verified_at' => 'ADD COLUMN result_verified_at DATETIME NULL',
+                'result_verification_status' => 'ADD COLUMN result_verification_status ENUM("none", "pending_verification", "verified", "rejected") NOT NULL DEFAULT "none"',
+                'result_verification_notes' => 'ADD COLUMN result_verification_notes TEXT NULL',
+                'clarification_deadline' => 'ADD COLUMN clarification_deadline DATETIME NULL',
+                'cancelled_at' => 'ADD COLUMN cancelled_at DATETIME NULL',
+                'cancelled_by' => 'ADD COLUMN cancelled_by VARCHAR(36) NULL',
+                'cancellation_reason' => 'ADD COLUMN cancellation_reason TEXT NULL',
             ],
             'customer_virtual_accounts' => [
                 'paystack_customer_code' => 'ADD COLUMN paystack_customer_code VARCHAR(100) NULL AFTER provider',
@@ -1368,6 +1452,8 @@ class SchemaSync
             'academy_courses.price' => 'ALTER TABLE academy_courses MODIFY COLUMN price DECIMAL(15, 2) NULL DEFAULT NULL',
             'notifications.type' => 'ALTER TABLE notifications MODIFY COLUMN type ENUM("info", "success", "warning", "alert", "security") NOT NULL DEFAULT "info"',
             'verification_records.status' => 'ALTER TABLE verification_records MODIFY COLUMN status VARCHAR(32) NOT NULL DEFAULT "pending"',
+            'modification_requests.status' => 'ALTER TABLE modification_requests MODIFY COLUMN status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded", "cancelled") NOT NULL DEFAULT "pending"',
+            'enrolment_orders.status' => 'ALTER TABLE enrolment_orders MODIFY COLUMN status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded", "cancelled") NOT NULL DEFAULT "pending"',
         ];
         foreach ($enumUpdates as $key => $sql) {
             try {
@@ -1822,6 +1908,7 @@ class SchemaSync
                     endpoint VARCHAR(150) NOT NULL,
                     payment_reference VARCHAR(120) NOT NULL UNIQUE,
                     refund_reference VARCHAR(120) NULL UNIQUE,
+                    refunded_at DATETIME NULL,
                     provider_refunded TINYINT(1) NULL,
                     provider_refunded_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                     idempotency_key VARCHAR(120) NULL,
@@ -1911,6 +1998,7 @@ class SchemaSync
                 'assigned_at' => 'ADD COLUMN assigned_at DATETIME NULL',
                 'document_review_checklist' => 'ADD COLUMN document_review_checklist JSON NULL',
                 'requested_corrections' => 'ADD COLUMN requested_corrections TEXT NULL',
+                'refunded_at' => 'ADD COLUMN refunded_at DATETIME NULL',
             ];
             foreach ($modResultCols as $col => $clause) {
                 $exists = $db->fetchOne(
@@ -1933,8 +2021,8 @@ class SchemaSync
                 $mrStatusCol = $db->fetchOne(
                     'SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "modification_requests" AND COLUMN_NAME = "status"'
                 );
-                if ($mrStatusCol && !str_contains((string)($mrStatusCol['COLUMN_TYPE'] ?? ''), 'under_review')) {
-                    $db->execute('ALTER TABLE modification_requests MODIFY COLUMN status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending"');
+                if ($mrStatusCol && (!str_contains((string)($mrStatusCol['COLUMN_TYPE'] ?? ''), 'under_review') || !str_contains((string)($mrStatusCol['COLUMN_TYPE'] ?? ''), 'cancelled'))) {
+                    $db->execute('ALTER TABLE modification_requests MODIFY COLUMN status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded", "cancelled") NOT NULL DEFAULT "pending"');
                     $applied[] = 'enum:modification_requests.status';
                 }
             } catch (Throwable) {
@@ -2599,6 +2687,7 @@ class SchemaSync
                     endpoint VARCHAR(150) NOT NULL,
                     payment_reference VARCHAR(120) NOT NULL UNIQUE,
                     refund_reference VARCHAR(120) NULL UNIQUE,
+                    refunded_at DATETIME NULL,
                     provider_refunded TINYINT(1) NULL,
                     provider_refunded_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
                     idempotency_key VARCHAR(120) NULL,
@@ -2695,6 +2784,7 @@ class SchemaSync
                 'assigned_at' => 'ADD COLUMN assigned_at DATETIME NULL',
                 'document_review_checklist' => 'ADD COLUMN document_review_checklist JSON NULL',
                 'requested_corrections' => 'ADD COLUMN requested_corrections TEXT NULL',
+                'refunded_at' => 'ADD COLUMN refunded_at DATETIME NULL',
             ];
             foreach ($enrResultCols as $col => $clause) {
                 $exists = $db->fetchOne(
@@ -2710,8 +2800,8 @@ class SchemaSync
                 $eoStatusCol = $db->fetchOne(
                     'SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = "enrolment_orders" AND COLUMN_NAME = "status"'
                 );
-                if ($eoStatusCol && !str_contains((string)($eoStatusCol['COLUMN_TYPE'] ?? ''), 'under_review')) {
-                    $db->execute('ALTER TABLE enrolment_orders MODIFY COLUMN status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending"');
+                if ($eoStatusCol && (!str_contains((string)($eoStatusCol['COLUMN_TYPE'] ?? ''), 'under_review') || !str_contains((string)($eoStatusCol['COLUMN_TYPE'] ?? ''), 'cancelled'))) {
+                    $db->execute('ALTER TABLE enrolment_orders MODIFY COLUMN status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded", "cancelled") NOT NULL DEFAULT "pending"');
                     $applied[] = 'enum:enrolment_orders.status';
                 }
             } catch (Throwable) {
@@ -4873,5 +4963,112 @@ class SchemaSync
         } catch (Throwable) {
         }
     }
+
+    public static function syncManualFulfilmentPhase5Schema(Database $db, bool $force = false): void
+    {
+        static $syncedP5 = false;
+        if ($syncedP5 && !$force) {
+            return;
+        }
+        $syncedP5 = true;
+
+        try {
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS verification_status_history (
+                    id VARCHAR(36) PRIMARY KEY,
+                    record_id VARCHAR(36) NOT NULL,
+                    previous_status VARCHAR(40) NULL,
+                    new_status VARCHAR(40) NOT NULL,
+                    actor_type ENUM("customer", "provider", "admin", "system") NOT NULL DEFAULT "system",
+                    actor_id VARCHAR(36) NULL,
+                    remarks TEXT NULL,
+                    is_customer_visible TINYINT(1) NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_vsh_record (record_id, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS manual_fulfilment_notes (
+                    id VARCHAR(36) PRIMARY KEY,
+                    domain VARCHAR(40) NOT NULL,
+                    record_id VARCHAR(36) NOT NULL,
+                    reference_number VARCHAR(64) NULL,
+                    author_id VARCHAR(36) NOT NULL,
+                    author_name VARCHAR(191) NOT NULL,
+                    category ENUM("general", "document_review", "verification", "clarification", "escalation", "supervision") NOT NULL DEFAULT "general",
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_mfn_domain_record (domain, record_id, created_at),
+                    INDEX idx_mfn_author (author_id, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+            $db->execute(
+                'CREATE TABLE IF NOT EXISTS manual_fulfilment_assignment_history (
+                    id VARCHAR(36) PRIMARY KEY,
+                    domain VARCHAR(40) NOT NULL,
+                    record_id VARCHAR(36) NOT NULL,
+                    action ENUM("claimed", "assigned", "reassigned", "accepted", "declined", "released") NOT NULL,
+                    previous_assignee_id VARCHAR(36) NULL,
+                    new_assignee_id VARCHAR(36) NULL,
+                    new_assignee_name VARCHAR(191) NULL,
+                    actor_id VARCHAR(36) NOT NULL,
+                    actor_name VARCHAR(191) NOT NULL,
+                    reason TEXT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_mfah_domain_record (domain, record_id, created_at),
+                    INDEX idx_mfah_assignee (new_assignee_id, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+            );
+
+            $commonCols = [
+                'assigned_by' => 'ADD COLUMN assigned_by VARCHAR(36) NULL',
+                'assigned_to' => 'ADD COLUMN assigned_to VARCHAR(36) NULL',
+                'assigned_staff_name' => 'ADD COLUMN assigned_staff_name VARCHAR(150) NULL',
+                'assigned_at' => 'ADD COLUMN assigned_at DATETIME NULL',
+                'assignment_accepted_at' => 'ADD COLUMN assignment_accepted_at DATETIME NULL',
+                'result_verified_by' => 'ADD COLUMN result_verified_by VARCHAR(36) NULL',
+                'result_verified_at' => 'ADD COLUMN result_verified_at DATETIME NULL',
+                'result_verification_status' => 'ADD COLUMN result_verification_status ENUM("none", "pending_verification", "verified", "rejected") NOT NULL DEFAULT "none"',
+                'result_verification_notes' => 'ADD COLUMN result_verification_notes TEXT NULL',
+                'clarification_deadline' => 'ADD COLUMN clarification_deadline DATETIME NULL',
+                'cancelled_at' => 'ADD COLUMN cancelled_at DATETIME NULL',
+                'cancelled_by' => 'ADD COLUMN cancelled_by VARCHAR(36) NULL',
+                'cancellation_reason' => 'ADD COLUMN cancellation_reason TEXT NULL',
+            ];
+            $tableMap = [
+                'modification_requests' => $commonCols + ['refunded_at' => 'ADD COLUMN refunded_at DATETIME NULL'],
+                'enrolment_orders' => $commonCols + ['refunded_at' => 'ADD COLUMN refunded_at DATETIME NULL'],
+                'verification_records' => $commonCols + [
+                    'reviewed_by' => 'ADD COLUMN reviewed_by VARCHAR(100) NULL',
+                    'reviewed_at' => 'ADD COLUMN reviewed_at DATETIME NULL',
+                    'refunded_at' => 'ADD COLUMN refunded_at DATETIME NULL',
+                    'supporting_documents' => 'ADD COLUMN supporting_documents JSON NULL',
+                ],
+            ];
+            foreach ($tableMap as $tbl => $cols) {
+                foreach ($cols as $col => $clause) {
+                    $exists = $db->fetchOne(
+                        'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tbl AND COLUMN_NAME = :col',
+                        ['tbl' => $tbl, 'col' => $col]
+                    );
+                    if (!$exists) {
+                        $db->execute("ALTER TABLE `{$tbl}` {$clause}");
+                    }
+                }
+            }
+
+            foreach (['modification_requests', 'enrolment_orders'] as $enumTbl) {
+                $colType = $db->fetchOne(
+                    'SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tbl AND COLUMN_NAME = "status"',
+                    ['tbl' => $enumTbl]
+                );
+                if ($colType && !str_contains((string)($colType['COLUMN_TYPE'] ?? ''), 'cancelled')) {
+                    $db->execute("ALTER TABLE `{$enumTbl}` MODIFY COLUMN status ENUM(\"pending\", \"under_review\", \"assigned\", \"processing\", \"query_required\", \"completed\", \"failed\", \"rejected\", \"refunded\", \"cancelled\") NOT NULL DEFAULT \"pending\"");
+                }
+            }
+        } catch (Throwable) {
+        }
+    }
 }
+
 

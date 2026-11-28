@@ -3013,9 +3013,30 @@ class AdminController
             $updates[] = 'category_id = :cid';
             $paramsDb['cid'] = trim((string)$body['category_id']);
         }
+        $isManual = strtolower((string)($existingRow['fulfilment_mode'] ?? '')) === 'internal_manual'
+            || strtolower((string)($existingRow['provider_id'] ?? '')) === 'hambak_manual';
+
+        foreach (['fulfilment_mode', 'internal_manual_eligible', 'sla_hours', 'provider_schema_verified'] as $protectedField) {
+            if (array_key_exists($protectedField, $body)) {
+                $incomingVal = is_bool($body[$protectedField]) ? ($body[$protectedField] ? '1' : '0') : trim((string)$body[$protectedField]);
+                $existingVal = is_bool($existingRow[$protectedField] ?? null) ? (!empty($existingRow[$protectedField]) ? '1' : '0') : trim((string)($existingRow[$protectedField] ?? ''));
+                if ($incomingVal !== '' && $incomingVal !== $existingVal) {
+                    Response::error('Protected routing field (' . $protectedField . ') must be configured through the Unified Service Routing panel.', 422);
+                }
+            }
+        }
+
         if (isset($body['endpoint']) && trim((string)$body['endpoint']) !== '') {
-            $updates[] = 'endpoint = :ep';
-            $paramsDb['ep'] = trim((string)$body['endpoint']);
+            $reqEp = trim((string)$body['endpoint']);
+            $existingEp = trim((string)($existingRow['endpoint'] ?? ''));
+            if ($isManual) {
+                if ($reqEp !== $existingEp) {
+                    Response::error('External provider endpoint cannot be modified on an internal_manual service.', 422);
+                }
+            } else {
+                $updates[] = 'endpoint = :ep';
+                $paramsDb['ep'] = $reqEp;
+            }
         }
         if (isset($body['processing_type']) && in_array($body['processing_type'], ['instant', 'manual'], true)) {
             $updates[] = 'processing_type = :pt';
@@ -3052,12 +3073,16 @@ class AdminController
             $updates[] = 'selling_price = :spr';
             $paramsDb['spr'] = (float)$body['selling_price'];
         }
-        $isManual = strtolower((string)($existingRow['fulfilment_mode'] ?? '')) === 'internal_manual'
-            || strtolower((string)($existingRow['provider_id'] ?? '')) === 'hambak_manual';
-
-        if (isset($body['wholesale_cost']) && !$isManual) {
-            $updates[] = 'wholesale_cost = :wc';
-            $paramsDb['wc'] = max(0.0, (float)$body['wholesale_cost']);
+        if (isset($body['wholesale_cost'])) {
+            $reqWholesale = max(0.0, (float)$body['wholesale_cost']);
+            if ($isManual) {
+                if (abs($reqWholesale - (float)$existingRow['wholesale_cost']) >= 0.01) {
+                    Response::error('External wholesale_cost cannot be overwritten on an internal_manual service.', 422);
+                }
+            } else {
+                $updates[] = 'wholesale_cost = :wc';
+                $paramsDb['wc'] = $reqWholesale;
+            }
         }
         if (isset($body['internal_fulfilment_cost'])) {
             $updates[] = 'internal_fulfilment_cost = :ifc';
@@ -3443,6 +3468,16 @@ class AdminController
         $isManual = strtolower((string)($existing['fulfilment_mode'] ?? '')) === 'internal_manual'
             || strtolower((string)($existing['provider_id'] ?? '')) === 'hambak_manual';
 
+        foreach (['fulfilment_mode', 'internal_manual_eligible', 'sla_hours', 'provider_schema_verified'] as $protectedField) {
+            if (array_key_exists($protectedField, $b)) {
+                $incomingVal = is_bool($b[$protectedField]) ? ($b[$protectedField] ? '1' : '0') : trim((string)$b[$protectedField]);
+                $existingVal = is_bool($existing[$protectedField] ?? null) ? (!empty($existing[$protectedField]) ? '1' : '0') : trim((string)($existing[$protectedField] ?? ''));
+                if ($incomingVal !== '' && $incomingVal !== $existingVal) {
+                    Response::error('Protected routing field (' . $protectedField . ') must be configured through the Unified Service Routing panel.', 422);
+                }
+            }
+        }
+
         if (isset($b['provider_id']) || isset($b['provider'])) {
             $reqProvRaw = trim((string)($b['provider_id'] ?? $b['provider']));
             $reqProv = strtolower($reqProvRaw);
@@ -3455,13 +3490,28 @@ class AdminController
                 $dbParams['pid'] = $reqProvRaw;
             }
         }
-        if (isset($b['endpoint']) && trim((string)$b['endpoint']) !== '' && !$isManual) {
-            $updates[] = 'endpoint = :ep';
-            $dbParams['ep'] = trim((string)$b['endpoint']);
+        if (isset($b['endpoint']) && trim((string)$b['endpoint']) !== '') {
+            $reqEp = trim((string)$b['endpoint']);
+            $existingEp = trim((string)($existing['endpoint'] ?? ''));
+            if ($isManual) {
+                if ($reqEp !== $existingEp) {
+                    Response::error('External provider endpoint cannot be modified on an internal_manual service.', 422);
+                }
+            } else {
+                $updates[] = 'endpoint = :ep';
+                $dbParams['ep'] = $reqEp;
+            }
         }
-        if (isset($b['wholesale_cost']) && !$isManual) {
-            $updates[] = 'wholesale_cost = :wc';
-            $dbParams['wc'] = max(0.0, (float)$b['wholesale_cost']);
+        if (isset($b['wholesale_cost'])) {
+            $reqWholesale = max(0.0, (float)$b['wholesale_cost']);
+            if ($isManual) {
+                if (abs($reqWholesale - (float)$existing['wholesale_cost']) >= 0.01) {
+                    Response::error('External wholesale_cost cannot be overwritten on an internal_manual service.', 422);
+                }
+            } else {
+                $updates[] = 'wholesale_cost = :wc';
+                $dbParams['wc'] = $reqWholesale;
+            }
         }
         if (isset($b['internal_fulfilment_cost'])) {
             $updates[] = 'internal_fulfilment_cost = :ifc';

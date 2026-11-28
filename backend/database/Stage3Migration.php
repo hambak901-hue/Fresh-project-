@@ -162,7 +162,7 @@ class Stage3Migration
                 payment_reference VARCHAR(120) NOT NULL,
                 refund_reference VARCHAR(120) NULL,
                 refunded_at TIMESTAMP NULL,
-                status ENUM("pending", "processing", "completed", "failed", "rejected", "query_required") NOT NULL DEFAULT "pending",
+                status ENUM("pending", "under_review", "assigned", "processing", "query_required", "completed", "failed", "rejected", "refunded") NOT NULL DEFAULT "pending",
                 consent_accepted TINYINT(1) NOT NULL DEFAULT 1,
                 consent_timestamp TIMESTAMP NULL,
                 form_payload LONGTEXT NOT NULL,

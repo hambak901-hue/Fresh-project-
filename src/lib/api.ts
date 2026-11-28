@@ -5630,8 +5630,10 @@ export const api = {
   async getRoutingServices(): Promise<{
     success: boolean;
     services: import('../types').ServiceRoutingItem[];
-    providers: Array<{ id: string; name: string; provider_type?: string; is_active?: boolean }>;
+    providers: Array<{ id: string; name: string; provider_type?: string; is_active?: boolean; is_configured?: boolean }>;
     hambak_manual_active: boolean;
+    application_summary?: import('../types').RoutingApplicationSummary;
+    provider_mappings?: import('../types').ProviderServiceMappingItem[];
   }> {
     return request('/api/admin/routing/services');
   },
@@ -5644,7 +5646,7 @@ export const api = {
       wholesale_cost?: number;
       internal_fulfilment_cost?: number;
       selling_price?: number;
-      sla_hours?: number;
+      sla_hours?: number | null;
       manual_label?: string;
       internal_manual_eligible?: boolean;
       provider_schema_verified?: boolean;
@@ -5675,6 +5677,72 @@ export const api = {
     if (params.limit) q.set('limit', String(params.limit));
     const qs = q.toString();
     return request(`/api/admin/routing/audit-logs${qs ? `?${qs}` : ''}`);
+  },
+
+  async getRoutingProviderMappings(params: {
+    service_key?: string;
+    provider_id?: string;
+  } = {}): Promise<{
+    success: boolean;
+    mappings: import('../types').ProviderServiceMappingItem[];
+  }> {
+    const q = new URLSearchParams();
+    if (params.service_key) q.set('service_key', params.service_key);
+    if (params.provider_id) q.set('provider_id', params.provider_id);
+    const qs = q.toString();
+    return request(`/api/admin/routing/provider-mappings${qs ? `?${qs}` : ''}`);
+  },
+
+  async createRoutingProviderMapping(payload: {
+    provider_id: string;
+    service_key: string;
+    provider_endpoint: string;
+    provider_plan_code: string;
+    wholesale_cost: number;
+    is_active: boolean;
+    schema_verified: boolean;
+    schema_verification_notes?: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    mapping: import('../types').ProviderServiceMappingItem;
+  }> {
+    return request('/api/admin/routing/provider-mappings', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateRoutingProviderMapping(
+    id: string,
+    payload: {
+      provider_id: string;
+      service_key: string;
+      provider_endpoint: string;
+      provider_plan_code: string;
+      wholesale_cost: number;
+      is_active: boolean;
+      schema_verified: boolean;
+      schema_verification_notes?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    mapping: import('../types').ProviderServiceMappingItem;
+  }> {
+    return request(`/api/admin/routing/provider-mappings/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteRoutingProviderMapping(id: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    return request(`/api/admin/routing/provider-mappings/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
   },
 
   async getManualFulfilmentOrders(params: {

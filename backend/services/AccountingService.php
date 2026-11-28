@@ -533,7 +533,7 @@ class AccountingService
         }
 
         $existingEntries = [];
-        foreach ($this->db->fetchAll('SELECT id, source_table, source_id, entry_category, customer_borne_fee, is_reversed, reconciliation_status FROM accounting_entries WHERE source_origin = "website"') as $ee) {
+        foreach ($this->db->fetchAll('SELECT id, source_table, source_id, entry_category, customer_borne_fee, revenue_amount, cost_amount, net_profit_impact, metadata, is_reversed, reconciliation_status FROM accounting_entries WHERE source_origin = "website"') as $ee) {
             $k = $ee['source_table'] . '|' . $ee['source_id'] . '|' . $ee['entry_category'];
             $existingEntries[$k] = $ee;
         }
@@ -798,12 +798,12 @@ class AccountingService
 
                     $hasMatchingRefund = isset($refundedOrigRefs[$ref]);
                     $orderFailed = ($tOrder && strtolower((string)($tOrder['status'] ?? '')) !== 'successful')
-                        || ($vRec && in_array(strtolower((string)($vRec['status'] ?? '')), ['failed', 'rejected', 'refunded'], true))
-                        || ($mReq && in_array(strtolower((string)($mReq['status'] ?? '')), ['failed', 'rejected', 'refunded'], true))
-                        || ($eOrd && in_array(strtolower((string)($eOrd['status'] ?? '')), ['failed', 'rejected', 'refunded'], true))
+                        || ($vRec && in_array(strtolower((string)($vRec['status'] ?? '')), ['failed', 'rejected', 'refunded', 'cancelled'], true))
+                        || ($mReq && in_array(strtolower((string)($mReq['status'] ?? '')), ['failed', 'rejected', 'refunded', 'cancelled'], true))
+                        || ($eOrd && in_array(strtolower((string)($eOrd['status'] ?? '')), ['failed', 'rejected', 'refunded', 'cancelled'], true))
                         || ($pOrd && in_array(strtolower((string)($pOrd['status'] ?? '')), ['rejected', 'cancelled', 'refunded'], true));
 
-                    if ($hasMatchingRefund || $orderFailed) {
+                    if ($hasMatchingRefund) {
                         $cost = 0.0;
                         $costVerified = true;
                         $costSource = 'refunded_or_failed_order';
@@ -823,59 +823,91 @@ class AccountingService
                             $costVerified = false;
                             $costSource = 'unverified_telecom_zero_cost';
                         }
-                    } elseif ($vRec && !in_array(strtolower((string)($vRec['status'] ?? '')), ['failed', 'rejected', 'refunded'], true)) {
+                    } elseif ($vRec) {
                         $vStatus = strtolower((string)($vRec['status'] ?? ''));
                         $vIsManual = strtolower((string)($vRec['fulfilment_mode'] ?? '')) === 'internal_manual'
                             || strtolower((string)($vRec['provider'] ?? '')) === 'hambak_manual';
-                        if ($vIsManual) {
-                            $cost = round((float)($vRec['internal_fulfilment_cost'] ?? 0), 2);
-                            $costVerified = true;
-                            $costSource = 'verification_records_internal_manual';
-                        } elseif ($vStatus === 'completed') {
-                            $cost = round((float)($vRec['provider_cost'] ?? 0), 2);
-                            if ($cost > 0) {
+                        if ($vStatus === 'completed') {
+                            if ($vIsManual) {
+                                $cost = round((float)($vRec['internal_fulfilment_cost'] ?? 0), 2);
                                 $costVerified = true;
-                                $costSource = 'verification_records';
+                                $costSource = 'verification_records_internal_manual';
                             } else {
-                                $vKey = strtolower((string)($vRec['service_key'] ?? ''));
-                                if ($vKey !== '' && ($catalogueCostByKey[$vKey] ?? 0) > 0) {
-                                    $cost = $catalogueCostByKey[$vKey];
+                                $cost = round((float)($vRec['provider_cost'] ?? 0), 2);
+                                if ($cost > 0) {
                                     $costVerified = true;
-                                    $costSource = 'verification_records+service_catalogue';
+                                    $costSource = 'verification_records';
                                 } else {
-                                    $costVerified = false;
-                                    $costSource = 'unverified_verification_zero_cost';
+                                    $vKey = strtolower((string)($vRec['service_key'] ?? ''));
+                                    if ($vKey !== '' && ($catalogueCostByKey[$vKey] ?? 0) > 0) {
+                                        $cost = $catalogueCostByKey[$vKey];
+                                        $costVerified = true;
+                                        $costSource = 'verification_records+service_catalogue';
+                                    } else {
+                                        $costVerified = false;
+                                        $costSource = 'unverified_verification_zero_cost';
+                                    }
                                 }
                             }
                         } else {
-                            $cost = round((float)($vRec['provider_cost'] ?? 0), 2);
-                            $costVerified = $cost > 0;
-                            $costSource = $costVerified ? 'verification_records' : 'pending_async_verification';
+                            // Never recognise pending provider_async or in-flight/failed/rejected/cancelled internal_manual verification as realised revenue or profit
+                            $revenue = 0.0;
+                            $cost = 0.0;
+                            $costVerified = false;
+                            $costSource = in_array($vStatus, ['failed', 'rejected', 'refunded', 'cancelled'], true)
+                                ? 'failed_or_rejected_no_profit'
+                                : ($vIsManual ? 'in_flight_internal_manual_verification' : 'in_flight_async_verification');
                         }
-                    } elseif ($mReq && !in_array(strtolower((string)($mReq['status'] ?? '')), ['failed', 'rejected', 'refunded'], true)) {
+                    } elseif ($mReq) {
+                        $mStatus = strtolower((string)($mReq['status'] ?? ''));
                         $mIsManual = strtolower((string)($mReq['fulfilment_mode'] ?? '')) === 'internal_manual'
                             || strtolower((string)($mReq['provider_id'] ?? '')) === 'hambak_manual';
-                        if ($mIsManual) {
-                            $cost = round((float)($mReq['internal_fulfilment_cost'] ?? 0), 2);
-                            $costVerified = true;
-                            $costSource = 'modification_requests_internal_manual';
+                        if ($mStatus === 'completed') {
+                            if ($mIsManual) {
+                                $cost = round((float)($mReq['internal_fulfilment_cost'] ?? 0), 2);
+                                $costVerified = true;
+                                $costSource = 'modification_requests_internal_manual';
+                            } else {
+                                $cost = round((float)($mReq['provider_cost'] ?? 0), 2);
+                                $costVerified = $cost > 0;
+                                $costSource = $costVerified ? 'modification_requests' : 'unverified_mod_zero_cost';
+                            }
                         } else {
-                            $cost = round((float)($mReq['provider_cost'] ?? 0), 2);
-                            $costVerified = $cost > 0;
-                            $costSource = $costVerified ? 'modification_requests' : 'unverified_mod_zero_cost';
+                            // Only completed modifications may be recognised as realised service revenue and profit
+                            $revenue = 0.0;
+                            $cost = 0.0;
+                            $costVerified = false;
+                            $costSource = in_array($mStatus, ['failed', 'rejected', 'refunded', 'cancelled'], true)
+                                ? 'failed_or_rejected_no_profit'
+                                : ($mIsManual ? 'in_flight_internal_manual_modification' : 'in_flight_provider_modification');
                         }
-                    } elseif ($eOrd && !in_array(strtolower((string)($eOrd['status'] ?? '')), ['failed', 'rejected', 'refunded'], true)) {
+                    } elseif ($eOrd) {
+                        $eStatus = strtolower((string)($eOrd['status'] ?? ''));
                         $eIsManual = strtolower((string)($eOrd['fulfilment_mode'] ?? '')) === 'internal_manual'
                             || strtolower((string)($eOrd['provider_id'] ?? '')) === 'hambak_manual';
-                        if ($eIsManual) {
-                            $cost = round((float)($eOrd['internal_fulfilment_cost'] ?? 0), 2);
-                            $costVerified = true;
-                            $costSource = 'enrolment_orders_internal_manual';
+                        if ($eStatus === 'completed') {
+                            if ($eIsManual) {
+                                $cost = round((float)($eOrd['internal_fulfilment_cost'] ?? 0), 2);
+                                $costVerified = true;
+                                $costSource = 'enrolment_orders_internal_manual';
+                            } else {
+                                $cost = round((float)($eOrd['provider_cost'] ?? 0), 2);
+                                $costVerified = $cost > 0;
+                                $costSource = $costVerified ? 'enrolment_orders' : 'unverified_enrolment_zero_cost';
+                            }
                         } else {
-                            $cost = round((float)($eOrd['provider_cost'] ?? 0), 2);
-                            $costVerified = $cost > 0;
-                            $costSource = $costVerified ? 'enrolment_orders' : 'unverified_enrolment_zero_cost';
+                            // Only completed enrolments may be recognised as realised service revenue and profit
+                            $revenue = 0.0;
+                            $cost = 0.0;
+                            $costVerified = false;
+                            $costSource = in_array($eStatus, ['failed', 'rejected', 'refunded', 'cancelled'], true)
+                                ? 'failed_or_rejected_no_profit'
+                                : ($eIsManual ? 'in_flight_internal_manual_enrolment' : 'in_flight_provider_enrolment');
                         }
+                    } elseif ($orderFailed) {
+                        $cost = 0.0;
+                        $costVerified = true;
+                        $costSource = 'refunded_or_failed_order';
                     } elseif ($pOrd && !in_array(strtolower((string)($pOrd['status'] ?? '')), ['rejected', 'cancelled', 'refunded'], true)) {
                         $cost = round((float)($pOrd['internal_production_cost'] ?? 0), 2);
                         $costVerified = true;
@@ -910,7 +942,7 @@ class AccountingService
                 }
             }
 
-            // Never report unverified profit on completed sales lacking reliable provider cost records
+            // Never report unverified profit on completed sales lacking reliable provider cost records, or on in-flight non-completed orders
             if ($entryCategory === 'website_service_sale' && !$costVerified) {
                 $cost = 0.0;
                 $netProfitImpact = 0.0;
@@ -931,11 +963,21 @@ class AccountingService
 
             $lookupKey = 'transactions|' . $tx['id'] . '|' . $entryCategory;
             $exists = $existingEntries[$lookupKey] ?? null;
+            $liveOrderStatus = $tOrder['status'] ?? ($vRec['status'] ?? ($mReq['status'] ?? ($eOrd['status'] ?? ($pOrd['status'] ?? ($fp['status'] ?? null)))));
 
             if ($exists && !$forceFullRefresh) {
-                // Skip already-synced entries unless forceFullRefresh, recent, or customer_borne_fee backfill needed
+                // Skip settled historical entries unless forceFullRefresh, recent, fee backfill needed, or order/profit recognition state changed
                 $prevCbFee = round((float)($exists['customer_borne_fee'] ?? 0), 2);
-                if (strtotime($utcStr) < (time() - 86400 * 7) && abs($prevCbFee - $customerBorneFee) < 0.01) {
+                $prevMeta = is_string($exists['metadata'] ?? null) ? json_decode((string)$exists['metadata'], true) : (is_array($exists['metadata'] ?? null) ? $exists['metadata'] : []);
+                $prevOrderStatus = is_array($prevMeta) ? ($prevMeta['order_status'] ?? null) : null;
+                $prevRevenue = round((float)($exists['revenue_amount'] ?? 0), 2);
+                $prevCost = round((float)($exists['cost_amount'] ?? 0), 2);
+                $prevProfit = round((float)($exists['net_profit_impact'] ?? 0), 2);
+                $recognitionChanged = ((string)$prevOrderStatus !== (string)$liveOrderStatus)
+                    || abs($prevRevenue - round($revenue, 2)) >= 0.01
+                    || abs($prevCost - round($cost, 2)) >= 0.01
+                    || abs($prevProfit - round($netProfitImpact, 2)) >= 0.01;
+                if (!$recognitionChanged && strtotime($utcStr) < (time() - 86400 * 7) && abs($prevCbFee - $customerBorneFee) < 0.01) {
                     $skipped++;
                     continue;
                 }
@@ -947,7 +989,7 @@ class AccountingService
                 'original_type' => $tx['type'] ?? '',
                 'gateway' => $gateway,
                 'user_role' => $userRole,
-                'order_status' => $tOrder['status'] ?? ($vRec['status'] ?? ($mReq['status'] ?? ($eOrd['status'] ?? ($pOrd['status'] ?? ($fp['status'] ?? null))))),
+                'order_status' => $liveOrderStatus,
                 'cost_verified' => $costVerified,
                 'cost_source' => $costSource,
             ];
