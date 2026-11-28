@@ -35,6 +35,7 @@ use HambakTech\Controllers\ReferralController;
 use HambakTech\Controllers\AccountingController;
 use HambakTech\Controllers\PrintingController;
 use HambakTech\Controllers\AdditionalServicesController;
+use HambakTech\Controllers\HambakManualController;
 
 $request = new Request();
 RateLimitMiddleware::handle($request);
@@ -160,6 +161,8 @@ $router->get('/api/verification/status/:ref', [VerificationController::class, 'c
 $router->get('/api/verification/recover', [VerificationController::class, 'recover']);
 $router->get('/api/verification/record/:id', [VerificationController::class, 'getRecord']);
 $router->get('/api/verification/record/:id/pdf', [VerificationController::class, 'downloadPdf']);
+$router->post('/api/verification/:id/poll', [VerificationController::class, 'pollStatus']);
+$router->post('/api/admin/verification/:id/poll', [VerificationController::class, 'adminPollStatus']);
 
 // -----------------------------------------------------------------------------
 // 5B. MANUAL NIN & BVN MODIFICATIONS (STAGE 3)
@@ -367,6 +370,22 @@ $router->post('/api/admin/service-categories', [AdminController::class, 'saveSer
 $router->post('/api/admin/services/catalog', [AdminController::class, 'createCatalogService']);
 $router->put('/api/admin/services/catalog/:key', [AdminController::class, 'updateCatalogService']);
 $router->delete('/api/admin/services/catalog/:key', [AdminController::class, 'deleteCatalogService']);
+
+// Unified Service Routing & Fulfilment Configuration + HAMBAK MANUAL Queue (Phase 3)
+$router->get('/api/admin/routing/services', [HambakManualController::class, 'routingServices']);
+$router->put('/api/admin/routing/services/:key', [HambakManualController::class, 'updateServiceRouting']);
+$router->get('/api/admin/routing/audit-logs', [HambakManualController::class, 'routingAuditLogs']);
+$router->get('/api/admin/manual-fulfilment/orders', [HambakManualController::class, 'orders']);
+$router->get('/api/admin/manual-fulfilment/orders/:domain/:id', [HambakManualController::class, 'orderDetail']);
+$router->post('/api/admin/manual-fulfilment/orders/:domain/:id/claim', [HambakManualController::class, 'claimOrder']);
+$router->post('/api/admin/manual-fulfilment/orders/:domain/:id/assign', [HambakManualController::class, 'assignOrder']);
+$router->post('/api/admin/manual-fulfilment/orders/:domain/:id/checklist', [HambakManualController::class, 'updateChecklist']);
+$router->post('/api/admin/manual-fulfilment/orders/:domain/:id/request-clarification', [HambakManualController::class, 'requestClarification']);
+$router->post('/api/admin/manual-fulfilment/orders/:domain/:id/review-clarification', [HambakManualController::class, 'reviewClarification']);
+$router->post('/api/admin/manual-fulfilment/orders/:domain/:id/status', [HambakManualController::class, 'updateStatus']);
+$router->post('/api/admin/manual-fulfilment/orders/:domain/:id/upload-result', [HambakManualController::class, 'uploadResultDocument']);
+$router->post('/api/admin/manual-fulfilment/orders/:domain/:id/approve-completion', [HambakManualController::class, 'approveCompletion']);
+$router->get('/api/admin/manual-fulfilment/orders/:domain/:id/history', [HambakManualController::class, 'orderHistory']);
 
 // Admin NIN & BVN Modification Operations (Stage 3 + Phase 4 Manual Review)
 $router->get('/api/admin/modifications', [ModificationController::class, 'adminList']);

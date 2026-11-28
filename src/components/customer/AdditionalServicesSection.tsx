@@ -1162,7 +1162,8 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
             <div className="space-y-3 max-h-[680px] overflow-y-auto pr-1">
               {filteredRequests.map(req => {
                 const st = getAdditionalServiceStatusStyle(req.status);
-                const canPoll = pollableStatuses.includes(String(req.status || '').toLowerCase());
+                const isManualDesk = req.fulfilment_mode === 'internal_manual' || req.provider_id === 'hambak_manual';
+                const canPoll = !isManualDesk && pollableStatuses.includes(String(req.status || '').toLowerCase());
                 return (
                   <div
                     key={req.id}
@@ -1177,6 +1178,11 @@ export const AdditionalServicesSection: React.FC<AdditionalServicesSectionProps>
                           <span className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold whitespace-nowrap ${st.badgeClass}`}>
                             {st.label}
                           </span>
+                          {isManualDesk && (
+                            <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-700 dark:text-amber-300 text-[10px] font-semibold whitespace-nowrap">
+                              Manual Desk{req.sla_due_at ? ` · Due ${new Date(req.sla_due_at).toLocaleDateString('en-NG')}` : ''}
+                            </span>
+                          )}
                           {req.is_refundable === false && (
                             <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-700 dark:text-rose-300 text-[10px] font-semibold">
                               Non-Refundable

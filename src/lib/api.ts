@@ -1031,6 +1031,40 @@ export const api = {
     return request(`/api/verification/status/${encodeURIComponent(reference)}`);
   },
 
+  async pollVerificationRecord(idOrRef: string): Promise<{
+    success: boolean;
+    status: string;
+    pending: boolean;
+    message?: string;
+    provider_status?: string;
+    record_id?: string;
+    reference?: string;
+    record?: import('../types').VerificationRecord;
+    result?: any;
+    refund?: any;
+  }> {
+    return request(`/api/verification/${encodeURIComponent(idOrRef)}/poll`, {
+      method: 'POST',
+    });
+  },
+
+  async adminPollVerificationRecord(idOrRef: string): Promise<{
+    success: boolean;
+    status: string;
+    pending: boolean;
+    message?: string;
+    provider_status?: string;
+    record_id?: string;
+    reference?: string;
+    record?: import('../types').VerificationRecord;
+    result?: any;
+    refund?: any;
+  }> {
+    return request(`/api/admin/verification/${encodeURIComponent(idOrRef)}/poll`, {
+      method: 'POST',
+    });
+  },
+
   async getVerificationHistory(category?: string, search?: string): Promise<{ success: boolean; count: number; verifications: import('../types').VerificationRecord[] }> {
     const params = new URLSearchParams();
     if (category) params.set('category', category);
@@ -5587,6 +5621,249 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+
+  // ===========================================================================
+  // Phase 3 — Unified Service Routing & Fulfilment Engine + HAMBAK MANUAL Desk
+  // ===========================================================================
+
+  async getRoutingServices(): Promise<{
+    success: boolean;
+    services: import('../types').ServiceRoutingItem[];
+    providers: Array<{ id: string; name: string; provider_type?: string; is_active?: boolean }>;
+    hambak_manual_active: boolean;
+  }> {
+    return request('/api/admin/routing/services');
+  },
+
+  async updateServiceRouting(
+    serviceKey: string,
+    payload: {
+      fulfilment_mode: import('../types').FulfilmentMode;
+      provider_id?: string;
+      wholesale_cost?: number;
+      internal_fulfilment_cost?: number;
+      selling_price?: number;
+      sla_hours?: number;
+      manual_label?: string;
+      internal_manual_eligible?: boolean;
+      provider_schema_verified?: boolean;
+      eligibility_notes?: string;
+      is_active?: boolean;
+      reason: string;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    service: import('../types').ServiceRoutingItem;
+  }> {
+    return request(`/api/admin/routing/services/${encodeURIComponent(serviceKey)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getRoutingAuditLogs(params: {
+    service_key?: string;
+    limit?: number;
+  } = {}): Promise<{
+    success: boolean;
+    logs: import('../types').RoutingAuditLogItem[];
+  }> {
+    const q = new URLSearchParams();
+    if (params.service_key) q.set('service_key', params.service_key);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return request(`/api/admin/routing/audit-logs${qs ? `?${qs}` : ''}`);
+  },
+
+  async getManualFulfilmentOrders(params: {
+    queue?: import('../types').ManualFulfilmentQueueKey;
+    domain?: import('../types').ManualFulfilmentDomain;
+    search?: string;
+    assigned_to?: string;
+    limit?: number;
+  } = {}): Promise<import('../types').ManualFulfilmentOrdersResponse> {
+    const q = new URLSearchParams();
+    if (params.queue) q.set('queue', params.queue);
+    if (params.domain) q.set('domain', params.domain);
+    if (params.search) q.set('search', params.search);
+    if (params.assigned_to) q.set('assigned_to', params.assigned_to);
+    if (params.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return request(`/api/admin/manual-fulfilment/orders${qs ? `?${qs}` : ''}`);
+  },
+
+  async getManualFulfilmentOrderDetail(
+    domain: Exclude<import('../types').ManualFulfilmentDomain, 'all'>,
+    id: string
+  ): Promise<{
+    success: boolean;
+    order: import('../types').ManualFulfilmentOrder;
+    staff_members: import('../types').StaffAssigneeItem[];
+    can_approve_completion: boolean;
+  }> {
+    return request(`/api/admin/manual-fulfilment/orders/${encodeURIComponent(domain)}/${encodeURIComponent(id)}`);
+  },
+
+  async claimManualFulfilmentOrder(
+    domain: Exclude<import('../types').ManualFulfilmentDomain, 'all'>,
+    id: string,
+    action: 'claim' | 'unclaim' = 'claim'
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').ManualFulfilmentOrder;
+  }> {
+    return request(`/api/admin/manual-fulfilment/orders/${encodeURIComponent(domain)}/${encodeURIComponent(id)}/claim`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    });
+  },
+
+  async assignManualFulfilmentOrder(
+    domain: Exclude<import('../types').ManualFulfilmentDomain, 'all'>,
+    id: string,
+    staffId: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').ManualFulfilmentOrder;
+  }> {
+    return request(`/api/admin/manual-fulfilment/orders/${encodeURIComponent(domain)}/${encodeURIComponent(id)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ staff_id: staffId }),
+    });
+  },
+
+  async updateManualFulfilmentChecklist(
+    domain: Exclude<import('../types').ManualFulfilmentDomain, 'all'>,
+    id: string,
+    checklist: Record<string, { status: 'pending' | 'verified' | 'rejected' | 'needs_reupload'; note?: string }>
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').ManualFulfilmentOrder;
+  }> {
+    return request(`/api/admin/manual-fulfilment/orders/${encodeURIComponent(domain)}/${encodeURIComponent(id)}/checklist`, {
+      method: 'POST',
+      body: JSON.stringify({ checklist }),
+    });
+  },
+
+  async requestManualFulfilmentClarification(
+    domain: Exclude<import('../types').ManualFulfilmentDomain, 'all'>,
+    id: string,
+    requestedCorrections: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').ManualFulfilmentOrder;
+  }> {
+    return request(`/api/admin/manual-fulfilment/orders/${encodeURIComponent(domain)}/${encodeURIComponent(id)}/request-clarification`, {
+      method: 'POST',
+      body: JSON.stringify({ requested_corrections: requestedCorrections }),
+    });
+  },
+
+  async reviewManualFulfilmentClarification(
+    domain: Exclude<import('../types').ManualFulfilmentDomain, 'all'>,
+    id: string,
+    payload: {
+      decision: 'approve' | 'request_more' | 'reject';
+      remarks?: string;
+      next_status?: 'under_review' | 'assigned' | 'processing';
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').ManualFulfilmentOrder;
+  }> {
+    return request(`/api/admin/manual-fulfilment/orders/${encodeURIComponent(domain)}/${encodeURIComponent(id)}/review-clarification`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateManualFulfilmentStatus(
+    domain: Exclude<import('../types').ManualFulfilmentDomain, 'all'>,
+    id: string,
+    payload: {
+      status?: string;
+      submit_for_completion_review?: boolean;
+      provider_remarks?: string;
+      remarks?: string;
+      admin_notes?: string;
+      trigger_refund?: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').ManualFulfilmentOrder;
+  }> {
+    return request(`/api/admin/manual-fulfilment/orders/${encodeURIComponent(domain)}/${encodeURIComponent(id)}/status`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async uploadManualFulfilmentResultDocument(
+    domain: Exclude<import('../types').ManualFulfilmentDomain, 'all'>,
+    id: string,
+    file: File,
+    opts?: {
+      tracking_id?: string;
+      provider_remarks?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    message: string;
+    document?: import('../types').ResultDocumentMeta;
+    order: import('../types').ManualFulfilmentOrder;
+  }> {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (opts?.tracking_id) {
+      fd.append('tracking_id', opts.tracking_id);
+    }
+    if (opts?.provider_remarks) {
+      fd.append('provider_remarks', opts.provider_remarks);
+    }
+    return request(`/api/admin/manual-fulfilment/orders/${encodeURIComponent(domain)}/${encodeURIComponent(id)}/upload-result`, {
+      method: 'POST',
+      body: fd,
+      timeoutMs: 60000,
+    });
+  },
+
+  async approveManualFulfilmentCompletion(
+    domain: Exclude<import('../types').ManualFulfilmentDomain, 'all'>,
+    id: string,
+    payload: {
+      verification_note?: string;
+      tracking_id?: string;
+    } = {}
+  ): Promise<{
+    success: boolean;
+    message: string;
+    order: import('../types').ManualFulfilmentOrder;
+  }> {
+    return request(`/api/admin/manual-fulfilment/orders/${encodeURIComponent(domain)}/${encodeURIComponent(id)}/approve-completion`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getManualFulfilmentHistory(
+    domain: Exclude<import('../types').ManualFulfilmentDomain, 'all'>,
+    id: string
+  ): Promise<{
+    success: boolean;
+    history: import('../types').ModificationStatusHistoryItem[];
+    additional_info_history: import('../types').AdditionalInfoHistoryEntry[];
+  }> {
+    return request(`/api/admin/manual-fulfilment/orders/${encodeURIComponent(domain)}/${encodeURIComponent(id)}/history`);
+  },
 };
+
 
 

@@ -213,17 +213,21 @@ class AdminController
              WHERE status = "successful"'
         );
 
-        // 4. Verification, Modification & Enrolment Revenue & Wholesale Cost
+        // 4. Verification, Modification & Enrolment Revenue & Effective Cost (external provider_cost OR internal_fulfilment_cost)
         $vrfStats = $this->db->fetchOne(
             'SELECT 
                 COALESCE(SUM(cost), 0) as vrf_revenue,
-                COALESCE(SUM(provider_cost), 0) as vrf_wholesale
+                COALESCE(SUM(CASE WHEN COALESCE(fulfilment_mode, "provider_instant") = "internal_manual" OR COALESCE(provider, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END), 0) as vrf_wholesale
              FROM verification_records 
              WHERE status = "completed"'
         );
         $modOverview = ['rev' => 0.0, 'cost' => 0.0];
         try {
-            $mr = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as rev, COALESCE(SUM(provider_cost), 0) as cost FROM modification_requests WHERE status = "completed"');
+            $mr = $this->db->fetchOne(
+                'SELECT COALESCE(SUM(customer_price), 0) as rev,
+                        COALESCE(SUM(CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END), 0) as cost
+                 FROM modification_requests WHERE status = "completed"'
+            );
             if ($mr) {
                 $modOverview = ['rev' => (float)$mr['rev'], 'cost' => (float)$mr['cost']];
             }
@@ -231,7 +235,11 @@ class AdminController
         }
         $enrOverview = ['rev' => 0.0, 'cost' => 0.0];
         try {
-            $er = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as rev, COALESCE(SUM(provider_cost), 0) as cost FROM enrolment_orders WHERE status = "completed"');
+            $er = $this->db->fetchOne(
+                'SELECT COALESCE(SUM(customer_price), 0) as rev,
+                        COALESCE(SUM(CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END), 0) as cost
+                 FROM enrolment_orders WHERE status = "completed"'
+            );
             if ($er) {
                 $enrOverview = ['rev' => (float)$er['rev'], 'cost' => (float)$er['cost']];
             }
@@ -1129,12 +1137,16 @@ class AdminController
         $vrfAgg = $this->db->fetchOne(
             'SELECT 
                 COALESCE(SUM(cost), 0) as vrf_sales,
-                COALESCE(SUM(provider_cost), 0) as vrf_cost
+                COALESCE(SUM(CASE WHEN COALESCE(fulfilment_mode, "provider_instant") = "internal_manual" OR COALESCE(provider, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END), 0) as vrf_cost
              FROM verification_records WHERE status = "completed"'
         );
         $modAgg = ['sales' => 0.0, 'cost' => 0.0];
         try {
-            $r = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as s, COALESCE(SUM(provider_cost), 0) as c FROM modification_requests WHERE status = "completed"');
+            $r = $this->db->fetchOne(
+                'SELECT COALESCE(SUM(customer_price), 0) as s,
+                        COALESCE(SUM(CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END), 0) as c
+                 FROM modification_requests WHERE status = "completed"'
+            );
             if ($r) {
                 $modAgg = ['sales' => (float)$r['s'], 'cost' => (float)$r['c']];
             }
@@ -1142,7 +1154,11 @@ class AdminController
         }
         $enrAgg = ['sales' => 0.0, 'cost' => 0.0];
         try {
-            $r = $this->db->fetchOne('SELECT COALESCE(SUM(customer_price), 0) as s, COALESCE(SUM(provider_cost), 0) as c FROM enrolment_orders WHERE status = "completed"');
+            $r = $this->db->fetchOne(
+                'SELECT COALESCE(SUM(customer_price), 0) as s,
+                        COALESCE(SUM(CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END), 0) as c
+                 FROM enrolment_orders WHERE status = "completed"'
+            );
             if ($r) {
                 $enrAgg = ['sales' => (float)$r['s'], 'cost' => (float)$r['c']];
             }
@@ -1711,7 +1727,7 @@ class AdminController
                 SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_requests,
                 SUM(CASE WHEN status = "failed" THEN 1 ELSE 0 END) as failed_requests,
                 COALESCE(SUM(CASE WHEN status = "completed" THEN cost ELSE 0 END), 0) as total_revenue,
-                COALESCE(SUM(CASE WHEN status = "completed" THEN provider_cost ELSE 0 END), 0) as total_wholesale_cost
+                COALESCE(SUM(CASE WHEN status = "completed" THEN CASE WHEN COALESCE(fulfilment_mode, "provider_instant") = "internal_manual" OR COALESCE(provider, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END ELSE 0 END), 0) as total_wholesale_cost
              FROM verification_records WHERE 1=1' . $vrfRange['sql'],
             $vrfRange['params']
         );
@@ -1721,7 +1737,7 @@ class AdminController
                 COALESCE(service_key, type) as service_code,
                 COUNT(*) as count,
                 COALESCE(SUM(CASE WHEN status = "completed" THEN cost ELSE 0 END), 0) as revenue,
-                COALESCE(SUM(CASE WHEN status = "completed" THEN provider_cost ELSE 0 END), 0) as wholesale_cost,
+                COALESCE(SUM(CASE WHEN status = "completed" THEN CASE WHEN COALESCE(fulfilment_mode, "provider_instant") = "internal_manual" OR COALESCE(provider, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END ELSE 0 END), 0) as wholesale_cost,
                 SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed
              FROM verification_records WHERE 1=1' . $vrfRange['sql'] . ' 
              GROUP BY COALESCE(service_key, type) ORDER BY count DESC',
@@ -1735,7 +1751,7 @@ class AdminController
                 'SELECT 
                     SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_requests,
                     COALESCE(SUM(CASE WHEN status = "completed" THEN customer_price ELSE 0 END), 0) as total_revenue,
-                    COALESCE(SUM(CASE WHEN status = "completed" THEN provider_cost ELSE 0 END), 0) as total_wholesale_cost
+                    COALESCE(SUM(CASE WHEN status = "completed" THEN CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END ELSE 0 END), 0) as total_wholesale_cost
                  FROM modification_requests WHERE 1=1' . $modRange['sql'],
                 $modRange['params']
             );
@@ -1756,7 +1772,7 @@ class AdminController
                 'SELECT 
                     SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_requests,
                     COALESCE(SUM(CASE WHEN status = "completed" THEN customer_price ELSE 0 END), 0) as total_revenue,
-                    COALESCE(SUM(CASE WHEN status = "completed" THEN provider_cost ELSE 0 END), 0) as total_wholesale_cost
+                    COALESCE(SUM(CASE WHEN status = "completed" THEN CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END ELSE 0 END), 0) as total_wholesale_cost
                  FROM enrolment_orders WHERE 1=1' . $enrRange['sql'],
                 $enrRange['params']
             );
@@ -2751,17 +2767,23 @@ class AdminController
         }
 
         $existing = $this->db->fetchOne(
-            'SELECT id, provider_id, endpoint, wholesale_cost, selling_price, is_active FROM service_catalogue WHERE service_key = :k LIMIT 1',
+            'SELECT id, provider_id, endpoint, wholesale_cost, internal_fulfilment_cost, fulfilment_mode, selling_price, is_active FROM service_catalogue WHERE service_key = :k LIMIT 1',
             ['k' => $serviceKey]
         );
         if (!$existing) {
             Response::notFound('Service not found in catalogue.');
         }
 
+        $isManual = strtolower((string)($existing['fulfilment_mode'] ?? '')) === 'internal_manual'
+            || strtolower((string)($existing['provider_id'] ?? '')) === 'hambak_manual';
         $wholesale = (float)($existing['wholesale_cost'] ?? 0);
-        if ($price < $wholesale) {
+        $internalCost = (float)($existing['internal_fulfilment_cost'] ?? 0);
+        $costFloor = $isManual ? $internalCost : $wholesale;
+        $costLabel = $isManual ? 'internal fulfilment cost' : 'wholesale cost';
+
+        if ($price < $costFloor) {
             Response::error(
-                'Customer selling price (₦' . number_format($price, 2) . ') cannot be lower than wholesale cost (₦' . number_format($wholesale, 2) . ').',
+                'Customer selling price (₦' . number_format($price, 2) . ') cannot be lower than ' . $costLabel . ' (₦' . number_format($costFloor, 2) . ').',
                 422
             );
         }
@@ -2771,20 +2793,24 @@ class AdminController
             ['pr' => $price, 'k' => $serviceKey]
         );
 
-        SchemaSync::syncProviderServiceMapping(
-            $this->db,
-            (string)($existing['provider_id'] ?? '2sureverify'),
-            $serviceKey,
-            (string)($existing['endpoint'] ?? ''),
-            $wholesale,
-            !empty($existing['is_active']) ? 1 : 0
-        );
+        if (!$isManual) {
+            SchemaSync::syncProviderServiceMapping(
+                $this->db,
+                (string)($existing['provider_id'] ?? '2sureverify'),
+                $serviceKey,
+                (string)($existing['endpoint'] ?? ''),
+                $wholesale,
+                !empty($existing['is_active']) ? 1 : 0
+            );
+        }
 
         $this->recordAdminAudit($admin, 'ADMIN_SERVICE_PRICE_UPDATED', [
             'service_key' => $serviceKey,
             'previous_selling_price' => (float)$existing['selling_price'],
             'new_selling_price' => $price,
             'wholesale_cost' => $wholesale,
+            'internal_fulfilment_cost' => $internalCost,
+            'fulfilment_mode' => (string)($existing['fulfilment_mode'] ?? 'provider_instant'),
         ], $request);
 
         $srv = $this->db->fetchOne('SELECT * FROM service_catalogue WHERE service_key = :k', ['k' => $serviceKey]);
@@ -2816,7 +2842,7 @@ class AdminController
 
     public function updateProviders(Request $request): void
     {
-        $admin = Auth::requireSuperAdmin($request);
+        $admin = Auth::requirePermission($request, 'routing_config');
         $b = $request->getBody();
 
         foreach ($b as $k => $v) {
@@ -2842,7 +2868,12 @@ class AdminController
         $bvnPrimary = strtolower(trim((string)($b['bvn_primary_provider'] ?? '')));
         if (in_array($bvnPrimary, ['2sureverify', 'veripine'], true)) {
             $this->db->execute(
-                'UPDATE service_catalogue SET provider_id = :pid, updated_at = NOW() WHERE service_key IN ("bvn_v1", "bvn_v2", "bvn_v3", "bvn_retrieval")',
+                'UPDATE service_catalogue
+                 SET provider_id = :pid, updated_at = NOW()
+                 WHERE service_key IN ("bvn_v1", "bvn_v2", "bvn_v3")
+                   AND COALESCE(fulfilment_mode, "provider_instant") = "provider_instant"
+                   AND COALESCE(provider_id, "") <> "hambak_manual"
+                   AND routing_updated_at IS NULL',
                 ['pid' => $bvnPrimary]
             );
         }
@@ -2850,8 +2881,10 @@ class AdminController
         try {
             $this->db->execute(
                 'UPDATE provider_service_mappings psm
-                 INNER JOIN service_catalogue s ON s.service_key = psm.service_key
-                 SET psm.provider_id = s.provider_id, psm.provider_endpoint = s.endpoint, psm.wholesale_cost = s.wholesale_cost, psm.is_active = s.is_active'
+                 INNER JOIN service_catalogue s ON s.service_key = psm.service_key AND s.provider_id = psm.provider_id
+                 SET psm.provider_endpoint = s.endpoint, psm.wholesale_cost = s.wholesale_cost, psm.is_active = s.is_active
+                 WHERE COALESCE(s.fulfilment_mode, "provider_instant") <> "internal_manual"
+                   AND COALESCE(s.provider_id, "") <> "hambak_manual"'
             );
         } catch (Throwable) {
         }
@@ -2874,7 +2907,14 @@ class AdminController
             ['id1' => $primaryId, 'id2' => $primaryId]
         );
         $this->db->execute(
-            'UPDATE service_catalogue SET provider_id = :pid, updated_at = NOW() WHERE (processing_type = "instant" OR processing_type IS NULL) AND (service_key LIKE "nin\_%" OR service_key LIKE "phone\_%" OR service_key LIKE "demo\_%" OR service_key LIKE "bvn\_%" OR service_key = "vnin_verification") AND service_key NOT IN ("bvn_modification", "bvn_enroll_adult", "bvn_enroll_child")',
+            'UPDATE service_catalogue
+             SET provider_id = :pid, updated_at = NOW()
+             WHERE (processing_type = "instant" OR processing_type IS NULL)
+               AND COALESCE(fulfilment_mode, "provider_instant") = "provider_instant"
+               AND COALESCE(provider_id, "") <> "hambak_manual"
+               AND routing_updated_at IS NULL
+               AND (service_key LIKE "nin\_%" OR service_key LIKE "phone\_%" OR service_key LIKE "demo\_%" OR service_key LIKE "bvn\_%" OR service_key = "vnin_verification")
+               AND service_key NOT IN ("bvn_modification", "bvn_enroll_adult", "bvn_enroll_child", "bvn_retrieval")',
             ['pid' => $primaryId]
         );
 
@@ -2913,6 +2953,9 @@ class AdminController
                     s.provider_id as provider, s.endpoint as endpoint, s.is_active,
                     s.required_fields, s.slip_type_supported,
                     s.processing_type, s.manual_label, s.estimated_turnaround,
+                    s.fulfilment_mode, s.internal_fulfilment_cost, s.sla_hours,
+                    s.internal_manual_eligible, s.provider_schema_verified,
+                    s.eligibility_notes, s.routing_updated_at,
                     COALESCE(c.code, c.name, "nin_verification") as category, c.name as category_name
              FROM service_catalogue s
              LEFT JOIN service_categories c ON c.id = s.category_id
@@ -2922,12 +2965,18 @@ class AdminController
         foreach ($rows as &$r) {
             $r['price'] = (float)$r['price'];
             $r['wholesale_cost'] = (float)$r['wholesale_cost'];
+            $r['internal_fulfilment_cost'] = (float)($r['internal_fulfilment_cost'] ?? 0);
+            $r['sla_hours'] = isset($r['sla_hours']) && $r['sla_hours'] !== null ? (int)$r['sla_hours'] : null;
+            $r['internal_manual_eligible'] = (bool)($r['internal_manual_eligible'] ?? false);
+            $r['provider_schema_verified'] = (bool)($r['provider_schema_verified'] ?? false);
+            $r['fulfilment_mode'] = (string)($r['fulfilment_mode'] ?? 'provider_instant');
             $r['is_active'] = (bool)$r['is_active'];
             $r['enabled'] = (bool)$r['is_active'];
             $r['slip_type_supported'] = (bool)($r['slip_type_supported'] ?? false);
             $rf = is_string($r['required_fields'] ?? null) ? json_decode($r['required_fields'], true) : ($r['required_fields'] ?? []);
             $r['required_fields'] = is_array($rf) ? array_values($rf) : [];
-            $profit = $r['price'] - $r['wholesale_cost'];
+            $effectiveCost = $r['fulfilment_mode'] === 'internal_manual' ? $r['internal_fulfilment_cost'] : $r['wholesale_cost'];
+            $profit = $r['price'] - $effectiveCost;
             $r['profit_per_transaction'] = round($profit, 2);
             $r['margin_percent'] = $r['price'] > 0 ? round(($profit / $r['price']) * 100) : 0;
         }
@@ -3003,13 +3052,28 @@ class AdminController
             $updates[] = 'selling_price = :spr';
             $paramsDb['spr'] = (float)$body['selling_price'];
         }
+        $isManual = strtolower((string)($existingRow['fulfilment_mode'] ?? '')) === 'internal_manual'
+            || strtolower((string)($existingRow['provider_id'] ?? '')) === 'hambak_manual';
+
         if (isset($body['wholesale_cost'])) {
             $updates[] = 'wholesale_cost = :wc';
-            $paramsDb['wc'] = (float)$body['wholesale_cost'];
+            $paramsDb['wc'] = max(0.0, (float)$body['wholesale_cost']);
+        }
+        if (isset($body['internal_fulfilment_cost'])) {
+            $updates[] = 'internal_fulfilment_cost = :ifc';
+            $paramsDb['ifc'] = max(0.0, (float)$body['internal_fulfilment_cost']);
         }
         if (isset($body['provider']) || isset($body['provider_id'])) {
-            $updates[] = 'provider_id = :prov';
-            $paramsDb['prov'] = trim((string)($body['provider_id'] ?? $body['provider']));
+            $reqProvRaw = trim((string)($body['provider_id'] ?? $body['provider']));
+            $reqProv = strtolower($reqProvRaw);
+            $existingProv = strtolower(trim((string)($existingRow['provider_id'] ?? '')));
+            if ($reqProv !== '' && $reqProv !== $existingProv) {
+                if ($isManual || in_array($reqProv, ['hambak_manual', 'internal_manual'], true)) {
+                    Response::error('Fulfilment mode and HAMBAK MANUAL routing must be configured through the Unified Service Routing panel.', 422);
+                }
+                $updates[] = 'provider_id = :prov';
+                $paramsDb['prov'] = $reqProvRaw;
+            }
         }
         if (isset($body['is_active']) || isset($body['enabled'])) {
             $activeVal = isset($body['is_active']) ? (bool)$body['is_active'] : (bool)$body['enabled'];
@@ -3019,9 +3083,13 @@ class AdminController
 
         $targetSelling = $paramsDb['spr'] ?? ($paramsDb['pr'] ?? (float)$existingRow['selling_price']);
         $targetWholesale = $paramsDb['wc'] ?? (float)$existingRow['wholesale_cost'];
-        if ((float)$targetSelling < (float)$targetWholesale) {
+        $targetInternalCost = $paramsDb['ifc'] ?? (float)($existingRow['internal_fulfilment_cost'] ?? 0);
+        $costFloor = $isManual ? $targetInternalCost : $targetWholesale;
+        $costLabel = $isManual ? 'internal fulfilment cost' : 'wholesale cost';
+
+        if ((float)$targetSelling < (float)$costFloor) {
             Response::error(
-                'Customer selling price (₦' . number_format((float)$targetSelling, 2) . ') cannot be lower than wholesale cost (₦' . number_format((float)$targetWholesale, 2) . ').',
+                'Customer selling price (₦' . number_format((float)$targetSelling, 2) . ') cannot be lower than ' . $costLabel . ' (₦' . number_format((float)$costFloor, 2) . ').',
                 422
             );
         }
@@ -3033,7 +3101,9 @@ class AdminController
 
         $srv = $this->db->fetchOne(
             'SELECT s.id, s.category_id, s.service_key as `key`, s.name, s.description,
-                    s.selling_price as price, s.wholesale_cost, s.provider_id as provider,
+                    s.selling_price as price, s.wholesale_cost, s.internal_fulfilment_cost, s.fulfilment_mode,
+                    s.sla_hours, s.internal_manual_eligible, s.provider_schema_verified,
+                    s.provider_id as provider, s.provider_id,
                     s.endpoint as endpoint, s.is_active, s.required_fields, s.slip_type_supported,
                     s.processing_type, s.manual_label, s.estimated_turnaround,
                     COALESCE(c.code, c.name, "nin_verification") as category
@@ -3043,16 +3113,22 @@ class AdminController
             ['k' => $key]
         );
         if ($srv) {
-            SchemaSync::syncProviderServiceMapping(
-                $this->db,
-                (string)$srv['provider'],
-                $key,
-                (string)$srv['endpoint'],
-                (float)$srv['wholesale_cost'],
-                !empty($srv['is_active']) ? 1 : 0
-            );
+            $srvIsManual = strtolower((string)($srv['fulfilment_mode'] ?? '')) === 'internal_manual'
+                || strtolower((string)($srv['provider_id'] ?? '')) === 'hambak_manual';
+            if (!$srvIsManual) {
+                SchemaSync::syncProviderServiceMapping(
+                    $this->db,
+                    (string)$srv['provider'],
+                    $key,
+                    (string)$srv['endpoint'],
+                    (float)$srv['wholesale_cost'],
+                    !empty($srv['is_active']) ? 1 : 0
+                );
+            }
             $srv['price'] = (float)$srv['price'];
             $srv['wholesale_cost'] = (float)$srv['wholesale_cost'];
+            $srv['internal_fulfilment_cost'] = (float)($srv['internal_fulfilment_cost'] ?? 0);
+            $srv['fulfilment_mode'] = (string)($srv['fulfilment_mode'] ?? 'provider_instant');
             $srv['is_active'] = (bool)$srv['is_active'];
             $srv['enabled'] = (bool)$srv['is_active'];
             $srv['slip_type_supported'] = (bool)($srv['slip_type_supported'] ?? false);
@@ -3064,6 +3140,8 @@ class AdminController
             'service_key' => $key,
             'selling_price' => (float)$targetSelling,
             'wholesale_cost' => (float)$targetWholesale,
+            'internal_fulfilment_cost' => (float)$targetInternalCost,
+            'fulfilment_mode' => $srv['fulfilment_mode'] ?? null,
             'provider' => $srv['provider'] ?? null,
             'is_active' => $srv['is_active'] ?? null,
         ], $request);
@@ -3087,7 +3165,12 @@ class AdminController
         $updatedCount = 0;
 
         if (!empty($res['success']) && is_array($list)) {
-            $localRows = $this->db->fetchAll('SELECT id, service_key, endpoint FROM service_catalogue');
+            $localRows = $this->db->fetchAll(
+                'SELECT id, service_key, endpoint, provider_id, COALESCE(fulfilment_mode, "provider_instant") AS fulfilment_mode
+                 FROM service_catalogue
+                 WHERE COALESCE(fulfilment_mode, "provider_instant") <> "internal_manual"
+                   AND COALESCE(provider_id, "") <> "hambak_manual"'
+            );
             foreach ($list as $entry) {
                 if (!is_array($entry)) {
                     continue;
@@ -3103,7 +3186,7 @@ class AdminController
                     $localSk = strtolower((string)$lr['service_key']);
                     if (($ep !== '' && (str_contains($ep, basename($localEp)) || $ep === $localEp)) || ($sk !== '' && $sk === $localSk)) {
                         $this->db->execute(
-                            'UPDATE service_catalogue SET wholesale_cost = :wc, updated_at = NOW() WHERE id = :id',
+                            'UPDATE service_catalogue SET wholesale_cost = :wc, updated_at = NOW() WHERE id = :id AND COALESCE(fulfilment_mode, "provider_instant") <> "internal_manual"',
                             ['wc' => (float)$price, 'id' => $lr['id']]
                         );
                         $updatedCount++;
@@ -3115,8 +3198,10 @@ class AdminController
         try {
             $this->db->execute(
                 'UPDATE provider_service_mappings psm
-                 INNER JOIN service_catalogue s ON s.service_key = psm.service_key
-                 SET psm.wholesale_cost = s.wholesale_cost, psm.provider_id = s.provider_id, psm.provider_endpoint = s.endpoint, psm.is_active = s.is_active'
+                 INNER JOIN service_catalogue s ON s.service_key = psm.service_key AND s.provider_id = psm.provider_id
+                 SET psm.wholesale_cost = s.wholesale_cost, psm.provider_endpoint = s.endpoint, psm.is_active = s.is_active
+                 WHERE COALESCE(s.fulfilment_mode, "provider_instant") <> "internal_manual"
+                   AND COALESCE(s.provider_id, "") <> "hambak_manual"'
             );
         } catch (Throwable) {
         }
@@ -3199,6 +3284,12 @@ class AdminController
         $name = trim((string)($b['name'] ?? ''));
         $description = trim((string)($b['description'] ?? ''));
         $providerId = trim((string)($b['provider_id'] ?? $b['provider'] ?? '2sureverify')) ?: '2sureverify';
+        if (
+            in_array(strtolower($providerId), ['hambak_manual', 'internal_manual'], true)
+            || strtolower(trim((string)($b['fulfilment_mode'] ?? ''))) === 'internal_manual'
+        ) {
+            Response::error('Internal manual fulfilment routing must be configured through the Unified Service Routing panel.', 422);
+        }
         $endpoint = trim((string)($b['endpoint'] ?? ''));
         $wholesale = max(0.0, (float)($b['wholesale_cost'] ?? 0));
         $selling = max(0.0, (float)($b['selling_price'] ?? $b['price'] ?? 0));
@@ -3349,9 +3440,20 @@ class AdminController
                 $dbParams['cid'] = (string)$catRow['id'];
             }
         }
+        $isManual = strtolower((string)($existing['fulfilment_mode'] ?? '')) === 'internal_manual'
+            || strtolower((string)($existing['provider_id'] ?? '')) === 'hambak_manual';
+
         if (isset($b['provider_id']) || isset($b['provider'])) {
-            $updates[] = 'provider_id = :pid';
-            $dbParams['pid'] = trim((string)($b['provider_id'] ?? $b['provider']));
+            $reqProvRaw = trim((string)($b['provider_id'] ?? $b['provider']));
+            $reqProv = strtolower($reqProvRaw);
+            $existingProv = strtolower(trim((string)($existing['provider_id'] ?? '')));
+            if ($reqProv !== '' && $reqProv !== $existingProv) {
+                if ($isManual || in_array($reqProv, ['hambak_manual', 'internal_manual'], true)) {
+                    Response::error('Fulfilment mode and HAMBAK MANUAL routing must be configured through the Unified Service Routing panel.', 422);
+                }
+                $updates[] = 'provider_id = :pid';
+                $dbParams['pid'] = $reqProvRaw;
+            }
         }
         if (isset($b['endpoint']) && trim((string)$b['endpoint']) !== '') {
             $updates[] = 'endpoint = :ep';
@@ -3360,6 +3462,10 @@ class AdminController
         if (isset($b['wholesale_cost'])) {
             $updates[] = 'wholesale_cost = :wc';
             $dbParams['wc'] = max(0.0, (float)$b['wholesale_cost']);
+        }
+        if (isset($b['internal_fulfilment_cost'])) {
+            $updates[] = 'internal_fulfilment_cost = :ifc';
+            $dbParams['ifc'] = max(0.0, (float)$b['internal_fulfilment_cost']);
         }
         if (isset($b['selling_price']) || isset($b['price'])) {
             $updates[] = 'selling_price = :sp';
@@ -3400,9 +3506,13 @@ class AdminController
 
         $targetSelling = $dbParams['sp'] ?? (float)$existing['selling_price'];
         $targetWholesale = $dbParams['wc'] ?? (float)$existing['wholesale_cost'];
-        if ((float)$targetSelling < (float)$targetWholesale) {
+        $targetInternalCost = $dbParams['ifc'] ?? (float)($existing['internal_fulfilment_cost'] ?? 0);
+        $costFloor = $isManual ? $targetInternalCost : $targetWholesale;
+        $costLabel = $isManual ? 'internal fulfilment cost' : 'wholesale cost';
+
+        if ((float)$targetSelling < (float)$costFloor) {
             Response::error(
-                'Customer selling price (₦' . number_format((float)$targetSelling, 2) . ') cannot be lower than wholesale cost (₦' . number_format((float)$targetWholesale, 2) . ').',
+                'Customer selling price (₦' . number_format((float)$targetSelling, 2) . ') cannot be lower than ' . $costLabel . ' (₦' . number_format((float)$costFloor, 2) . ').',
                 422
             );
         }
@@ -3414,8 +3524,9 @@ class AdminController
 
         $fresh = $this->db->fetchOne(
             'SELECT s.id, s.category_id, s.service_key as `key`, s.service_key, s.name, s.description,
-                    s.selling_price as price, s.selling_price, s.wholesale_cost, s.provider_id as provider,
-                    s.provider_id, s.endpoint, s.is_active, s.required_fields, s.slip_type_supported,
+                    s.selling_price as price, s.selling_price, s.wholesale_cost, s.internal_fulfilment_cost, s.fulfilment_mode,
+                    s.sla_hours, s.internal_manual_eligible, s.provider_schema_verified,
+                    s.provider_id as provider, s.provider_id, s.endpoint, s.is_active, s.required_fields, s.slip_type_supported,
                     s.processing_type, s.manual_label, s.estimated_turnaround,
                     COALESCE(c.code, c.name, "nin_verification") as category, c.name as category_name
              FROM service_catalogue s
@@ -3424,17 +3535,23 @@ class AdminController
             ['id' => $existing['id']]
         );
         if ($fresh) {
-            SchemaSync::syncProviderServiceMapping(
-                $this->db,
-                (string)$fresh['provider_id'],
-                (string)$fresh['service_key'],
-                (string)$fresh['endpoint'],
-                (float)$fresh['wholesale_cost'],
-                !empty($fresh['is_active']) ? 1 : 0
-            );
+            $freshIsManual = strtolower((string)($fresh['fulfilment_mode'] ?? '')) === 'internal_manual'
+                || strtolower((string)($fresh['provider_id'] ?? '')) === 'hambak_manual';
+            if (!$freshIsManual) {
+                SchemaSync::syncProviderServiceMapping(
+                    $this->db,
+                    (string)$fresh['provider_id'],
+                    (string)$fresh['service_key'],
+                    (string)$fresh['endpoint'],
+                    (float)$fresh['wholesale_cost'],
+                    !empty($fresh['is_active']) ? 1 : 0
+                );
+            }
             $fresh['price'] = (float)$fresh['price'];
             $fresh['selling_price'] = (float)$fresh['selling_price'];
             $fresh['wholesale_cost'] = (float)$fresh['wholesale_cost'];
+            $fresh['internal_fulfilment_cost'] = (float)($fresh['internal_fulfilment_cost'] ?? 0);
+            $fresh['fulfilment_mode'] = (string)($fresh['fulfilment_mode'] ?? 'provider_instant');
             $fresh['is_active'] = (bool)$fresh['is_active'];
             $fresh['enabled'] = (bool)$fresh['is_active'];
             $fresh['slip_type_supported'] = (bool)$fresh['slip_type_supported'];
@@ -3446,6 +3563,8 @@ class AdminController
             'service_key' => $existing['service_key'],
             'selling_price' => (float)$targetSelling,
             'wholesale_cost' => (float)$targetWholesale,
+            'internal_fulfilment_cost' => (float)$targetInternalCost,
+            'fulfilment_mode' => $fresh['fulfilment_mode'] ?? null,
             'is_active' => $fresh['is_active'] ?? null,
         ], $request);
 

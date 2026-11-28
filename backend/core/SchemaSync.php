@@ -286,7 +286,7 @@ class SchemaSync
                 provider VARCHAR(50) NOT NULL,
                 cost DECIMAL(15, 2) NOT NULL,
                 provider_cost DECIMAL(15, 2) NULL,
-                status ENUM("completed", "failed", "pending") NOT NULL DEFAULT "pending",
+                status VARCHAR(32) NOT NULL DEFAULT "pending",
                 reference VARCHAR(100) NULL UNIQUE,
                 slip_type VARCHAR(50) NULL,
                 has_slip TINYINT(1) NOT NULL DEFAULT 0,
@@ -1336,6 +1336,7 @@ class SchemaSync
             'providers.last_ping_status' => 'ALTER TABLE providers MODIFY COLUMN last_ping_status ENUM("operational", "error", "untested", "unconfigured") NOT NULL DEFAULT "untested"',
             'academy_courses.price' => 'ALTER TABLE academy_courses MODIFY COLUMN price DECIMAL(15, 2) NULL DEFAULT NULL',
             'notifications.type' => 'ALTER TABLE notifications MODIFY COLUMN type ENUM("info", "success", "warning", "alert", "security") NOT NULL DEFAULT "info"',
+            'verification_records.status' => 'ALTER TABLE verification_records MODIFY COLUMN status VARCHAR(32) NOT NULL DEFAULT "pending"',
         ];
         foreach ($enumUpdates as $key => $sql) {
             try {
@@ -2272,7 +2273,7 @@ class SchemaSync
         $allMods = array_merge($ninModCatalog, [$bvnModService]);
         foreach ($allMods as $srv) {
             try {
-                $existing = $db->fetchOne('SELECT id, category_id, processing_type, manual_label, estimated_turnaround, required_documents, form_schema, supported_notes FROM service_catalogue WHERE service_key = :sk LIMIT 1', ['sk' => $srv['service_key']]);
+                $existing = $db->fetchOne('SELECT id, category_id, provider_id, processing_type, manual_label, estimated_turnaround, required_documents, form_schema, supported_notes, fulfilment_mode, routing_updated_at FROM service_catalogue WHERE service_key = :sk LIMIT 1', ['sk' => $srv['service_key']]);
                 if (!$existing) {
                     $db->execute(
                         'INSERT INTO service_catalogue
@@ -2297,9 +2298,15 @@ class SchemaSync
                     );
                     $applied[] = 'mod_insert:' . $srv['service_key'];
                 } else {
-                    // Preserve admin-edited selling_price, is_active, wholesale_cost; backfill missing Stage 3 metadata & normalize schemas
-                    $updCols = ['processing_type = "manual"'];
+                    // Preserve admin-edited selling_price, is_active, wholesale_cost, and unified routing config
+                    $isAdminRouted = !empty($existing['routing_updated_at'])
+                        || (($existing['fulfilment_mode'] ?? '') === 'internal_manual')
+                        || (($existing['provider_id'] ?? '') === 'hambak_manual');
+                    $updCols = [];
                     $updParams = ['id' => $existing['id']];
+                    if (!$isAdminRouted && ($existing['processing_type'] ?? '') !== 'manual') {
+                        $updCols[] = 'processing_type = "manual"';
+                    }
                     if ($existing['category_id'] !== $srv['category_id']) {
                         $updCols[] = 'category_id = :cat';
                         $updParams['cat'] = $srv['category_id'];
@@ -2408,7 +2415,7 @@ class SchemaSync
                         $updCols[] = 'supported_notes = :notes';
                         $updParams['notes'] = $srv['supported_notes'];
                     }
-                    if (count($updCols) > 1 || ($existing['processing_type'] ?? '') !== 'manual') {
+                    if (!empty($updCols)) {
                         $db->execute(
                             'UPDATE service_catalogue SET ' . implode(', ', $updCols) . ' WHERE id = :id',
                             $updParams
@@ -2460,7 +2467,8 @@ class SchemaSync
                  SELECT UUID(), s.provider_id, s.service_key, s.endpoint, NULL, s.wholesale_cost, s.is_active
                  FROM service_catalogue s
                  WHERE NOT EXISTS (
-                     SELECT 1 FROM provider_service_mappings psm WHERE psm.service_key = s.service_key
+                     SELECT 1 FROM provider_service_mappings psm
+                     WHERE psm.provider_id = s.provider_id AND psm.service_key = s.service_key
                  )'
             );
             // Reconcile bvn_modification_banks <-> modification_bvn_types while strictly preserving ACCESS BANK is_active = 0
@@ -2813,7 +2821,7 @@ class SchemaSync
         foreach ($enrolmentServices as $srv) {
             try {
                 $existing = $db->fetchOne(
-                    'SELECT id, category_id, name, provider_id, endpoint, processing_type, manual_label, estimated_turnaround, required_fields, required_documents, form_schema, supported_notes FROM service_catalogue WHERE service_key = :sk LIMIT 1',
+                    'SELECT id, category_id, name, provider_id, endpoint, processing_type, manual_label, estimated_turnaround, required_fields, required_documents, form_schema, supported_notes, fulfilment_mode, routing_updated_at FROM service_catalogue WHERE service_key = :sk LIMIT 1',
                     ['sk' => $srv['service_key']]
                 );
                 if (!$existing) {
@@ -2840,10 +2848,25 @@ class SchemaSync
                     );
                     $applied[] = 'enr_insert:' . $srv['service_key'];
                 } else {
-                    // Preserve admin-edited selling_price, is_active, wholesale_cost, and instructions;
-                    // repair drifted provider_param/required fields/file params without altering commercial settings
-                    $updCols = ['processing_type = "manual"', 'provider_id = "2sureverify"', 'endpoint = :ep'];
-                    $updParams = ['id' => $existing['id'], 'ep' => $srv['endpoint']];
+                    // Preserve admin-edited selling_price, is_active, wholesale_cost, instructions, and unified routing config;
+                    // repair drifted provider_param/required fields/file params without overwriting admin routing choices
+                    $isAdminRouted = !empty($existing['routing_updated_at'])
+                        || (($existing['fulfilment_mode'] ?? '') === 'internal_manual')
+                        || (($existing['provider_id'] ?? '') === 'hambak_manual');
+                    $updCols = [];
+                    $updParams = ['id' => $existing['id']];
+                    if (!$isAdminRouted) {
+                        if (($existing['processing_type'] ?? '') !== 'manual') {
+                            $updCols[] = 'processing_type = "manual"';
+                        }
+                        if (empty($existing['provider_id'])) {
+                            $updCols[] = 'provider_id = "2sureverify"';
+                        }
+                        if (empty($existing['endpoint'])) {
+                            $updCols[] = 'endpoint = :ep';
+                            $updParams['ep'] = $srv['endpoint'];
+                        }
+                    }
 
                     if ($existing['category_id'] !== 'cat_enr') {
                         $updCols[] = 'category_id = "cat_enr"';
@@ -2911,7 +2934,7 @@ class SchemaSync
                         $updParams['fschema'] = json_encode($srv['form_schema']);
                         $updParams['rf'] = json_encode($srv['required_fields']);
                     }
-                    if (count($updCols) > 3 || ($existing['processing_type'] ?? '') !== 'manual' || ($existing['category_id'] ?? '') !== 'cat_enr') {
+                    if (!empty($updCols)) {
                         $db->execute(
                             'UPDATE service_catalogue SET ' . implode(', ', $updCols) . ' WHERE id = :id',
                             $updParams
@@ -3174,7 +3197,7 @@ class SchemaSync
         foreach ($additionalCatalog as $srv) {
             try {
                 $existing = $db->fetchOne(
-                    'SELECT id, category_id, processing_type, manual_label, estimated_turnaround, required_fields, required_documents, form_schema, supported_notes, is_refundable FROM service_catalogue WHERE service_key = :sk LIMIT 1',
+                    'SELECT id, category_id, provider_id, processing_type, manual_label, estimated_turnaround, required_fields, required_documents, form_schema, supported_notes, is_refundable, fulfilment_mode, routing_updated_at FROM service_catalogue WHERE service_key = :sk LIMIT 1',
                     ['sk' => $srv['service_key']]
                 );
                 if (!$existing) {
@@ -3202,8 +3225,17 @@ class SchemaSync
                     );
                     $applied[] = 'add_insert:' . $srv['service_key'];
                 } else {
-                    $updCols = ['processing_type = "manual"', 'category_id = "cat_add"'];
+                    $isAdminRouted = !empty($existing['routing_updated_at'])
+                        || (($existing['fulfilment_mode'] ?? '') === 'internal_manual')
+                        || (($existing['provider_id'] ?? '') === 'hambak_manual');
+                    $updCols = [];
                     $updParams = ['id' => $existing['id']];
+                    if (!$isAdminRouted && ($existing['processing_type'] ?? '') !== 'manual') {
+                        $updCols[] = 'processing_type = "manual"';
+                    }
+                    if (($existing['category_id'] ?? '') !== 'cat_add') {
+                        $updCols[] = 'category_id = "cat_add"';
+                    }
                     if ((int)($existing['is_refundable'] ?? 1) !== (int)$srv['is_refundable']) {
                         $updCols[] = 'is_refundable = :ir';
                         $updParams['ir'] = (int)$srv['is_refundable'];
@@ -3260,7 +3292,7 @@ class SchemaSync
                             $updParams['rdocs_npc'] = json_encode($srv['required_documents']);
                         }
                     }
-                    if (count($updCols) > 2 || ($existing['processing_type'] ?? '') !== 'manual' || ($existing['category_id'] ?? '') !== 'cat_add') {
+                    if (!empty($updCols)) {
                         $db->execute(
                             'UPDATE service_catalogue SET ' . implode(', ', $updCols) . ' WHERE id = :id',
                             $updParams
@@ -3279,7 +3311,8 @@ class SchemaSync
                  SELECT UUID(), s.provider_id, s.service_key, s.endpoint, NULL, s.wholesale_cost, s.is_active
                  FROM service_catalogue s
                  WHERE NOT EXISTS (
-                     SELECT 1 FROM provider_service_mappings psm WHERE psm.service_key = s.service_key
+                     SELECT 1 FROM provider_service_mappings psm
+                     WHERE psm.provider_id = s.provider_id AND psm.service_key = s.service_key
                  )'
             );
         } catch (Throwable $e) {
@@ -4753,21 +4786,21 @@ class SchemaSync
         int $isActive = 1
     ): void {
         $sk = trim($serviceKey);
-        if ($sk === '') {
+        $pid = trim($providerId) !== '' ? trim($providerId) : '2sureverify';
+        if ($sk === '' || in_array(strtolower($pid), ['hambak_manual', 'internal_manual'], true)) {
             return;
         }
         try {
             $existing = $db->fetchOne(
-                'SELECT id FROM provider_service_mappings WHERE service_key = :sk LIMIT 1',
-                ['sk' => $sk]
+                'SELECT id FROM provider_service_mappings WHERE provider_id = :pid AND service_key = :sk LIMIT 1',
+                ['pid' => $pid, 'sk' => $sk]
             );
             if ($existing) {
                 $db->execute(
                     'UPDATE provider_service_mappings
-                     SET provider_id = :pid, provider_endpoint = :ep, wholesale_cost = :wc, is_active = :act
+                     SET provider_endpoint = :ep, wholesale_cost = :wc, is_active = :act
                      WHERE id = :id',
                     [
-                        'pid' => $providerId !== '' ? $providerId : '2sureverify',
                         'ep' => $endpoint,
                         'wc' => max(0.0, $wholesaleCost),
                         'act' => $isActive ? 1 : 0,
@@ -4779,7 +4812,7 @@ class SchemaSync
                     'INSERT INTO provider_service_mappings (id, provider_id, service_key, provider_endpoint, provider_plan_code, wholesale_cost, is_active)
                      VALUES (UUID(), :pid, :sk, :ep, NULL, :wc, :act)',
                     [
-                        'pid' => $providerId !== '' ? $providerId : '2sureverify',
+                        'pid' => $pid,
                         'sk' => $sk,
                         'ep' => $endpoint,
                         'wc' => max(0.0, $wholesaleCost),

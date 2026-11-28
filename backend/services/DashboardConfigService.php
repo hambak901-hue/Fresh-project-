@@ -24,6 +24,8 @@ class DashboardConfigService
         'wallet',
         'kyc',
         'services',
+        'routing_config',
+        'manual_fulfilment',
         'printing',
         'printing_pricing',
         'cms',
@@ -159,12 +161,12 @@ class DashboardConfigService
         return match (self::normalizeRole($role)) {
             'superadmin' => ['*'],
             'admin' => [
-                'customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing',
+                'customers', 'wallet', 'kyc', 'services', 'manual_fulfilment', 'printing', 'printing_pricing',
                 'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals',
                 'academy', 'notifications', 'accounting', 'accounting_physical', 'accounting_reconcile',
             ],
             'manager' => [
-                'customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing',
+                'customers', 'wallet', 'kyc', 'services', 'manual_fulfilment', 'printing', 'printing_pricing',
                 'support', 'reports', 'referrals', 'withdrawals', 'academy',
                 'accounting', 'accounting_physical', 'accounting_reconcile', 'notifications',
             ],

@@ -34,6 +34,8 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
+import { ServiceRoutingManager } from './ServiceRoutingManager';
 import {
   StoreItem,
   AcademyCourse,
@@ -55,7 +57,14 @@ interface ServiceManagementProps {
 }
 
 export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps = {}) {
-  const [activeTab, setActiveTab] = useState<'nin' | 'slip_templates' | 'providers' | 'telecom' | 'digital' | 'store' | 'academy' | 'reports'>('nin');
+  const { user } = useAuth();
+  const hasRoutingConfig = Boolean(
+    user &&
+      (user.role === 'superadmin' ||
+        (Array.isArray(user.permissions) &&
+          (user.permissions.includes('*') || user.permissions.includes('routing_config'))))
+  );
+  const [activeTab, setActiveTab] = useState<'nin' | 'routing' | 'slip_templates' | 'providers' | 'telecom' | 'digital' | 'store' | 'academy' | 'reports'>('nin');
 
   const [settings, setSettings] = useState<any>({});
   const [storeItems, setStoreItems] = useState<StoreItem[]>([]);
@@ -1107,6 +1116,9 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
         <div className="flex gap-2 mt-6 pt-6 border-t border-slate-800 text-xs overflow-x-auto">
           {[
             { id: 'nin', label: 'NIN & BVN Services Matrix', icon: ShieldCheck },
+            ...(hasRoutingConfig
+              ? [{ id: 'routing', label: 'Unified Service Routing & Fulfilment', icon: ArrowUpDown }]
+              : []),
             { id: 'slip_templates', label: 'NIN & BVN Slip Management', icon: FileSpreadsheet },
             { id: 'providers', label: 'Providers & Gateways', icon: Server },
             { id: 'telecom', label: 'Telecommunications', icon: Smartphone },
@@ -1305,22 +1317,35 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
                             </span>
                           </td>
                           <td className="py-3.5 px-3">
-                            <select
-                              value={srv.provider || '2sureverify'}
-                              onChange={e => handleChangeServiceProvider(srv.key, e.target.value)}
-                              className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-300 text-xs focus:outline-none focus:border-indigo-500"
-                            >
-                              {(() => {
-                                const twoSureDef = providerConfigs.find(p => p.id === '2sureverify')?.is_default;
-                                const veripineDef = providerConfigs.find(p => p.id === 'veripine')?.is_default;
-                                return (
-                                  <>
-                                    <option value="2sureverify">2SureVerify ({twoSureDef || !veripineDef ? 'Primary' : 'Failover'})</option>
-                                    <option value="veripine">Veripine ({veripineDef ? 'Primary' : 'Failover'})</option>
-                                  </>
-                                );
-                              })()}
-                            </select>
+                            {srv.fulfilment_mode === 'internal_manual' ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-semibold inline-block whitespace-nowrap">
+                                HAMBAK MANUAL
+                              </span>
+                            ) : (
+                              <div className="space-y-1">
+                                <select
+                                  value={srv.provider === 'veripine' ? 'veripine' : '2sureverify'}
+                                  onChange={e => handleChangeServiceProvider(srv.key, e.target.value)}
+                                  className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-300 text-xs focus:outline-none focus:border-indigo-500"
+                                >
+                                  {(() => {
+                                    const twoSureDef = providerConfigs.find(p => p.id === '2sureverify')?.is_default;
+                                    const veripineDef = providerConfigs.find(p => p.id === 'veripine')?.is_default;
+                                    return (
+                                      <>
+                                        <option value="2sureverify">2SureVerify ({twoSureDef || !veripineDef ? 'Primary' : 'Failover'})</option>
+                                        <option value="veripine">Veripine ({veripineDef ? 'Primary' : 'Failover'})</option>
+                                      </>
+                                    );
+                                  })()}
+                                </select>
+                                {srv.fulfilment_mode && (
+                                  <div className="text-[10px] font-mono text-slate-400">
+                                    {srv.fulfilment_mode === 'provider_instant' ? 'Provider Instant' : 'Provider Async'}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="py-3.5 px-3 text-right font-mono text-slate-400">
                             ₦{wholesale.toLocaleString()}
@@ -1399,6 +1424,11 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
             </div>
           </div>
         </div>
+      )}
+
+      {/* 1A. UNIFIED SERVICE ROUTING & FULFILMENT ENGINE */}
+      {activeTab === 'routing' && hasRoutingConfig && (
+        <ServiceRoutingManager onServiceUpdated={fetchServices} />
       )}
 
       {/* 1B. NIN SLIP MANAGEMENT */}
@@ -1923,9 +1953,11 @@ export function ServiceManagement({ onOpenAcademyAdmin }: ServiceManagementProps
             </div>
           </div>
 
-          {/* Provider Cards */}
+          {/* Provider Cards (External API Gateways Only) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {providerConfigs.map(provider => {
+            {providerConfigs
+              .filter(p => p.id !== 'hambak_manual')
+              .map(provider => {
               const is2Sure = provider.id === '2sureverify';
               const result = testResult[provider.id];
               const isTesting = testingProvider === provider.id;

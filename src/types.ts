@@ -465,16 +465,21 @@ export interface VerificationRecord {
   type: string;
   service_key?: string;
   search_value: string;
-  provider: '2sureverify' | 'veripine';
+  provider: string;
   cost: number;
   provider_cost?: number;
-  status: 'completed' | 'failed' | 'pending';
+  status: 'completed' | 'failed' | 'pending' | 'refunded' | 'rejected' | string;
   reference?: string;
   slip_type?: string;
   has_slip?: boolean;
   result_availability_state?: ResultAvailabilityState;
   result?: any;
   created_at: string;
+  fulfilment_mode?: FulfilmentMode | string;
+  sla_due_at?: string | null;
+  provider_status?: string | null;
+  has_result_document?: boolean;
+  result_document?: ResultDocumentMeta | null;
 }
 
 export interface IdentityService {
@@ -488,6 +493,7 @@ export interface IdentityService {
   price: number;
   selling_price?: number;
   wholesale_cost?: number;
+  internal_fulfilment_cost?: number;
   profit_per_transaction?: number;
   margin_percent?: number;
   provider?: string;
@@ -496,6 +502,10 @@ export interface IdentityService {
   enabled?: boolean;
   is_active?: boolean;
   processing_type?: 'instant' | 'manual' | string;
+  fulfilment_mode?: FulfilmentMode | string;
+  sla_hours?: number | null;
+  internal_manual_eligible?: boolean;
+  provider_schema_verified?: boolean;
   manual_label?: string;
   estimated_turnaround?: string;
   required_fields: string[];
@@ -1604,6 +1614,10 @@ export interface ModificationServiceItem {
   margin_percent?: number;
   provider_schema_verified?: boolean;
   payload_mapping?: ModificationPayloadMappingSpec;
+  fulfilment_mode?: FulfilmentMode | string;
+  sla_hours?: number | null;
+  internal_fulfilment_cost?: number;
+  internal_manual_eligible?: boolean;
 }
 
 export interface ModificationBvnTypeItem {
@@ -1715,6 +1729,16 @@ export interface ModificationRequestItem {
   admin_notes?: string | null;
   reviewed_by?: string | null;
   provider_response?: any;
+  // Phase 3 Unified Routing & HAMBAK MANUAL fields
+  fulfilment_mode?: FulfilmentMode | string;
+  sla_due_at?: string | null;
+  claimed_by?: string | null;
+  claimed_at?: string | null;
+  awaiting_admin_review?: boolean;
+  completion_approved_by?: string | null;
+  completion_approved_at?: string | null;
+  internal_fulfilment_cost?: number;
+  routing_snapshot?: Record<string, any> | null;
 }
 
 export interface ModificationStatusHistoryItem {
@@ -1813,6 +1837,10 @@ export interface AdditionalServiceCatalogItem {
   margin_percent?: number;
   provider_schema_verified?: boolean;
   payload_mapping?: any;
+  fulfilment_mode?: FulfilmentMode | string;
+  sla_hours?: number | null;
+  internal_fulfilment_cost?: number;
+  internal_manual_eligible?: boolean;
 }
 
 export type AdditionalServiceRequest = ModificationRequestItem;
@@ -1877,6 +1905,10 @@ export interface EnrolmentServiceItem {
   margin_percent?: number;
   provider_schema_verified?: boolean;
   payload_mapping?: ModificationPayloadMappingSpec;
+  fulfilment_mode?: FulfilmentMode | string;
+  sla_hours?: number | null;
+  internal_fulfilment_cost?: number;
+  internal_manual_eligible?: boolean;
 }
 
 export type EnrolmentOrderStatus =
@@ -1943,6 +1975,15 @@ export interface EnrolmentOrderItem {
   customer_phone?: string | null;
   provider_cost?: number;
   profit?: number;
+  fulfilment_mode?: FulfilmentMode | string;
+  sla_due_at?: string | null;
+  claimed_by?: string | null;
+  claimed_at?: string | null;
+  awaiting_admin_review?: boolean;
+  completion_approved_by?: string | null;
+  completion_approved_at?: string | null;
+  internal_fulfilment_cost?: number;
+  routing_snapshot?: Record<string, any> | null;
   provider_id?: string;
   endpoint?: string;
   admin_notes?: string | null;
@@ -3013,4 +3054,160 @@ export interface AdminDashboardPreviewResponse {
       sample_students?: AcademyStudent[];
     };
   };
+}
+
+// =============================================================================
+// Phase 3 — Unified Service Routing & Fulfilment Engine + HAMBAK MANUAL
+// =============================================================================
+
+export type FulfilmentMode = 'provider_instant' | 'provider_async' | 'internal_manual';
+
+export interface ServiceRoutingItem {
+  id: string;
+  category_id?: string | null;
+  service_key: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  selling_price: number;
+  price: number;
+  wholesale_cost: number;
+  provider_id: string;
+  provider: string;
+  endpoint?: string | null;
+  is_active: boolean;
+  enabled: boolean;
+  processing_type: 'instant' | 'manual' | string;
+  manual_label?: string | null;
+  estimated_turnaround?: string | null;
+  is_refundable: boolean;
+  fulfilment_mode: FulfilmentMode;
+  internal_fulfilment_cost: number;
+  sla_hours: number;
+  internal_manual_eligible: boolean;
+  provider_schema_verified: boolean;
+  eligibility_notes?: string | null;
+  routing_initialized_at?: string | null;
+  routing_updated_at?: string | null;
+  routing_updated_by?: string | null;
+  category_code?: string;
+  category_name?: string;
+  category?: string;
+  mapping_schema_verified?: boolean;
+  mapping_schema_notes?: string | null;
+  provider_name?: string;
+  provider_is_active?: boolean;
+  is_instant_registry_sku: boolean;
+  active_cost: number;
+  profit_per_transaction: number;
+  margin_percent: number;
+}
+
+export interface RoutingAuditLogItem {
+  id: string;
+  service_key: string;
+  previous_mode?: FulfilmentMode | string | null;
+  new_mode: FulfilmentMode | string;
+  previous_provider_id?: string | null;
+  new_provider_id?: string | null;
+  previous_internal_eligible?: boolean | number | null;
+  new_internal_eligible?: boolean | number | null;
+  previous_schema_verified?: boolean | number | null;
+  new_schema_verified?: boolean | number | null;
+  previous_wholesale_cost?: number | null;
+  new_wholesale_cost?: number | null;
+  previous_internal_cost?: number | null;
+  new_internal_cost?: number | null;
+  previous_sla_hours?: number | null;
+  new_sla_hours?: number | null;
+  reason: string;
+  actor_user_id?: string | null;
+  actor_email?: string | null;
+  actor_name?: string | null;
+  actor_role?: string | null;
+  ip_address?: string | null;
+  created_at: string;
+}
+
+export type ManualFulfilmentDomain =
+  | 'all'
+  | 'nin_modification'
+  | 'bvn_modification'
+  | 'additional_service'
+  | 'enrolment'
+  | 'verification';
+
+export type ManualFulfilmentQueueKey =
+  | 'all_manual'
+  | 'unclaimed'
+  | 'my_claimed'
+  | 'in_progress'
+  | 'awaiting_clarification'
+  | 'awaiting_completion_review'
+  | 'sla_breached'
+  | 'completed'
+  | 'rejected_refunded';
+
+export interface ManualFulfilmentOrder {
+  id: string;
+  domain: Exclude<ManualFulfilmentDomain, 'all'>;
+  reference_number: string;
+  service_key: string;
+  service_name: string;
+  customer_id: string;
+  customer_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  masked_identifier: string;
+  status: string;
+  fulfilment_mode: 'internal_manual' | string;
+  provider_id: string;
+  customer_price: number;
+  internal_fulfilment_cost: number;
+  net_margin: number;
+  is_refundable: boolean;
+  refund_reference?: string | null;
+  sla_due_at?: string | null;
+  sla_remaining_minutes?: number | null;
+  sla_breached: boolean;
+  claimed_by?: string | null;
+  claimed_by_name?: string | null;
+  claimed_at?: string | null;
+  assigned_to?: string | null;
+  assigned_staff_name?: string | null;
+  awaiting_admin_review: boolean;
+  completion_approved_by?: string | null;
+  completion_approved_by_name?: string | null;
+  completion_approved_at?: string | null;
+  requested_corrections?: string | null;
+  query_review_status?: string | null;
+  provider_remarks?: string | null;
+  admin_notes?: string | null;
+  submitted_fields: Record<string, any>;
+  supporting_documents: ModificationDocumentAttachment[];
+  document_review_checklist: Record<string, DocumentChecklistEntry>;
+  additional_info_history: AdditionalInfoHistoryEntry[];
+  status_history: ModificationStatusHistoryItem[];
+  routing_snapshot?: Record<string, any> | null;
+  created_at: string;
+  updated_at?: string | null;
+  completed_at?: string | null;
+  has_result_document?: boolean;
+  result_document_id?: string | null;
+  result_source?: string | null;
+  result_document?: ResultDocumentMeta | null;
+  secondary_result_document?: ResultDocumentMeta | null;
+  provider_tracking_id?: string | null;
+  result_details?: Record<string, any> | null;
+  result_availability_state?: ResultAvailabilityState;
+}
+
+export interface ManualFulfilmentOrdersResponse {
+  success: boolean;
+  orders: ManualFulfilmentOrder[];
+  total_matched: number;
+  queue_counts: Record<ManualFulfilmentQueueKey, number>;
+  domain_counts: Record<Exclude<ManualFulfilmentDomain, 'all'>, number>;
+  staff_members: StaffAssigneeItem[];
+  can_approve_completion: boolean;
 }

@@ -31,6 +31,8 @@ const PERMISSION_OPTIONS = [
   { id: 'wallet', label: 'Wallet Adjustments & Paystack Gateway Controls' },
   { id: 'kyc', label: 'KYC Compliance Reviews (Verify Documents & Tiers)' },
   { id: 'services', label: 'Service Pricing & Catalogs (NIN, BVN, Telecom, Store)' },
+  { id: 'routing_config', label: 'Service Routing & Fulfilment Config (Provider Mode, Cost, SLA)' },
+  { id: 'manual_fulfilment', label: 'HAMBAK MANUAL Fulfilment Desk (Claim, Review, Result Upload)' },
   { id: 'academy', label: 'Digital Training Academy (Courses, Admissions, Student IDs)' },
   { id: 'printing', label: 'Printing & Document Services Operations (Orders, Quotes, Statuses, Delivery)' },
   { id: 'printing_pricing', label: 'Printing Pricing, Service Categories & Delivery Zone Configuration' },
@@ -88,6 +90,13 @@ const ROLE_APPOINTMENTS: Array<{
     permissions: ['printing', 'accounting_physical'],
   },
   {
+    key: 'manual_fulfilment_officer',
+    label: 'HAMBAK MANUAL Fulfilment Officer',
+    role: 'staff',
+    assigned_dashboard: 'staff',
+    permissions: ['manual_fulfilment'],
+  },
+  {
     key: 'academy_coordinator',
     label: 'Academy Admissions Coordinator',
     role: 'staff',
@@ -100,7 +109,7 @@ const ROLE_APPOINTMENTS: Array<{
     role: 'manager',
     assigned_dashboard: 'manager',
     permissions: [
-      'customers', 'wallet', 'kyc', 'services', 'academy', 'printing', 'printing_pricing',
+      'customers', 'wallet', 'kyc', 'services', 'manual_fulfilment', 'academy', 'printing', 'printing_pricing',
       'support', 'reports', 'referrals', 'withdrawals', 'accounting', 'accounting_physical',
       'accounting_reconcile', 'notifications',
     ],
@@ -110,7 +119,7 @@ const ROLE_APPOINTMENTS: Array<{
     label: 'Operations Administrator',
     role: 'admin',
     assigned_dashboard: 'admin',
-    permissions: ['customers', 'wallet', 'kyc', 'services', 'academy', 'printing', 'printing_pricing', 'support', 'notifications', 'reports'],
+    permissions: ['customers', 'wallet', 'kyc', 'services', 'manual_fulfilment', 'academy', 'printing', 'printing_pricing', 'support', 'notifications', 'reports'],
   },
   {
     key: 'superadmin_root',

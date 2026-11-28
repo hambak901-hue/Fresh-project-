@@ -259,6 +259,19 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
                 if ($isSuccess) {
                     $decoded = $this->normalizePhotoField($decoded);
                     $decoded['reference'] = $decoded['reference'] ?? $reference;
+                    $txId = trim((string)($decoded['transaction_id'] ?? (is_array($nestedData) ? ($nestedData['transaction_id'] ?? '') : '')));
+                    if ($txId !== '') {
+                        $decoded['provider_transaction_id'] = $txId;
+                    }
+                    $pendingFlag = $decoded['pending'] ?? (is_array($nestedData) ? ($nestedData['pending'] ?? null) : null);
+                    $isAsyncPending = ($pendingFlag === true || $pendingFlag === 1 || strtolower((string)$pendingFlag) === 'true')
+                        || in_array($statusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true)
+                        || in_array($nestedStatus, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true);
+                    if ($isAsyncPending) {
+                        $decoded['pending'] = true;
+                        $decoded['status'] = 'pending';
+                        $decoded['provider_status'] = $statusLower !== '' ? $statusLower : ($nestedStatus !== '' ? $nestedStatus : 'pending');
+                    }
                     if (isset($decoded['amount_charged']) && is_numeric($decoded['amount_charged'])) {
                         $decoded['provider_cost'] = (float)$decoded['amount_charged'];
                     }
@@ -550,6 +563,7 @@ class TwoSureVerifyAdapter implements VerificationAdapterInterface
     {
         $sk = strtolower(trim((string)$serviceKey));
         $map = [
+            'bvn_retrieval' => '/api/v1/bvn_retrieval_status.php',
             'modification_clearance' => '/api/v1/modification_clearance_status.php',
             'ipe_clearance' => '/api/v1/ipe_status.php',
             'nin_validation' => '/api/v1/validation_status.php',

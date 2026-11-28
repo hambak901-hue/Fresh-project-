@@ -23,6 +23,11 @@ class Auth
         return in_array(strtolower(trim((string)$role)), self::CONSOLE_ROLES, true);
     }
 
+    public static function isAdmin(?array $user): bool
+    {
+        return $user !== null && self::isConsoleRole((string)($user['role'] ?? ''));
+    }
+
     private static function getSecret(): string
     {
         $config = require __DIR__ . '/../config/config.php';

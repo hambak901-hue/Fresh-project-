@@ -48,6 +48,7 @@ import {
   Loader2,
   Lock,
   X,
+  Clock,
 } from 'lucide-react';
 
 type HubCategory = 'nin_verify' | 'bvn_verify' | 'nin_mod' | 'bvn_mod' | 'enrolment' | 'additional' | 'history';
@@ -186,6 +187,17 @@ export const NinServicesPage: React.FC<NinServicesPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [verifiedRecord, setVerifiedRecord] = useState<any | null>(null);
+  const [pendingVerification, setPendingVerification] = useState<{
+    id: string;
+    reference: string;
+    serviceName: string;
+    fulfilmentMode: string;
+    slaDueAt?: string | null;
+    message: string;
+    searchValue?: string;
+    slipType?: string;
+    slipName?: string;
+  } | null>(null);
   const [activeSlipRecord, setActiveSlipRecord] = useState<any | null>(null);
   const [slipModalOpen, setSlipModalOpen] = useState<boolean>(false);
   const [pinModalOpen, setPinModalOpen] = useState<boolean>(false);
@@ -580,6 +592,7 @@ export const NinServicesPage: React.FC<NinServicesPageProps> = ({
     setDedicatedService(null);
     setActiveCategory(cat);
     setVerifiedRecord(null);
+    setPendingVerification(null);
     setError(null);
     setSuccessMessage(null);
     resetIdempotency();
@@ -806,6 +819,7 @@ export const NinServicesPage: React.FC<NinServicesPageProps> = ({
     setSubmitting(true);
     setError(null);
     setSuccessMessage(null);
+    setPendingVerification(null);
 
     const activeIkey = idempotencyKeyRef.current;
     const cleanSearchVal =
@@ -899,7 +913,37 @@ export const NinServicesPage: React.FC<NinServicesPageProps> = ({
         verifiedPin
       );
 
-      if (res && res.success === true && (res.result || res.reference)) {
+      if (res && res.success === true && ((res as any).pending === true || (res as any).status === 'pending')) {
+        const pId = String(res.recordId || (res as any).verification_id || res.reference || '');
+        const pMode = String((res as any).fulfilment_mode || currentService.fulfilment_mode || 'provider_async');
+        const pMsg =
+          res.message ||
+          (pMode === 'internal_manual'
+            ? 'Your request has been queued with our fulfilment desk and will be processed within the stated turnaround window.'
+            : 'Your verification request has been submitted to the registry queue. You can check status shortly.');
+
+        setVerifiedRecord(null);
+        setPendingVerification({
+          id: pId,
+          reference: String(res.reference || pId),
+          serviceName: String((res as any).service?.name || currentService.name || targetKey),
+          fulfilmentMode: pMode,
+          slaDueAt: (res as any).sla_due_at || null,
+          message: pMsg,
+          searchValue: cleanSearchVal,
+          slipType: res.slip_type || undefined,
+          slipName: res.slip_name || undefined,
+        });
+        setSuccessMessage(pMsg);
+        clearRecoveryAttempt();
+        resetIdempotency();
+
+        if (typeof res.newBalance === 'number') {
+          updateBalance(res.newBalance);
+        }
+
+        void Promise.allSettled([refreshUser(), loadHistory()]);
+      } else if (res && res.success === true && (res.result || res.reference)) {
         const normalizedResult = res.result || (res as any).data?.result || (res as any).data || {};
         const resolvedFallbackSlip = activeCategory === 'bvn_verify' ? selectedBvnSlip : selectedNinSlip;
         const recordPayload = {
@@ -922,6 +966,7 @@ export const NinServicesPage: React.FC<NinServicesPageProps> = ({
           created_at: res.verified_at || new Date().toISOString(),
         };
 
+        setPendingVerification(null);
         setSuccessMessage(res.message || 'Verification completed successfully.');
         setVerifiedRecord(recordPayload);
         setActiveSlipRecord(recordPayload);
@@ -1002,18 +1047,43 @@ export const NinServicesPage: React.FC<NinServicesPageProps> = ({
     }
   };
 
-  const handlePollStatus = async (ref: string) => {
+  const handlePollStatus = async (idOrRef: string, isInternalManual = false) => {
+    if (isInternalManual) {
+      setSuccessMessage('This request is handled by our fulfilment desk and cannot be polled externally.');
+      return;
+    }
     try {
-      setPollingRef(ref);
-      const res = await api.pollVerificationStatus(ref);
-      if (res.success) {
-        setSuccessMessage(`Status updated: ${res.message}`);
-        await loadHistory();
+      setPollingRef(idOrRef);
+      setError(null);
+      const res = await api.pollVerificationRecord(idOrRef);
+      if (res.status === 'completed' && (res.result || res.record)) {
+        const recObj: any = res.record || {
+          id: res.record_id || idOrRef,
+          reference: res.reference || idOrRef,
+          result: res.result,
+          data: res.result,
+          status: 'completed',
+          created_at: new Date().toISOString(),
+        };
+        setPendingVerification(null);
+        setVerifiedRecord(recObj);
+        setActiveSlipRecord(recObj);
+        setSuccessMessage(res.message || 'Verification completed successfully.');
+        await Promise.allSettled([loadHistory(), refreshUser()]);
+      } else if (res.pending || res.status === 'pending') {
+        const msg = res.message || 'Request is still processing in the upstream queue. Please check again shortly.';
+        setSuccessMessage(msg);
+        setPendingVerification(prev => (prev ? { ...prev, message: msg } : prev));
+      } else if (res.status === 'failed' || res.status === 'refunded') {
+        setPendingVerification(null);
+        setError(res.message || 'Verification could not be completed and any eligible amount was refunded.');
+        await Promise.allSettled([loadHistory(), refreshUser()]);
       } else {
-        setError(res.message || 'Status check returned no update');
+        setSuccessMessage(res.message || 'Verification status checked.');
+        await loadHistory();
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to check verification status');
+      setError(err?.message || 'Failed to check verification status');
     } finally {
       setPollingRef(null);
     }
@@ -2370,6 +2440,80 @@ export const NinServicesPage: React.FC<NinServicesPageProps> = ({
                   </p>
                 </div>
               </div>
+            ) : pendingVerification ? (
+              <div className="no-print rounded-3xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-500/40 p-6 sm:p-8 space-y-5 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                      <Clock className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300 block">
+                        {pendingVerification.fulfilmentMode === 'internal_manual'
+                          ? 'HAMBAK MANUAL Fulfilment Desk'
+                          : 'Asynchronous Provider Processing'}
+                      </span>
+                      <h3 className="text-base font-extrabold text-slate-900 dark:text-white mt-0.5">
+                        {pendingVerification.serviceName}
+                      </h3>
+                    </div>
+                  </div>
+                  {pendingVerification.fulfilmentMode !== 'internal_manual' && (
+                    <button
+                      type="button"
+                      onClick={() => handlePollStatus(pendingVerification.id || pendingVerification.reference, false)}
+                      disabled={pollingRef === (pendingVerification.id || pendingVerification.reference)}
+                      className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition"
+                    >
+                      <RefreshCw
+                        className={`w-3.5 h-3.5 ${
+                          pollingRef === (pendingVerification.id || pendingVerification.reference) ? 'animate-spin' : ''
+                        }`}
+                      />
+                      <span>
+                        {pollingRef === (pendingVerification.id || pendingVerification.reference)
+                          ? 'Checking...'
+                          : 'Check Status'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  {pendingVerification.message}
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] uppercase font-semibold text-slate-500 block">
+                      Reference
+                    </span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white mt-0.5 block break-all">
+                      {pendingVerification.reference}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] uppercase font-semibold text-slate-500 block">
+                      Status
+                    </span>
+                    <span className="font-bold text-amber-700 dark:text-amber-300 mt-0.5 block">
+                      PENDING
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] uppercase font-semibold text-slate-500 block">
+                      {pendingVerification.slaDueAt ? 'Target SLA' : 'Fulfilment Channel'}
+                    </span>
+                    <span className="font-semibold text-slate-900 dark:text-white mt-0.5 block">
+                      {pendingVerification.slaDueAt
+                        ? new Date(pendingVerification.slaDueAt).toLocaleString('en-NG')
+                        : pendingVerification.fulfilmentMode === 'internal_manual'
+                        ? 'Manual Desk'
+                        : 'Registry Async'}
+                    </span>
+                  </div>
+                </div>
+              </div>
             ) : report && verifiedRecord ? (
               <div className={`rounded-3xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 p-5 sm:p-8 space-y-6 shadow-lg ${slipModalOpen ? 'no-print' : 'print-only-area'}`}>
                 {/* Report Top Bar */}
@@ -2649,26 +2793,52 @@ export const NinServicesPage: React.FC<NinServicesPageProps> = ({
                           {new Date(item.created_at).toLocaleString('en-NG')}
                         </td>
                         <td className="py-3.5 px-4 text-right space-x-2">
-                          {item.status === 'pending' && (
-                            <button
-                              type="button"
-                              onClick={() => handlePollStatus(item.reference || item.id)}
-                              disabled={pollingRef === (item.reference || item.id)}
-                              className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[11px] font-sans hover:bg-amber-500/25 transition"
-                            >
-                              {pollingRef === (item.reference || item.id) ? 'Checking...' : 'Check Status'}
-                            </button>
-                          )}
+                          {item.status === 'pending' &&
+                            (item.fulfilment_mode === 'internal_manual' || item.provider === 'hambak_manual' ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-sans font-semibold inline-block">
+                                Manual Desk{item.sla_due_at ? ` · Due ${new Date(item.sla_due_at).toLocaleDateString('en-NG')}` : ''}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handlePollStatus(item.id || item.reference || '', false)}
+                                disabled={pollingRef === (item.id || item.reference)}
+                                className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[11px] font-sans hover:bg-amber-500/25 transition"
+                              >
+                                {pollingRef === (item.id || item.reference) ? 'Checking...' : 'Check Status'}
+                              </button>
+                            ))}
                           {item.status === 'completed' && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenHistoryRecord(item)}
-                              disabled={loadingRecordId === item.id}
-                              className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-60 text-slate-800 dark:text-slate-200 text-[11px] font-sans font-semibold inline-flex items-center gap-1 transition"
-                            >
-                              {loadingRecordId === item.id && <Loader2 className="w-3 h-3 animate-spin" />}
-                              <span>{loadingRecordId === item.id ? 'Loading...' : 'View Report'}</span>
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenHistoryRecord(item)}
+                                disabled={loadingRecordId === item.id}
+                                className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-60 text-slate-800 dark:text-slate-200 text-[11px] font-sans font-semibold inline-flex items-center gap-1 transition"
+                              >
+                                {loadingRecordId === item.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                                <span>{loadingRecordId === item.id ? 'Loading...' : 'View Report'}</span>
+                              </button>
+                              {item.has_result_document && item.result_document?.file_url && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleOfficialResultFile(
+                                      `ver_res_${item.id}`,
+                                      item.result_document!.file_url,
+                                      item.result_document!.original_name || `HAMBAK_VERIFY_${item.reference || item.id}.pdf`,
+                                      item.result_document!.mime_type,
+                                      'download'
+                                    )
+                                  }
+                                  disabled={loadingOfficialDocId === `ver_res_${item.id}`}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-sans font-semibold inline-flex items-center gap-1 transition"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  <span>Official PDF</span>
+                                </button>
+                              )}
+                            </>
                           )}
                         </td>
                       </tr>

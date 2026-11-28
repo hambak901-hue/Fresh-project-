@@ -511,10 +511,14 @@ class ResultDocumentService
             Response::error($validation['error'] ?? 'Uploaded file is not a valid PDF document.', 422);
         }
 
-        $table = $domain === 'enrolment' ? 'enrolment_orders' : 'modification_requests';
+        $table = match ($domain) {
+            'enrolment' => 'enrolment_orders',
+            'verification' => 'verification_records',
+            default => 'modification_requests',
+        };
         $recordId = (string)$recordRow['id'];
         $userId = (string)$recordRow['user_id'];
-        $refNum = (string)($recordRow['request_number'] ?? $recordRow['order_number'] ?? $recordId);
+        $refNum = (string)($recordRow['request_number'] ?? $recordRow['order_number'] ?? $recordRow['reference'] ?? $recordId);
         $origName = self::sanitizePdfFilename((string)($uploadedFile['name'] ?? ($refNum . '_official_result.pdf')));
 
         $doc = self::persistPdfBytes(
@@ -532,14 +536,21 @@ class ResultDocumentService
             $adminId
         );
 
-        $updateSql = "UPDATE `{$table}` SET result_document_id = :docid, result_source = 'admin_uploaded', result_retrieval_status = 'ready', result_retrieval_error = NULL, result_retrieved_at = NOW()";
-        $params = ['docid' => $doc['id'], 'id' => $recordId];
-        if ($trackingId !== null && trim($trackingId) !== '') {
-            $updateSql .= ', provider_tracking_id = :trk';
-            $params['trk'] = trim($trackingId);
+        if ($domain === 'verification') {
+            $db->execute(
+                'UPDATE `verification_records` SET result_document_id = :docid, has_slip = 1, updated_at = NOW() WHERE id = :id',
+                ['docid' => $doc['id'], 'id' => $recordId]
+            );
+        } else {
+            $updateSql = "UPDATE `{$table}` SET result_document_id = :docid, result_source = 'admin_uploaded', result_retrieval_status = 'ready', result_retrieval_error = NULL, result_retrieved_at = NOW()";
+            $params = ['docid' => $doc['id'], 'id' => $recordId];
+            if ($trackingId !== null && trim($trackingId) !== '') {
+                $updateSql .= ', provider_tracking_id = :trk';
+                $params['trk'] = trim($trackingId);
+            }
+            $updateSql .= ', updated_at = NOW() WHERE id = :id';
+            $db->execute($updateSql, $params);
         }
-        $updateSql .= ', updated_at = NOW() WHERE id = :id';
-        $db->execute($updateSql, $params);
 
         return $doc;
     }
@@ -640,9 +651,18 @@ class ResultDocumentService
         bool $forceDownload = false,
         ?string $requestedDocId = null
     ): void {
-        $isMod = ($domain === 'modification');
-        $table = $isMod ? 'modification_requests' : 'enrolment_orders';
-        $numCol = $isMod ? 'request_number' : 'order_number';
+        $table = match ($domain) {
+            'modification' => 'modification_requests',
+            'enrolment' => 'enrolment_orders',
+            'verification' => 'verification_records',
+            default => 'enrolment_orders',
+        };
+        $numCol = match ($domain) {
+            'modification' => 'request_number',
+            'enrolment' => 'order_number',
+            'verification' => 'reference',
+            default => 'order_number',
+        };
 
         $record = $db->fetchOne(
             "SELECT * FROM `{$table}` WHERE id = :id OR `{$numCol}` = :num LIMIT 1",
@@ -653,7 +673,7 @@ class ResultDocumentService
         }
 
         $isOwner = ((string)($record['user_id'] ?? '') === (string)($user['id'] ?? ''));
-        $isStaff = Auth::isAdmin($user) && Auth::hasPermission($user, 'services');
+        $isStaff = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         if (!$isOwner && !$isStaff) {
             Response::forbidden('Access denied to this result document.');
         }
@@ -721,9 +741,11 @@ class ResultDocumentService
         }
 
         $hasDoc = ($doc !== null);
-        $endpointBase = $domain === 'enrolment'
-            ? '/api/enrolments/' . $row['id'] . '/result-document'
-            : '/api/modifications/' . $row['id'] . '/result-document';
+        $endpointBase = match ($domain) {
+            'enrolment' => '/api/enrolments/' . $row['id'] . '/result-document',
+            'verification' => '/api/verification/record/' . $row['id'] . '/pdf',
+            default => '/api/modifications/' . $row['id'] . '/result-document',
+        };
 
         $details = json_decode((string)($row['result_payload'] ?? ''), true);
         if (!is_array($details)) {
@@ -750,6 +772,7 @@ class ResultDocumentService
             'file_size' => (int)($doc['file_size'] ?? 0),
             'sha256_hash' => $doc['sha256_hash'] ?? null,
             'retrieved_at' => $doc['retrieved_at'] ?? $doc['created_at'] ?? null,
+            'file_url' => $endpointBase . '?download=1',
             'preview_url' => $endpointBase,
             'download_url' => $endpointBase . '?download=1',
         ] : null;
@@ -761,7 +784,7 @@ class ResultDocumentService
             $availabilityState = 'document_available';
         } elseif (in_array($rowStatus, ['failed', 'rejected', 'refunded'], true)) {
             $availabilityState = 'failed_or_rejected';
-        } elseif (in_array($rowStatus, ['pending', 'processing', 'query_required'], true)) {
+        } elseif (in_array($rowStatus, ['pending', 'under_review', 'assigned', 'processing', 'query_required'], true)) {
             $availabilityState = 'processing';
         } elseif ($rowStatus === 'completed') {
             $availabilityState = in_array($retrievalStatus, ['unavailable', 'failed'], true)
@@ -787,6 +810,7 @@ class ResultDocumentService
                     'original_name' => $secDoc['original_name'],
                     'mime_type' => $secDoc['mime_type'] ?? 'application/pdf',
                     'file_size' => (int)($secDoc['file_size'] ?? 0),
+                    'file_url' => $endpointBase . '?download=1&doc_id=' . urlencode((string)$secDoc['id']),
                     'preview_url' => $endpointBase . '?doc_id=' . urlencode((string)$secDoc['id']),
                     'download_url' => $endpointBase . '?download=1&doc_id=' . urlencode((string)$secDoc['id']),
                 ];

@@ -402,7 +402,12 @@ class AccountingService
         }
 
         $verifByRef = [];
-        foreach ($this->db->fetchAll('SELECT id, user_id, type, service_key, provider, cost, provider_cost, status, reference FROM verification_records') as $v) {
+        try {
+            $vRows = $this->db->fetchAll('SELECT id, user_id, type, service_key, provider, cost, provider_cost, COALESCE(fulfilment_mode, "provider_instant") AS fulfilment_mode, COALESCE(internal_fulfilment_cost, 0) AS internal_fulfilment_cost, status, reference FROM verification_records');
+        } catch (Throwable) {
+            $vRows = $this->db->fetchAll('SELECT id, user_id, type, service_key, provider, cost, provider_cost, status, reference FROM verification_records');
+        }
+        foreach ($vRows as $v) {
             if (!empty($v['reference'])) {
                 $verifByRef[(string)$v['reference']] = $v;
             }
@@ -410,14 +415,24 @@ class AccountingService
         }
 
         $modByRef = [];
-        foreach ($this->db->fetchAll('SELECT id, user_id, identity_type, service_key, customer_price, provider_cost, status, payment_reference FROM modification_requests') as $m) {
+        try {
+            $mRows = $this->db->fetchAll('SELECT id, user_id, identity_type, service_key, provider_id, customer_price, provider_cost, COALESCE(fulfilment_mode, "provider_async") AS fulfilment_mode, COALESCE(internal_fulfilment_cost, 0) AS internal_fulfilment_cost, status, payment_reference FROM modification_requests');
+        } catch (Throwable) {
+            $mRows = $this->db->fetchAll('SELECT id, user_id, identity_type, service_key, provider_id, customer_price, provider_cost, status, payment_reference FROM modification_requests');
+        }
+        foreach ($mRows as $m) {
             if (!empty($m['payment_reference'])) {
                 $modByRef[(string)$m['payment_reference']] = $m;
             }
         }
 
         $enrByRef = [];
-        foreach ($this->db->fetchAll('SELECT id, user_id, service_key, customer_price, provider_cost, status, payment_reference FROM enrolment_orders') as $e) {
+        try {
+            $eRows = $this->db->fetchAll('SELECT id, user_id, service_key, provider_id, customer_price, provider_cost, COALESCE(fulfilment_mode, "provider_async") AS fulfilment_mode, COALESCE(internal_fulfilment_cost, 0) AS internal_fulfilment_cost, status, payment_reference FROM enrolment_orders');
+        } catch (Throwable) {
+            $eRows = $this->db->fetchAll('SELECT id, user_id, service_key, provider_id, customer_price, provider_cost, status, payment_reference FROM enrolment_orders');
+        }
+        foreach ($eRows as $e) {
             if (!empty($e['payment_reference'])) {
                 $enrByRef[(string)$e['payment_reference']] = $e;
             }
@@ -804,29 +819,53 @@ class AccountingService
                             $costSource = 'unverified_telecom_zero_cost';
                         }
                     } elseif ($vRec && strtolower((string)($vRec['status'] ?? '')) === 'completed') {
-                        $cost = round((float)($vRec['provider_cost'] ?? 0), 2);
-                        if ($cost > 0) {
+                        $vIsManual = strtolower((string)($vRec['fulfilment_mode'] ?? '')) === 'internal_manual'
+                            || strtolower((string)($vRec['provider'] ?? '')) === 'hambak_manual';
+                        if ($vIsManual) {
+                            $cost = round((float)($vRec['internal_fulfilment_cost'] ?? 0), 2);
                             $costVerified = true;
-                            $costSource = 'verification_records';
+                            $costSource = 'verification_records_internal_manual';
                         } else {
-                            $vKey = strtolower((string)($vRec['service_key'] ?? ''));
-                            if ($vKey !== '' && ($catalogueCostByKey[$vKey] ?? 0) > 0) {
-                                $cost = $catalogueCostByKey[$vKey];
+                            $cost = round((float)($vRec['provider_cost'] ?? 0), 2);
+                            if ($cost > 0) {
                                 $costVerified = true;
-                                $costSource = 'verification_records+service_catalogue';
+                                $costSource = 'verification_records';
                             } else {
-                                $costVerified = false;
-                                $costSource = 'unverified_verification_zero_cost';
+                                $vKey = strtolower((string)($vRec['service_key'] ?? ''));
+                                if ($vKey !== '' && ($catalogueCostByKey[$vKey] ?? 0) > 0) {
+                                    $cost = $catalogueCostByKey[$vKey];
+                                    $costVerified = true;
+                                    $costSource = 'verification_records+service_catalogue';
+                                } else {
+                                    $costVerified = false;
+                                    $costSource = 'unverified_verification_zero_cost';
+                                }
                             }
                         }
                     } elseif ($mReq && !in_array(strtolower((string)($mReq['status'] ?? '')), ['failed', 'rejected', 'refunded'], true)) {
-                        $cost = round((float)($mReq['provider_cost'] ?? 0), 2);
-                        $costVerified = $cost > 0;
-                        $costSource = $costVerified ? 'modification_requests' : 'unverified_mod_zero_cost';
+                        $mIsManual = strtolower((string)($mReq['fulfilment_mode'] ?? '')) === 'internal_manual'
+                            || strtolower((string)($mReq['provider_id'] ?? '')) === 'hambak_manual';
+                        if ($mIsManual) {
+                            $cost = round((float)($mReq['internal_fulfilment_cost'] ?? 0), 2);
+                            $costVerified = true;
+                            $costSource = 'modification_requests_internal_manual';
+                        } else {
+                            $cost = round((float)($mReq['provider_cost'] ?? 0), 2);
+                            $costVerified = $cost > 0;
+                            $costSource = $costVerified ? 'modification_requests' : 'unverified_mod_zero_cost';
+                        }
                     } elseif ($eOrd && !in_array(strtolower((string)($eOrd['status'] ?? '')), ['failed', 'rejected', 'refunded'], true)) {
-                        $cost = round((float)($eOrd['provider_cost'] ?? 0), 2);
-                        $costVerified = $cost > 0;
-                        $costSource = $costVerified ? 'enrolment_orders' : 'unverified_enrolment_zero_cost';
+                        $eIsManual = strtolower((string)($eOrd['fulfilment_mode'] ?? '')) === 'internal_manual'
+                            || strtolower((string)($eOrd['provider_id'] ?? '')) === 'hambak_manual';
+                        if ($eIsManual) {
+                            $cost = round((float)($eOrd['internal_fulfilment_cost'] ?? 0), 2);
+                            $costVerified = true;
+                            $costSource = 'enrolment_orders_internal_manual';
+                        } else {
+                            $cost = round((float)($eOrd['provider_cost'] ?? 0), 2);
+                            $costVerified = $cost > 0;
+                            $costSource = $costVerified ? 'enrolment_orders' : 'unverified_enrolment_zero_cost';
+                        }
                     } elseif ($pOrd && !in_array(strtolower((string)($pOrd['status'] ?? '')), ['rejected', 'cancelled', 'refunded'], true)) {
                         $cost = round((float)($pOrd['internal_production_cost'] ?? 0), 2);
                         $costVerified = true;

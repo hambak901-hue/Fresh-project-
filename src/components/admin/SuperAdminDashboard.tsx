@@ -73,6 +73,7 @@ import {
   Settings,
   Printer,
   Landmark,
+  ClipboardCheck,
 } from 'lucide-react';
 
 // Admin child views
@@ -109,6 +110,7 @@ import {
 } from './accounting/BusinessManagementAccounting';
 import { AdminPrintingManagement } from './AdminPrintingManagement';
 import { PaystackDvaManagement } from './PaystackDvaManagement';
+import { HambakManualDashboard } from './HambakManualDashboard';
 
 interface SuperAdminDashboardProps {
   onSwitchToCustomerPortal: () => void;
@@ -132,6 +134,7 @@ export type AdminTabKey =
   | 'website'
   | 'modules'
   | 'services'
+  | 'hambak_manual'
   | 'printing'
   | 'modifications_admin'
   | 'enrolments_admin'
@@ -264,6 +267,8 @@ function resolveConfiguredConsoleTab(defaultTab?: string): AdminTabKey | null {
     acc_daily_report: 'acc_daily_report',
     acc_config: 'acc_config',
     services: 'services',
+    hambak_manual: 'hambak_manual',
+    manual_fulfilment: 'hambak_manual',
     referrals_admin: 'referrals_admin',
     withdrawals_admin: 'withdrawals_admin',
     notifications_admin: 'notifications_admin',
@@ -328,6 +333,7 @@ const CONSOLE_TAB_REQUIRED_PERMS: Record<string, string[]> = {
   acc_daily_report: ['accounting', 'accounting_config'],
   acc_config: ['accounting', 'accounting_config'],
   services: ['services'],
+  hambak_manual: ['manual_fulfilment'],
   printing: ['printing', 'printing_pricing'],
   modifications_admin: ['services'],
   enrolments_admin: ['services'],
@@ -414,6 +420,7 @@ function getDefaultTabForUser(
   }
   const priority: AdminTabKey[] = [
     'printing',
+    'hambak_manual',
     'acc_physical_sales',
     'acc_reconciliation',
     'acc_overview',
@@ -1004,6 +1011,7 @@ export function SuperAdminDashboard({
       title: 'Commercial & Services',
       items: [
         { id: 'services', label: 'Core Services & Pricing', icon: Cpu, permission: 'services' },
+        { id: 'hambak_manual', label: 'HAMBAK MANUAL Desk', icon: ClipboardCheck, badge: 'Desk', permission: 'manual_fulfilment' },
         { id: 'printing', label: 'Printing & Document Services', icon: Printer, badge: 'Print', permissionsAny: ['printing', 'printing_pricing'] },
         { id: 'modifications_admin', label: 'NIN & BVN Modifications', icon: ShieldCheck, badge: 'Stage 3', permission: 'services' },
         { id: 'enrolments_admin', label: 'Enrolment Centre', icon: UserPlus, badge: 'Stage 4', permission: 'services' },
@@ -1325,6 +1333,8 @@ export function SuperAdminDashboard({
             {safeActiveTab === 'services' && (
               <ServiceManagement onOpenAcademyAdmin={() => setActiveTab('academy_admin')} />
             )}
+
+            {safeActiveTab === 'hambak_manual' && <HambakManualDashboard />}
 
             {safeActiveTab === 'printing' && (
               <AdminPrintingManagement initialOrderRef={initialPrintOrderRef} />

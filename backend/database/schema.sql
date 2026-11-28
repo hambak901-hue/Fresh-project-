@@ -403,7 +403,7 @@ CREATE TABLE verification_records (
     provider VARCHAR(50) NOT NULL,
     cost DECIMAL(15, 2) NOT NULL,
     provider_cost DECIMAL(15, 2) NULL,
-    status ENUM('completed', 'failed', 'pending') NOT NULL DEFAULT 'pending',
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
     reference VARCHAR(100) NULL UNIQUE,
     slip_type VARCHAR(50) NULL,
     has_slip TINYINT(1) NOT NULL DEFAULT 0,

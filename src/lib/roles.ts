@@ -213,7 +213,7 @@ export const ROLE_CATALOG_FALLBACK: RoleCatalogItem[] = [
     default_dashboard: 'manager',
     description: 'Management console covering daily operations, reporting, printing, academy, and accounting.',
     default_permissions: [
-      'customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing',
+      'customers', 'wallet', 'kyc', 'services', 'manual_fulfilment', 'printing', 'printing_pricing',
       'support', 'reports', 'referrals', 'withdrawals', 'academy',
       'accounting', 'accounting_physical', 'accounting_reconcile', 'notifications',
     ],
@@ -226,7 +226,7 @@ export const ROLE_CATALOG_FALLBACK: RoleCatalogItem[] = [
     default_dashboard: 'admin',
     description: 'Senior platform administrator across customers, services, CMS, KYC, and compliance.',
     default_permissions: [
-      'customers', 'wallet', 'kyc', 'services', 'printing', 'printing_pricing',
+      'customers', 'wallet', 'kyc', 'services', 'manual_fulfilment', 'printing', 'printing_pricing',
       'cms', 'audit', 'support', 'reports', 'referrals', 'withdrawals',
       'academy', 'notifications', 'accounting', 'accounting_physical', 'accounting_reconcile',
     ],

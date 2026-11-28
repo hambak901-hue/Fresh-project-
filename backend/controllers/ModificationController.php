@@ -26,6 +26,7 @@ use HambakTech\Services\MailService;
 use HambakTech\Services\PinSecurityService;
 use HambakTech\Services\ReferralEngineService;
 use HambakTech\Services\ResultDocumentService;
+use HambakTech\Services\FulfilmentRouterService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 
 class ModificationController
@@ -145,6 +146,13 @@ class ModificationController
         $rawDocs = $this->decodeJsonColumn($row['required_documents'] ?? null, []);
         $rawSchema = $this->decodeJsonColumn($row['form_schema'] ?? null, []);
 
+        $fulfilmentMode = strtolower(trim((string)($row['fulfilment_mode'] ?? '')));
+        if (!in_array($fulfilmentMode, FulfilmentRouterService::VALID_MODES, true)) {
+            $fulfilmentMode = ($row['provider_id'] ?? '') === 'hambak_manual' ? 'internal_manual' : 'provider_async';
+        }
+        $slaHours = isset($row['sla_hours']) && $row['sla_hours'] !== null ? (int)$row['sla_hours'] : null;
+        $internalCost = (float)($row['internal_fulfilment_cost'] ?? 0);
+
         $formatted = [
             'id' => (string)($row['id'] ?? ''),
             'key' => $serviceKey,
@@ -158,6 +166,8 @@ class ModificationController
             'is_active' => (bool)($row['is_active'] ?? true),
             'enabled' => (bool)($row['is_active'] ?? true),
             'processing_type' => (string)($row['processing_type'] ?? 'manual'),
+            'fulfilment_mode' => $fulfilmentMode,
+            'sla_hours' => $slaHours,
             'manual_label' => (string)(!empty($row['manual_label']) ? $row['manual_label'] : 'Manual Processing'),
             'estimated_turnaround' => (string)(!empty($row['estimated_turnaround']) ? $row['estimated_turnaround'] : '3 – 10 Business Days'),
             'supported_notes' => (string)($row['supported_notes'] ?? ''),
@@ -173,8 +183,10 @@ class ModificationController
             $formatted['provider'] = $formatted['provider_id'];
             $formatted['endpoint'] = (string)($row['endpoint'] ?? '');
             $formatted['wholesale_cost'] = $wholesale;
-            $formatted['profit'] = round($selling - $wholesale, 2);
-            $formatted['margin_percent'] = $selling > 0 ? round((($selling - $wholesale) / $selling) * 100, 1) : 0.0;
+            $formatted['internal_fulfilment_cost'] = $internalCost;
+            $effectiveCost = $fulfilmentMode === 'internal_manual' ? $internalCost : $wholesale;
+            $formatted['profit'] = round($selling - $effectiveCost, 2);
+            $formatted['margin_percent'] = $selling > 0 ? round((($selling - $effectiveCost) / $selling) * 100, 1) : 0.0;
             $formatted['provider_schema_verified'] = (bool)($mappingSpec['provider_schema_verified'] ?? false);
             $formatted['payload_mapping'] = $mappingSpec;
         }
@@ -195,7 +207,13 @@ class ModificationController
 
         $customerPrice = (float)($row['customer_price'] ?? 0);
         $providerCost = (float)($row['provider_cost'] ?? 0);
-        $profit = (float)($row['profit'] ?? ($customerPrice - $providerCost));
+        $internalFulfilmentCost = (float)($row['internal_fulfilment_cost'] ?? 0);
+        $fulfilmentMode = strtolower(trim((string)($row['fulfilment_mode'] ?? '')));
+        if (!in_array($fulfilmentMode, FulfilmentRouterService::VALID_MODES, true)) {
+            $fulfilmentMode = FulfilmentRouterService::isInternalManualOrder($row) ? 'internal_manual' : 'provider_async';
+        }
+        $effectiveCost = $fulfilmentMode === 'internal_manual' ? $internalFulfilmentCost : $providerCost;
+        $profit = (float)($row['profit'] ?? ($customerPrice - $effectiveCost));
 
         $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $row, 'modification', $isAdmin);
         $infoHistory = $this->decodeJsonColumn($row['additional_info_history'] ?? null, []);
@@ -246,13 +264,13 @@ class ModificationController
             'enrollment_type' => $row['enrollment_type'] ?? null,
             'customer_price' => $customerPrice,
             'is_refundable' => $isRefundable,
+            'fulfilment_mode' => $fulfilmentMode,
+            'sla_due_at' => $row['sla_due_at'] ?? null,
+            'awaiting_admin_review' => !empty($row['awaiting_admin_review']),
             'payment_reference' => (string)($row['payment_reference'] ?? ''),
             'refund_reference' => $row['refund_reference'] ?? null,
             'provider_remarks' => $row['provider_remarks'] ?? null,
             'requested_corrections' => $row['requested_corrections'] ?? null,
-            'assigned_to' => $row['assigned_to'] ?? null,
-            'assigned_staff_name' => $row['assigned_staff_name'] ?? null,
-            'assigned_at' => $row['assigned_at'] ?? null,
             'estimated_completion_text' => (string)($row['estimated_completion_text'] ?? 'Manual Processing'),
             'status' => (string)($row['status'] ?? 'pending'),
             'query_review_status' => $queryReviewStatus !== '' ? $queryReviewStatus : null,
@@ -265,6 +283,11 @@ class ModificationController
         ], $resultMeta);
 
         if ($isAdmin) {
+            $item['claimed_by'] = $row['claimed_by'] ?? null;
+            $item['claimed_at'] = $row['claimed_at'] ?? null;
+            $item['assigned_to'] = $row['assigned_to'] ?? null;
+            $item['assigned_staff_name'] = $row['assigned_staff_name'] ?? null;
+            $item['assigned_at'] = $row['assigned_at'] ?? null;
             $item['provider_reference'] = $row['provider_reference'] ?? null;
             $item['provider_transaction_id'] = $row['provider_transaction_id'] ?? null;
             $item['provider_status'] = $row['provider_status'] ?? null;
@@ -274,11 +297,15 @@ class ModificationController
             $item['customer_email'] = $row['customer_email'] ?? null;
             $item['customer_phone'] = $row['customer_phone'] ?? null;
             $item['provider_cost'] = $providerCost;
+            $item['internal_fulfilment_cost'] = $internalFulfilmentCost;
+            $item['routing_snapshot'] = FulfilmentRouterService::extractOrderRoutingSnapshot($row);
             $item['profit'] = round($profit, 2);
             $item['provider_id'] = (string)($row['provider_id'] ?? '2sureverify');
             $item['endpoint'] = (string)($row['endpoint'] ?? '');
             $item['admin_notes'] = $row['admin_notes'] ?? null;
             $item['reviewed_by'] = $row['reviewed_by'] ?? null;
+            $item['completion_approved_by'] = $row['completion_approved_by'] ?? null;
+            $item['completion_approved_at'] = $row['completion_approved_at'] ?? null;
             $item['provider_response'] = $this->decodeJsonColumn($row['provider_response'] ?? null, []);
         } else {
             // Strip internal provider references, costs, and sanitize remarks for customer responses
@@ -902,7 +929,7 @@ class ModificationController
             Response::notFound('Supporting document not found.');
         }
 
-        $isStaff = Auth::isAdmin($user) && Auth::hasPermission($user, 'services');
+        $isStaff = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         if (!$isStaff && $doc['user_id'] !== $user['id']) {
             Response::forbidden('Unauthorized access to document.');
         }
@@ -1235,14 +1262,40 @@ class ModificationController
             Response::error('Service pricing is not yet configured. Please contact support.', 422);
         }
 
-        // 7 & 8. Atomic Wallet Debit + Persist modification_requests inside a single DB transaction
+        // 7. Unified Routing Check BEFORE touching wallet
+        $routerService = new FulfilmentRouterService($this->db);
+        $route = $routerService->resolveRoute($serviceKey);
+        if (!$route) {
+            Response::error('Service routing configuration could not be loaded.', 503);
+        }
+
+        $isManualRoute = (($route['fulfilment_mode'] ?? '') === 'internal_manual');
+        if ($isManualRoute) {
+            $check = $routerService->canRouteManual($route);
+            if (empty($check['allowed'])) {
+                Security::logPrivateError('ModificationRouting', (string)($check['reason'] ?? 'Manual routing rejected'), ['service_key' => $serviceKey]);
+                Response::error((string)($check['customer_message'] ?? 'This service is temporarily unavailable.'), (int)($check['code'] ?? 503));
+            }
+        } else {
+            $check = $routerService->canDispatchExternal($route);
+            if (empty($check['allowed'])) {
+                Security::logPrivateError('ModificationRouting', (string)($check['reason'] ?? 'External dispatch rejected'), ['service_key' => $serviceKey]);
+                Response::error((string)($check['customer_message'] ?? Security::ERR_PROVIDER_UNAVAILABLE), (int)($check['code'] ?? 503));
+            }
+        }
+
+        $orderMeta = $routerService->buildOrderRoutingMetadata($route);
+
+        // 8. Atomic Wallet Debit + Persist modification_requests inside a single DB transaction
         $requestId = Security::generateUuid();
         $requestNumber = 'MOD-' . $serviceDomain . '-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
         $paymentRef = 'MODPAY_' . date('YmdHis') . '_' . strtoupper(bin2hex(random_bytes(4)));
         $categorySlug = $serviceDomain === 'BVN' ? 'bvn_modification' : 'nin_modification';
         $etaText = (string)(!empty($serviceRow['estimated_turnaround']) ? $serviceRow['estimated_turnaround'] : '3 – 10 Business Days');
-        $endpoint = (string)($serviceRow['endpoint'] ?? '');
-        $providerId = (string)($serviceRow['provider_id'] ?: '2sureverify');
+        $endpoint = (string)$orderMeta['endpoint'];
+        $providerId = (string)$orderMeta['provider_id'];
+        $persistedCost = $isManualRoute ? (float)$orderMeta['internal_fulfilment_cost'] : $expectedWholesale;
+        $initialProfit = max(0.0, round($customerPrice - $persistedCost, 2));
 
         try {
             $debitResult = $this->db->withTransaction(function (Database $db) use (
@@ -1259,11 +1312,14 @@ class ModificationController
                 $submittedFields,
                 $storedDocsMeta,
                 $enrollmentType,
+                $isManualRoute,
                 $expectedWholesale,
+                $initialProfit,
                 $providerId,
                 $endpoint,
                 $idempotencyKey,
-                $etaText
+                $etaText,
+                $orderMeta
             ) {
                 $debitRes = $this->walletService->debit(
                     (string)$user['id'],
@@ -1277,37 +1333,77 @@ class ModificationController
                         'request_number' => $requestNumber,
                         'service_key' => $serviceKey,
                         'identity_type' => $serviceDomain,
+                        'fulfilment_mode' => $orderMeta['fulfilment_mode'],
                     ]
                 );
 
-                $db->execute(
-                    'INSERT INTO modification_requests
-                     (id, request_number, user_id, identity_type, service_key, service_name, masked_identifier, submitted_fields, supporting_documents, enrollment_type,
-                      customer_price, provider_cost, profit, provider_id, endpoint, payment_reference, idempotency_key, estimated_completion_text, status, created_at)
-                     VALUES
-                     (:id, :rno, :uid, :itype, :sk, :snm, :mid, :sfields, :sdocs, :etype,
-                      :cprice, :pcost, :profit, :pid, :ep, :pref, :ikey, :eta, "pending", NOW())',
-                    [
-                        'id' => $requestId,
-                        'rno' => $requestNumber,
-                        'uid' => $user['id'],
-                        'itype' => $serviceDomain,
-                        'sk' => $serviceKey,
-                        'snm' => $serviceRow['name'],
-                        'mid' => $maskedIdentifier,
-                        'sfields' => json_encode($submittedFields),
-                        'sdocs' => json_encode($storedDocsMeta),
-                        'etype' => $enrollmentType,
-                        'cprice' => $customerPrice,
-                        'pcost' => $expectedWholesale,
-                        'profit' => max(0.0, round($customerPrice - $expectedWholesale, 2)),
-                        'pid' => $providerId,
-                        'ep' => $endpoint,
-                        'pref' => $paymentRef,
-                        'ikey' => $idempotencyKey !== '' ? substr($idempotencyKey, 0, 120) : null,
-                        'eta' => $etaText,
-                    ]
-                );
+                try {
+                    $db->execute(
+                        'INSERT INTO modification_requests
+                         (id, request_number, user_id, identity_type, service_key, service_name, masked_identifier, submitted_fields, supporting_documents, enrollment_type,
+                          customer_price, provider_cost, internal_fulfilment_cost, profit, provider_id, endpoint,
+                          fulfilment_mode, routing_snapshot, sla_due_at,
+                          payment_reference, idempotency_key, estimated_completion_text, status, created_at)
+                         VALUES
+                         (:id, :rno, :uid, :itype, :sk, :snm, :mid, :sfields, :sdocs, :etype,
+                          :cprice, :pcost, :icost, :profit, :pid, :ep,
+                          :fmode, :rsnap, :sladue,
+                          :pref, :ikey, :eta, "pending", NOW())',
+                        [
+                            'id' => $requestId,
+                            'rno' => $requestNumber,
+                            'uid' => $user['id'],
+                            'itype' => $serviceDomain,
+                            'sk' => $serviceKey,
+                            'snm' => $serviceRow['name'],
+                            'mid' => $maskedIdentifier,
+                            'sfields' => json_encode($submittedFields),
+                            'sdocs' => json_encode($storedDocsMeta),
+                            'etype' => $enrollmentType,
+                            'cprice' => $customerPrice,
+                            'pcost' => $isManualRoute ? 0.00 : $expectedWholesale,
+                            'icost' => $orderMeta['internal_fulfilment_cost'],
+                            'profit' => $initialProfit,
+                            'pid' => $providerId,
+                            'ep' => $endpoint,
+                            'fmode' => $orderMeta['fulfilment_mode'],
+                            'rsnap' => $orderMeta['routing_snapshot_json'],
+                            'sladue' => $orderMeta['sla_due_at'],
+                            'pref' => $paymentRef,
+                            'ikey' => $idempotencyKey !== '' ? substr($idempotencyKey, 0, 120) : null,
+                            'eta' => $etaText,
+                        ]
+                    );
+                } catch (Throwable) {
+                    $db->execute(
+                        'INSERT INTO modification_requests
+                         (id, request_number, user_id, identity_type, service_key, service_name, masked_identifier, submitted_fields, supporting_documents, enrollment_type,
+                          customer_price, provider_cost, profit, provider_id, endpoint, payment_reference, idempotency_key, estimated_completion_text, status, created_at)
+                         VALUES
+                         (:id, :rno, :uid, :itype, :sk, :snm, :mid, :sfields, :sdocs, :etype,
+                          :cprice, :pcost, :profit, :pid, :ep, :pref, :ikey, :eta, "pending", NOW())',
+                        [
+                            'id' => $requestId,
+                            'rno' => $requestNumber,
+                            'uid' => $user['id'],
+                            'itype' => $serviceDomain,
+                            'sk' => $serviceKey,
+                            'snm' => $serviceRow['name'],
+                            'mid' => $maskedIdentifier,
+                            'sfields' => json_encode($submittedFields),
+                            'sdocs' => json_encode($storedDocsMeta),
+                            'etype' => $enrollmentType,
+                            'cprice' => $customerPrice,
+                            'pcost' => $isManualRoute ? 0.00 : $expectedWholesale,
+                            'profit' => $initialProfit,
+                            'pid' => $providerId,
+                            'ep' => $endpoint,
+                            'pref' => $paymentRef,
+                            'ikey' => $idempotencyKey !== '' ? substr($idempotencyKey, 0, 120) : null,
+                            'eta' => $etaText,
+                        ]
+                    );
+                }
 
                 return $debitRes;
             });
@@ -1317,7 +1413,63 @@ class ModificationController
             Response::error($errMsg, $status);
         }
 
+        // 8B. Internal Manual Path: Queue directly for HAMBAK MANUAL desk without calling external APIs
+        if ($isManualRoute) {
+            $this->appendStatusHistory(
+                $requestId,
+                null,
+                'pending',
+                'customer',
+                (string)$user['id'],
+                'Request submitted to HAMBAK MANUAL fulfilment queue',
+                true
+            );
+
+            FootprintService::record([
+                'user_id' => $user['id'],
+                'user_email' => $user['email'] ?? null,
+                'user_name' => $user['full_name'] ?? null,
+                'category' => 'service',
+                'action' => 'MODIFICATION_MANUAL_SUBMITTED',
+                'service_type' => $serviceKey,
+                'reference' => $requestNumber,
+                'provider' => 'hambak_manual',
+                'status' => 'pending',
+                'amount' => $customerPrice,
+                'metadata' => [
+                    'identity_type' => $serviceDomain,
+                    'payment_reference' => $paymentRef,
+                    'fulfilment_mode' => 'internal_manual',
+                    'sla_due_at' => $orderMeta['sla_due_at'],
+                ],
+            ]);
+
+            $this->notifyCustomer(
+                (string)$user['id'],
+                "{$serviceDomain} Modification Queued",
+                "Your {$serviceRow['name']} request ({$requestNumber}) has been received by our internal fulfilment desk. Estimated turnaround: {$etaText}.",
+                'info',
+                $requestNumber,
+                ['request_number' => $requestNumber, 'status' => 'pending', 'service_name' => $serviceRow['name']]
+            );
+
+            $savedRow = $this->db->fetchOne('SELECT * FROM modification_requests WHERE id = :id LIMIT 1', ['id' => $requestId]);
+
+            Response::success([
+                'request' => $savedRow ? $this->formatRequestRow($savedRow, $isAdmin) : null,
+                'pending' => true,
+                'status' => 'pending',
+                'fulfilment_mode' => 'internal_manual',
+                'sla_due_at' => $orderMeta['sla_due_at'],
+                'balance_after' => $debitResult['balance_after'] ?? null,
+                'newBalance' => $debitResult['balance_after'] ?? null,
+                'payment_reference' => $paymentRef,
+            ], "{$serviceRow['name']} queued with our fulfilment desk. You can track live status updates in your request tracker.");
+            return;
+        }
+
         // 9. Dispatch to 2SureVerify via explicit parameter & file mapping registry (keeps secrets in-memory only)
+        $routerService->acquireDispatchLock('modification_requests', $requestId);
         $providerPayload = array_merge($submittedFields, $plaintextSecrets);
         $adapter = new TwoSureVerifyAdapter();
         $providerRes = $adapter->submitModification(
@@ -1328,6 +1480,11 @@ class ModificationController
             $serviceKey,
             $formSchema,
             $requiredDocsSchema
+        );
+        $routerService->releaseDispatchLock(
+            'modification_requests',
+            $requestId,
+            empty($providerRes['success']) && empty($providerRes['pending']) ? (string)($providerRes['message'] ?? '') : null
         );
 
         // 10. Evaluate provider response: PENDING MUST STAY PENDING & NEVER AUTO-REFUND!
@@ -1428,6 +1585,8 @@ class ModificationController
                 'request' => $savedRow ? $this->formatRequestRow($savedRow, $isAdmin) : null,
                 'pending' => true,
                 'status' => $newStatus,
+                'fulfilment_mode' => $orderMeta['fulfilment_mode'],
+                'sla_due_at' => $orderMeta['sla_due_at'],
                 'balance_after' => $debitResult['balance_after'] ?? null,
                 'newBalance' => $debitResult['balance_after'] ?? null,
                 'payment_reference' => $paymentRef,
@@ -1606,6 +1765,10 @@ class ModificationController
      */
     private function syncProviderStatusForRow(array $row, ?string $actorId = null): array
     {
+        if (FulfilmentRouterService::isInternalManualOrder($row)) {
+            return ['updated' => false, 'message' => 'This request is fulfilled internally by HAMBAK MANUAL and cannot be polled against external providers.', 'row' => $row];
+        }
+
         $lookupRef = trim((string)($row['provider_reference'] ?: $row['payment_reference']));
         $lookupTxId = trim((string)($row['provider_transaction_id'] ?? ''));
         if ($lookupRef === '' && $lookupTxId === '') {
@@ -1780,7 +1943,7 @@ class ModificationController
     public function pollStatus(Request $request, array $params): void
     {
         $user = Auth::requireAuth($request);
-        $isStaff = Auth::isAdmin($user) && Auth::hasPermission($user, 'services');
+        $isStaff = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -1792,6 +1955,10 @@ class ModificationController
         }
         if (!$isStaff && $row['user_id'] !== $user['id']) {
             Response::forbidden('Unauthorized access to modification request.');
+        }
+
+        if (FulfilmentRouterService::isInternalManualOrder($row)) {
+            Response::error('Internal manual orders are processed by the HAMBAK MANUAL fulfilment desk and cannot be polled against external providers.', 422);
         }
 
         $sync = $this->syncProviderStatusForRow($row, $isStaff ? (string)$user['id'] : null);
@@ -2086,6 +2253,11 @@ class ModificationController
             Response::success($addRes);
         }
 
+        if (FulfilmentRouterService::isInternalManualOrder($row)) {
+            $recordDelivery('modification', (string)$row['id']);
+            Response::success(['processed' => false, 'status' => $row['status'], 'message' => 'Internal manual orders ignore external provider webhooks.']);
+        }
+
         $prevStatus = (string)$row['status'];
         $isTerminal = in_array($prevStatus, ['completed', 'refunded'], true);
 
@@ -2231,7 +2403,7 @@ class ModificationController
      */
     public function adminList(Request $request): void
     {
-        Auth::requirePermission($request, 'services');
+        Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         SchemaSync::syncModificationCatalog($this->db);
 
         $identityType = strtoupper(trim((string)$request->query('identity_type', 'ALL')));
@@ -2333,8 +2505,8 @@ class ModificationController
                 SUM(CASE WHEN status IN ("failed", "rejected") THEN 1 ELSE 0 END) as failed_count,
                 SUM(CASE WHEN status = "refunded" THEN 1 ELSE 0 END) as refunded_count,
                 COALESCE(SUM(CASE WHEN status != "refunded" THEN customer_price ELSE 0 END), 0) as total_revenue,
-                COALESCE(SUM(CASE WHEN status != "refunded" THEN provider_cost ELSE 0 END), 0) as total_provider_cost,
-                COALESCE(SUM(CASE WHEN status != "refunded" THEN profit ELSE 0 END), 0) as total_margin
+                COALESCE(SUM(CASE WHEN status != "refunded" THEN CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END ELSE 0 END), 0) as total_provider_cost,
+                COALESCE(SUM(CASE WHEN status != "refunded" THEN customer_price - (CASE WHEN COALESCE(fulfilment_mode, "provider_async") = "internal_manual" OR COALESCE(provider_id, "") = "hambak_manual" THEN COALESCE(internal_fulfilment_cost, 0) ELSE COALESCE(provider_cost, 0) END) ELSE 0 END), 0) as total_margin
              FROM modification_requests
              WHERE identity_type IN ("NIN", "BVN")'
         );
@@ -2369,7 +2541,7 @@ class ModificationController
      */
     public function adminDetail(Request $request, array $params): void
     {
-        Auth::requirePermission($request, 'services');
+        Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -2393,7 +2565,7 @@ class ModificationController
      */
     public function adminPollStatus(Request $request, array $params): void
     {
-        $admin = Auth::requirePermission($request, 'services');
+        $admin = Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -2405,6 +2577,10 @@ class ModificationController
         );
         if (!$row) {
             Response::notFound('Modification request not found.');
+        }
+
+        if (FulfilmentRouterService::isInternalManualOrder($row)) {
+            Response::error('Internal manual orders are processed by HAMBAK MANUAL and cannot be polled against external providers.', 422);
         }
 
         $sync = $this->syncProviderStatusForRow($row, (string)$admin['id']);
@@ -2428,7 +2604,7 @@ class ModificationController
      */
     public function adminUpdateRequest(Request $request, array $params): void
     {
-        $admin = Auth::requirePermission($request, 'services');
+        $admin = Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         $id = trim((string)($params['id'] ?? ''));
         $body = $request->getBody();
 
@@ -2597,7 +2773,7 @@ class ModificationController
      */
     public function adminRetryResultFetch(Request $request, array $params): void
     {
-        $admin = Auth::requirePermission($request, 'services');
+        $admin = Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -2609,6 +2785,9 @@ class ModificationController
         );
         if (!$row) {
             Response::notFound('Modification request not found.');
+        }
+        if (FulfilmentRouterService::isInternalManualOrder($row)) {
+            Response::error('Internal manual orders receive PDF results directly from HAMBAK MANUAL staff rather than upstream provider fetch.', 422);
         }
 
         $sync = $this->syncProviderStatusForRow($row, (string)$admin['id']);
@@ -2649,7 +2828,7 @@ class ModificationController
      */
     public function adminUploadResultDocument(Request $request, array $params): void
     {
-        $admin = Auth::requirePermission($request, 'services');
+        $admin = Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         $id = trim((string)($params['id'] ?? ''));
 
         $row = $this->db->fetchOne(
@@ -2829,9 +3008,16 @@ class ModificationController
             $updates[] = 'selling_price = :sp';
             $dbParams['sp'] = max(0.0, $price);
         }
+        $isManual = strtolower((string)($existing['fulfilment_mode'] ?? '')) === 'internal_manual'
+            || strtolower((string)($existing['provider_id'] ?? '')) === 'hambak_manual';
+
         if (isset($body['wholesale_cost'])) {
             $updates[] = 'wholesale_cost = :wc';
             $dbParams['wc'] = max(0.0, (float)$body['wholesale_cost']);
+        }
+        if (isset($body['internal_fulfilment_cost'])) {
+            $updates[] = 'internal_fulfilment_cost = :ifc';
+            $dbParams['ifc'] = max(0.0, (float)$body['internal_fulfilment_cost']);
         }
         if (isset($body['is_active']) || isset($body['enabled'])) {
             $active = isset($body['is_active']) ? (bool)$body['is_active'] : (bool)$body['enabled'];
@@ -2855,8 +3041,16 @@ class ModificationController
             $dbParams['ep'] = trim((string)$body['endpoint']);
         }
         if (array_key_exists('provider_id', $body) && trim((string)$body['provider_id']) !== '') {
-            $updates[] = 'provider_id = :pid';
-            $dbParams['pid'] = trim((string)$body['provider_id']);
+            $reqProvRaw = trim((string)$body['provider_id']);
+            $reqProv = strtolower($reqProvRaw);
+            $existingProv = strtolower(trim((string)($existing['provider_id'] ?? '')));
+            if ($reqProv !== $existingProv) {
+                if ($isManual || in_array($reqProv, ['hambak_manual', 'internal_manual'], true)) {
+                    Response::error('Fulfilment mode and HAMBAK MANUAL routing must be configured through the Unified Service Routing panel.', 422);
+                }
+                $updates[] = 'provider_id = :pid';
+                $dbParams['pid'] = $reqProvRaw;
+            }
         }
         if (isset($body['required_fields']) && is_array($body['required_fields'])) {
             $cleanReqFields = [];
@@ -2882,9 +3076,13 @@ class ModificationController
 
         $targetSelling = isset($dbParams['sp']) ? (float)$dbParams['sp'] : (float)$existing['selling_price'];
         $targetWholesale = isset($dbParams['wc']) ? (float)$dbParams['wc'] : (float)$existing['wholesale_cost'];
-        if ($targetSelling < $targetWholesale) {
+        $targetInternalCost = isset($dbParams['ifc']) ? (float)$dbParams['ifc'] : (float)($existing['internal_fulfilment_cost'] ?? 0);
+        $costFloor = $isManual ? $targetInternalCost : $targetWholesale;
+        $costLabel = $isManual ? 'internal fulfilment cost' : 'wholesale cost';
+
+        if ($targetSelling < $costFloor) {
             Response::error(
-                'Customer selling price (₦' . number_format($targetSelling, 2) . ') cannot be lower than wholesale cost (₦' . number_format($targetWholesale, 2) . ').',
+                'Customer selling price (₦' . number_format($targetSelling, 2) . ') cannot be lower than ' . $costLabel . ' (₦' . number_format($costFloor, 2) . ').',
                 422
             );
         }
@@ -2900,14 +3098,18 @@ class ModificationController
         );
 
         if ($fresh) {
-            SchemaSync::syncProviderServiceMapping(
-                $this->db,
-                (string)($fresh['provider_id'] ?? '2sureverify'),
-                $key,
-                (string)($fresh['endpoint'] ?? ''),
-                (float)($fresh['wholesale_cost'] ?? 0),
-                !empty($fresh['is_active']) ? 1 : 0
-            );
+            $freshIsManual = strtolower((string)($fresh['fulfilment_mode'] ?? '')) === 'internal_manual'
+                || strtolower((string)($fresh['provider_id'] ?? '')) === 'hambak_manual';
+            if (!$freshIsManual) {
+                SchemaSync::syncProviderServiceMapping(
+                    $this->db,
+                    (string)($fresh['provider_id'] ?? '2sureverify'),
+                    $key,
+                    (string)($fresh['endpoint'] ?? ''),
+                    (float)($fresh['wholesale_cost'] ?? 0),
+                    !empty($fresh['is_active']) ? 1 : 0
+                );
+            }
         }
 
         FootprintService::record([
@@ -2924,6 +3126,8 @@ class ModificationController
             'service_key' => $key,
             'selling_price' => $targetSelling,
             'wholesale_cost' => $targetWholesale,
+            'internal_fulfilment_cost' => $targetInternalCost,
+            'fulfilment_mode' => $fresh['fulfilment_mode'] ?? null,
             'is_active' => $fresh ? (bool)$fresh['is_active'] : null,
         ], $request);
 
@@ -3163,7 +3367,12 @@ class ModificationController
         }
         if (!empty($srvRes['success']) && is_array($list)) {
             $localRows = $this->db->fetchAll(
-                'SELECT s.id, s.service_key, s.endpoint FROM service_catalogue s JOIN service_categories c ON c.id = s.category_id WHERE c.code IN ("nin_modification", "bvn_modification")'
+                'SELECT s.id, s.service_key, s.endpoint, s.provider_id, COALESCE(s.fulfilment_mode, "provider_async") AS fulfilment_mode
+                 FROM service_catalogue s
+                 JOIN service_categories c ON c.id = s.category_id
+                 WHERE c.code IN ("nin_modification", "bvn_modification")
+                   AND COALESCE(s.fulfilment_mode, "provider_async") <> "internal_manual"
+                   AND COALESCE(s.provider_id, "") <> "hambak_manual"'
             );
             foreach ($list as $k => $entry) {
                 if (is_string($k) && is_array($entry)) {
@@ -3195,7 +3404,9 @@ class ModificationController
                              SET wholesale_cost = :wc,
                                  selling_price = CASE WHEN selling_price < :wc_chk THEN :wc_floor ELSE selling_price END,
                                  updated_at = NOW()
-                             WHERE id = :id',
+                             WHERE id = :id
+                               AND COALESCE(fulfilment_mode, "provider_async") <> "internal_manual"
+                               AND COALESCE(provider_id, "") <> "hambak_manual"',
                             [
                                 'wc' => $newWc,
                                 'wc_chk' => $newWc,
@@ -3211,15 +3422,16 @@ class ModificationController
 
         $bvnRes = $this->syncOrFetchBvnTypes(true);
 
-        // Keep provider_service_mappings synchronized after live tariff pull
+        // Keep composite (provider_id, service_key) mappings synchronized without touching internal_manual rows
         try {
             $this->db->execute(
                 'UPDATE provider_service_mappings psm
-                 INNER JOIN service_catalogue s ON s.service_key = psm.service_key
-                 SET psm.provider_id = s.provider_id,
-                     psm.provider_endpoint = s.endpoint,
+                 INNER JOIN service_catalogue s ON s.service_key = psm.service_key AND s.provider_id = psm.provider_id
+                 SET psm.provider_endpoint = s.endpoint,
                      psm.wholesale_cost = s.wholesale_cost,
-                     psm.is_active = s.is_active'
+                     psm.is_active = s.is_active
+                 WHERE COALESCE(s.fulfilment_mode, "provider_async") <> "internal_manual"
+                   AND COALESCE(s.provider_id, "") <> "hambak_manual"'
             );
         } catch (Throwable) {
         }
@@ -3259,7 +3471,7 @@ class ModificationController
      */
     public function adminStaffList(Request $request): void
     {
-        Auth::requirePermission($request, 'services');
+        Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         $rows = $this->db->fetchAll(
             'SELECT id, full_name, email, role
              FROM users
@@ -3275,7 +3487,7 @@ class ModificationController
      */
     public function adminAssign(Request $request, array $params): void
     {
-        $admin = Auth::requirePermission($request, 'services');
+        $admin = Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         $id = trim((string)($params['id'] ?? ''));
         $body = $request->getBody();
 
@@ -3348,7 +3560,7 @@ class ModificationController
      */
     public function adminUpdateChecklist(Request $request, array $params): void
     {
-        $admin = Auth::requirePermission($request, 'services');
+        $admin = Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         $id = trim((string)($params['id'] ?? ''));
         $body = $request->getBody();
 
@@ -3413,7 +3625,7 @@ class ModificationController
      */
     public function adminReviewInfo(Request $request, array $params): void
     {
-        $admin = Auth::requirePermission($request, 'services');
+        $admin = Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
         $id = trim((string)($params['id'] ?? ''));
         $body = $request->getBody();
 

@@ -830,15 +830,22 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => handlePollOrder(submittedOrder.id)}
-                disabled={pollingId === submittedOrder.id}
-                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 text-xs font-semibold text-emerald-800 dark:text-emerald-300 inline-flex items-center gap-1.5 hover:bg-emerald-100/50 transition"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${pollingId === submittedOrder.id ? 'animate-spin' : ''}`} />
-                <span>Check Live Status</span>
-              </button>
+              {submittedOrder.fulfilment_mode !== 'internal_manual' &&
+              submittedOrder.provider_id !== 'hambak_manual' ? (
+                <button
+                  type="button"
+                  onClick={() => handlePollOrder(submittedOrder.id)}
+                  disabled={pollingId === submittedOrder.id}
+                  className="min-h-[40px] px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-500/40 text-xs font-semibold text-emerald-800 dark:text-emerald-300 inline-flex items-center gap-1.5 hover:bg-emerald-100/50 transition"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${pollingId === submittedOrder.id ? 'animate-spin' : ''}`} />
+                  <span>Check Live Status</span>
+                </button>
+              ) : (
+                <span className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs font-semibold whitespace-nowrap">
+                  Manual Desk{submittedOrder.sla_due_at ? ` · Due ${new Date(submittedOrder.sla_due_at).toLocaleDateString('en-NG')}` : ''}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => setDetailOrder(submittedOrder)}
@@ -1447,6 +1454,8 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                 visibleOrders.map(order => {
                   const st = getEnrolmentStatusStyle(order.status);
                   const canPoll =
+                    order.fulfilment_mode !== 'internal_manual' &&
+                    order.provider_id !== 'hambak_manual' &&
                     order.status !== 'completed' &&
                     order.status !== 'refunded' &&
                     order.status !== 'failed' &&
@@ -2150,7 +2159,9 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
             </div>
 
             <div className="flex items-center justify-between gap-2 px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 text-xs">
-              {detailOrder.status !== 'completed' &&
+              {detailOrder.fulfilment_mode !== 'internal_manual' &&
+              detailOrder.provider_id !== 'hambak_manual' &&
+              detailOrder.status !== 'completed' &&
               detailOrder.status !== 'refunded' &&
               detailOrder.status !== 'failed' &&
               detailOrder.status !== 'rejected' ? (
@@ -2163,6 +2174,10 @@ export const EnrolmentSection: React.FC<EnrolmentSectionProps> = ({
                   <RefreshCw className={`w-3.5 h-3.5 ${pollingId === detailOrder.id ? 'animate-spin' : ''}`} />
                   <span>{pollingId === detailOrder.id ? 'Checking Provider...' : 'Check Live Status'}</span>
                 </button>
+              ) : detailOrder.fulfilment_mode === 'internal_manual' || detailOrder.provider_id === 'hambak_manual' ? (
+                <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                  Manual Fulfilment Desk{detailOrder.sla_due_at ? ` · Due ${new Date(detailOrder.sla_due_at).toLocaleString('en-NG')}` : ''}
+                </span>
               ) : (
                 <span />
               )}

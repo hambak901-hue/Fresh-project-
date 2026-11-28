@@ -22,6 +22,7 @@ use HambakTech\Services\FootprintService;
 use HambakTech\Services\PinSecurityService;
 use HambakTech\Services\ReferralEngineService;
 use HambakTech\Services\ResultDocumentService;
+use HambakTech\Services\FulfilmentRouterService;
 use HambakTech\Adapters\Verification\TwoSureVerifyAdapter;
 use HambakTech\Adapters\Verification\VeripineAdapter;
 
@@ -302,7 +303,9 @@ class VerificationController
                 'UPDATE service_catalogue
                  SET slip_type_supported = 1,
                      required_fields = :rf
-                 WHERE service_key = "bvn_retrieval"',
+                 WHERE service_key = "bvn_retrieval"
+                   AND routing_updated_at IS NULL
+                   AND COALESCE(fulfilment_mode, "") <> "internal_manual"',
                 ['rf' => '["first_name", "last_name", "phone", "slip_type"]']
             );
         } catch (Throwable $e) {
@@ -674,9 +677,11 @@ class VerificationController
 
         if ($isAdmin) {
             $rows = $this->db->fetchAll(
-                'SELECT s.service_key as `key`, s.name, s.description, s.wholesale_cost, s.selling_price,
-                        s.provider_id as provider, s.endpoint, s.is_active as enabled,
-                        s.required_fields, s.slip_type_supported, c.name as category_name, c.code as category_code
+                'SELECT s.service_key as `key`, s.name, s.description, s.wholesale_cost, s.internal_fulfilment_cost,
+                        s.selling_price, s.provider_id as provider, s.endpoint, s.is_active as enabled,
+                        s.required_fields, s.slip_type_supported, s.fulfilment_mode, s.sla_hours,
+                        s.processing_type, s.manual_label, s.estimated_turnaround,
+                        c.name as category_name, c.code as category_code
                  FROM service_catalogue s
                  LEFT JOIN service_categories c ON c.id = s.category_id
                  WHERE s.is_active = 1
@@ -685,7 +690,9 @@ class VerificationController
         } else {
             $rows = $this->db->fetchAll(
                 'SELECT s.service_key as `key`, s.name, s.description, s.selling_price,
-                        s.is_active as enabled, s.required_fields, s.slip_type_supported, c.name as category_name, c.code as category_code
+                        s.is_active as enabled, s.required_fields, s.slip_type_supported,
+                        s.fulfilment_mode, s.sla_hours, s.processing_type, s.manual_label, s.estimated_turnaround,
+                        c.name as category_name, c.code as category_code
                  FROM service_catalogue s
                  LEFT JOIN service_categories c ON c.id = s.category_id
                  WHERE s.is_active = 1
@@ -707,9 +714,13 @@ class VerificationController
             $r['price'] = $r['selling_price'];
             $r['enabled'] = (bool)$r['enabled'];
             $r['slip_type_supported'] = (bool)$r['slip_type_supported'];
+            $r['fulfilment_mode'] = (string)($r['fulfilment_mode'] ?? 'provider_instant');
+            $r['sla_hours'] = isset($r['sla_hours']) && $r['sla_hours'] !== null ? (int)$r['sla_hours'] : null;
             if ($isAdmin) {
                 $r['wholesale_cost'] = (float)$r['wholesale_cost'];
-                $r['margin'] = round($r['selling_price'] - $r['wholesale_cost'], 2);
+                $r['internal_fulfilment_cost'] = (float)($r['internal_fulfilment_cost'] ?? 0);
+                $effCost = $r['fulfilment_mode'] === 'internal_manual' ? $r['internal_fulfilment_cost'] : $r['wholesale_cost'];
+                $r['margin'] = round($r['selling_price'] - $effCost, 2);
             }
             if (is_string($r['required_fields'])) {
                 $r['required_fields'] = json_decode($r['required_fields'], true) ?: [];
@@ -1097,22 +1108,69 @@ class VerificationController
             }
         }
 
-        // 4. Determine configured provider chain (priority + fallback) and ensure credentials exist before debiting wallet
-        $routing = $this->resolveProviderChain($categoryKey, $service['provider_id'] ?? null);
-        $providerChain = $routing['chain'];
-        $adapters = $routing['adapters'];
-
-        if (empty($providerChain)) {
-            Security::logPrivateError('VerificationRouting', 'No verification provider credentials configured', [
-                'category' => $categoryKey,
-                'service_key' => $serviceKey,
-            ]);
-            Response::error(Security::ERR_PROVIDER_AUTH, 503);
+        // 4. Unified Routing Decision (provider_instant | provider_async | internal_manual) BEFORE debiting wallet
+        $routerService = new FulfilmentRouterService($this->db);
+        $route = $routerService->resolveRoute($serviceKey);
+        if (!$route) {
+            Response::error('Selected verification service routing configuration could not be loaded.', 503);
         }
-        $usedProvider = $providerChain[0];
 
+        $fulfilmentMode = (string)$route['fulfilment_mode'];
+        $isManualRoute = ($fulfilmentMode === 'internal_manual');
+        $isAsyncRoute = ($fulfilmentMode === 'provider_async' || $serviceKey === 'bvn_retrieval');
+        $providerChain = [];
+        $adapters = [];
+        $usedProvider = (string)$route['provider_id'];
+
+        if ($isManualRoute) {
+            $manualCheck = $routerService->canRouteManual($route);
+            if (empty($manualCheck['allowed'])) {
+                Security::logPrivateError('VerificationRouting', (string)($manualCheck['reason'] ?? 'Manual routing rejected'), [
+                    'category' => $categoryKey,
+                    'service_key' => $serviceKey,
+                ]);
+                Response::error((string)($manualCheck['customer_message'] ?? 'This service is temporarily unavailable.'), (int)($manualCheck['code'] ?? 503));
+            }
+            $usedProvider = 'hambak_manual';
+        } else {
+            $extCheck = $routerService->canDispatchExternal($route);
+            if (empty($extCheck['allowed'])) {
+                Security::logPrivateError('VerificationRouting', (string)($extCheck['reason'] ?? 'External dispatch rejected'), [
+                    'category' => $categoryKey,
+                    'service_key' => $serviceKey,
+                    'provider_id' => $route['provider_id'] ?? null,
+                ]);
+                Response::error((string)($extCheck['customer_message'] ?? Security::ERR_PROVIDER_AUTH), (int)($extCheck['code'] ?? 503));
+            }
+
+            if ($isAsyncRoute || $serviceKey === 'bvn_retrieval') {
+                // Async registry retrieval (e.g. 2SureVerify bvn_retrieval) is single-provider only — NEVER fallback to veripine
+                $twoSure = new TwoSureVerifyAdapter();
+                if (!$twoSure->hasCredentials()) {
+                    Response::error(Security::ERR_PROVIDER_AUTH, 503);
+                }
+                $adapters = ['2sureverify' => $twoSure];
+                $providerChain = ['2sureverify'];
+                $usedProvider = '2sureverify';
+            } else {
+                $routing = $this->resolveProviderChain($categoryKey, $route['provider_id'] ?? ($service['provider_id'] ?? null));
+                $providerChain = $routing['chain'];
+                $adapters = $routing['adapters'];
+
+                if (empty($providerChain)) {
+                    Security::logPrivateError('VerificationRouting', 'No verification provider credentials configured', [
+                        'category' => $categoryKey,
+                        'service_key' => $serviceKey,
+                    ]);
+                    Response::error(Security::ERR_PROVIDER_AUTH, 503);
+                }
+                $usedProvider = $providerChain[0];
+            }
+        }
+
+        $orderMeta = $routerService->buildOrderRoutingMetadata($route);
         $wholesaleCost = (float)$service['wholesale_cost'];
-        $endpoint = (string)($service['endpoint'] ?? $serviceKey);
+        $endpoint = trim((string)($route['endpoint'] ?? $service['endpoint'] ?? $serviceKey));
 
         // Enforce compulsory Transaction PIN verification BEFORE touching wallet
         $pinService = new PinSecurityService($this->db);
@@ -1137,6 +1195,7 @@ class VerificationController
                     'service_key' => $serviceKey,
                     'search_value' => $searchValue,
                     'slip_type' => $resolvedSlipCode,
+                    'fulfilment_mode' => $orderMeta['fulfilment_mode'],
                 ]
             );
         } catch (Throwable $e) {
@@ -1146,14 +1205,53 @@ class VerificationController
             return;
         }
 
-        // Insert initial pending record to lock idempotency_key against concurrent double clicks
+        // Insert initial pending record with immutable routing_snapshot, sla_due_at & internal_fulfilment_cost
         $recordId = Security::generateUuid();
+        $initialTimeline = $isManualRoute ? [[
+            'step' => 'submitted',
+            'status' => 'pending',
+            'label' => 'Queued at HAMBAK Manual Desk',
+            'note' => 'Order paid and routed internally to HAMBAK MANUAL fulfilment queue.',
+            'at' => gmdate('c'),
+        ]] : [];
+        $initialResultPayload = $isManualRoute
+            ? json_encode(['status' => 'pending', 'fulfilment_mode' => 'internal_manual', 'manual_timeline' => $initialTimeline], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            : null;
+
         try {
+            $this->db->execute(
+                'INSERT INTO verification_records
+                 (id, user_id, type, service_key, search_value, provider, cost, provider_cost,
+                  fulfilment_mode, routing_snapshot, sla_due_at, internal_fulfilment_cost,
+                  status, reference, slip_type, has_slip, idempotency_key, result_data, created_at)
+                 VALUES
+                 (:id, :uid, :type, :skey, :search, :prov, :cost, 0.00,
+                  :fmode, :rsnap, :sladue, :icost,
+                  "pending", :ref, :slip, 0, :ikey, :rdata, NOW())',
+                [
+                    'id' => $recordId,
+                    'uid' => $user['id'],
+                    'type' => $recordTypeLabel,
+                    'skey' => $serviceKey,
+                    'search' => $searchValue,
+                    'prov' => $usedProvider,
+                    'cost' => $cost,
+                    'fmode' => $orderMeta['fulfilment_mode'],
+                    'rsnap' => $orderMeta['routing_snapshot_json'],
+                    'sladue' => $orderMeta['sla_due_at'],
+                    'icost' => $orderMeta['internal_fulfilment_cost'],
+                    'ref' => $reference,
+                    'slip' => $resolvedSlipCode,
+                    'ikey' => $idempotencyKey !== '' ? substr($idempotencyKey, 0, 120) : null,
+                    'rdata' => $initialResultPayload,
+                ]
+            );
+        } catch (Throwable) {
             $this->db->execute(
                 'INSERT INTO verification_records
                  (id, user_id, type, service_key, search_value, provider, cost, provider_cost, status, reference, slip_type, has_slip, idempotency_key, result_data, created_at)
                  VALUES
-                 (:id, :uid, :type, :skey, :search, :prov, :cost, 0.00, "pending", :ref, :slip, 0, :ikey, NULL, NOW())',
+                 (:id, :uid, :type, :skey, :search, :prov, :cost, 0.00, "pending", :ref, :slip, 0, :ikey, :rdata, NOW())',
                 [
                     'id' => $recordId,
                     'uid' => $user['id'],
@@ -1165,12 +1263,66 @@ class VerificationController
                     'ref' => $reference,
                     'slip' => $resolvedSlipCode,
                     'ikey' => $idempotencyKey !== '' ? substr($idempotencyKey, 0, 120) : null,
+                    'rdata' => $initialResultPayload,
                 ]
             );
-        } catch (Throwable) {
         }
 
-        // 6. Dispatch to Real Upstream Provider Adapter (with configured priority & fallback)
+        // 5B. Internal Manual Path: Zero external calls, stay pending in HAMBAK MANUAL queue
+        if ($isManualRoute) {
+            FootprintService::record([
+                'user_id' => $user['id'],
+                'user_email' => $user['email'] ?? null,
+                'user_name' => $user['full_name'] ?? null,
+                'category' => 'service',
+                'action' => 'IDENTITY_MANUAL_SUBMITTED',
+                'service_type' => $serviceKey,
+                'reference' => $reference,
+                'provider' => 'hambak_manual',
+                'status' => 'pending',
+                'amount' => $cost,
+                'metadata' => [
+                    'fulfilment_mode' => 'internal_manual',
+                    'sla_due_at' => $orderMeta['sla_due_at'],
+                    'slip_type' => $resolvedSlipCode,
+                ],
+            ]);
+
+            Response::success([
+                'pending' => true,
+                'async' => true,
+                'status' => 'pending',
+                'fulfilment_mode' => 'internal_manual',
+                'sla_due_at' => $orderMeta['sla_due_at'],
+                'verification_id' => $recordId,
+                'recordId' => $recordId,
+                'reference' => $reference,
+                'cost' => $cost,
+                'balance_after' => $debitResult['balance_after'],
+                'newBalance' => $debitResult['balance_after'],
+                'slip_type' => $resolvedSlipCode,
+                'slip_name' => $resolvedSlipName,
+                'has_original_pdf' => false,
+                'result' => null,
+                'service' => [
+                    'key' => $serviceKey,
+                    'name' => $service['name'],
+                    'category' => $categoryKey,
+                    'fulfilment_mode' => 'internal_manual',
+                    'sla_hours' => $orderMeta['sla_hours'],
+                    'estimated_turnaround' => $route['estimated_turnaround'] ?? null,
+                ],
+            ], 'Your request has been queued with our fulfilment desk and will be processed within the stated turnaround window.');
+            return;
+        }
+
+        // 6. Dispatch to Real Upstream Provider Adapter (with dispatch lock & async pending support)
+        $lockAcquired = $routerService->acquireDispatchLock('verification_records', $recordId);
+        if (!$lockAcquired) {
+            Response::error('Verification dispatch is already in progress. Please refresh status shortly.', 409);
+        }
+
+        $dispatchErrForLock = null;
         try {
             $payload = array_merge($allInputs, [
                 'service_key' => $serviceKey,
@@ -1181,6 +1333,7 @@ class VerificationController
             ]);
 
             $providerResult = null;
+            $providerPending = null;
             $lastErrorMsg = 'Upstream identity verification failed.';
             $primaryErrorMsg = null;
             $attemptErrors = [];
@@ -1193,13 +1346,24 @@ class VerificationController
                     $attemptPayload['reference'] = $reference . '_FB' . $idx;
                 }
                 $attemptRes = $candidateAdapter->verify($endpoint, $attemptPayload);
+                $candStatusLower = strtolower((string)($attemptRes['status'] ?? ''));
                 $attemptOk = (!isset($attemptRes['success']) || (bool)$attemptRes['success'] === true)
                     && empty($attemptRes['is_simulated'])
-                    && !in_array(strtolower((string)($attemptRes['status'] ?? '')), ['failed', 'error', 'not_found', 'no_record'], true);
+                    && !in_array($candStatusLower, ['failed', 'error', 'not_found', 'no_record', 'rejected'], true);
+
+                $isAsyncAccepted = $attemptOk && (
+                    !empty($attemptRes['pending'])
+                    || in_array($candStatusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true)
+                );
 
                 if ($attemptOk) {
                     $candidateNormalized = $this->extractNormalizedIdentity($attemptRes, $isBvnVerification, $isNinVerification);
-                    if (($isNinVerification || $isBvnVerification) && !$this->hasSubstantiveIdentityData($candidateNormalized, $isBvnVerification)) {
+                    $hasSubstantive = $this->hasSubstantiveIdentityData($candidateNormalized, $isBvnVerification);
+                    if ($isAsyncAccepted || ($isAsyncRoute && !$hasSubstantive)) {
+                        $providerPending = $attemptRes;
+                        break;
+                    }
+                    if (($isNinVerification || $isBvnVerification) && !$hasSubstantive) {
                         $attemptOk = false;
                         $attemptRes['code'] = (int)($attemptRes['code'] ?? 422);
                         $attemptRes['message'] = 'Gateway returned an empty identity record without verified details.';
@@ -1230,6 +1394,102 @@ class VerificationController
                 }
             }
 
+            if ($providerPending !== null) {
+                $nestedP = is_array($providerPending['data'] ?? null) ? $providerPending['data'] : [];
+                $provRef = trim((string)($providerPending['reference'] ?? $nestedP['reference'] ?? $reference));
+                $provTxId = trim((string)($providerPending['provider_transaction_id'] ?? $providerPending['transaction_id'] ?? $nestedP['transaction_id'] ?? ''));
+                $provStat = trim((string)($providerPending['provider_status'] ?? $providerPending['status'] ?? 'pending'));
+                $estCost = isset($providerPending['provider_cost']) && is_numeric($providerPending['provider_cost'])
+                    ? (float)$providerPending['provider_cost']
+                    : $wholesaleCost;
+
+                $pendingSnapshot = [
+                    'status' => 'pending',
+                    'pending' => true,
+                    'fulfilment_mode' => $orderMeta['fulfilment_mode'],
+                    'message' => trim((string)($providerPending['message'] ?? 'Request submitted and awaiting registry completion.')),
+                    'provider_reference' => $provRef,
+                    'provider_transaction_id' => $provTxId !== '' ? $provTxId : null,
+                ];
+
+                try {
+                    $this->db->execute(
+                        'UPDATE verification_records
+                         SET provider = :prov, provider_cost = :pcost, status = "pending",
+                             provider_reference = :pref, provider_transaction_id = :ptx, provider_status = :pstat,
+                             result_data = :rdata, updated_at = NOW()
+                         WHERE id = :id',
+                        [
+                            'prov' => $usedProvider,
+                            'pcost' => $estCost,
+                            'pref' => $provRef,
+                            'ptx' => $provTxId !== '' ? $provTxId : null,
+                            'pstat' => $provStat !== '' ? $provStat : 'pending',
+                            'rdata' => json_encode($pendingSnapshot, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                            'id' => $recordId,
+                        ]
+                    );
+                } catch (Throwable) {
+                    $this->db->execute(
+                        'UPDATE verification_records
+                         SET provider = :prov, provider_cost = :pcost, status = "pending", result_data = :rdata
+                         WHERE id = :id',
+                        [
+                            'prov' => $usedProvider,
+                            'pcost' => $estCost,
+                            'rdata' => json_encode($pendingSnapshot, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                            'id' => $recordId,
+                        ]
+                    );
+                }
+
+                $routerService->releaseDispatchLock('verification_records', $recordId, null);
+
+                FootprintService::record([
+                    'user_id' => $user['id'],
+                    'user_email' => $user['email'] ?? null,
+                    'user_name' => $user['full_name'] ?? null,
+                    'category' => 'service',
+                    'action' => 'IDENTITY_VERIFY_ASYNC_PENDING',
+                    'service_type' => $serviceKey,
+                    'reference' => $reference,
+                    'provider' => $usedProvider,
+                    'status' => 'pending',
+                    'amount' => $cost,
+                    'metadata' => [
+                        'fulfilment_mode' => $orderMeta['fulfilment_mode'],
+                        'sla_due_at' => $orderMeta['sla_due_at'],
+                        'provider_reference' => $provRef,
+                    ],
+                ]);
+
+                Response::success([
+                    'pending' => true,
+                    'async' => true,
+                    'status' => 'pending',
+                    'fulfilment_mode' => $orderMeta['fulfilment_mode'],
+                    'sla_due_at' => $orderMeta['sla_due_at'],
+                    'verification_id' => $recordId,
+                    'recordId' => $recordId,
+                    'reference' => $reference,
+                    'cost' => $cost,
+                    'balance_after' => $debitResult['balance_after'],
+                    'newBalance' => $debitResult['balance_after'],
+                    'slip_type' => $resolvedSlipCode,
+                    'slip_name' => $resolvedSlipName,
+                    'has_original_pdf' => false,
+                    'result' => null,
+                    'service' => [
+                        'key' => $serviceKey,
+                        'name' => $service['name'],
+                        'category' => $categoryKey,
+                        'fulfilment_mode' => $orderMeta['fulfilment_mode'],
+                        'sla_hours' => $orderMeta['sla_hours'],
+                    ],
+                ], 'Your BVN retrieval request has been submitted and is awaiting asynchronous confirmation. Use Check Status to retrieve your result.');
+                return;
+            }
+
             if ($providerResult === null) {
                 throw new Exception($lastErrorMsg);
             }
@@ -1252,17 +1512,39 @@ class VerificationController
                 JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
             ) ?: '{}';
 
-            $this->db->execute(
-                'UPDATE verification_records
-                 SET provider = :prov, provider_cost = :pcost, status = "completed", has_slip = 1, result_data = :result
-                 WHERE id = :id',
-                [
-                    'prov' => $usedProvider,
-                    'pcost' => $actualProviderCost,
-                    'result' => $encodedRecordResult,
-                    'id' => $recordId,
-                ]
-            );
+            $provRefCompleted = trim((string)($providerResult['reference'] ?? $reference));
+            $provTxCompleted = trim((string)($providerResult['provider_transaction_id'] ?? $providerResult['transaction_id'] ?? ''));
+
+            try {
+                $this->db->execute(
+                    'UPDATE verification_records
+                     SET provider = :prov, provider_cost = :pcost, status = "completed", has_slip = 1,
+                         provider_reference = :pref, provider_transaction_id = :ptx, provider_status = "completed",
+                         completed_at = NOW(), updated_at = NOW(), result_data = :result
+                     WHERE id = :id',
+                    [
+                        'prov' => $usedProvider,
+                        'pcost' => $actualProviderCost,
+                        'pref' => $provRefCompleted,
+                        'ptx' => $provTxCompleted !== '' ? $provTxCompleted : null,
+                        'result' => $encodedRecordResult,
+                        'id' => $recordId,
+                    ]
+                );
+            } catch (Throwable) {
+                $this->db->execute(
+                    'UPDATE verification_records
+                     SET provider = :prov, provider_cost = :pcost, status = "completed", has_slip = 1, result_data = :result
+                     WHERE id = :id',
+                    [
+                        'prov' => $usedProvider,
+                        'pcost' => $actualProviderCost,
+                        'result' => $encodedRecordResult,
+                        'id' => $recordId,
+                    ]
+                );
+            }
+            $routerService->releaseDispatchLock('verification_records', $recordId, null);
 
             FootprintService::record([
                 'user_id' => $user['id'],
@@ -1304,6 +1586,7 @@ class VerificationController
                 'verification_id' => $recordId,
                 'recordId' => $recordId,
                 'reference' => $reference,
+                'fulfilment_mode' => $orderMeta['fulfilment_mode'],
                 'cost' => $cost,
                 'balance_after' => $debitResult['balance_after'],
                 'newBalance' => $debitResult['balance_after'],
@@ -1319,6 +1602,9 @@ class VerificationController
                 ],
             ], 'Verification completed successfully!');
         } catch (Exception $e) {
+            $dispatchErrForLock = $e->getMessage();
+            $routerService->releaseDispatchLock('verification_records', $recordId, $dispatchErrForLock);
+
             $refundRef = 'REFUND_' . $reference;
             $refundResult = $this->walletService->attemptConfirmedRefund(
                 (string)$user['id'],
@@ -1340,19 +1626,38 @@ class VerificationController
             ]);
 
             $adminDiagMsg = !empty($attemptErrors) ? implode(' | ', $attemptErrors) : $e->getMessage();
-            $this->db->execute(
-                'UPDATE verification_records
-                 SET type = "FAILED", provider_cost = 0.00, status = "failed", has_slip = 0, result_data = :result
-                 WHERE id = :id',
-                [
-                    'result' => json_encode([
-                        'error' => Security::sanitizeCustomerError($e->getMessage(), Security::ERR_PROVIDER_UNAVAILABLE),
-                        'refund_confirmed' => $refundConfirmed,
-                        'refund_reference' => $refundConfirmed ? $refundRef : null,
-                    ]),
-                    'id' => $recordId,
-                ]
-            );
+            try {
+                $this->db->execute(
+                    'UPDATE verification_records
+                     SET type = "FAILED", provider_cost = 0.00, status = "failed", has_slip = 0,
+                         refund_reference = :rref, last_dispatch_error = :lerr, updated_at = NOW(), result_data = :result
+                     WHERE id = :id',
+                    [
+                        'rref' => $refundConfirmed ? $refundRef : null,
+                        'lerr' => substr($adminDiagMsg, 0, 1000),
+                        'result' => json_encode([
+                            'error' => Security::sanitizeCustomerError($e->getMessage(), Security::ERR_PROVIDER_UNAVAILABLE),
+                            'refund_confirmed' => $refundConfirmed,
+                            'refund_reference' => $refundConfirmed ? $refundRef : null,
+                        ]),
+                        'id' => $recordId,
+                    ]
+                );
+            } catch (Throwable) {
+                $this->db->execute(
+                    'UPDATE verification_records
+                     SET type = "FAILED", provider_cost = 0.00, status = "failed", has_slip = 0, result_data = :result
+                     WHERE id = :id',
+                    [
+                        'result' => json_encode([
+                            'error' => Security::sanitizeCustomerError($e->getMessage(), Security::ERR_PROVIDER_UNAVAILABLE),
+                            'refund_confirmed' => $refundConfirmed,
+                            'refund_reference' => $refundConfirmed ? $refundRef : null,
+                        ]),
+                        'id' => $recordId,
+                    ]
+                );
+            }
 
             FootprintService::record([
                 'user_id' => $user['id'],
@@ -1396,11 +1701,11 @@ class VerificationController
         $limit = min(100, max(1, (int)$request->query('limit', 50)));
         $category = trim((string)$request->query('category', ''));
         $search = trim((string)$request->query('search', ''));
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
 
         $selectCols = $isAdmin
-            ? 'id, user_id, type, service_key, search_value, provider, cost, provider_cost, status, reference, slip_type, has_slip, result_data as result, created_at'
-            : 'id, user_id, type, service_key, search_value, cost, status, reference, slip_type, has_slip, result_data as result, created_at';
+            ? 'id, user_id, type, service_key, search_value, provider, cost, provider_cost, internal_fulfilment_cost, fulfilment_mode, sla_due_at, result_document_id, awaiting_admin_review, provider_status, status, reference, slip_type, has_slip, result_data as result, created_at, completed_at'
+            : 'id, user_id, type, service_key, search_value, cost, fulfilment_mode, sla_due_at, result_document_id, status, reference, slip_type, has_slip, result_data as result, created_at, completed_at';
 
         $whereSql = 'WHERE user_id = :uid ';
         $params = ['uid' => $user['id']];
@@ -1451,8 +1756,13 @@ class VerificationController
             if (isset($r['provider_cost'])) {
                 $r['provider_cost'] = (float)$r['provider_cost'];
             }
+            if (isset($r['internal_fulfilment_cost'])) {
+                $r['internal_fulfilment_cost'] = (float)$r['internal_fulfilment_cost'];
+            }
+            $r['fulfilment_mode'] = (string)($r['fulfilment_mode'] ?? 'provider_instant');
             $r['has_slip'] = (bool)$r['has_slip'];
-            $r['has_original_pdf'] = false;
+            $r['has_result_document'] = !empty($r['result_document_id']);
+            $r['has_original_pdf'] = !empty($r['result_document_id']);
             $r['has_photo'] = false;
             if (!empty($r['result']) && is_string($r['result'])) {
                 $decodedRes = json_decode($r['result'], true);
@@ -1462,7 +1772,7 @@ class VerificationController
                     if (!$isAdmin) {
                         $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($r['service_key'] ?? ''), (string)($r['type'] ?? ''));
                     }
-                    $r['has_original_pdf'] = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+                    $r['has_original_pdf'] = $r['has_original_pdf'] || !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
                     $r['has_photo'] = !empty($decodedRes['photo']);
                     unset($decodedRes['pdf_base64'], $decodedRes['photo']);
                     $r['result'] = $decodedRes;
@@ -1470,6 +1780,12 @@ class VerificationController
                     $r['result'] = null;
                 }
             }
+            $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $r, 'verification', $isAdmin);
+            $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+            $hasDoc = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
+            $r = array_merge($r, $resultMeta);
+            $r['has_result_document'] = !empty($resultMeta['has_result_document']);
+            $r['has_original_pdf'] = $hasDoc;
             $r['result_availability_state'] = $this->resolveResultAvailabilityState(
                 (string)($r['status'] ?? ''),
                 (bool)$r['has_original_pdf'],
@@ -1493,7 +1809,7 @@ class VerificationController
         if (in_array($st, ['failed', 'rejected', 'refunded'], true)) {
             return 'failed_or_rejected';
         }
-        if (in_array($st, ['pending', 'processing', 'query_required'], true)) {
+        if (in_array($st, ['pending', 'under_review', 'assigned', 'processing', 'query_required'], true)) {
             return 'processing';
         }
         if ($st === 'completed') {
@@ -1606,7 +1922,7 @@ class VerificationController
     {
         $user = Auth::requireAuth($request);
         $ref = trim((string)($params['ref'] ?? ''));
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
 
         $record = $this->db->fetchOne(
             'SELECT * FROM verification_records WHERE reference = :ref OR id = :id LIMIT 1',
@@ -1621,8 +1937,9 @@ class VerificationController
 
         $record['cost'] = (float)($record['cost'] ?? 0);
         $record['has_slip'] = (bool)($record['has_slip'] ?? false);
-        $record['has_original_pdf'] = false;
+        $record['fulfilment_mode'] = (string)($record['fulfilment_mode'] ?? 'provider_instant');
 
+        $hasLegacyPdf = false;
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
             $decodedRes = json_decode($record['result_data'], true);
             if (is_array($decodedRes)) {
@@ -1631,17 +1948,41 @@ class VerificationController
                 if (!$isAdmin) {
                     $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
                 }
-            }
-            if (is_array($decodedRes)) {
-                $record['has_original_pdf'] = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+                $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+                unset($decodedRes['pdf_base64']);
             }
             $record['result'] = $decodedRes;
         }
         unset($record['result_data']);
+        $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $record, 'verification', $isAdmin);
+        $record = array_merge($record, $resultMeta);
+        $record['has_result_document'] = !empty($resultMeta['has_result_document']);
+        $record['has_original_pdf'] = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
+
         if (!$isAdmin) {
-            unset($record['provider'], $record['provider_cost']);
+            unset(
+                $record['provider'],
+                $record['provider_cost'],
+                $record['internal_fulfilment_cost'],
+                $record['routing_snapshot'],
+                $record['last_dispatch_error'],
+                $record['dispatch_locked_at'],
+                $record['dispatch_attempts'],
+                $record['claimed_by'],
+                $record['claimed_at'],
+                $record['completion_approved_by'],
+                $record['completion_approved_at'],
+                $record['admin_notes'],
+                $record['provider_reference'],
+                $record['provider_transaction_id'],
+                $record['provider_status']
+            );
+            if (!empty($record['provider_remarks'])) {
+                $record['provider_remarks'] = null;
+            }
         } else {
             $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
+            $record['internal_fulfilment_cost'] = (float)($record['internal_fulfilment_cost'] ?? 0);
         }
 
         $record['result_availability_state'] = $this->resolveResultAvailabilityState(
@@ -1653,10 +1994,231 @@ class VerificationController
         Response::success([
             'status' => $record['status'],
             'record_status' => $record['status'],
+            'fulfilment_mode' => $record['fulfilment_mode'],
+            'sla_due_at' => $record['sla_due_at'] ?? null,
             'has_original_pdf' => $record['has_original_pdf'],
+            'has_result_document' => $record['has_result_document'],
+            'result_document' => $record['result_document'] ?? null,
             'result_availability_state' => $record['result_availability_state'],
             'record' => $record,
         ]);
+    }
+
+    /**
+     * POST /api/verification/:id/poll
+     * Polls asynchronous verification status (e.g. bvn_retrieval via 2SureVerify /api/v1/bvn_retrieval_status.php).
+     * Never executes external calls for internal_manual orders.
+     */
+    public function pollStatus(Request $request, array $params): void
+    {
+        $user = Auth::requireAuth($request);
+        $id = trim((string)($params['id'] ?? ''));
+        $isStaff = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
+
+        $record = $this->db->fetchOne(
+            'SELECT * FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1',
+            ['id' => $id, 'ref' => $id]
+        );
+        if (!$record) {
+            Response::notFound('Verification record not found.');
+        }
+        if (!$isStaff && (string)$record['user_id'] !== (string)$user['id']) {
+            Response::forbidden('Unauthorized access to verification record.');
+        }
+
+        $this->executeVerificationPoll($record, $isStaff);
+    }
+
+    /**
+     * POST /api/admin/verification/:id/poll
+     */
+    public function adminPollStatus(Request $request, array $params): void
+    {
+        $admin = Auth::requireAnyPermission($request, ['services', 'manual_fulfilment']);
+        $id = trim((string)($params['id'] ?? ''));
+        $record = $this->db->fetchOne(
+            'SELECT * FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1',
+            ['id' => $id, 'ref' => $id]
+        );
+        if (!$record) {
+            Response::notFound('Verification record not found.');
+        }
+        $this->executeVerificationPoll($record, true, $admin);
+    }
+
+    private function executeVerificationPoll(array $record, bool $isAdmin, ?array $actor = null): void
+    {
+        if (FulfilmentRouterService::isInternalManualOrder($record)) {
+            Response::error('Internal manual orders are processed by the HAMBAK MANUAL fulfilment desk and cannot be polled against external providers.', 422);
+        }
+
+        $currentStatus = strtolower(trim((string)($record['status'] ?? 'pending')));
+        if (in_array($currentStatus, ['completed', 'failed', 'refunded'], true)) {
+            $decoded = !empty($record['result_data']) && is_string($record['result_data']) ? json_decode($record['result_data'], true) : null;
+            if (is_array($decoded)) {
+                [$rowBvn, $rowNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+                $decoded = $this->stripCrossTypeFields($decoded, $rowBvn, $rowNin);
+                if (!$isAdmin) {
+                    $decoded = $this->sanitizeResultForCustomer($decoded, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+                }
+            }
+            $record['result'] = $decoded;
+            unset($record['result_data']);
+            if (!$isAdmin) {
+                unset($record['provider'], $record['provider_cost'], $record['internal_fulfilment_cost'], $record['routing_snapshot']);
+            }
+            Response::success([
+                'status' => $record['status'],
+                'pending' => false,
+                'record' => $record,
+                'result' => $decoded,
+            ], 'Verification status is already finalized.');
+            return;
+        }
+
+        $adapter = new TwoSureVerifyAdapter();
+        if (!$adapter->hasCredentials()) {
+            Response::error(Security::ERR_PROVIDER_AUTH, 503);
+        }
+
+        $routerService = new FulfilmentRouterService($this->db);
+        if (!$routerService->acquireDispatchLock('verification_records', (string)$record['id'])) {
+            Response::error('Status check is already in progress. Please wait a moment and try again.', 409);
+        }
+
+        $lastErr = null;
+        try {
+            $provRef = trim((string)($record['provider_reference'] ?? '')) ?: (string)$record['reference'];
+            $provTxId = trim((string)($record['provider_transaction_id'] ?? ''));
+            $res = $adapter->checkStatus($provRef, (string)($record['service_key'] ?? ''), $provTxId !== '' ? $provTxId : null);
+
+            $nested = is_array($res['data'] ?? null) ? $res['data'] : [];
+            $statusLower = strtolower(trim((string)($res['status'] ?? $nested['status'] ?? '')));
+            [$isBvn, $isNin] = $this->detectRecordDomain((string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
+
+            $isStillPending = empty($res['success']) && in_array($statusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true)
+                || (!empty($res['pending']))
+                || (!empty($nested['pending']))
+                || in_array($statusLower, ['pending', 'processing', 'queued', 'submitted', 'in_progress'], true);
+
+            if ($isStillPending) {
+                $pStat = $statusLower !== '' ? $statusLower : 'pending';
+                $this->db->execute(
+                    'UPDATE verification_records SET provider_status = :pstat, updated_at = NOW() WHERE id = :id',
+                    ['pstat' => $pStat, 'id' => $record['id']]
+                );
+                $routerService->releaseDispatchLock('verification_records', (string)$record['id'], null);
+                Response::success([
+                    'status' => 'pending',
+                    'pending' => true,
+                    'provider_status' => $isAdmin ? $pStat : 'processing',
+                    'record_id' => $record['id'],
+                    'reference' => $record['reference'],
+                ], 'Request is still being processed by the upstream registry. Please check again shortly.');
+                return;
+            }
+
+            $isConfirmedFail = in_array($statusLower, ['failed', 'rejected', 'not_found', 'no_record', 'cancelled'], true)
+                || !empty($res['provider_refunded']);
+
+            if (!empty($res['success'])) {
+                $normalized = $this->extractNormalizedIdentity($res, $isBvn, $isNin);
+                if ($this->hasSubstantiveIdentityData($normalized, $isBvn)) {
+                    $encoded = json_encode($normalized, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?: '{}';
+                    $pCost = isset($res['provider_cost']) && is_numeric($res['provider_cost'])
+                        ? (float)$res['provider_cost']
+                        : (float)($record['provider_cost'] ?? 0);
+
+                    $this->db->execute(
+                        'UPDATE verification_records
+                         SET status = "completed", has_slip = 1, provider_cost = :pc,
+                             provider_status = "completed", result_data = :rd,
+                             completed_at = NOW(), updated_at = NOW()
+                         WHERE id = :id',
+                        ['pc' => $pCost, 'rd' => $encoded, 'id' => $record['id']]
+                    );
+                    $routerService->releaseDispatchLock('verification_records', (string)$record['id'], null);
+
+                    try {
+                        (new ReferralEngineService($this->db))->recordQualifyingTransaction([
+                            'user_id' => (string)$record['user_id'],
+                            'service_category' => $isBvn ? 'bvn_verification' : 'nin_verification',
+                            'service_key' => (string)$record['service_key'],
+                            'source_reference' => (string)$record['reference'],
+                            'gross_amount' => (float)$record['cost'],
+                            'wholesale_cost' => $pCost,
+                            'gateway_fee' => 0.0,
+                        ]);
+                    } catch (Throwable) {
+                    }
+
+                    $out = $isAdmin ? $normalized : $this->sanitizeResultForCustomer($normalized, (string)$record['service_key'], (string)$record['type']);
+                    Response::success([
+                        'status' => 'completed',
+                        'pending' => false,
+                        'verification_id' => $record['id'],
+                        'reference' => $record['reference'],
+                        'result' => $out,
+                        'has_original_pdf' => !empty($out['pdf_base64']) || !empty($out['pdf_url']),
+                    ], 'Verification completed successfully!');
+                    return;
+                }
+            }
+
+            if ($isConfirmedFail) {
+                $refundRef = 'REFUND_' . $record['reference'];
+                $refundResult = $this->walletService->attemptConfirmedRefund(
+                    (string)$record['user_id'],
+                    (float)$record['cost'],
+                    'refund',
+                    $refundRef,
+                    "Automatic refund for failed async verification {$record['reference']}",
+                    ['reference' => $record['reference'], 'service_key' => $record['service_key']]
+                );
+                $refundConfirmed = !empty($refundResult['confirmed']);
+                $rawMsg = trim((string)($res['message'] ?? 'Async verification failed upstream.'));
+                $this->db->execute(
+                    'UPDATE verification_records
+                     SET status = "failed", has_slip = 0, provider_cost = 0.00,
+                         provider_status = :pstat, refund_reference = :rref,
+                         last_dispatch_error = :lerr, updated_at = NOW(), result_data = :rd
+                     WHERE id = :id',
+                    [
+                        'pstat' => $statusLower !== '' ? $statusLower : 'failed',
+                        'rref' => $refundConfirmed ? $refundRef : null,
+                        'lerr' => substr($rawMsg, 0, 1000),
+                        'rd' => json_encode([
+                            'error' => Security::sanitizeCustomerError($rawMsg, Security::ERR_PROVIDER_UNAVAILABLE),
+                            'refund_confirmed' => $refundConfirmed,
+                            'refund_reference' => $refundConfirmed ? $refundRef : null,
+                        ]),
+                        'id' => $record['id'],
+                    ]
+                );
+                $routerService->releaseDispatchLock('verification_records', (string)$record['id'], $rawMsg);
+                Response::success([
+                    'status' => 'failed',
+                    'pending' => false,
+                    'refunded' => $refundConfirmed,
+                    'refund_reference' => $refundConfirmed ? $refundRef : null,
+                    'message' => $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING,
+                ], $refundConfirmed ? Security::ERR_TXN_REFUNDED : Security::ERR_TXN_REFUND_PENDING);
+                return;
+            }
+
+            // Ambiguous / transient provider response — keep pending and never auto-fail or double-charge
+            $routerService->releaseDispatchLock('verification_records', (string)$record['id'], (string)($res['message'] ?? ''));
+            Response::success([
+                'status' => 'pending',
+                'pending' => true,
+                'record_id' => $record['id'],
+                'reference' => $record['reference'],
+            ], 'Status check complete; request remains pending.');
+        } catch (Throwable $e) {
+            $lastErr = $e->getMessage();
+            $routerService->releaseDispatchLock('verification_records', (string)$record['id'], $lastErr);
+            Response::error(Security::ERR_PROVIDER_UNAVAILABLE, 502);
+        }
     }
 
     /**
@@ -1665,7 +2227,7 @@ class VerificationController
     public function recover(Request $request): void
     {
         $user = Auth::requireAuth($request);
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
         $ikey = trim((string)$request->query('idempotency_key', ''));
         $ref = trim((string)$request->query('reference', ''));
 
@@ -1684,16 +2246,22 @@ class VerificationController
             }
         }
         if (!$record && $ref !== '') {
-            $meta = $this->db->fetchOne(
-                'SELECT id FROM verification_records WHERE user_id = :uid AND (reference = :ref OR id = :id) LIMIT 1',
-                ['uid' => $user['id'], 'ref' => $ref, 'id' => $ref]
-            );
+            $meta = $isAdmin
+                ? $this->db->fetchOne(
+                    'SELECT id FROM verification_records WHERE reference = :ref OR id = :id LIMIT 1',
+                    ['ref' => $ref, 'id' => $ref]
+                )
+                : $this->db->fetchOne(
+                    'SELECT id FROM verification_records WHERE user_id = :uid AND (reference = :ref OR id = :id) LIMIT 1',
+                    ['uid' => $user['id'], 'ref' => $ref, 'id' => $ref]
+                );
             if ($meta) {
                 $record = $this->db->fetchOne('SELECT * FROM verification_records WHERE id = :id LIMIT 1', ['id' => $meta['id']]);
             }
         }
 
-        $wallet = $this->db->fetchOne('SELECT balance FROM wallets WHERE user_id = :uid', ['uid' => $user['id']]);
+        $targetUserId = $record ? (string)$record['user_id'] : (string)$user['id'];
+        $wallet = $this->db->fetchOne('SELECT balance FROM wallets WHERE user_id = :uid', ['uid' => $targetUserId]);
         $bal = $wallet ? (float)$wallet['balance'] : (float)($user['wallet_balance'] ?? 0);
 
         if (!$record) {
@@ -1712,6 +2280,7 @@ class VerificationController
         $record['cost'] = (float)($record['cost'] ?? 0);
         $record['has_slip'] = (bool)($record['has_slip'] ?? false);
         $decodedRes = null;
+        $hasLegacyPdf = false;
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
             $decodedRes = json_decode($record['result_data'], true);
             if (is_array($decodedRes)) {
@@ -1720,16 +2289,39 @@ class VerificationController
                 if (!$isAdmin) {
                     $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
                 }
+                $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+                unset($decodedRes['pdf_base64']);
             }
         }
-        $hasOriginalPdf = is_array($decodedRes) && (!empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']));
-        $record['has_original_pdf'] = $hasOriginalPdf;
+        $record['fulfilment_mode'] = (string)($record['fulfilment_mode'] ?? 'provider_instant');
         $record['result'] = $decodedRes;
         unset($record['result_data']);
+        $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $record, 'verification', $isAdmin);
+        $record = array_merge($record, $resultMeta);
+        $hasOriginalPdf = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
+        $record['has_original_pdf'] = $hasOriginalPdf;
+        $record['has_result_document'] = !empty($resultMeta['has_result_document']);
         if (!$isAdmin) {
-            unset($record['provider'], $record['provider_cost']);
+            unset(
+                $record['provider'],
+                $record['provider_cost'],
+                $record['internal_fulfilment_cost'],
+                $record['routing_snapshot'],
+                $record['last_dispatch_error'],
+                $record['dispatch_locked_at'],
+                $record['dispatch_attempts'],
+                $record['claimed_by'],
+                $record['claimed_at'],
+                $record['completion_approved_by'],
+                $record['completion_approved_at'],
+                $record['admin_notes'],
+                $record['provider_reference'],
+                $record['provider_transaction_id'],
+                $record['provider_status']
+            );
         } else {
             $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
+            $record['internal_fulfilment_cost'] = (float)($record['internal_fulfilment_cost'] ?? 0);
         }
 
         $slipName = null;
@@ -1752,7 +2344,7 @@ class VerificationController
                 'SELECT id, type, amount, balance_before, balance_after, category, reference, status, description, created_at
                  FROM transactions WHERE user_id = :uid AND (reference = :ref1 OR reference = :ref2) ORDER BY created_at DESC',
                 [
-                    'uid' => $user['id'],
+                    'uid' => $targetUserId,
                     'ref1' => $record['reference'],
                     'ref2' => 'REFUND_' . $record['reference'],
                 ]
@@ -1771,11 +2363,15 @@ class VerificationController
             'found' => true,
             'status' => $record['status'],
             'record_status' => $record['status'],
+            'fulfilment_mode' => $record['fulfilment_mode'],
+            'sla_due_at' => $record['sla_due_at'] ?? null,
             'recordId' => $record['id'],
             'reference' => $record['reference'],
             'slip_type' => $record['slip_type'],
             'slip_name' => $slipName,
             'has_original_pdf' => $hasOriginalPdf,
+            'has_result_document' => $record['has_result_document'],
+            'result_document' => $record['result_document'] ?? null,
             'result_availability_state' => $availabilityState,
             'balance_after' => $bal,
             'newBalance' => $bal,
@@ -1792,7 +2388,7 @@ class VerificationController
     {
         $user = Auth::requireAuth($request);
         $id = trim((string)($params['id'] ?? ''));
-        $isAdmin = in_array($user['role'] ?? '', ['admin', 'superadmin'], true);
+        $isAdmin = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
 
         $record = $this->db->fetchOne('SELECT * FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1', ['id' => $id, 'ref' => $id]);
         if (!$record) {
@@ -1804,7 +2400,8 @@ class VerificationController
 
         $record['cost'] = (float)$record['cost'];
         $record['has_slip'] = (bool)$record['has_slip'];
-        $record['has_original_pdf'] = false;
+        $record['fulfilment_mode'] = (string)($record['fulfilment_mode'] ?? 'provider_instant');
+        $hasLegacyPdf = false;
         if (!empty($record['result_data']) && is_string($record['result_data'])) {
             $decodedRes = json_decode($record['result_data'], true);
             if (is_array($decodedRes)) {
@@ -1813,17 +2410,37 @@ class VerificationController
                 if (!$isAdmin) {
                     $decodedRes = $this->sanitizeResultForCustomer($decodedRes, (string)($record['service_key'] ?? ''), (string)($record['type'] ?? ''));
                 }
-            }
-            if (is_array($decodedRes)) {
-                $record['has_original_pdf'] = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+                $hasLegacyPdf = !empty($decodedRes['pdf_base64']) || !empty($decodedRes['pdf_url']);
+                unset($decodedRes['pdf_base64']);
             }
             $record['result'] = $decodedRes;
         }
         unset($record['result_data']);
+        $resultMeta = ResultDocumentService::formatResultMetadata($this->db, $record, 'verification', $isAdmin);
+        $record = array_merge($record, $resultMeta);
+        $record['has_result_document'] = !empty($resultMeta['has_result_document']);
+        $record['has_original_pdf'] = !empty($resultMeta['has_result_document']) || $hasLegacyPdf;
         if (!$isAdmin) {
-            unset($record['provider'], $record['provider_cost']);
+            unset(
+                $record['provider'],
+                $record['provider_cost'],
+                $record['internal_fulfilment_cost'],
+                $record['routing_snapshot'],
+                $record['last_dispatch_error'],
+                $record['dispatch_locked_at'],
+                $record['dispatch_attempts'],
+                $record['claimed_by'],
+                $record['claimed_at'],
+                $record['completion_approved_by'],
+                $record['completion_approved_at'],
+                $record['admin_notes'],
+                $record['provider_reference'],
+                $record['provider_transaction_id'],
+                $record['provider_status']
+            );
         } else {
             $record['provider_cost'] = (float)($record['provider_cost'] ?? 0);
+            $record['internal_fulfilment_cost'] = (float)($record['internal_fulfilment_cost'] ?? 0);
         }
 
         $record['result_availability_state'] = $this->resolveResultAvailabilityState(
@@ -1834,6 +2451,8 @@ class VerificationController
 
         Response::success([
             'has_original_pdf' => $record['has_original_pdf'],
+            'has_result_document' => $record['has_result_document'],
+            'result_document' => $record['result_document'] ?? null,
             'result_availability_state' => $record['result_availability_state'],
             'record' => $record,
         ]);
@@ -1846,14 +2465,20 @@ class VerificationController
     {
         $user = Auth::requireAuth($request);
         $id = trim((string)($params['id'] ?? ''));
-        $isStaff = Auth::isAdmin($user) && Auth::hasPermission($user, 'services');
+        $isStaff = Auth::isAdmin($user) && (Auth::hasPermission($user, 'services') || Auth::hasPermission($user, 'manual_fulfilment'));
 
-        $record = $this->db->fetchOne('SELECT id, user_id, type, service_key, reference, result_data FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1', ['id' => $id, 'ref' => $id]);
+        $record = $this->db->fetchOne('SELECT id, user_id, type, service_key, reference, result_document_id, result_data FROM verification_records WHERE id = :id OR reference = :ref LIMIT 1', ['id' => $id, 'ref' => $id]);
         if (!$record) {
             Response::notFound('Verification record not found.');
         }
         if (!$isStaff && $record['user_id'] !== $user['id']) {
             Response::forbidden('Unauthorized access to verification document.');
+        }
+
+        if (!empty($record['result_document_id'])) {
+            $forceDownload = filter_var($request->query('download', false), FILTER_VALIDATE_BOOLEAN);
+            ResultDocumentService::streamResultDocument($this->db, $user, 'verification', (string)$record['id'], $forceDownload);
+            return;
         }
 
         $decoded = !empty($record['result_data']) ? json_decode((string)$record['result_data'], true) : null;
